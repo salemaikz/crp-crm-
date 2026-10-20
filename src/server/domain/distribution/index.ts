@@ -8,6 +8,7 @@ export { issueCards } from './manual';
 export { assignOwnerless, listOwnerless } from './ownerless';
 export { listParticipants, participantStatus, setParticipation, setPause } from './participants';
 export { getPool } from './pool';
+export { listProposals, resolveProposal, type ProposalView, type ResolveProposalInput, type ResolveProposalResult } from './proposals';
 export { loadDistributionConfig, parseDistributionConfig } from './settings';
 export { runTick } from './tick';
 export * from './types';

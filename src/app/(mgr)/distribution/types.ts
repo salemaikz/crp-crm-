@@ -81,12 +81,25 @@ export type OwnerlessPageData = { items: OwnerlessItemRow[]; next: string | null
 
 export type OwnerlessAssignData = { assigned: number; skipped: { cardId: string; reason: 'changed' }[]; replayed: boolean };
 
+/** Предложение оператора на разборе РОП (D-258). */
+export type ProposalRowData = {
+  id: string;
+  phone: string;
+  name: string;
+  userId: string;
+  userName: string;
+  createdAt: number;
+  matchedClientId: string | null;
+  matchedName: string | null;
+};
+
 export type DistributionData = {
   pool: PoolPageData;
   participants: ParticipantRow[];
   journal: JournalRowData[];
   absences: AbsenceRowData[];
   ownerless: OwnerlessPageData;
+  proposals: ProposalRowData[];
   /** Местный день зрителя: даты по умолчанию в форме «Отсутствует». */
   today: string;
   canIssue: boolean;

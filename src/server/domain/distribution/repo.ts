@@ -607,3 +607,99 @@ export async function countRunRows(sql: Sql, a: { spaceId: string; runId: string
   const rows = await sql<{ n: number }>`SELECT count(*)::int AS n FROM assign_log WHERE space_id = ${a.spaceId} AND run_id = ${a.runId}`;
   return rows[0]?.n ?? 0;
 }
+
+// ---------------------------------------------------------------------------
+// «Предложить контакт» (docs/tasks-team-design.md §5.4, D-258)
+// ---------------------------------------------------------------------------
+
+/** Окно выдачи предложившему: старше — карточка остаётся обычной карточкой пула. */
+export const PROPOSAL_ISSUE_DAYS = 14;
+
+/**
+ * Карточки созданных предложений, ожидающие выдачи предложившему (первый шаг тика, под DISTRIBUTION_LOCK_KEY).
+ * Служебное чтение пространства без охвата: наружу идут id. Предложивший должен быть активным сотрудником
+ * пространства; пауза и отсутствие выдачу не останавливают (это его находка).
+ */
+export async function selectProposalIssues(tx: Sql, a: { spaceId: string; now: number }): Promise<{ userId: string; cardId: string }[]> {
+  const since = a.now - PROPOSAL_ISSUE_DAYS * 24 * 60 * 60 * 1000;
+  return tx<{ userId: string; cardId: string }>`
+    SELECT p.user_id, c.id AS card_id
+      FROM proposals p
+      JOIN cards c ON c.client_id = p.client_id AND c.space_id = p.space_id
+      JOIN users u ON u.id = p.user_id AND u.status = 'active'
+      JOIN memberships m ON m.user_id = p.user_id AND m.space_id = p.space_id AND m.status = 'active'
+     WHERE p.space_id = ${a.spaceId} AND p.status = 'created' AND p.created_at >= ${since}
+       AND c.owner_user_id IS NULL AND c.state = 'new' AND c.hold_reason = ''
+     ORDER BY c.id
+       FOR UPDATE OF c SKIP LOCKED`;
+}
+
+export interface ProposalReviewRow {
+  id: string;
+  digits: string;
+  name: string;
+  userId: string;
+  userName: string;
+  createdAt: number;
+  matchedClientId: string | null;
+  matchedName: string | null;
+}
+
+/** Предложения на разборе РОП: номер и название целиком (РОП их видит), совпавший клиент — только в охвате чтения. */
+export async function selectProposalsForReview(sql: Sql, viewer: DistributionActor, a: { spaceId: string }): Promise<ProposalReviewRow[]> {
+  return scoped(sql)<ProposalReviewRow>`
+    SELECT p.id, p.digits, p.name, p.user_id, u.name AS user_name, p.created_at, p.matched_client_id,
+           (SELECT mc.name FROM clients mc WHERE mc.id = p.matched_client_id AND ${scopeSql(viewer, 'client', 'client.read', { alias: 'mc' })}) AS matched_name
+      FROM proposals p JOIN users u ON u.id = p.user_id
+     WHERE p.space_id = ${a.spaceId} AND p.status = 'review'
+     ORDER BY p.created_at, p.id
+     LIMIT 200`;
+}
+
+export interface ProposalLocked {
+  id: string;
+  userId: string;
+  digits: string;
+  name: string;
+  status: 'created' | 'review' | 'rejected';
+  matchedClientId: string | null;
+  clientId: string | null;
+}
+
+/** Предложение пространства под блокировкой строки. */
+export async function lockProposal(tx: Sql, a: { spaceId: string; id: string }): Promise<ProposalLocked | null> {
+  const rows = await tx<ProposalLocked>`
+    SELECT id, user_id, digits, name, status, matched_client_id, client_id
+      FROM proposals WHERE id = ${a.id} AND space_id = ${a.spaceId} FOR UPDATE`;
+  return rows[0] ?? null;
+}
+
+export async function resolveProposalRow(
+  tx: Sql,
+  a: { id: string; status: 'created' | 'rejected'; clientId: string | null; by: string; now: number },
+): Promise<void> {
+  await tx`UPDATE proposals SET status = ${a.status}, client_id = ${a.clientId}, resolved_by = ${a.by}, resolved_at = ${a.now} WHERE id = ${a.id}`;
+}
+
+/** Предложивший — активный сотрудник пространства (получатель карточки). */
+export async function proposerActive(tx: Sql, a: { spaceId: string; userId: string }): Promise<boolean> {
+  const rows = await tx<{ hit: number }>`
+    SELECT 1 AS hit FROM users u JOIN memberships m ON m.user_id = u.id AND m.space_id = ${a.spaceId} AND m.status = 'active'
+     WHERE u.id = ${a.userId} AND u.status = 'active'`;
+  return rows.length > 0;
+}
+
+/** Пара «общий номер» (a < b), повтор не создаёт вторую строку. */
+export async function insertSharedPhonePair(tx: Sql, a: { clientA: string; clientB: string; now: number }): Promise<void> {
+  const [x, y] = a.clientA < a.clientB ? [a.clientA, a.clientB] : [a.clientB, a.clientA];
+  await tx`
+    INSERT INTO dup_pairs (id, a_client_id, b_client_id, reason, created_at)
+    VALUES (${newId()}, ${x}, ${y}, 'shared_phone', ${a.now})
+    ON CONFLICT (a_client_id, b_client_id, reason) DO NOTHING`;
+}
+
+/** Номер в стоп-листе по HMAC. */
+export async function digitsStopListed(tx: Sql, hmac: string): Promise<boolean> {
+  const rows = await tx<{ hit: number }>`SELECT 1 AS hit FROM stop_list WHERE phone_hmac = ${hmac}`;
+  return rows.length > 0;
+}

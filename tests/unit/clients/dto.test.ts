@@ -76,6 +76,9 @@ test('шапка карточки: счётчики с карточки, lpr и 
     custom: {},
     canBook: false,
     canEditCard: false,
+    canReopen: false,
+    canUnblock: false,
+    canClose: false,
   };
   const h = toCardHead(row, { fields: [], values: {} });
   assert.equal(h.version, 7);

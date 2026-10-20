@@ -52,6 +52,18 @@ const entries: ManifestEntry[] = [
     mutation: true,
     touches: ['absences', 'cards', 'assign_log', 'client_events', 'audit_log'],
   },
+  // C9: «Предложены операторами» — разбор РОП
+  { kind: 'route', path: `${API}/proposals`, method: 'GET', perm: 'pool.read', target: 'section', mutation: false },
+  {
+    kind: 'route',
+    path: `${API}/proposals/[id]/resolve`,
+    method: 'POST',
+    perm: 'card.assign',
+    target: 'section',
+    sampleBody: { opId: OP_ID, decision: 'reject' },
+    mutation: true,
+    touches: ['proposals', 'clients', 'cards', 'assign_log', 'client_events', 'dup_pairs', 'audit_log'],
+  },
   { kind: 'route', path: `${API}/ownerless`, method: 'GET', perm: 'pool.read', target: 'section', mutation: false },
   {
     kind: 'route',

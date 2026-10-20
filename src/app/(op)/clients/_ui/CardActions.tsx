@@ -1,23 +1,45 @@
 import { getTranslations } from 'next-intl/server';
 import { CalendarPlus } from 'lucide-react';
+import type { Viewer } from '@/server/access';
+import { closeReasonOptions } from '@/server/domain/cards';
+import type { ClientCardDto } from '@/server/domain/clients';
 import { Button } from '@/ui/kit';
-import type { ClientCan } from '@/server/domain/clients';
+import { CardMenu } from './CardMenu';
 
-type Props = { cardId: string | null; can: ClientCan };
+type Props = { card: ClientCardDto; viewer: Viewer };
 
 /**
- * Действия карточки по `can.*` с сервера (интерфейс только показывает). Сейчас: «Записать» → мастер записи.
- * Пункты задач, закрытия, возврата, снятия «Не звонить» и передачи появятся, когда `can.*` придёт `true`.
+ * Действия карточки по `can.*` с сервера (интерфейс только показывает): «Записать» → мастер записи и пункты меню
+ * C9 (закрытие, возврат в обзвон, снятие «Не звонить»). Задачи и передача — в своих панелях и в B9a.
  */
-export async function CardActions({ cardId, can }: Props) {
+export async function CardActions({ card, viewer }: Props) {
   const t = await getTranslations('clients');
-  if (!cardId || !can.book) return null;
+  const head = card.card;
+  if (!head) return null;
+  const can = card.can;
+  const menu = can.closeFromMenu || can.reopen || can.unblock;
+  if (!can.book && !menu) return null;
+  const reasons = menu ? await closeReasonOptions(viewer) : { not_target: [], do_not_call: [] };
   return (
-    <div className="flex flex-wrap gap-2" role="group" aria-label={t('actions.title')}>
-      <Button href={`/bookings/new/${cardId}`} variant="secondary" block className="sm:w-auto">
-        <CalendarPlus aria-hidden="true" />
-        {t('actions.book')}
-      </Button>
+    <div className="flex flex-col gap-2">
+      {can.book && (
+        <div className="flex flex-wrap gap-2" role="group" aria-label={t('actions.title')}>
+          <Button href={`/bookings/new/${head.id}`} variant="secondary" block className="sm:w-auto">
+            <CalendarPlus aria-hidden="true" />
+            {t('actions.book')}
+          </Button>
+        </div>
+      )}
+      {menu && (
+        <CardMenu
+          cardId={head.id}
+          clientId={card.id}
+          version={head.version}
+          can={{ closeFromMenu: can.closeFromMenu, reopen: can.reopen, unblock: can.unblock }}
+          phones={card.phones.filter((p) => p.working).map((p) => ({ id: p.id, e164: p.e164, primary: p.primary }))}
+          reasons={reasons}
+        />
+      )}
     </div>
   );
 }

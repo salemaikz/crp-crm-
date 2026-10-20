@@ -350,3 +350,11 @@ export async function writeCardCustomBumped(tx: Sql, viewer: Viewer, cardId: str
      WHERE c.id = ${cardId} AND ${scopeSql(viewer, 'card', 'card.edit')} RETURNING c.id`;
   return rows.length === 1;
 }
+
+/** Сотрудник активен и состоит в пространстве (получатель возврата в обзвон, владелец карточки). */
+export async function userActiveInSpace(tx: Sql, a: { spaceId: string; userId: string }): Promise<boolean> {
+  const rows = await tx<{ hit: number }>`
+    SELECT 1 AS hit FROM users u JOIN memberships m ON m.user_id = u.id AND m.space_id = ${a.spaceId} AND m.status = 'active'
+     WHERE u.id = ${a.userId} AND u.status = 'active'`;
+  return rows.length > 0;
+}

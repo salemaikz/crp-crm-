@@ -102,6 +102,10 @@ export type ListQuery = {
   fieldFilters: Array<{ key: string; value: string }>;
   cursor: Cursor | null;
   limit: number | null;
+  /** Вид списка (C9): все, «Мои клиенты» (`agreed`/`client` у меня), архив закрытых. */
+  view: 'all' | 'mine' | 'archive';
+  /** Архив: владелец карточки (фильтр РОП). */
+  owner: string | null;
 };
 
 const STATE_SET: ReadonlySet<string> = new Set(CARD_STATES);
@@ -125,7 +129,13 @@ export function parseListQuery(sp: URLSearchParams): ListQuery {
     if (!/^\d{1,3}$/.test(rawLimit) || Number(rawLimit) < 1) throw new BadRequestError('limit');
     limit = Math.min(Number(rawLimit), LIST_LIMIT);
   }
+  const rawView = sp.get('view') ?? 'all';
+  if (rawView !== 'all' && rawView !== 'mine' && rawView !== 'archive') throw new BadRequestError('view');
+  const owner = sp.get('owner');
+  if (owner !== null && (owner.length === 0 || owner.length > 100 || rawView !== 'archive')) throw new BadRequestError('owner');
   return {
+    view: rawView,
+    owner,
     q,
     states: rawStates.length ? ([...new Set(rawStates)] as CardState[]) : null,
     fieldFilters,

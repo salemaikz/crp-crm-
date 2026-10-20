@@ -67,7 +67,7 @@ const THEIRS: Record<string, string | undefined> = { client: clientOf('b', 1), c
 test('манифест и маршруты совпадают: у каждой записи есть обработчик', async () => {
   for (const e of manifest.entries.filter((x) => x.kind === 'route')) await handlerOf(e);
   const routes = manifest.entries.filter((x) => x.kind === 'route').length;
-  assert.equal(routes, 12);
+  assert.equal(routes, 13);
 });
 
 test('оператор A: объект оператора B отвечает байт в байт как несуществующий id, следов нет', async () => {

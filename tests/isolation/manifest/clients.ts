@@ -120,6 +120,18 @@ export default defineManifest('clients', [
     mutation: true,
     touches: ['contacts', 'client_events'],
   },
+  // C9: «Предложить контакт» — ответ одинаков для чужого и свободного номера, чужие таблицы не меняются
+  {
+    kind: 'route',
+    path: '/api/clients/proposals',
+    method: 'POST',
+    perm: 'client.propose',
+    target: 'section',
+    sampleBody: { opId: OP_ID, phone: '+7 709 555 01 77', name: 'ТОО Пример' },
+    mutation: true,
+    touches: ['proposals', 'phone_probes', 'clients', 'client_phones', 'cards'],
+  },
+  { kind: 'page', path: '/(op)/archive', method: 'GET', perm: 'client.read', target: 'section', mutation: false },
   { kind: 'page', path: '/(op)/clients', method: 'GET', perm: 'client.read', target: 'section', mutation: false },
   {
     kind: 'page',

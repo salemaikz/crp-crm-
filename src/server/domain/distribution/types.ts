@@ -281,7 +281,7 @@ export interface DistributionDeps {
 export interface AssignBatch {
   spaceId: string;
   runId: string;
-  kind: Extract<AssignLogKind, 'auto' | 'manual'>;
+  kind: Extract<AssignLogKind, 'auto' | 'manual' | 'proposal'>;
   /** userId → id карточек по порядку. */
   byOperator: Readonly<Record<string, readonly string[]>>;
   countsToCap: boolean;

@@ -58,7 +58,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
           <div className="flex min-w-0 flex-col gap-4">
             <ClientHeader card={card} legalForms={legalForms} timeZone={tz} />
             <CallButton phone={card.primaryPhone} />
-            <CardActions cardId={card.card?.id ?? null} can={card.can} />
+            <CardActions card={card} viewer={viewer} />
             <SummaryBlock summary={summary} catalog={catalog} timeZone={tz} />
             {card.card && <Counters head={card.card} timeZone={tz} />}
             <FieldsPanel client={card} legalForms={legalForms} />

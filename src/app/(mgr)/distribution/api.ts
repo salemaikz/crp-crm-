@@ -17,6 +17,7 @@ const KNOWN = new Set([
   'unauthorized',
   'not_found',
   'read_only',
+  'conflict',
 ]);
 
 /** Ключ текста в distribution.errors по ответу API. */

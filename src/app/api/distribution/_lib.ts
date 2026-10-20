@@ -67,3 +67,5 @@ export const OwnerlessQuery = z.object({ cursor: z.string().max(200).optional(),
 export const OwnerlessAssignBody = z
   .object({ opId: z.string().uuid(), toUserId: id, items: z.array(z.object({ cardId: id, version: z.number().int().min(0) }).strict()).min(1).max(100) })
   .strict();
+
+export const ProposalResolveBody = z.object({ opId: z.string().uuid(), decision: z.enum(['create', 'reject']) }).strict();

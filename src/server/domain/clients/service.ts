@@ -1,6 +1,6 @@
 // Сервис клиентов: карточка, список, правка полей, выживший при слиянии, лента (PROCESS 8.3, 9).
 // Права и охват — в repo.ts (scopeSql); здесь — порядок действий и проверки значений.
-import { fields, names } from '@crm/core';
+import { calling, fields, names } from '@crm/core';
 import { BadRequestError, can, ConflictError, NotFoundError, type Viewer } from '@/server/access';
 import { getDb, isUniqueViolation, type Sql } from '@/server/platform/db';
 import { iinHmac } from '@/server/platform/hmac';
@@ -40,6 +40,15 @@ export function sameSystemValue(a: unknown, b: unknown): boolean {
 
 // ---------- Карточка ----------
 
+/** № 14: из каких состояний карточка возвращается в обзвон. */
+const REOPEN_FROM: readonly string[] = ['not_target', 'written_off', 'not_interested'];
+
+/** № 11, 12 из меню: «Не целевой» или «Полный отказ» допустимы из этих состояний (таблица ядра). */
+function canCloseFrom(state: string): boolean {
+  const from = calling.OUTCOME_ALLOWED_FROM;
+  return from.not_target.includes(state as CardState) || (state !== 'do_not_call' && from.do_not_call.includes(state as CardState));
+}
+
 /** Карточка клиента (4.1–4.4). Слитый клиент и невидимый — NotFoundError. */
 export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsConfig): Promise<ClientCardDto> {
   const cfg = cfgIn ?? (await loadClientsConfig(viewer));
@@ -76,10 +85,10 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
       book: head ? head.canBook && (head.state === 'agreed' || head.state === 'client') : false,
       // Задача (B7): нужно право записи задач и карточка в пространстве (задача привязана к клиенту карточки)
       task: head !== null && !viewer.readOnly && can(viewer, 'task.write'),
-      // Подключаются вместе с C9, B9a: до их влития сервер отдаёт false (docs/tasks-team-design.md §3.6)
-      closeFromMenu: false,
-      reopen: false,
-      unblock: false,
+      // C9: право по карточке (охват в SQL, «только чтение» уже понижено) и допустимое состояние ядра
+      closeFromMenu: head ? head.canClose && canCloseFrom(head.state) : false,
+      reopen: head ? head.canReopen && REOPEN_FROM.includes(head.state) : false,
+      unblock: head ? head.canUnblock && head.state === 'do_not_call' : false,
       transfer: false,
     },
     card: head ? toCardHead(head, fields.projectFor(cardFieldViewer(viewer, cfg), 'card', cfg.fields, head.custom as fields.CustomValues)) : null,
@@ -213,7 +222,7 @@ export async function listClients(viewer: Viewer, q: ListQuery): Promise<ClientL
   const p1 = search.kind === 'none' ? null : (search.patterns[0] ?? null);
   const p2 = search.kind === 'none' ? null : (search.patterns[1] ?? p1);
   const db = await getDb();
-  const rows = await selectClientList(db.sql, viewer, { states: q.states, p1, p2, filter, cursor: q.cursor, limit });
+  const rows = await selectClientList(db.sql, viewer, { states: q.states, p1, p2, filter, cursor: q.cursor, limit, view: q.view, owner: q.owner });
   const page = rows.slice(0, limit);
   const phones = await selectWorkingPhones(db.sql, viewer, page.map((r) => r.id));
   const primary = new Map<string, string>();
@@ -228,6 +237,9 @@ export async function listClients(viewer: Viewer, q: ListQuery): Promise<ClientL
     lastTouchAt: r.lastTouchAt,
     primaryPhone: primary.get(r.id) ?? null,
     values: listValues(cfg, fv, r.custom),
+    closeReasonCode: r.closeReasonCode,
+    closedAt: r.closedAt,
+    returnAt: r.returnAt,
   }));
   const last = page[page.length - 1];
   return { items, next: rows.length > limit && last ? encodeCursor({ at: last.sortAt, id: last.cardId }) : null };

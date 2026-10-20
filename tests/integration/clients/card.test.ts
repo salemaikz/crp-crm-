@@ -23,7 +23,7 @@ test('оператор видит карточку своего клиента: 
   assert.equal(c.kind, 'company');
   assert.equal(c.card?.state, 'retry');
   assert.equal(c.card?.ownerName, 'Оператор Синтетик А');
-  assert.deepEqual(c.can, { ...CAN_OFF, edit: true, editIdentity: false, editCard: true, note: true, task: true });
+  assert.deepEqual(c.can, { ...CAN_OFF, edit: true, editIdentity: false, editCard: true, note: true, task: true, closeFromMenu: true });
   assert.equal(c.phones.length, 1);
   assert.equal(c.primaryPhone?.e164, `+${phoneOf('a', 1)}`);
   assert.equal(c.decisionMaker, null);
@@ -33,7 +33,7 @@ test('оператор видит карточку своего клиента: 
 test('РОП видит право на изменение названия и БИН', async () => {
   const v = await viewerOf(U.rop);
   const c = await getClientCard(v, clientOf('a', 1));
-  assert.deepEqual(c.can, { ...CAN_OFF, edit: true, editIdentity: true, editCard: true, note: true, task: true });
+  assert.deepEqual(c.can, { ...CAN_OFF, edit: true, editIdentity: true, editCard: true, note: true, task: true, closeFromMenu: true });
 });
 
 test('счётчики берутся с карточки, без пересчёта', async () => {

@@ -5,6 +5,7 @@ const HREF: Record<string, string> = {
   alarm_callbacks_overdue: '/summary',
   alarm_handoff_unaccepted: '/handoffs',
   alarm_grey_unassigned: '/bookings',
+  probe_limit: '/distribution',
 };
 
 const KNOWN = new Set(Object.keys(HREF));

@@ -70,7 +70,7 @@ export type CardHeadDto = {
 
 /**
  * Действия карточки (C8 §3.6): сервер считает по правам и состоянию, интерфейс только показывает.
- * `closeFromMenu`, `reopen`, `unblock`, `transfer` приходят `false`, пока не влиты C9, B9a; `task` — право `task.write` (B7).
+ * `closeFromMenu`, `reopen`, `unblock` — C9; `transfer` приходит `false`, пока не влит B9a; `task` — право `task.write` (B7).
  */
 export type ClientCan = {
   edit: boolean;
@@ -121,6 +121,10 @@ export type ClientRow = {
   lastTouchAt: number | null;
   primaryPhone: string | null;
   values: Record<string, fields.FieldValue>;
+  /** Архив (C9): причина закрытия (ключ справочника), дата закрытия, дата возврата «Не интересует». */
+  closeReasonCode: string;
+  closedAt: number | null;
+  returnAt: number | null;
 };
 
 export type ClientList = { items: ClientRow[]; next: string | null; hint?: 'short' };
