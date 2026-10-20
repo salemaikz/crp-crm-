@@ -10,5 +10,5 @@ test('значения ключей и классов блокировок ун�
 });
 
 test('классы двухключевых блокировок помещаются в int4', () => {
-  for (const k of ['SKIP_LOCK_CLASS', 'JOB_LOCK_CLASS'] as const) assert.ok(ALL_LOCK_VALUES[k] <= 2_147_483_647, k);
+  for (const k of ['SKIP_LOCK_CLASS', 'JOB_LOCK_CLASS', 'CONSULT_DAY_LOCK_CLASS'] as const) assert.ok(ALL_LOCK_VALUES[k] <= 2_147_483_647, k);
 });

@@ -11,9 +11,11 @@ interface Props {
   consultants: ConsultantView[];
   candidates: Person[];
   directions: Direction[];
+  /** Флаг BK_WIZARD: у консультанта есть страница графика, вверху — «День консультаций». */
+  withSchedule: boolean;
 }
 
-/** Консультанты (B5a): список, добавить, править, выключить. График и исключения — следующий этап. */
+/** Консультанты: список, добавить, править, выключить (B5a); график и день консультаций — за флагом BK_WIZARD (B5b). */
 export function ConsultantsBoard(props: Props) {
   return (
     <ToastProvider>
@@ -22,7 +24,7 @@ export function ConsultantsBoard(props: Props) {
   );
 }
 
-function Board({ consultants: initial, candidates: initialCandidates, directions }: Props) {
+function Board({ consultants: initial, candidates: initialCandidates, directions, withSchedule }: Props) {
   const t = useTranslations('booking.consultants');
   const te = useTranslations('booking.errors');
   const toast = useToast();
@@ -47,10 +49,15 @@ function Board({ consultants: initial, candidates: initialCandidates, directions
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
+      <div className="flex flex-wrap gap-2">
         <Button variant="primary" onClick={() => setSheet({ open: true, consultant: null })}>
           {t('add')}
         </Button>
+        {withSchedule && (
+          <Button href="/bookings/consult-day" variant="secondary">
+            {t('dayLink')}
+          </Button>
+        )}
       </div>
       {problem && <Alert tone="danger">{problem}</Alert>}
       {list.length === 0 ? (
@@ -74,6 +81,11 @@ function Board({ consultants: initial, candidates: initialCandidates, directions
                   <Button variant="secondary" size="sm" onClick={() => setSheet({ open: true, consultant: c })}>
                     {t('edit')}
                   </Button>
+                  {withSchedule && (
+                    <Button href={`/consultants/${encodeURIComponent(c.id)}`} variant="secondary" size="sm">
+                      {t('scheduleLink')}
+                    </Button>
+                  )}
                   <Button variant="quiet" size="sm" disabled={busyId === c.id} onClick={() => void toggle(c)}>
                     {c.active ? t('deactivate') : t('activate')}
                   </Button>

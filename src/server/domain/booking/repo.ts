@@ -617,6 +617,10 @@ export interface NewIndividualBooking {
   startsAt: number;
   durationMin: number;
   directionKey: string;
+  /** Консультант слота; null — «серая» заявка. */
+  resourceId: string | null;
+  /** Слот занят: запись лежит резервом (вместимость консультанта > 1). */
+  isReserve: boolean;
   via: BookingVia;
   bookedByUserId: string | null;
   responsibleUserId: string | null;
@@ -625,14 +629,14 @@ export interface NewIndividualBooking {
   at: number;
 }
 
-/** Вставка «серой» заявки на консультацию (без консультанта, без мероприятия); повтор ключа — null. */
+/** Вставка заявки на консультацию (без мероприятия): «серая» или к консультанту; повтор ключа — null. */
 export async function insertIndividualBooking(sql: Sql, b: NewIndividualBooking): Promise<BookingRow | null> {
   const rows = await sql<BookingRow>`
     INSERT INTO bookings (id, space_id, kind, event_type_key, event_id, resource_id, client_id, card_id, deal_id, contact_id, booking_date,
                           start_time, starts_at, duration_min, direction_key, is_reserve, status, via, booked_by_user_id,
                           responsible_user_id, moved_from_id, request_id, import_key, version, created_at, updated_at)
-    VALUES (${b.id}, ${b.spaceId}, 'individual', ${b.eventTypeKey}, NULL, NULL, ${b.clientId}, ${b.cardId}, ${b.dealId}, ${b.contactId},
-            ${b.date}, ${b.time}, ${b.startsAt}, ${b.durationMin}, ${b.directionKey}, FALSE, 'registered', ${b.via}, ${b.bookedByUserId},
+    VALUES (${b.id}, ${b.spaceId}, 'individual', ${b.eventTypeKey}, NULL, ${b.resourceId}, ${b.clientId}, ${b.cardId}, ${b.dealId}, ${b.contactId},
+            ${b.date}, ${b.time}, ${b.startsAt}, ${b.durationMin}, ${b.directionKey}, ${b.isReserve}, 'registered', ${b.via}, ${b.bookedByUserId},
             ${b.responsibleUserId}, ${b.movedFromId}, ${b.requestId}, NULL, 0, ${b.at}, ${b.at})
     ON CONFLICT (request_id) WHERE request_id IS NOT NULL DO NOTHING
     RETURNING *`;
@@ -714,7 +718,7 @@ export async function insertHistory(
 /** Лента клиента (client_events): только коды, id и числа без ПДн (D-020). */
 export async function insertFeed(
   sql: Sql,
-  e: { clientId: string; spaceId: string; dealId: string | null; kind: 'booking.created' | 'booking.moved' | 'booking.status'; actorId: string | null; bookingId: string; at: number; data: Record<string, string | number | boolean | null> },
+  e: { clientId: string; spaceId: string; dealId: string | null; kind: 'booking.created' | 'booking.moved' | 'booking.status' | 'booking.assigned'; actorId: string | null; bookingId: string; at: number; data: Record<string, string | number | boolean | null> },
 ): Promise<void> {
   await sql`
     INSERT INTO client_events (id, client_id, space_id, deal_id, kind, actor_id, at, ref_type, ref_id, data)

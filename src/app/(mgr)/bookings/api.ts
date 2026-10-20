@@ -1,7 +1,7 @@
 // Клиентские вызовы API записи для кабинета РОП: ошибка = машинный код домена, текст выбирает интерфейс из локали.
 export type ApiResult<T> = { ok: true; data: T; status: number } | { ok: false; code: string; status: number };
 
-export async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH', url: string, body?: unknown): Promise<ApiResult<T>> {
+export async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, body?: unknown): Promise<ApiResult<T>> {
   try {
     const res = await fetch(url, {
       method,

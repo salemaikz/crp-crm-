@@ -5,26 +5,45 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Button, Chip, ChipGroup, EmptyState } from '@/ui/kit';
 import type { WizardChoice } from './choice';
+import { ConsultPicker } from './ConsultPicker';
 import { formatChipDay, formatWhen } from './format';
 import type { ConsultOffer } from './types';
 
 interface Props {
   offer: ConsultOffer | undefined;
   onPick: (choice: WizardChoice) => void;
+  /** Подбор консультанта (флаг BK_WIZARD): карточка и счётчик обновлений полосы. Нет — заявка без консультанта (B3a). */
+  strip?: { cardId: string; refreshKey: number };
 }
 
 // Чипы переносятся строками: на телефоне страница не прокручивается вбок
 const WRAP = 'flex-wrap overflow-visible';
 
 /** Индивидуальный вид: направление → день → время → заявка без консультанта (его назначит руководитель). */
-export function ConsultStep({ offer, onPick }: Props) {
+export function ConsultStep({ offer, onPick, strip }: Props) {
   const t = useTranslations('booking.wizard');
   const locale = useLocale();
   const [direction, setDirection] = useState<string | null>(offer?.directions.length === 1 ? (offer.directions[0]?.key ?? null) : null);
   const [date, setDate] = useState<string | null>(null);
   const [time, setTime] = useState<string | null>(null);
 
-  if (!offer || offer.days.length === 0) return <EmptyState icon={<CalendarX />} title={t('noSlots')} framed={false} headingLevel="h3" />;
+  if (!offer || (offer.days.length === 0 && !strip)) return <EmptyState icon={<CalendarX />} title={t('noSlots')} framed={false} headingLevel="h3" />;
+
+  if (strip) {
+    return (
+      <div className="flex flex-col gap-4">
+        {offer.current && <p className="text-sm text-[var(--text-2)]">{t('current', { when: formatWhen(offer.current.bookingDate, offer.current.startTime, locale) })}</p>}
+        <ChipGroup label={t('directionsLabel')} className={WRAP}>
+          {offer.directions.map((d) => (
+            <Chip key={d.key} active={direction === d.key} onClick={() => setDirection(d.key)}>
+              {d.label}
+            </Chip>
+          ))}
+        </ChipGroup>
+        {direction !== null && <ConsultPicker key={direction} cardId={strip.cardId} eventTypeKey={offer.eventTypeKey} directionKey={direction} refreshKey={strip.refreshKey} onPick={onPick} />}
+      </div>
+    );
+  }
 
   const day = offer.days.find((d) => d.date === date);
   const ready = direction !== null && day !== undefined && time !== null && day.times.includes(time);

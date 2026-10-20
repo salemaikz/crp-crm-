@@ -41,6 +41,8 @@ export const AUDIT_ACTIONS = [
   // B5a: консультанты (в meta — id, коды и числа)
   'consultant.create',
   'consultant.update',
+  // B5b: недельный график и исключения по датам
+  'consultant.schedule',
   // C3: ключи приёма; значение ключа и его хэш в журнал не попадают, только prefix
   'ingest_key.create',
   'ingest_key.revoke',

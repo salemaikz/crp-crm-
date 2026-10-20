@@ -1,5 +1,5 @@
 // Разбор ответов сервера мастера записи и запросы к API. Разбор — чистая функция (юнит-тесты).
-import type { BookingDomainErrorCode, BookingView, BookingWizardView, EventOption, OfferResult } from './types';
+import type { BookingDomainErrorCode, BookingView, BookingWizardView, ConsultStripDay, EventOption, OfferResult } from './types';
 
 export type WizardAction = 'created' | 'moved';
 
@@ -51,6 +51,12 @@ export async function fetchWizard(cardId: string): Promise<BookingWizardView | n
 export async function fetchOffer(clientId: string, type: string): Promise<OfferResult | null> {
   const r = await request('GET', `/api/events/offer?clientId=${encodeURIComponent(clientId)}&type=${encodeURIComponent(type)}`);
   return r && r.status === 200 ? (r.json as OfferResult) : null;
+}
+
+/** Полоса подбора консультанта (за флагом BK_WIZARD): дни, времена, предложенный консультант. null — не удалось. */
+export async function fetchConsultStrip(cardId: string, type: string, direction: string): Promise<ConsultStripDay[] | null> {
+  const r = await request('GET', `/api/bookings/wizard/${encodeURIComponent(cardId)}/consult?type=${encodeURIComponent(type)}&direction=${encodeURIComponent(direction)}`);
+  return r && r.status === 200 && isObject(r.json) && Array.isArray(r.json.days) ? (r.json.days as ConsultStripDay[]) : null;
 }
 
 /** Отмена записи как ошибки оператора (окно 10 минут и автора проверяет сервер, PROCESS 12.7). */

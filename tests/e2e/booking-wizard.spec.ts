@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { expect, test, type Page } from '@playwright/test';
+import { ensureConsultant } from './support/consult';
 
 const DB_URL = process.env.E2E_DATABASE_URL;
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -172,7 +173,8 @@ test('гонка за последнее место: «Мест … не ост�
   expect(rows[0]?.n).toBe(1);
 });
 
-test('заявка на консультацию: направление → день → время → «Оставить заявку…» → в «Записях» «Без консультанта»', async ({ page }) => {
+test('заявка на консультацию: направление → день → время → «Назначим утром» → в «Записях» «Без консультанта»', async ({ page }) => {
+  await ensureConsultant();
   const w = await makeWorld('agreed');
   await login(page, w);
   await page.goto(`/bookings/new/${w.cardId}`);
@@ -183,8 +185,8 @@ test('заявка на консультацию: направление → д�
   await firstDay.click();
   await page.getByRole('group', { name: 'Время' }).getByRole('button').first().click();
   expect(await noHScroll(page)).toBe(true);
-  await expect(page.getByText('Без консультанта — назначит руководитель')).toBeVisible();
-  await page.getByRole('button', { name: /^Оставить заявку на / }).click();
+  // Подбор (BK_WIZARD): кроме «Записать к …» есть «Назначим утром» — заявка без консультанта
+  await page.getByRole('button', { name: 'Назначим утром' }).click();
   await expect(page.getByText(/направление «Маркетинг»\? Консультанта назначит руководитель\.$/)).toBeVisible();
   await page.getByRole('button', { name: 'Подтвердить' }).click();
   await expect(page.getByText(/^Заявка: БК, /).first()).toBeVisible();

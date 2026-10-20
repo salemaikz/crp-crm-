@@ -163,9 +163,9 @@ test('импорт (система): занесение в прошедшее м
   assert.equal(unknown.booking.bookedByUserId, null, 'автор неизвестен — NULL, а не выдуманный');
 });
 
-test('запись к консультанту (resourceId не null) — B5: ошибка сборки, а не ответ пользователю', async () => {
+test('запись к консультанту (resourceId не null) без флага BK_WIZARD — как несуществующая (404)', async () => {
   await assert.rejects(
     createBooking(deps, opA, { kind: 'individual', requestId: uuid(), clientId: 'cl-a-1', eventTypeKey: 'bk', date: '2026-10-29', time: '11:15', directionKey: 'marketing', resourceId: 'r1', contactId: null }),
-    /B5/,
+    (e: unknown) => e instanceof NotFoundError,
   );
 });

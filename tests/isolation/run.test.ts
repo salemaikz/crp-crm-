@@ -7,5 +7,9 @@ import { register } from 'node:module';
 
 register('./runner/hooks.mjs', import.meta.url);
 
+// Функции за флагами проверяются включёнными: выключенный флаг отвечает 404 всем, это не проверка изоляции.
+// Выключенное состояние покрывают интеграционные тесты модулей (например, consult-routes.test.ts).
+process.env['FEATURE_BK_WIZARD'] ??= '1';
+
 const { defineIsolationRun } = await import('./runner/main');
 await defineIsolationRun();

@@ -29,6 +29,14 @@ export function checkConsultSlot(settings: ConsultSettings, date: string, time: 
   return booking.localToEpoch(settings.timeZone, date, time) <= now ? 'slot_in_past' : 'ok';
 }
 
+/** Только окно: день в горизонте и момент в будущем (время — любое; слот проверяет подбор консультанта, B5b). */
+export function checkConsultWindow(settings: ConsultSettings, date: string, time: string, now: number): SlotCheck {
+  if (!booking.isLocalDate(date) || !booking.isLocalTime(time)) return 'outside_hours';
+  const { today, last } = consultWindow(settings, now);
+  if (date < today || date > last) return 'outside_hours';
+  return booking.localToEpoch(settings.timeZone, date, time) <= now ? 'slot_in_past' : 'ok';
+}
+
 /** `consult.stripDays` ближайших рабочих дней со свободными слотами; у сегодняшнего — только будущие. */
 export const consultDays: ConsultDays = (settings, now) => {
   const { today } = consultWindow(settings, now);

@@ -3,6 +3,7 @@
 import type { ActiveConfig } from '@crm/core/config';
 import type { JobDefinition, JobInstance, QueueSpec } from '@/server/platform/jobs';
 import { countOwnerlessWorkingCards } from '@/server/domain/cards';
+import { greyAssignJob } from '@/server/domain/booking';
 import { purgeDeviceStatus } from '@/server/domain/calls';
 import { distributeJob } from '@/server/domain/distribution';
 import { purgeExpiredImportRows } from '@/server/domain/import';
@@ -36,7 +37,7 @@ export const purgeParts: PurgePart[] = [
 ];
 
 export function jobDefinitions(): JobDefinition[] {
-  return [eventsEnsureJob, distributeJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob];
+  return [eventsEnsureJob, distributeJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob, greyAssignJob];
 }
 
 /** Очереди: обработчики появятся с плагинами (O6) и push (P8b); без обработчика строки уходят в retry no_handler. */

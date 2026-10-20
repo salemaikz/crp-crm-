@@ -11,8 +11,8 @@ const routeFile = (path: string) => join(ROOT, 'src', 'app', `${path}`, 'route.t
 const routes = manifest.entries.filter((e) => e.kind === 'route');
 const pages = manifest.entries.filter((e) => e.kind === 'page');
 
-test('манифест: 27 маршрутов, каждый — route.ts с экспортом метода и обёрткой route()', () => {
-  assert.equal(routes.length, 27);
+test('манифест: 37 маршрутов, каждый — route.ts с экспортом метода и обёрткой route()', () => {
+  assert.equal(routes.length, 37);
   for (const e of routes) {
     const file = routeFile(e.path);
     assert.ok(existsSync(file), `нет файла маршрута ${e.method} ${e.path}`);
@@ -22,8 +22,8 @@ test('манифест: 27 маршрутов, каждый — route.ts с эк
   }
 });
 
-test('манифест: 6 страниц (мастер, «Записи», дежурство, мероприятия, консультанты), каждая — page.tsx с обёрткой page()', () => {
-  assert.equal(pages.length, 6);
+test('манифест: 10 страниц (мастер, «Записи», дежурство, мероприятия, консультанты и их график, день консультаций, мои консультации), каждая — page.tsx с обёрткой page()', () => {
+  assert.equal(pages.length, 10);
   for (const e of pages) {
     const file = join(ROOT, 'src', 'app', e.path, 'page.tsx');
     assert.ok(existsSync(file), `нет файла страницы ${e.path}`);

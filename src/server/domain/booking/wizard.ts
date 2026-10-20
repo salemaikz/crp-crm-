@@ -1,11 +1,11 @@
 // Мастер записи: всё для одного экрана одним чтением (B3a, docs/booking-wizard-design.md §6.2).
 // Охват: карточка по `booking.create`; чужая и несуществующая — одинаково NotFoundError.
 import { booking } from '@crm/core';
-import { NotFoundError } from '@/server/access';
+import { NotFoundError, requireAccess, scopeOf } from '@/server/access';
 import { BOOKABLE_CARD_STATES } from './bookings';
 import { consultDays } from './consult';
 import { offerInTx } from './events';
-import { requireRole, requireSpace } from './guards';
+import { requireSpace } from './guards';
 import { findWizardCard, listActiveFutureBookings, toBookingView } from './repo';
 import { inBookingTx } from './tx';
 import type { ConsultOffer, GetBookingWizard, LocalizedLabel, WizardDirection, WizardEventType } from './types';
@@ -16,7 +16,9 @@ export function pickLabel(l: LocalizedLabel, locale: string): string {
 }
 
 export const getBookingWizard: GetBookingWizard = async (deps, viewer, input) => {
-  requireRole(viewer, 'booking.create', 'object');
+  // Консультант записывает клиента своей консультации к себе (отношение booked_with_me, D-246): право есть и без роли
+  requireAccess(viewer, 'booking.create', 'object');
+  const byRelationOnly = scopeOf(viewer, 'booking.create') === null;
   const spaceId = requireSpace(viewer);
   const now = deps.now();
   const settings = await deps.settings(spaceId, now);
@@ -25,7 +27,9 @@ export const getBookingWizard: GetBookingWizard = async (deps, viewer, input) =>
     const card = await findWizardCard(viewer, tx, { spaceId, cardId: input.cardId });
     if (!card) throw new NotFoundError();
 
-    const types: WizardEventType[] = catalog.eventTypes.map((t) => ({
+    // По отношению доступны только консультации: групповые мероприятия ему недоступны (404 на запись)
+    const visibleTypes = byRelationOnly ? catalog.eventTypes.filter((t) => t.behavior === 'individual') : catalog.eventTypes;
+    const types: WizardEventType[] = visibleTypes.map((t) => ({
       key: t.key,
       behavior: t.behavior,
       label: pickLabel(t.label, input.locale),
@@ -36,7 +40,7 @@ export const getBookingWizard: GetBookingWizard = async (deps, viewer, input) =>
     const groupOffers = [];
     const consultOffers: ConsultOffer[] = [];
     const days = consultDays(settings, now);
-    for (const t of catalog.eventTypes) {
+    for (const t of visibleTypes) {
       if (t.behavior === 'group') {
         // Вид без ёмкости (`groupTypes`) мероприятий не имеет: предлагать нечего
         if (!settings.groupTypes.some((g) => g.key === t.key)) continue;

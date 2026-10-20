@@ -4,8 +4,13 @@ export { BookingDomainError, httpFailure, isBookingDomainError, fromCore, BOOKIN
 export { cancelBooking, createBooking, getBooking, listBookings, markAttendance, moveBooking, setConfirmation } from './bookings';
 export { getDutyCandidates, getDutyEvent, listDutyEvents, listEventsBoard, markRestNoShow, type EventBoardItem, type EventsBoard } from './duty';
 export { registerWalkIn } from './walkIn';
-export { createConsultant, getConsultant, listConsultantCandidates, listConsultants, updateConsultant } from './consultants';
+export { clearException, createConsultant, getConsultant, getSchedule, listConsultantCandidates, listConsultants, setException, setSchedule, updateConsultant } from './consultants';
 export { loadBookingOpsSettings } from './opsSettings';
+export { greyAssignJob, greyAssignSchedule } from './jobs';
+export { runGreyAssign } from './greyJob';
+export { assignConsultant, listAssignCandidates } from './assign';
+export { getConsultDay, getConsultStrip } from './consultDay';
+export { getMyConsultation, listMyConsultations, recordConsultResult } from './consultations';
 export { listBookingItems } from './list';
 export { getBookingWizard, pickLabel } from './wizard';
 export { checkConsultSlot, consultDays } from './consult';

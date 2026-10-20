@@ -19,6 +19,8 @@ export interface BookingWizardProps {
   /** Нет — путь B (`POST /api/bookings`). Шторка итога передаёт отправку итога с `agreement.booking`. */
   submit?: WizardSubmit;
   onDone?: (r: { booking: BookingView; action: WizardAction }) => void;
+  /** Подбор консультанта в консультации (флаг BK_WIZARD, только путь B). Нет — заявка без консультанта. */
+  consultStrip?: boolean;
 }
 
 interface Problem {
@@ -33,7 +35,7 @@ const STALE_EVENT = ['event_cancelled', 'event_in_past', 'already_registered'];
 const STALE_SLOT = ['outside_hours', 'slot_in_past', 'request_reused'];
 
 /** Мастер записи: вкладки по видам, выбор, подтверждение, результат. Ключ запроса живёт до успеха (D-205). */
-export function BookingWizard({ view: initial, submit, onDone }: BookingWizardProps) {
+export function BookingWizard({ view: initial, submit, onDone, consultStrip = false }: BookingWizardProps) {
   const t = useTranslations('booking.wizard');
   const te = useTranslations('booking.errors');
   const locale = useLocale();
@@ -46,6 +48,8 @@ export function BookingWizard({ view: initial, submit, onDone }: BookingWizardPr
   const [problem, setProblem] = useState<Problem | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [stripRefresh, setStripRefresh] = useState(0);
+  const tc = useTranslations('booking.consult');
 
   if (view.mode === 'outcome_required') {
     return (
@@ -74,7 +78,12 @@ export function BookingWizard({ view: initial, submit, onDone }: BookingWizardPr
     const type = view.types.find((x) => x.key === choice.eventTypeKey);
     const when = formatWhen(r.booking.bookingDate, r.booking.startTime, locale);
     const args = { type: type?.short ?? choice.eventTypeKey, when };
-    const text = choice.kind === 'individual' ? t('doneRequest', args) : t(r.action === 'moved' ? 'doneMoved' : 'doneCreated', args);
+    const consultant = choice.kind === 'individual' ? choice.consultant : undefined;
+    const text = consultant
+      ? tc(consultant.reserve ? 'doneReserve' : 'done', { ...args, consultant: consultant.name })
+      : choice.kind === 'individual'
+        ? t('doneRequest', args)
+        : t(r.action === 'moved' ? 'doneMoved' : 'doneCreated', args);
     setDone(text);
     setPending(null);
     setRequestId(newKey());
@@ -112,6 +121,8 @@ export function BookingWizard({ view: initial, submit, onDone }: BookingWizardPr
     if (r.code === 'outcome_required') return setView((v) => ({ ...v, mode: 'outcome_required' }));
     if (STALE_EVENT.includes(r.code)) await refreshOffer(choice.eventTypeKey);
     if (STALE_SLOT.includes(r.code)) await refreshWizard();
+    // Место заняли или пул заполнен: полоса подбора перечитывается, ключ запроса прежний (повтор безопасен)
+    if (r.code === 'slot_taken' || r.code === 'pool_full') setStripRefresh((n) => n + 1);
     if (r.code === 'request_reused') setRequestId(newKey());
   };
 
@@ -166,7 +177,11 @@ export function BookingWizard({ view: initial, submit, onDone }: BookingWizardPr
     view.types.find((x) => x.key === key)?.behavior === 'group' ? (
       <GroupStep offer={view.groupOffers.find((o) => o.eventTypeKey === key)} expanded={expanded} onPick={(event) => pick({ kind: 'group', eventTypeKey: key, event })} />
     ) : (
-      <ConsultStep offer={view.consultOffers.find((o) => o.eventTypeKey === key)} onPick={pick} />
+      <ConsultStep
+        offer={view.consultOffers.find((o) => o.eventTypeKey === key)}
+        onPick={pick}
+        {...(consultStrip ? { strip: { cardId: view.cardId, refreshKey: stripRefresh } } : {})}
+      />
     );
 
   return (

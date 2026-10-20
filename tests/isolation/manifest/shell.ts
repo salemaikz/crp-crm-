@@ -4,7 +4,7 @@
 import { defineManifest, type ManifestEntry } from '../harness/manifest';
 
 const base = { kind: 'page', method: 'GET', perm: 'authenticated', target: 'section', mutation: false } as const;
-const paths = ['/(op)/layout', '/(consultant)/layout', '/(duty)/layout', '/(mgr)/handoffs', '/(consultant)/consultations'];
+const paths = ['/(op)/layout', '/(consultant)/layout', '/(duty)/layout', '/(mgr)/handoffs'];
 
 const entries: ManifestEntry[] = paths.map((path) => ({ ...base, path }));
 

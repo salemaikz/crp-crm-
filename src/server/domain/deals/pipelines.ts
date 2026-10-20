@@ -10,6 +10,7 @@ const Stage = z
     kind: z.enum(['open', 'won', 'lost']),
     order: z.number().int(),
     auto: z.enum(['on_agreed', 'on_attended']).nullable(),
+    label: z.object({ ru: z.string(), kk: z.string().optional() }).passthrough().optional(),
     archived: z.boolean().optional(),
   })
   .passthrough();
@@ -30,6 +31,8 @@ export interface PipelineStage {
   kind: 'open' | 'won' | 'lost';
   order: number;
   auto: 'on_agreed' | 'on_attended' | null;
+  /** Подпись из настроек; у минимальных воронок (тесты) её нет. */
+  label?: { ru: string; kk?: string };
 }
 
 export interface PipelineInfo {
@@ -48,7 +51,7 @@ export function parsePipelines(raw: unknown): PipelineInfo[] {
       createDealOn: p.createDealOn,
       stages: p.stages
         .filter((s) => !s.archived)
-        .map((s) => ({ key: s.key, kind: s.kind, order: s.order, auto: s.auto }))
+        .map((s) => ({ key: s.key, kind: s.kind, order: s.order, auto: s.auto, ...(s.label ? { label: { ru: s.label.ru, ...(s.label.kk !== undefined ? { kk: s.label.kk } : {}) } } : {}) }))
         .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key)),
     }));
 }

@@ -6,11 +6,16 @@ import { BadRequestError, ConflictError, NotFoundError, scopeOf, type Viewer } f
 import { throwNotFoundOrConflict } from '@/server/access/scope';
 import { closeAutoTaskByKey, closeAutoTasks } from '@/server/domain/tasks/auto';
 import { isUniqueViolation, newId, type Sql } from '@/server/platform/db';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { noteCardEvent } from './cardEvents';
-import { checkConsultSlot } from './consult';
+import { checkConsultSlot, checkConsultWindow } from './consult';
+import { decideConsultPlacement, loadDay, lockConsultDay, lockConsultDays, type ConsultPlacement } from './consultDay';
 import { BookingDomainError } from './errors';
 import { nearestOptions } from './events';
 import { requireRole, requireSpace } from './guards';
+import { loadBookingOpsSettings } from './opsSettings';
+import { ensureGreyTask, greyTaskKey, notifyConsultNew, promoteReserve } from './reserve';
+import { listClientConsultDates } from './repo.consult';
 import {
   actorUserId,
   attendanceMarkKeys,
@@ -20,6 +25,7 @@ import {
   findBookingByRequestId,
   findCardByClient,
   findEvent,
+  findResourceByUser,
   findHistoryBookingId,
   hasOtherFutureBooking,
   insertFeed,
@@ -31,6 +37,7 @@ import {
   lockCardOfBooking,
   lockClientBookings,
   markMoved,
+  setLockTimeout10s,
   spaceOfEvent,
   toBookingView,
   toClientBookingLite,
@@ -69,12 +76,14 @@ const bookingNotFound = () => new BookingDomainError('booking_not_found');
 // Создать и перенести
 // ---------------------------------------------------------------------------
 
-/** Цель индивидуальной записи (B3a: «серая» заявка, без консультанта). */
+/** Цель индивидуальной записи: «серая» заявка (B3a) или слот консультанта (B5b, за флагом). */
 interface IndividualTarget {
   eventTypeKey: string;
   date: string;
   time: string;
   directionKey: string;
+  /** Консультант слота; null — «серая». */
+  resourceId: string | null;
 }
 
 interface PlaceArgs {
@@ -124,9 +133,15 @@ interface Target {
 async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: number, a: PlaceArgs): Promise<CreateBookingResult> {
   const perm = 'booking.create';
   let spaceId: string;
+  // Подбор консультантов и блокировка дня — за флагом (D-203): без него работает сетка B3a и «серая» заявка
+  const consult = a.individual !== null && isFeatureEnabled('BK_WIZARD');
+  if (a.individual && a.individual.resourceId !== null && !consult) throw new NotFoundError();
   if (actor.kind === 'user') {
-    requireRole(actor, perm, 'object');
+    // Консультант по отношению (без гранта роли) записывает клиента только к себе, individual и свой ресурс (D-246)
+    if (scopeOf(actor, perm) === null && !(a.individual && a.individual.resourceId !== null)) throw new NotFoundError();
     spaceId = requireSpace(actor);
+    // Ожидание блокировок дня — не дольше 10 с (D-251); ставим до первой блокировки транзакции
+    if (consult) await setLockTimeout10s(tx);
   } else {
     // Системный исполнитель (импорт) пишет только групповые записи: консультации — только пользователь.
     if (a.eventId === null) throw new Error('booking: индивидуальную запись создаёт только пользователь');
@@ -138,6 +153,10 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
   // 1. карточка = блокировка клиента в пространстве (PROCESS 12.18); не видна — клиента «нет»
   const card = await findCardByClient(actor, tx, { spaceId, clientId: a.clientId, perm, lock: a.lockCard });
   if (!card) throw new NotFoundError();
+  if (consult && a.individual?.resourceId != null && actor.kind === 'user' && scopeOf(actor, perm) === null) {
+    const mine = await findResourceByUser(tx, { spaceId, userId: actor.userId });
+    if (!mine || mine.id !== a.individual.resourceId) throw new NotFoundError();
+  }
 
   // 2. повтор ключа: после блокировки параллельный дубль видит первую вставку
   const prior = await findBookingByRequestId(tx, a.requestId);
@@ -157,7 +176,9 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
   let ev: Awaited<ReturnType<typeof findEvent>> = null;
   let target: Target;
   if (a.individual) {
-    target = individualTarget(settings, a.individual, now);
+    target = individualTarget(settings, a.individual, now, consult && a.individual.resourceId !== null);
+    // Блокировка дней (D-245): карточка уже взята; даты — в порядке дат, включая дату переносимой записи
+    if (consult) await lockConsultDays(tx, spaceId, [target.eventDate, ...(await listClientConsultDates(tx, { spaceId, clientId: a.clientId }))]);
   } else {
     ev = await findEvent(actor, tx, { eventId: a.eventId as string, perm: 'booking.read', lock: true });
     // Мероприятие другого пространства для записи не существует (и системному исполнителю тоже)
@@ -202,6 +223,27 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
     }
   }
 
+  // 7а. консультация за флагом: решение по снимку дня (пул «серых», ранг консультантов) под блокировкой дня
+  let placement: ConsultPlacement = { resourceId: null, isReserve: false, durationMin: target.durationMin, greyTooLate: false };
+  if (a.individual && consult) {
+    const [ops, day] = await Promise.all([loadBookingOpsSettings(spaceId, now), loadDay(tx, spaceId, target.eventDate, settings)]);
+    const type = settings.catalog.eventTypes.find((t) => t.key === target.eventTypeKey);
+    if (!type) throw new BookingDomainError('not_an_individual_event');
+    placement = decideConsultPlacement({
+      snapshot: day.snapshot,
+      settings,
+      ops,
+      type,
+      directionKey: target.directionKey,
+      date: target.eventDate,
+      time: target.startTime,
+      now,
+      resourceId: a.individual.resourceId,
+      resources: day.resources,
+      excludeBookingId: from?.id ?? null,
+    });
+  }
+
   // 8. сделка: перенос сохраняет сделку исходной записи (D-134)
   const dealId = from ? from.dealId : await deps.deals.ensureOpen(tx, actor, card, { requestId: a.requestId, at: now, stages: settings.deals });
 
@@ -232,8 +274,10 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
           date: target.eventDate,
           time: target.startTime,
           startsAt: target.startsAt,
-          durationMin: target.durationMin,
+          durationMin: placement.durationMin,
           directionKey: target.directionKey,
+          resourceId: placement.resourceId,
+          isReserve: placement.isReserve,
         });
   } catch (e) {
     // Индексы bookings_group_uq и bookings_import_uq — второй рубеж: под блокировками сюда не дойдём.
@@ -264,6 +308,12 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
       data: { fromId: from.id, toId: row.id, fromEventId: from.eventId, toEventId: target.eventId },
     });
     await closeTasksOnBooking(tx, actor, { spaceId, clientId: a.clientId, via: a.via, at: now });
+    if (from.kind === 'individual') {
+      await closeAutoTaskByKey(tx, actor, { sourceKey: greyTaskKey(from.id), at: now });
+      // Старая запись освободила слот консультанта: повысить резерв (даты уже заблокированы выше)
+      if (from.resourceId) await promoteReserve(tx, actor, { spaceId, resourceId: from.resourceId, date: from.bookingDate, startTime: from.startTime, durationMin: from.durationMin, at: now });
+    }
+    await afterConsultPlaced(tx, actor, { card, row, placement, spaceId, now });
     return { action: 'moved', booking: toBookingView(row), movedFromId: from.id, replayed: false };
   }
   await insertHistory(tx, {
@@ -294,7 +344,31 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
     },
   });
   await closeTasksOnBooking(tx, actor, { spaceId, clientId: a.clientId, via: a.via, at: now });
+  await afterConsultPlaced(tx, actor, { card, row, placement, spaceId, now });
   return { action: 'created', booking: toBookingView(row), replayed: false };
+}
+
+/** После вставки консультации: колокол консультанту; «серая» после последнего прогона — задача РОП (§4.6). */
+async function afterConsultPlaced(
+  tx: Sql,
+  actor: BookingActor,
+  c: { card: LockedCard; row: BookingRow; placement: ConsultPlacement; spaceId: string; now: number },
+): Promise<void> {
+  if (c.row.kind !== 'individual') return;
+  if (c.placement.resourceId) {
+    await notifyConsultNew(tx, { bookingId: c.row.id, resourceId: c.placement.resourceId, exceptUserId: actorUserId(actor), at: c.now });
+    return;
+  }
+  if (!c.placement.greyTooLate) return;
+  await ensureGreyTask(tx, actor, {
+    bookingId: c.row.id,
+    spaceId: c.spaceId,
+    clientId: c.row.clientId,
+    dealId: c.row.dealId,
+    startsAt: c.row.startsAt,
+    ownerUserId: c.card.ownerUserId,
+    at: c.now,
+  });
 }
 
 /** Новая запись или перенос закрывает задачи клиента «записать» (PROCESS 6.2, D-204); импорт их не трогает. */
@@ -304,12 +378,13 @@ async function closeTasksOnBooking(tx: Sql, actor: BookingActor, a: { spaceId: s
 }
 
 /** Вид, направление и слот заявки на консультацию (шаг 5 дизайна B3a); отказ — ошибка домена. */
-function individualTarget(settings: Awaited<ReturnType<BookingDeps['settings']>>, t: IndividualTarget, now: number): Target {
+function individualTarget(settings: Awaited<ReturnType<BookingDeps['settings']>>, t: IndividualTarget, now: number, byResource: boolean): Target {
   const type = settings.catalog.eventTypes.find((x) => x.key === t.eventTypeKey);
   if (!type || type.behavior !== 'individual') throw new BookingDomainError('not_an_individual_event');
   const known = settings.catalog.directions.some((d) => d.key === t.directionKey);
   if (!known || (type.directions.length > 0 && !type.directions.includes(t.directionKey))) throw new BadRequestError('direction');
-  const check = checkConsultSlot(settings, t.date, t.time, now);
+  // К консультанту сетку часов не проверяем: слот определяет его график (подбор), здесь только окно дат
+  const check = byResource ? checkConsultWindow(settings, t.date, t.time, now) : checkConsultSlot(settings, t.date, t.time, now);
   if (check !== 'ok') throw new BookingDomainError(check);
   return {
     eventTypeKey: type.key,
@@ -323,14 +398,12 @@ function individualTarget(settings: Awaited<ReturnType<BookingDeps['settings']>>
 }
 
 export const createBooking: CreateBooking = async (deps, actor, req, opts = {}) => {
-  // Запись к консультанту (resource_id) — B5: до него сюда она попасть не должна (ошибка сборки, не ответ пользователю).
-  if (req.kind === 'individual' && req.resourceId !== null) throw new Error('B5: запись к консультанту ещё не реализована');
   const now = deps.now();
   const args: PlaceArgs = {
     requestId: req.requestId,
     clientId: req.clientId,
     eventId: req.kind === 'group' ? req.eventId : null,
-    individual: req.kind === 'individual' ? { eventTypeKey: req.eventTypeKey, date: req.date, time: req.time, directionKey: req.directionKey } : null,
+    individual: req.kind === 'individual' ? { eventTypeKey: req.eventTypeKey, date: req.date, time: req.time, directionKey: req.directionKey, resourceId: req.resourceId } : null,
     contactId: req.contactId,
     via: opts.imported ? 'import' : 'ui',
     importKey: opts.imported?.importKey ?? null,
@@ -392,6 +465,8 @@ async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec,
     const settings = await deps.settings(probe.spaceId, now);
     const card = await lockCardOfBooking(tx, probe.cardId);
     if (!card) throw new Error('booking: у записи нет карточки');
+    // Отмена консультации у консультанта освобождает слот: день блокируем до записей (карточка → день → записи, D-251)
+    if (spec.to === 'cancelled' && probe.kind === 'individual' && probe.resourceId !== null) await lockConsultDay(tx, probe.spaceId, probe.bookingDate);
     const b = await findBooking(viewer, tx, { id: spec.bookingId, perm: spec.perm, lock: true });
     if (!b) throw bookingNotFound();
 
@@ -447,6 +522,11 @@ async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec,
     // Явка отмечена руками: задачи «Отметьте явку» отметчику и РОП закрываются (PROCESS 6.2, §3.4)
     if (spec.to === 'attended' || spec.to === 'no_show') {
       for (const sourceKey of attendanceMarkKeys(b.id)) await closeAutoTaskByKey(tx, viewer, { sourceKey, at: now });
+    }
+    // Отменённая консультация: задача «Назначьте консультанта» не нужна, освободившийся слот отдаёт место резерву (§4.6)
+    if (spec.to === 'cancelled' && b.kind === 'individual') {
+      await closeAutoTaskByKey(tx, viewer, { sourceKey: greyTaskKey(b.id), at: now });
+      if (b.resourceId) await promoteReserve(tx, viewer, { spaceId: b.spaceId, resourceId: b.resourceId, date: b.bookingDate, startTime: b.startTime, durationMin: b.durationMin, at: now });
     }
     return toBookingView(row);
   });

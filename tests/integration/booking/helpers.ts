@@ -7,7 +7,7 @@ import { createDealLink } from '../../../src/server/domain/deals/effects';
 import type { PipelineInfo } from '../../../src/server/domain/deals/pipelines';
 import type { Sql } from '../../../src/server/platform/db';
 import type { TestDb } from '../../../src/server/platform/db/testing';
-import { SEED_NOW, SEED_TZ, SPACE } from '../../isolation/harness/seed';
+import { SEED_NOW, SEED_TZ, SPACE, U } from '../../isolation/harness/seed';
 import { resetConfigCache } from '../../../src/server/platform/config/active';
 import { writeConfig } from '../../../src/server/platform/config/write';
 import { worldConfig } from '../clients/world';
@@ -234,3 +234,94 @@ export function clientsOf(who: 'a' | 'b', from: number, to: number): Array<{ cli
 }
 
 export const uuid = (): string => globalThis.crypto.randomUUID();
+
+// ---------------------------------------------------------------------------
+// Консультации (B5b/B5c): флаг BK_WIZARD, настройки автоназначения, консультанты и график напрямую в БД
+// ---------------------------------------------------------------------------
+
+export interface GreyConfig {
+  mode?: 'assign' | 'suggest';
+  first?: string;
+  last?: string;
+  stepMin?: number;
+}
+
+/** Записать ревизию настроек мира с заданным `booking.grey` (режим и сетка прогонов автоназначения). */
+export async function setGreyConfig(g: GreyConfig): Promise<void> {
+  resetConfigCache();
+  const docs = worldConfig();
+  const grey = ((docs.spaces.sales as Record<string, unknown>).booking as Record<string, unknown>).grey as Record<string, unknown>;
+  const schedule = grey.schedule as Record<string, unknown>;
+  if (g.mode) grey.mode = g.mode;
+  if (g.first) schedule.first = g.first;
+  if (g.last) schedule.last = g.last;
+  if (g.stepMin) schedule.stepMin = g.stepMin;
+  await writeConfig({ docs, source: 'cli', authorId: null, project: true, note: 'запись: автоназначение' });
+}
+
+/**
+ * Мир консультаций: флаг BK_WIZARD включён, сидовые консультанты выключены (в пуле только созданные тестом),
+ * настройки — с заданным `booking.grey`.
+ */
+export async function openConsultWorld(grey: GreyConfig = { mode: 'assign' }): Promise<TestDb> {
+  process.env['FEATURE_BK_WIZARD'] = '1';
+  const db = await openBookingWorld();
+  await db.sql`UPDATE resources SET active = FALSE`;
+  await setGreyConfig(grey);
+  return db;
+}
+
+export async function closeConsultWorld(db: TestDb): Promise<void> {
+  delete process.env['FEATURE_BK_WIZARD'];
+  resetConfigCache();
+  await closeWorld(db);
+}
+
+export interface ConsultantSeed {
+  id: string;
+  userId: string;
+  directions?: string[];
+  slotMin?: number;
+  capacity?: number;
+  autoAssign?: boolean;
+  active?: boolean;
+  sort?: number;
+}
+
+export async function addConsultant(sql: Sql, c: ConsultantSeed): Promise<string> {
+  await sql`
+    INSERT INTO resources (id, space_id, user_id, directions, slot_min, capacity, auto_assign, active, sort, created_at, updated_at)
+    VALUES (${c.id}, ${SPACE}, ${c.userId}, ${c.directions ?? []}::text[], ${c.slotMin ?? 45}, ${c.capacity ?? 1}, ${c.autoAssign ?? true},
+            ${c.active ?? true}, ${c.sort ?? 0}, ${SEED_NOW}, ${SEED_NOW})`;
+  return c.id;
+}
+
+/** Недельный график: [день недели 1–7, 'HH:MM', 'HH:MM'][]. */
+export async function addSchedule(sql: Sql, resourceId: string, windows: ReadonlyArray<readonly [number, string, string]>): Promise<void> {
+  for (const [weekday, start, end] of windows) {
+    await sql`INSERT INTO resource_schedule (id, resource_id, weekday, start_time, end_time) VALUES (${uuid()}, ${resourceId}, ${weekday}, ${start}, ${end})`;
+  }
+}
+
+/** Рабочие дни пн–пт с одним окном. */
+export const weekdays = (start: string, end: string): Array<[number, string, string]> => [1, 2, 3, 4, 5].map((d) => [d, start, end]);
+
+export async function addException(sql: Sql, resourceId: string, day: string, kind: 'off' | 'custom', windows: ReadonlyArray<{ start: string; end: string }> = []): Promise<void> {
+  await sql`
+    INSERT INTO resource_exceptions (id, resource_id, day, kind, windows, created_at)
+    VALUES (${uuid()}, ${resourceId}, ${day}, ${kind}, ${JSON.stringify(windows)}::jsonb, ${SEED_NOW})`;
+}
+
+/** «Серая» заявка напрямую в БД (в обход сервиса): для автоназначения и экранов. */
+export async function insertGrey(
+  sql: Sql,
+  g: { id: string; client: string; card: string; date: string; time: string; direction?: string; durationMin?: number; createdAt?: number; resourceId?: string | null; status?: string },
+): Promise<string> {
+  await sql`
+    INSERT INTO bookings (id, space_id, kind, event_type_key, resource_id, client_id, card_id, booking_date, start_time, starts_at, duration_min,
+                          direction_key, status, booked_by_user_id, responsible_user_id, version, created_at, updated_at)
+    VALUES (${g.id}, ${SPACE}, 'individual', 'bk', ${g.resourceId ?? null}, ${g.client}, ${g.card}, ${g.date}, ${g.time},
+            ${booking.localToEpoch(SEED_TZ, g.date, g.time)}, ${g.durationMin ?? 45}, ${g.direction ?? 'marketing'}, ${g.status ?? 'registered'},
+            ${U.opA}, ${U.opA}, 0, ${g.createdAt ?? SEED_NOW}, ${g.createdAt ?? SEED_NOW})`;
+  return g.id;
+}

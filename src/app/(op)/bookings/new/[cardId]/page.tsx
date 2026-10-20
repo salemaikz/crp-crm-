@@ -3,6 +3,7 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { NotFoundError, page } from '@/server/access';
 import { bookingDeps, getBookingWizard } from '@/server/domain/booking';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { PageHeader } from '@/ui/kit';
 import { BookingWizard } from '../../_wizard/BookingWizard';
 import { WizardProviders } from '../../_wizard/WizardProviders';
@@ -25,7 +26,7 @@ export default page<Props, ReactNode>({ perm: 'booking.create', target: 'object'
     <main className="mx-auto w-full max-w-xl px-4 py-4">
       <PageHeader title={t('title')} lead={view.clientName} />
       <WizardProviders>
-        <BookingWizard view={view} />
+        <BookingWizard view={view} consultStrip={isFeatureEnabled('BK_WIZARD')} />
       </WizardProviders>
     </main>
   );

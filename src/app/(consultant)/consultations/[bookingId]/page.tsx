@@ -1,0 +1,59 @@
+import { notFound } from 'next/navigation';
+import { getLocale, getTranslations } from 'next-intl/server';
+import type { ReactNode } from 'react';
+import { page } from '@/server/access';
+import { bookingDeps, getMyConsultation, isBookingDomainError, pickLabel } from '@/server/domain/booking';
+import { isFeatureEnabled } from '@/server/platform/flags';
+import { Button, Card, PageHeader } from '@/ui/kit';
+import { MeetingPanel } from '../_meeting/MeetingPanel';
+
+type Props = { params: Promise<{ bookingId: string }> };
+
+// Страница встречи консультанта (B5c): клиент, сделка, «Пришёл / Не пришёл», итог, запись на следующую консультацию.
+// Чужая встреча и встреча вне окна — 404 (как несуществующая). За флагом BK_WIZARD.
+export default page<Props, ReactNode>({ perm: 'booking.read', target: 'object' }, async ({ viewer, props }) => {
+  if (!isFeatureEnabled('BK_WIZARD')) notFound();
+  const { bookingId } = await props.params;
+  const t = await getTranslations('booking.consultations');
+  const deps = bookingDeps();
+  let view;
+  try {
+    view = await getMyConsultation(deps, viewer, bookingId);
+  } catch (e) {
+    if (isBookingDomainError(e) && e.code === 'booking_not_found') notFound();
+    throw e;
+  }
+  const settings = viewer.spaceId ? await deps.settings(viewer.spaceId, deps.now()) : null;
+  const locale = await getLocale();
+  const b = view.booking;
+  const dir = settings?.catalog.directions.find((d) => d.key === b.directionKey);
+  const when = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${b.bookingDate}T12:00:00Z`));
+  return (
+    <main className="mx-auto w-full max-w-xl px-4 py-4">
+      <PageHeader title={view.clientName || t('client')} lead={`${when}, ${b.startTime} · ${t('duration', { minutes: b.durationMin })}${dir ? ` · ${pickLabel(dir.label, locale)}` : ''}`} />
+      <div className="flex flex-col gap-4">
+        <Card as="section">
+          <div className="flex flex-wrap gap-2">
+            <Button href={`/clients/${encodeURIComponent(b.clientId)}`} variant="secondary" size="sm">
+              {t('toClient')}
+            </Button>
+            {view.deal && isFeatureEnabled('PURCHASES') && (
+              <Button href={`/deals/${encodeURIComponent(view.deal.id)}`} variant="secondary" size="sm">
+                {t('toDeal')}
+              </Button>
+            )}
+          </div>
+        </Card>
+        <MeetingPanel
+          bookingId={b.id}
+          version={b.version}
+          status={b.status}
+          cardId={b.cardId}
+          deal={view.deal ? { version: view.deal.version, stageKey: view.deal.stageKey } : null}
+          laterStages={view.laterStages.map((x) => ({ key: x.key, label: pickLabel(x.label ?? { ru: x.key }, locale) }))}
+          purchase={isFeatureEnabled('PURCHASES')}
+        />
+      </div>
+    </main>
+  );
+});

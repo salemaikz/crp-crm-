@@ -1,12 +1,28 @@
 // Консультанты (B5a, без флага): список, создать, править, выключить. График и исключения — B5b.
 // docs/deals-handoffs-design.md §4.2–4.4, D-245/D-246. Консультант не удаляется, а выключается: будущие записи
 // остаются и видны РОП в «конфликтах». Доступ — `booking.manage`, охват — пространство зрителя.
+import { booking as core } from '@crm/core';
 import { BadRequestError, ConflictError, type Viewer } from '@/server/access';
 import { writeAudit } from '@/server/platform/audit';
 import { BookingDomainError } from './errors';
 import { requireRole, requireSpace } from './guards';
-import type { ConsultantInput, ConsultantPatch, ConsultantView, CreateConsultant, ListConsultants, UpdateConsultant } from './consultTypes';
+import { parseExceptionWindows } from './consultDay';
+import type {
+  ClearException,
+  ConsultantInput,
+  ConsultantPatch,
+  ConsultantSchedule,
+  ConsultantView,
+  CreateConsultant,
+  GetSchedule,
+  ListConsultants,
+  ScheduleWindowInput,
+  SetException,
+  SetSchedule,
+  UpdateConsultant,
+} from './consultTypes';
 import { activeMemberIds, actorUserId, findResourceByUser, findResourceListRow, insertResource, listResourceRows, listStaffWithoutResource, updateResourceRow, type ResourceListRow } from './repo';
+import { deleteExceptionRow, listExceptionRows, listScheduleRows, replaceScheduleRows, upsertExceptionRow } from './repo.consult';
 import { inBookingTx } from './tx';
 import type { BookingDeps, BookingSettings } from './types';
 
@@ -147,3 +163,118 @@ export async function listConsultantCandidates(_deps: BookingDeps, viewer: Viewe
   const spaceId = requireSpace(viewer);
   return inBookingTx({}, (tx) => listStaffWithoutResource(tx, spaceId));
 }
+
+// ---------------------------------------------------------------------------
+// График и исключения (B5b, за FEATURE_BK_WIZARD на уровне маршрутов и страниц)
+// ---------------------------------------------------------------------------
+
+const MAX_WINDOWS = 21;
+
+/** Пересекаются ли два окна дня (касание концами — не пересечение). */
+const overlaps = (a: { start: string; end: string }, b: { start: string; end: string }): boolean => a.start < b.end && b.start < a.end;
+
+function checkRange(w: { start: string; end: string }): void {
+  if (!core.isLocalTime(w.start) || !core.isLocalTime(w.end) || w.start >= w.end) throw new BadRequestError('window');
+}
+
+/** Окна одного дня: формат `HH:MM`, `start < end`, без пересечений (`schedule_overlap`). */
+function checkDayWindows(list: readonly { start: string; end: string }[]): void {
+  for (const w of list) checkRange(w);
+  const sorted = [...list].sort((a, b) => a.start.localeCompare(b.start));
+  for (let i = 1; i < sorted.length; i++) if (overlaps(sorted[i - 1] as { start: string; end: string }, sorted[i] as { start: string; end: string })) throw new BookingDomainError('schedule_overlap');
+}
+
+async function readSchedule(tx: Parameters<Parameters<typeof inBookingTx>[1]>[0], resourceId: string, today: string): Promise<ConsultantSchedule> {
+  const [windows, exceptions] = await Promise.all([listScheduleRows(tx, resourceId), listExceptionRows(tx, { resourceId, fromDay: today })]);
+  return {
+    resourceId,
+    windows: windows.map((w) => ({ weekday: w.weekday, start: w.startTime, end: w.endTime })),
+    exceptions: exceptions.map((e) => ({ day: e.day, kind: e.kind, windows: parseExceptionWindows(e.windows) })),
+  };
+}
+
+export const getSchedule: GetSchedule = async (deps, viewer, resourceId) => {
+  requireRole(viewer, 'booking.manage', 'section');
+  const spaceId = requireSpace(viewer);
+  const now = deps.now();
+  const settings = await deps.settings(spaceId, now);
+  const today = core.epochToLocalDate(settings.timeZone, now);
+  return inBookingTx({}, async (tx) => {
+    if (!(await findResourceListRow(tx, { id: resourceId, spaceId, lock: false }))) throw notFound();
+    return readSchedule(tx, resourceId, today);
+  });
+};
+
+export const setSchedule: SetSchedule = async (deps, viewer, input) => {
+  requireRole(viewer, 'booking.manage', 'section');
+  const spaceId = requireSpace(viewer);
+  const now = deps.now();
+  const settings = await deps.settings(spaceId, now);
+  const today = core.epochToLocalDate(settings.timeZone, now);
+  const windows: readonly ScheduleWindowInput[] = input.windows;
+  if (windows.length > MAX_WINDOWS) throw new BadRequestError('windows');
+  for (const w of windows) if (!Number.isInteger(w.weekday) || w.weekday < 1 || w.weekday > 7) throw new BadRequestError('weekday');
+  for (let d = 1; d <= 7; d++) checkDayWindows(windows.filter((w) => w.weekday === d));
+  return inBookingTx({}, async (tx) => {
+    // Блокировка консультанта: две правки графика идут по очереди
+    if (!(await findResourceListRow(tx, { id: input.resourceId, spaceId, lock: true }))) throw notFound();
+    await replaceScheduleRows(tx, { resourceId: input.resourceId, windows });
+    await writeAudit(tx, {
+      actorId: actorUserId(viewer),
+      action: 'consultant.schedule',
+      entity: 'resource',
+      entityId: input.resourceId,
+      spaceId,
+      meta: { windows: windows.length },
+    });
+    return readSchedule(tx, input.resourceId, today);
+  });
+};
+
+export const setException: SetException = async (deps, viewer, input) => {
+  requireRole(viewer, 'booking.manage', 'section');
+  const spaceId = requireSpace(viewer);
+  const now = deps.now();
+  const settings = await deps.settings(spaceId, now);
+  const today = core.epochToLocalDate(settings.timeZone, now);
+  if (!core.isLocalDate(input.day) || input.day < today) throw new BadRequestError('day');
+  if (!core.EXCEPTION_KINDS.includes(input.kind)) throw new BadRequestError('kind');
+  if (input.kind === 'off' && input.windows.length > 0) throw new BadRequestError('windows');
+  if (input.kind === 'custom' && (input.windows.length === 0 || input.windows.length > MAX_WINDOWS)) throw new BadRequestError('windows');
+  checkDayWindows(input.windows);
+  return inBookingTx({}, async (tx) => {
+    if (!(await findResourceListRow(tx, { id: input.resourceId, spaceId, lock: true }))) throw notFound();
+    await upsertExceptionRow(tx, { resourceId: input.resourceId, day: input.day, kind: input.kind, windows: input.windows, createdBy: actorUserId(viewer), at: now });
+    await writeAudit(tx, {
+      actorId: actorUserId(viewer),
+      action: 'consultant.schedule',
+      entity: 'resource',
+      entityId: input.resourceId,
+      spaceId,
+      meta: { day: input.day, kind: input.kind, windows: input.windows.length },
+    });
+    return readSchedule(tx, input.resourceId, today);
+  });
+};
+
+export const clearException: ClearException = async (deps, viewer, input) => {
+  requireRole(viewer, 'booking.manage', 'section');
+  const spaceId = requireSpace(viewer);
+  const now = deps.now();
+  const settings = await deps.settings(spaceId, now);
+  const today = core.epochToLocalDate(settings.timeZone, now);
+  if (!core.isLocalDate(input.day)) throw new BadRequestError('day');
+  return inBookingTx({}, async (tx) => {
+    if (!(await findResourceListRow(tx, { id: input.resourceId, spaceId, lock: true }))) throw notFound();
+    await deleteExceptionRow(tx, { resourceId: input.resourceId, day: input.day });
+    await writeAudit(tx, {
+      actorId: actorUserId(viewer),
+      action: 'consultant.schedule',
+      entity: 'resource',
+      entityId: input.resourceId,
+      spaceId,
+      meta: { day: input.day, cleared: true },
+    });
+    return readSchedule(tx, input.resourceId, today);
+  });
+};

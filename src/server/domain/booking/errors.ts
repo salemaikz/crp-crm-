@@ -1,6 +1,7 @@
 // Ошибки домена записи и их HTTP-представление (docs/booking-design.md §10).
 // Домен бросает BookingDomainError; маршруты превращают её в ответ (src/app/api/bookings/_lib.ts).
 import { booking } from '@crm/core';
+import type { SuggestedConsultant } from './consultTypes';
 import type { BookingDomainErrorCode, BookingFailure, EventOption } from './types';
 
 /** HTTP-статус кода. Расхождение с ядром одно: `invalid_settings` — 409, а не 400 (§10). */
@@ -24,12 +25,14 @@ export const BOOKING_HTTP_STATUS: Readonly<Record<BookingDomainErrorCode, number
 export class BookingDomainError extends Error implements BookingFailure {
   readonly code: BookingDomainErrorCode;
   readonly alternatives?: EventOption[];
+  readonly suggestions?: SuggestedConsultant[];
 
-  constructor(code: BookingDomainErrorCode, alternatives?: EventOption[]) {
+  constructor(code: BookingDomainErrorCode, alternatives?: EventOption[], suggestions?: SuggestedConsultant[]) {
     super(code);
     this.name = 'BookingDomainError';
     this.code = code;
     if (alternatives) this.alternatives = alternatives;
+    if (suggestions) this.suggestions = suggestions;
   }
 
   get status(): number {
@@ -55,14 +58,15 @@ const BAD_REQUEST_CODES: ReadonlySet<BookingDomainErrorCode> = new Set(['invalid
 export type HttpFailure =
   | { kind: 'not_found' }
   | { kind: 'bad_request'; detail: string }
-  | { kind: 'response'; status: number; body: { error: string; detail: string; alternatives?: EventOption[] } };
+  | { kind: 'response'; status: number; body: { error: string; detail: string; alternatives?: EventOption[] | SuggestedConsultant[] } };
 
 /** Что отдать на ошибку домена (§10). */
 export function httpFailure(e: BookingDomainError): HttpFailure {
   if (NOT_FOUND_CODES.has(e.code)) return { kind: 'not_found' };
   if (BAD_REQUEST_CODES.has(e.code)) return { kind: 'bad_request', detail: e.code };
   if (e.code === 'card_port_unavailable') return { kind: 'response', status: 503, body: { error: 'internal', detail: e.code } };
-  const body: { error: string; detail: string; alternatives?: EventOption[] } = { error: 'conflict', detail: e.code };
+  const body: { error: string; detail: string; alternatives?: EventOption[] | SuggestedConsultant[] } = { error: 'conflict', detail: e.code };
   if (e.code === 'event_full' && e.alternatives) body.alternatives = e.alternatives;
+  if (e.code === 'slot_taken' && e.suggestions) body.alternatives = e.suggestions;
   return { kind: 'response', status: e.status, body };
 }

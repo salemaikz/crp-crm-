@@ -41,6 +41,8 @@ export default defineConfig({
       // Ключи HMAC номеров и ИИН: в production без них итог звонка отвечает 500 (fail closed). Только синтетика.
       CRM_PHONE_HMAC_KEY: process.env.CRM_PHONE_HMAC_KEY || 'e2e-phone-hmac-key-synthetic-not-for-production',
       CRM_IIN_HMAC_KEY: process.env.CRM_IIN_HMAC_KEY || 'e2e-iin-hmac-key-synthetic-not-for-production',
+      // Подбор консультанта, график и «Мои консультации» (B5b/B5c) за флагом; в production без него выключены
+      FEATURE_BK_WIZARD: '1',
     },
   },
 });

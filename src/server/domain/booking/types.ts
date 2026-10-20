@@ -11,7 +11,7 @@
 import type { booking as core, calling, time } from '@crm/core';
 import type { SystemActor, Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db';
-import type { ConsultDomainErrorCode } from './consultTypes';
+import type { ConsultDomainErrorCode, SuggestedConsultant } from './consultTypes';
 
 export type BookingActor = Viewer | SystemActor;
 
@@ -185,10 +185,11 @@ export const BOOKING_DOMAIN_ERRORS = [
 ] as const;
 export type BookingDomainErrorCode = core.BookingErrorCode | (typeof BOOKING_DOMAIN_ERRORS)[number] | ConsultDomainErrorCode;
 
-/** Что несёт ошибка домена (класс — errors.ts). `alternatives` — только у `event_full`. */
+/** Что несёт ошибка домена (класс — errors.ts). `alternatives` — только у `event_full`, `suggestions` — у `slot_taken`. */
 export interface BookingFailure {
   code: BookingDomainErrorCode;
   alternatives?: EventOption[];
+  suggestions?: SuggestedConsultant[];
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +241,13 @@ export interface DealLink {
   ensureOpen(tx: Sql, actor: BookingActor, card: LockedCard, args: { requestId: string; at: number; stages: DealStages | null }): Promise<string | null>;
   /** Только вперёд (PROCESS 4.2). */
   advanceOnAttended(tx: Sql, actor: BookingActor, args: { dealId: string; bookingId: string; at: number; stages: DealStages | null }): Promise<void>;
+  /**
+   * Итог встречи консультанта (B5c): сделка на открытый этап воронки, версия и охват `deal.edit` проверяются здесь.
+   * Тот же этап — пустая операция (`same`); этап назад без `deal.move_back` — 403. Неизвестный этап — 400.
+   */
+  /** Открытые этапы воронки после `fromStageKey` по порядку (выбор этапа в итоге встречи); пусто — дальше некуда. */
+  laterOpenStages(spaceId: string, pipelineKey: string, fromStageKey: string): Promise<{ key: string; label: LocalizedLabel | null }[]>;
+  moveToStage(tx: Sql, viewer: Viewer, args: { dealId: string; version: number; toStageKey: string; bookingId: string; at: number }): Promise<'moved' | 'same'>;
 }
 
 export interface BookingDeps {
