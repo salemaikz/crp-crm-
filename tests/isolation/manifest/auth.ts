@@ -12,7 +12,8 @@ export default defineManifest('auth', [
   { kind: 'route', path: '/api/auth/logout-all', method: 'POST', perm: 'authenticated', target: 'section', mutation: true, securityMutation: true, touches: ['cards', 'clients'] },
   { kind: 'route', path: '/api/auth/password', method: 'POST', perm: 'authenticated', target: 'section', sampleBody: { current: 'x', next: 'y' }, mutation: true, securityMutation: true, touches: ['users'] },
   // Страницы
-  { kind: 'page', path: '/', method: 'GET', perm: 'public', target: 'section', mutation: false },
+  // Корень перенаправляет на главную роли (P9b); без входа обёртка отправляет на /login
+  { kind: 'page', path: '/', method: 'GET', perm: 'authenticated', target: 'section', mutation: false },
   { kind: 'page', path: '/(auth)/login', method: 'GET', perm: 'public', target: 'section', mutation: false },
   { kind: 'page', path: '/(auth)/invite', method: 'GET', perm: 'public', target: 'section', mutation: false },
   { kind: 'page', path: '/(auth)/account', method: 'GET', perm: 'authenticated', target: 'section', mutation: false },
