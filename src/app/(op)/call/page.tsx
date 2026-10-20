@@ -1,5 +1,12 @@
+import { notFound } from 'next/navigation';
 import { page } from '@/server/access';
-import { ComingSoon } from '@/ui/shells';
+import { CallScreen } from '@/ui/call/CallScreen';
+import { loadCallConfig } from './loadCallConfig';
 
-// Заглушка «Скоро»: владелец раздела заменяет файл настоящей страницей и записью в своём манифесте.
-export default page({ perm: 'authenticated' }, async () => <ComingSoon />);
+// Главный экран оператора. Страница отдаёт только настройки (кнопки итогов, сроки перезвона); карточки приходят
+// из GET /api/calls/queue и держатся в памяти страницы, на сервере их показ проверяет охват карточек.
+export default page({ perm: 'card.outcome', target: 'section' }, async ({ viewer }) => {
+  const config = await loadCallConfig(viewer);
+  if (!config) notFound();
+  return <CallScreen config={config} />;
+});
