@@ -17,7 +17,7 @@ const config = [
   ...next,
   ...nextTs,
   {
-    ignores: ['.next/**', 'node_modules/**', 'docs/**', '.claude/**', 'dist/**', 'playwright-report/**', 'test-results/**'],
+    ignores: ['.next/**', 'node_modules/**', 'docs/**', '.claude/**', 'dist/**', 'packages/core/dist/**', 'playwright-report/**', 'test-results/**'],
   },
   // Ядро: только себя и zod
   {

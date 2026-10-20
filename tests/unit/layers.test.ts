@@ -41,7 +41,8 @@ export function checkFile(file: string, source: string): Violation[] {
     const target = resolveSpec(file, spec);
     const bad = (why: string) => v.push(`${file}: import '${spec}' — ${why}`);
 
-    if (under(file, 'packages/core')) {
+    // Ядро — packages/core/src; packages/core/build.mjs — инструмент сборки (D-101), ему ФС можно
+    if (under(file, 'packages/core/src')) {
       if (isNext(spec) || /^react(-dom)?($|\/)/.test(spec) || spec === 'postgres' || /^(node:)?fs($|\/)/.test(spec)) bad('ядро без Next, React, БД и ФС');
       if (under(target, 'src')) bad('ядро не импортирует src/**');
     }
@@ -97,6 +98,7 @@ test('проверка слоёв ловит нарушения (самопро�
   assert.equal(checkFile('packages/core/src/a.ts', "import postgres from 'postgres';").length, 1);
   assert.equal(checkFile('packages/core/src/a.ts', "import { x } from '../../../src/server/platform/env';").length, 1);
   assert.equal(checkFile('packages/core/src/a.ts', "import { z } from 'zod'; import { y } from './b';").length, 0);
+  assert.equal(checkFile('packages/core/build.mjs', "import { writeFileSync } from 'node:fs';").length, 0);
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { NextResponse } from 'next/server';").length, 1);
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import type { SystemActor } from '@/server/access/systemActor';").length, 0);
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { SystemActor } from '@/server/access/systemActor';").length, 1);
