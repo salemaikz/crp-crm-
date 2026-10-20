@@ -45,6 +45,10 @@ jobs:
         run: npm run test:unit
         env:
           TZ: ${{ matrix.tz }}
+      # Тесты ядра на обфусцированной сборке (D-101)
+      - name: Ядро после обфускации
+        if: matrix.tz == 'UTC'
+        run: npm run core:check
 
   # Postgres 16: миграции, права, интеграционные тесты, сборка
   database:
