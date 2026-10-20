@@ -8,10 +8,10 @@ import type { SalesSettingsView } from './types';
 
 const EVERY_MIN = [15, 30, 60, 120];
 
-type Props = { data: SalesSettingsView; onSaved: (v: SalesSettingsView) => void; onConflict: () => void };
+type Props = { data: SalesSettingsView; justSaved?: boolean; onSaved: (v: SalesSettingsView) => void; onConflict: () => void };
 
 /** Раздел «Раздача и звонки». Шлёт в патче только изменённые поля. */
-export function SalesSettingsForm({ data, onSaved, onConflict }: Props) {
+export function SalesSettingsForm({ data, justSaved = false, onSaved, onConflict }: Props) {
   const t = useTranslations('settings.sales');
   const v = data.values;
   const [dailyCap, setDailyCap] = useState(String(v.dailyCap ?? 0));
@@ -24,7 +24,7 @@ export function SalesSettingsForm({ data, onSaved, onConflict }: Props) {
   const [target, setTarget] = useState(String(v.callsPerHourTarget ?? 10));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(justSaved);
 
   const editable = data.can.sales;
   // текущее значение everyMin может быть вне списка (пресет) — оставляем его вариантом

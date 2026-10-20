@@ -7,19 +7,19 @@ import { Alert, Button, Card, Input, Select, Table, type TableColumn } from '@/u
 import { send } from './api';
 import type { Holiday, SalesSettingsView } from './types';
 
-type Props = { data: SalesSettingsView; onSaved: (v: SalesSettingsView) => void; onConflict: () => void };
+type Props = { data: SalesSettingsView; justSaved?: boolean; onSaved: (v: SalesSettingsView) => void; onConflict: () => void };
 
 const MAX_ROWS = 300;
 type Row = Holiday & { id: number };
 
 /** Календарь на текущий и следующий год. Строки других лет сохраняются как есть. */
-export function HolidaysEditor({ data, onSaved, onConflict }: Props) {
+export function HolidaysEditor({ data, justSaved = false, onSaved, onConflict }: Props) {
   const t = useTranslations('settings.holidays');
   const [rows, setRows] = useState<Row[]>(() => data.holidays.map((h, i) => ({ ...h, id: i })));
   const [nextId, setNextId] = useState(data.holidays.length);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(justSaved);
   const editable = data.can.holidays;
 
   const years = [String(data.year), String(data.year + 1)];

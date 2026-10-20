@@ -21,12 +21,17 @@ export function SettingsScreen({ initial }: { initial: SalesSettingsView }) {
     if (r.ok) {
       setData(r.data);
       setConflict(false);
+      setJustSaved(null);
       setEpoch((n) => n + 1);
     }
   }
 
-  const accept = (v: SalesSettingsView) => {
+  // какой раздел только что сохранён: форма пересоздаётся с новыми значениями, отметка «Сохранено» переживает это
+  const [justSaved, setJustSaved] = useState<'sales' | 'holidays' | null>(null);
+
+  const accept = (section: 'sales' | 'holidays') => (v: SalesSettingsView) => {
     setData(v);
+    setJustSaved(section);
     setEpoch((n) => n + 1);
   };
 
@@ -42,8 +47,8 @@ export function SettingsScreen({ initial }: { initial: SalesSettingsView }) {
             </Button>
           </Alert>
         )}
-        <SalesSettingsForm key={`s${epoch}`} data={data} onSaved={accept} onConflict={() => setConflict(true)} />
-        <HolidaysEditor key={`h${epoch}`} data={data} onSaved={accept} onConflict={() => setConflict(true)} />
+        <SalesSettingsForm key={`s${epoch}`} data={data} justSaved={justSaved === 'sales'} onSaved={accept('sales')} onConflict={() => setConflict(true)} />
+        <HolidaysEditor key={`h${epoch}`} data={data} justSaved={justSaved === 'holidays'} onSaved={accept('holidays')} onConflict={() => setConflict(true)} />
       </div>
     </>
   );
