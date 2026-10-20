@@ -13,7 +13,8 @@
 // - карточка: own — владелец или временный владелец; team — они же в моей команде; space — текущее
 //   пространство; all — все пространства с членством; плюс отношения, дающие это разрешение;
 // - клиент, контакты, номера, сделки, записи, звонки, заметки, лента, чаты — через карточку;
-// - задачи: own — исполнитель я и карточка видна; иначе охват роли; плюс задачи передачи;
+// - задачи: own — исполнитель я (или владелец карточки, где я временный владелец, D-252) и карточка видна;
+//   иначе охват роли; плюс задачи передачи;
 // - пишущее разрешение у роли «только чтение» — FALSE; у отношения — только из его списка действий.
 import { access as coreAccess } from '@crm/core';
 import type { ActiveRelation, Permission, Scope } from '@crm/core/access';
@@ -188,9 +189,13 @@ function taskPred(v: Viewer, a: Access, X: Frag): Frag {
   const space = v.spaceId;
   const parts: Frag[] = [];
   const own = () => {
-    // «Своё»: исполнитель я, и карточка клиента задачи мне видна (охват card.read и отношения).
+    // «Своё»: исполнитель я — или исполнитель владелец карточки клиента, где я временный владелец (D-252:
+    // задачи отсутствующего не переназначаются, снятие временного само закрывает видимость); и карточка
+    // клиента задачи мне видна (охват card.read и отношения).
     const card = viaCard(v, accessFor(v, 'card.read'), (C) => frag`${C}.client_id = ${X}.client_id AND ${C}.space_id = ${X}.space_id`);
-    return card === FALSE ? FALSE : frag`(${X}.assignee_user_id = ${me} AND ${card})`;
+    if (card === FALSE) return FALSE;
+    const acting = frag`EXISTS (SELECT 1 FROM cards acc_ta WHERE acc_ta.space_id = ${X}.space_id AND acc_ta.client_id = ${X}.client_id AND acc_ta.acting_user_id = ${me} AND acc_ta.owner_user_id = ${X}.assignee_user_id)`;
+    return frag`((${X}.assignee_user_id = ${me} OR ${acting}) AND ${card})`;
   };
   switch (a.scope) {
     case null:
