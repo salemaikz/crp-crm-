@@ -1,0 +1,212 @@
+// Правка полей клиента (5.1): события «было → стало», expect, права на поля, ссылки, название и поиск.
+import { after, before, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { FieldIssuesError, getClientCard, updateClient, type PatchBody } from '../../../src/server/domain/clients';
+import type { TestDb } from '../../../src/server/platform/db/testing';
+import { viewerOf } from '../../isolation/harness/actors';
+import { FX, U, clientOf, phoneOf } from '../../isolation/harness/seed';
+import { closeClientsWorld, openClientsWorld } from './world';
+
+let db: TestDb;
+before(async () => {
+  db = await openClientsWorld();
+});
+after(() => closeClientsWorld(db));
+
+const body = (set: PatchBody['set'], expect: PatchBody['expect']): PatchBody => ({ set, expect });
+
+async function events(clientId: string) {
+  return db.sql<{ kind: string; data: Record<string, unknown>; actorId: string }>`
+    SELECT kind, data, actor_id FROM client_events WHERE client_id = ${clientId} AND kind = 'field.changed' ORDER BY id`;
+}
+
+async function issuesOf(p: Promise<unknown>): Promise<Array<{ key: string; code: string }>> {
+  try {
+    await p;
+  } catch (e) {
+    if (e instanceof FieldIssuesError) return e.issues.map((i) => ({ key: i.key, code: i.code }));
+    throw e;
+  }
+  assert.fail('ожидалась ошибка полей');
+}
+
+test('правка двух полей пишет по событию «было → стало» на каждое и обновляет карточку', async () => {
+  const id = clientOf('a', 10);
+  const v = await viewerOf(U.opA);
+  const card = await updateClient(
+    v,
+    id,
+    body({ system: { region: 'Алматы' }, custom: { segment: 'малый бизнес', industry: 'trade' } }, { system: { region: '' }, custom: { segment: null, industry: null } }),
+  );
+  assert.equal(card.region, 'Алматы');
+  assert.equal(card.fields.values.segment, 'малый бизнес');
+  assert.equal(card.fields.values.industry, 'trade');
+  const ev = await events(id);
+  assert.equal(ev.length, 3);
+  const byField = Object.fromEntries(ev.map((e) => [e.data.field as string, e.data]));
+  assert.deepEqual(byField.region, { obj: 'client', sys: true, field: 'region', before: null, after: 'Алматы' });
+  assert.deepEqual(byField.segment, { obj: 'client', sys: false, field: 'segment', before: null, after: 'малый бизнес' });
+  assert.deepEqual(byField.industry, { obj: 'client', sys: false, field: 'industry', before: null, after: 'trade' });
+  assert.ok(ev.every((e) => e.actorId === U.opA));
+  // второй раз: было → стало с реальным прежним значением
+  await updateClient(v, id, body({ system: {}, custom: { segment: 'средний' } }, { system: {}, custom: { segment: 'малый бизнес' } }));
+  const last = (await events(id)).filter((e) => e.data.field === 'segment');
+  assert.equal(last.length, 2);
+  assert.ok(last.some((e) => e.data.before === 'малый бизнес' && e.data.after === 'средний'));
+});
+
+test('без изменений — ни записи, ни событий', async () => {
+  const id = clientOf('a', 11);
+  const v = await viewerOf(U.opA);
+  await updateClient(v, id, body({ system: {}, custom: { segment: 'x' } }, { system: {}, custom: { segment: null } }));
+  const before = (await events(id)).length;
+  const t0 = (await db.sql<{ updatedAt: number }>`SELECT updated_at FROM clients WHERE id = ${id}`)[0]?.updatedAt;
+  await updateClient(v, id, body({ system: { region: '' }, custom: { segment: 'x' } }, { system: { region: '' }, custom: { segment: 'x' } }));
+  await updateClient(v, id, body({ system: {}, custom: {} }, { system: {}, custom: {} }));
+  assert.equal((await events(id)).length, before);
+  const t1 = (await db.sql<{ updatedAt: number }>`SELECT updated_at FROM clients WHERE id = ${id}`)[0]?.updatedAt;
+  assert.equal(t1, t0);
+});
+
+test('expect не совпал — 409, ничего не записано', async () => {
+  const id = clientOf('a', 12);
+  const v = await viewerOf(U.opA);
+  await updateClient(v, id, body({ system: {}, custom: { segment: 'один' } }, { system: {}, custom: { segment: null } }));
+  await assert.rejects(
+    updateClient(v, id, body({ system: { region: 'Астана' }, custom: { segment: 'два' } }, { system: { region: '' }, custom: { segment: 'устарело' } })),
+    { code: 'conflict' },
+  );
+  const c = await getClientCard(v, id);
+  assert.equal(c.region, '');
+  assert.equal(c.fields.values.segment, 'один');
+  // системное поле тоже сверяется
+  await db.sql`UPDATE clients SET region = 'Шымкент' WHERE id = ${id}`;
+  await assert.rejects(updateClient(v, id, body({ system: { region: 'Атырау' }, custom: {} }, { system: { region: '' }, custom: {} })), { code: 'conflict' });
+});
+
+test('оператор не меняет название и БИН: forbidden; РОП может', async () => {
+  const id = clientOf('a', 13);
+  const op = await viewerOf(U.opA);
+  const issues = await issuesOf(updateClient(op, id, body({ system: { name: 'Другое', org_id: '123456789012' }, custom: {} }, { system: { name: 'ТОО Синтетика Альфа 13', org_id: '' }, custom: {} })));
+  assert.deepEqual(issues.sort((a, b) => a.key.localeCompare(b.key)), [
+    { key: 'name', code: 'forbidden' },
+    { key: 'org_id', code: 'forbidden' },
+  ]);
+  const rop = await viewerOf(U.rop);
+  const c = await updateClient(rop, id, body({ system: { name: 'ТОО Новая Сова', org_id: '123456789012' }, custom: {} }, { system: { name: 'ТОО Синтетика Альфа 13', org_id: '' }, custom: {} }));
+  assert.equal(c.name, 'ТОО Новая Сова');
+  assert.equal(c.orgId, '123456789012');
+});
+
+test('переименование обновляет name_norm и search_norm (название, БИН, номера, видимые всем поля)', async () => {
+  const id = clientOf('a', 14);
+  const rop = await viewerOf(U.rop);
+  // secret — «только чтение» даже для РОП: значение пришло из приёма или импорта
+  await db.sql`UPDATE clients SET custom = custom || ${db.json({ secret: 'скрытое слово' }) as never} WHERE id = ${id}`;
+  await updateClient(rop, id, body({ system: { name: 'ТОО «Қазына Ай»', org_id: '210987654321' }, custom: { segment: 'Оптовик' } }, { system: { name: 'ТОО Синтетика Альфа 14', org_id: '' }, custom: { segment: null } }));
+  const [row] = await db.sql<{ nameNorm: string; searchNorm: string }>`SELECT name_norm, search_norm FROM clients WHERE id = ${id}`;
+  assert.equal(row?.nameNorm, 'казына ай');
+  assert.ok(row?.searchNorm.includes('казына ай'), row?.searchNorm);
+  assert.ok(row?.searchNorm.includes('210987654321'));
+  assert.ok(row?.searchNorm.includes(phoneOf('a', 14)));
+  assert.ok(row?.searchNorm.includes('оптовик'));
+  // secret скрыт от оператора — в общий поиск не попадает
+  assert.ok(!row?.searchNorm.includes('скрытое'));
+});
+
+test('скрытое поле и несуществующее — одинаковая ошибка unknown_field', async () => {
+  const op = await viewerOf(U.opA);
+  const id = clientOf('a', 15);
+  const hidden = await issuesOf(updateClient(op, id, body({ system: {}, custom: { secret: 'x' } }, { system: {}, custom: { secret: null } })));
+  const none = await issuesOf(updateClient(op, id, body({ system: {}, custom: { nope: 'x' } }, { system: {}, custom: { nope: null } })));
+  assert.deepEqual(hidden, [{ key: 'secret', code: 'unknown_field' }]);
+  assert.deepEqual(none, [{ key: 'nope', code: 'unknown_field' }]);
+  // у РОП то же поле — только чтение, а не «нет такого»
+  const rop = await viewerOf(U.rop);
+  assert.deepEqual(await issuesOf(updateClient(rop, id, body({ system: {}, custom: { secret: 'x' } }, { system: {}, custom: { secret: null } }))), [{ key: 'secret', code: 'forbidden' }]);
+});
+
+test('поле «только чтение» для оператора — forbidden; для РОП правится (деньги — целые тенге)', async () => {
+  const id = clientOf('a', 16);
+  const op = await viewerOf(U.opA);
+  assert.deepEqual(await issuesOf(updateClient(op, id, body({ system: {}, custom: { credit: 1000 } }, { system: {}, custom: { credit: null } }))), [{ key: 'credit', code: 'forbidden' }]);
+  const rop = await viewerOf(U.rop);
+  assert.deepEqual(await issuesOf(updateClient(rop, id, body({ system: {}, custom: { credit: 10.5 } }, { system: {}, custom: { credit: null } }))), [{ key: 'credit', code: 'type' }]);
+  const c = await updateClient(rop, id, body({ system: {}, custom: { credit: '1 500 000' } }, { system: {}, custom: { credit: null } }));
+  assert.equal(c.fields.values.credit, 1500000);
+  // оператор видит поле, но не правит
+  const seen = (await getClientCard(op, id)).fields.fields.find((f) => f.key === 'credit');
+  assert.equal(seen?.access, 'read');
+  assert.equal(seen?.value, 1500000);
+});
+
+test('ссылки: javascript: и прочие схемы отвергаются в системном и пользовательском поле', async () => {
+  const id = clientOf('a', 17);
+  const op = await viewerOf(U.opA);
+  for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'ftp://example.kz', 'https://user:pw@example.kz']) {
+    assert.deepEqual(await issuesOf(updateClient(op, id, body({ system: { website: bad }, custom: { link: bad } }, { system: { website: '' }, custom: { link: null } }))), [
+      { key: 'website', code: 'url' },
+      { key: 'link', code: 'url' },
+    ]);
+  }
+  const c = await updateClient(op, id, body({ system: { website: 'example.kz/about' }, custom: { link: 'HTTPS://Example.kz' } }, { system: { website: '' }, custom: { link: null } }));
+  assert.equal(c.websiteHref, 'https://example.kz/about');
+  assert.equal(c.fields.fields.find((f) => f.key === 'link')?.href, 'https://example.kz/');
+  // почта
+  assert.deepEqual(await issuesOf(updateClient(op, id, body({ system: { email: 'не почта' }, custom: {} }, { system: { email: '' }, custom: {} }))), [{ key: 'email', code: 'email' }]);
+  const m = await updateClient(op, id, body({ system: { email: ' Info@Example.KZ ' }, custom: {} }, { system: { email: '' }, custom: {} }));
+  assert.equal(m.email, 'info@example.kz');
+  assert.equal(m.emailHref, 'mailto:info@example.kz');
+});
+
+test('варианты списков: архивный вариант нельзя выбрать заново; неизвестный отвергается', async () => {
+  const id = clientOf('a', 18);
+  const op = await viewerOf(U.opA);
+  assert.deepEqual(await issuesOf(updateClient(op, id, body({ system: {}, custom: { industry: 'old' } }, { system: {}, custom: { industry: null } }))), [{ key: 'industry', code: 'option' }]);
+  assert.deepEqual(await issuesOf(updateClient(op, id, body({ system: {}, custom: { industry: 'zzz' } }, { system: {}, custom: { industry: null } }))), [{ key: 'industry', code: 'option' }]);
+  const c = await updateClient(op, id, body({ system: {}, custom: { tags: ['new', 'vip'] } }, { system: {}, custom: { tags: null } }));
+  assert.deepEqual(c.fields.values.tags, ['vip', 'new']);
+});
+
+test('форма собственности: неизвестная отвергается, у ИП БИН не принимается, смена на ИП очищает БИН', async () => {
+  const id = clientOf('a', 19);
+  const rop = await viewerOf(U.rop);
+  assert.deepEqual(await issuesOf(updateClient(rop, id, body({ system: { legal_form: 'nope' }, custom: {} }, { system: { legal_form: '' }, custom: {} }))), [{ key: 'legal_form', code: 'option' }]);
+  assert.deepEqual(await issuesOf(updateClient(rop, id, body({ system: { legal_form: 'sole', org_id: '123456789012' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }))), [{ key: 'org_id', code: 'type' }]);
+  await updateClient(rop, id, body({ system: { legal_form: 'llp', org_id: '111122223333' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }));
+  const c = await updateClient(rop, id, body({ system: { legal_form: 'sole' }, custom: {} }, { system: { legal_form: 'llp' }, custom: {} }));
+  assert.equal(c.legalForm, 'sole');
+  assert.equal(c.orgId, '');
+});
+
+test('занятый БИН — 409, транзакция откачена: ни полей, ни событий', async () => {
+  const rop = await viewerOf(U.rop);
+  await updateClient(rop, clientOf('a', 20), body({ system: { org_id: '555566667777' }, custom: {} }, { system: { org_id: '' }, custom: {} }));
+  const id = clientOf('a', 21);
+  await assert.rejects(
+    updateClient(rop, id, body({ system: { org_id: '555566667777', region: 'Павлодар' }, custom: { segment: 'не запишется' } }, { system: { org_id: '', region: '' }, custom: { segment: null } })),
+    { code: 'conflict' },
+  );
+  const c = await getClientCard(rop, id);
+  assert.equal(c.region, '');
+  assert.equal(c.fields.values.segment, undefined);
+  assert.equal((await events(id)).length, 0);
+});
+
+test('название не может быть пустым', async () => {
+  const rop = await viewerOf(U.rop);
+  assert.deepEqual(await issuesOf(updateClient(rop, clientOf('a', 22), body({ system: { name: '  ' }, custom: {} }, { system: { name: 'ТОО Синтетика Альфа 22' }, custom: {} }))), [{ key: 'name', code: 'required' }]);
+});
+
+test('клиент виден, но не правится — 403; чужой и несуществующий — 404 (без следов)', async () => {
+  // консультант в окне записи: читает клиента B2, но права client.edit у роли нет
+  const cons = await viewerOf(U.consultant);
+  const target = FX.bkInWindow.client;
+  const snap = async () => (await db.sql`SELECT count(*)::int AS n FROM client_events`)[0]?.n;
+  const n0 = await snap();
+  await assert.rejects(updateClient(cons, target, body({ system: { region: 'x' }, custom: {} }, { system: { region: '' }, custom: {} })), { code: 'forbidden' });
+  const op = await viewerOf(U.opA);
+  await assert.rejects(updateClient(op, clientOf('b', 1), body({ system: { region: 'x' }, custom: {} }, { system: { region: '' }, custom: {} })), { code: 'not_found' });
+  await assert.rejects(updateClient(op, 'cl-nope', body({ system: { region: 'x' }, custom: {} }, { system: { region: '' }, custom: {} })), { code: 'not_found' });
+  assert.equal(await snap(), n0);
+});
