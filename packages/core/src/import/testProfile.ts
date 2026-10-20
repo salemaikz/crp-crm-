@@ -48,8 +48,8 @@ export function testProfile(slots: readonly OperatorSlot[], over: Partial<Import
       { code: 'dnc_request', words: ['не звонить', 'удалить'] },
       { code: 'sensitive', words: ['[личное]'] },
     ],
-    // КХ — форма ИП: номер — ИИН главы хозяйства.
-    personalIdForms: ['ип', 'кх'],
+    // Как в пресете kz: только ИП. КХ — «личная» форма самого словаря (D-141).
+    personalIdForms: ['ип'],
     ...over,
   };
 }

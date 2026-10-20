@@ -8,6 +8,7 @@ import {
   normalizeBin,
   normalizeCompanyName,
   normalizePersonName,
+  personalFormCodes,
   type LegalForm,
 } from '../names';
 import { splitPhones, type PhoneRules } from '../phone';
@@ -35,5 +36,6 @@ export function createImportNormalizers(rules: PhoneRules, forms: readonly Legal
       return { code: legalFormCode(key, forms), typeUnknown: typed !== '' && fromType === null };
     },
     normalizeOrgId: (raw) => normalizeBin(raw) || null,
+    personalFormCodes: personalFormCodes(forms),
   };
 }

@@ -10,7 +10,9 @@ import { createBookingIndex, hasBooking } from './bookings';
 import { orgKeyOf, redactPersonalId } from './personalId';
 import { buildPreview } from './preview';
 import { generateSyntheticSheets } from './syntheticSheets';
-import { DEFAULT_DEDUP_SETTINGS, normalizers, parseOrThrow, testHash, testProfile } from './testProfile';
+import { DEFAULT_LEGAL_FORMS } from '../names';
+import { createImportNormalizers } from './normalizers';
+import { DEFAULT_DEDUP_SETTINGS, normalizers, parseOrThrow, TEST_PHONE_RULES, testHash, testProfile } from './testProfile';
 
 const slots = [
   { label: 'Оператор-01 (Синий)', name: 'Оператор-01', color: 'Синий', ranges: [[3, 202]] as [number, number][] },
@@ -257,10 +259,33 @@ test('колонка «Тип»: ТОО и АО распознаются; неи
   const full = parseOrThrow([[...HEAD, 'БИН'], [...line({ Тип: 'ИП', Наименование: 'Пример', Телефон: '+7 709 000 20 06' }), '880101300123']],
     testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' }, personalIdForms: ['Индивидуальный предприниматель'] }));
   assert.equal(full.rows[0]?.orgIdPersonal, true);
-  // Без «личных» форм в профиле признака нет вовсе.
-  const none = parseOrThrow([[...HEAD, 'БИН'], [...line({ Наименование: 'Пример', Телефон: '+7 709 000 20 07' }), '990440000007']],
+  // Пустой список профиля не снимает признак со словарных форм (ИП, КХ): ИИН по-прежнему скрыт.
+  const empty = parseOrThrow([[...HEAD, 'БИН'], [...line({ Тип: 'ИП', Наименование: 'Пример', Телефон: '+7 709 000 20 09' }), '880101300123']],
     testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' }, personalIdForms: [] }));
+  assert.equal(empty.rows[0]?.orgIdPersonal, true);
+  // Без «личных» форм ни в словаре, ни в профиле признака нет вовсе.
+  const plain = createImportNormalizers(TEST_PHONE_RULES, DEFAULT_LEGAL_FORMS.map((f) => ({ ...f, idIsPersonal: false })));
+  const none = parseSheet([[...HEAD, 'БИН'], [...line({ Наименование: 'Пример', Телефон: '+7 709 000 20 07' }), '990440000007']],
+    compileProfile(testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' }, personalIdForms: [] })), { normalizers: plain, hash: testHash });
+  assert.ok(none.ok);
   assert.equal(none.rows[0]?.orgIdPersonal, false);
+});
+
+test('КХ — «личная» форма словаря: при профиле только с ИП ИИН главы КХ скрыт (D-052, D-141)', () => {
+  const p = testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' }, personalIdForms: ['ип'] });
+  const { rows } = parseOrThrow(
+    [
+      [...HEAD, 'БИН'],
+      [...line({ Тип: 'КХ', Наименование: 'Альфа', Телефон: '+7 709 000 50 01' }), '880101300123'],
+      [...line({ Тип: 'Крестьянское хозяйство', Наименование: 'Бета', Телефон: '+7 709 000 50 02' }), '880101300123'],
+      [...line({ Тип: '', Наименование: 'КХ «Береке»', Телефон: '+7 709 000 50 03' }), '880101300123'],
+    ],
+    p,
+  );
+  assert.deepEqual(rows.map((r) => r.legalForm), ['кх', 'кх', 'кх']);
+  assert.deepEqual(rows.map((r) => r.orgIdPersonal), [true, true, true]);
+  assert.deepEqual(rows.map((r) => r.orgIdUncertain), [false, false, false]);
+  for (const r of rows) assert.equal(JSON.stringify(redactPersonalId(r, (d) => `mac-${d.length}`)).includes('880101300123'), false);
 });
 
 test('колонка «Тип»: ГКП, КХ, ГУ, ОО, ПК и «Т.О.О.» распознаются, «ТОО» в названии не перебивает «Тип» (D-141)', () => {
@@ -270,7 +295,7 @@ test('колонка «Тип»: ГКП, КХ, ГУ, ОО, ПК и «Т.О.О.»
   const { rows } = parseOrThrow(grid, p);
   assert.deepEqual(rows.map((r) => r.legalForm), ['гкп', 'кх', 'гу', 'оо', 'пк', 'тоо', 'кх', 'гу']);
   for (const [i, r] of rows.entries()) assert.equal(r.issues.some((x) => x.code === 'unknown_legal_form'), false, types[i]);
-  // КХ — форма ИП (личный номер по профилю); остальные — юрлица: БИН открыт, «неуверенных» нет.
+  // КХ — форма ИП (личный номер по словарю); остальные — юрлица: БИН открыт, «неуверенных» нет.
   assert.deepEqual(rows.map((r) => r.orgIdPersonal), [false, true, false, false, false, false, true, false]);
   assert.ok(rows.every((r) => !r.orgIdUncertain));
   // «ПК» — форма только в «Тип»: в названии это не форма.

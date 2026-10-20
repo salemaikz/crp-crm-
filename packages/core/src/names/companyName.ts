@@ -69,6 +69,11 @@ export function legalFormCode(key: string | null, forms: readonly LegalForm[] = 
   return f ? foldLetters(f.short[0] ?? f.typeOnly?.[0] ?? f.key) : '';
 }
 
+/** Коды форм с «личным» номером (`idIsPersonal`): `ип`, `кх` (D-052, D-141). */
+export function personalFormCodes(forms: readonly LegalForm[] = DEFAULT_LEGAL_FORMS): string[] {
+  return forms.filter((f) => f.idIsPersonal).map((f) => legalFormCode(f.key, forms)).filter(Boolean);
+}
+
 /** ФИО для сравнения руководителей: регистр, ё, казахские буквы, только буквы. */
 export function normalizePersonName(name: string | null | undefined): string {
   return squashSeparators(foldLetters(name ?? '').replace(/[^\p{L}\s]/gu, ' '));

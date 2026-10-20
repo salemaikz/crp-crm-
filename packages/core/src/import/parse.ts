@@ -67,10 +67,13 @@ export function parseSheet(grid: readonly (readonly string[])[], cp: CompiledPro
     return { ok: false, error: 'header_not_found', missing: REQUIRED_FIELDS.filter((f) => ![...known].includes(f)) };
   }
 
-  // Коды «личных» форм: профиль может написать форму как угодно («ИП», «Индивидуальный предприниматель»).
-  const personal = new Set(
-    (cp.profile.personalIdForms ?? []).map((x) => deps.normalizers.legalFormOf(x, '').code || x.trim().toLowerCase()).filter(Boolean),
-  );
+  // Коды «личных» форм: словарь (`idIsPersonal`: ИП, КХ) ∪ профиль. Профиль может написать форму как
+  // угодно («ИП», «Индивидуальный предприниматель») и только добавляет формы: снять признак со словарной
+  // формы нельзя, иначе ИИН ляжет в базу открыто (D-052, D-141).
+  const personal = new Set([
+    ...deps.normalizers.personalFormCodes,
+    ...(cp.profile.personalIdForms ?? []).map((x) => deps.normalizers.legalFormOf(x, '').code || x.trim().toLowerCase()),
+  ].filter(Boolean));
   const rows: ParsedRow[] = [];
   let skippedBlank = 0;
   for (let i = headerIdx + 1; i < grid.length; i++) {

@@ -60,10 +60,10 @@ test('формы собственности — параметр: пустой �
 });
 
 test('detectLegalForm: полная, короткая, нет формы', () => {
-  assert.equal(detectLegalForm('ИП Иванов'), 'sole_proprietor');
-  assert.equal(detectLegalForm('Индивидуальный предприниматель Иванов'), 'sole_proprietor');
-  assert.equal(detectLegalForm('ТОО «Пример»'), 'llp');
-  assert.equal(detectLegalForm('Пример АО'), 'jsc');
+  assert.equal(detectLegalForm('ИП Иванов'), 'ip');
+  assert.equal(detectLegalForm('Индивидуальный предприниматель Иванов'), 'ip');
+  assert.equal(detectLegalForm('ТОО «Пример»'), 'too');
+  assert.equal(detectLegalForm('Пример АО'), 'ao');
   assert.equal(detectLegalForm('Пример'), null);
   assert.equal(detectLegalForm('ТОО Пример', []), null);
   assert.ok(DEFAULT_LEGAL_FORMS.length >= 3);
@@ -73,34 +73,34 @@ test('«ЖК» в названии — не ИП (жилой комплекс); 
   assert.equal(detectLegalForm('ЖК «Альфа Парк»'), null);
   assert.equal(detectLegalForm('Альфа Парк ЖК'), null);
   assert.equal(N('ЖК «Альфа Парк»'), 'жк альфа парк', '«ЖК» из названия не вырезается');
-  assert.equal(detectLegalForm('Жеке кәсіпкер Гамма'), 'sole_proprietor');
-  assert.equal(detectLegalForm('ЖК Жеке кәсіпкер Гамма'), 'sole_proprietor');
+  assert.equal(detectLegalForm('Жеке кәсіпкер Гамма'), 'ip');
+  assert.equal(detectLegalForm('ЖК Жеке кәсіпкер Гамма'), 'ip');
 });
 
 test('колонка «Тип»: полные, короткие и казахские формы, точки и регистр', () => {
   const T = (s: string) => legalFormOfTypeCell(s);
   for (const v of ['ИП', 'ип', 'ИП.', ' ИП ', 'Индивидуальный предприниматель', 'ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ', 'ЖК', 'Жеке кәсіпкер', 'жеке касипкер']) {
-    assert.equal(T(v), 'sole_proprietor', v);
+    assert.equal(T(v), 'ip', v);
   }
-  assert.equal(T('ТОО'), 'llp');
-  assert.equal(T('Товарищество с ограниченной ответственностью'), 'llp');
-  assert.equal(T('ЖШС'), 'llp');
-  assert.equal(T('АО'), 'jsc');
-  assert.equal(T('IP'), 'sole_proprietor');
-  assert.equal(T('Т.О.О.'), 'llp');
-  assert.equal(T('Крестьянское хозяйство'), 'farm');
-  assert.equal(T('ГКП'), 'state_enterprise');
-  assert.equal(T('ГУ'), 'state_institution');
-  assert.equal(T('ОО'), 'public_association');
-  assert.equal(T('ПК'), 'production_coop');
+  assert.equal(T('ТОО'), 'too');
+  assert.equal(T('Товарищество с ограниченной ответственностью'), 'too');
+  assert.equal(T('ЖШС'), 'too');
+  assert.equal(T('АО'), 'ao');
+  assert.equal(T('IP'), 'ip');
+  assert.equal(T('Т.О.О.'), 'too');
+  assert.equal(T('Крестьянское хозяйство'), 'kh');
+  assert.equal(T('ГКП'), 'gkp');
+  assert.equal(T('ГУ'), 'gu');
+  assert.equal(T('ОО'), 'oo');
+  assert.equal(T('ПК'), 'pk');
   assert.equal(T('Форма-Икс'), null);
   assert.equal(T(''), null);
   // «ПК» и «IP» — только в «Тип»: в названии это не форма.
   assert.equal(detectLegalForm('Сервис ПК'), null);
   assert.equal(detectLegalForm('IP Телеком'), null);
-  assert.equal(legalFormCode('production_coop'), 'пк');
-  assert.equal(legalFormCode('sole_proprietor'), 'ип');
-  assert.equal(legalFormCode('llp'), 'тоо');
+  assert.equal(legalFormCode('pk'), 'пк');
+  assert.equal(legalFormCode('ip'), 'ип');
+  assert.equal(legalFormCode('too'), 'тоо');
   assert.equal(legalFormCode(null), '');
 });
 
