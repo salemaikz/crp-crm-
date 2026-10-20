@@ -228,6 +228,11 @@ SELECT m.*, s.at AS skipped_at,
   перезвоны с `next_call_at < now − overdueAlertMinutes`, `skippedToday`; плюс `skipLimit` из настроек.
 - По отобранным (≤ 4) карточкам: название клиента, номера (рабочие, не из стоп-листа по HMAC; цифры
   полностью — для `tel:` своей карточки), поля по правам `fields.projectFor` (как карточка клиента C2).
+- `decisionMaker` — ЛПР клиента (имя, должность, телефон контакта с `is_decision_maker`), `lastNote` — свежайшая
+  заметка из `notes` и заметок итогов звонков, до 300 символов. Читаются тремя-четырьмя запросами на страницу
+  (по отобранным карточкам), без N+1.
+- `GET /api/calls/today` → `getToday`: итоги, дозвоны, записи и пропуски сотрудника за местные сутки пространства
+  (по всем его устройствам); экран складывает серверные числа с итогами, ещё лежащими в outbox.
 - `limit` 1–4 (по умолчанию 1), `exclude` ≤ 50 id (итоги в outbox устройства), `group` — вкладки
   «Все / Перезвоны / Повторы / Новые».
 - p95 ≤ 300 мс на 5 000 карточек (10 операторов × 500): индексы v1 `cards_queue_idx`, `cards_acting_idx`,
@@ -259,7 +264,7 @@ ON CONFLICT (user_id, device_id) DO UPDATE
  WHERE device_status.seen_at <= EXCLUDED.seen_at;
 ```
 
-Пинг `POST /api/device/ping` (зона platform, C7b) зовёт ту же `recordDeviceStatus` из домена calls.
+Пинг `POST /api/device/ping` (сделан в ops, волна B; право `authenticated`) зовёт ту же `recordDeviceStatus` из домена calls.
 `purgeDeviceStatus(actor, before)` — для `purge` воркера (§12).
 
 ## 11. API (route handlers через `route()`)
@@ -334,7 +339,7 @@ Zod-тело итога (лишние поля → 400); исполнитель 
 | ~~`lose_open`~~ сделано (сведение дня 3): все открытые сделки клиента в пространстве → `lost` с причиной итога. Осталось `reassign_open` в `deals/effects.applyDealEffects` | booking (B6) | до пилота |
 | замена `cards` в `booking/deps.ts` на `cardBookingPort` | координатор | при влитии C5 |
 | строки в реестре воркера: `countOwnerlessWorkingCards` (`invariants`), `purgeDeviceStatus` (`purge`) | координатор после P7 | 23.10 |
-| `POST /api/device/ping` → `recordDeviceStatus` | platform (C7b) | 23.10 |
+| ~~`POST /api/device/ping` → `recordDeviceStatus`~~ сделано в ops (волна B) | ops | — |
 
 ## 14. Чего builder C5 НЕ делает
 

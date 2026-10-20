@@ -1,8 +1,11 @@
 /* Service worker CRM: только оболочка приложения (ARCHITECTURE §7).
  * Что кэшируется: статика сборки (/_next/static, шрифты, иконки) и HTML экрана «Звонить» на случай запуска без сети.
  * Что не кэшируется никогда: любые ответы /api/** и данные карточек — их этот файл не трогает (запрос идёт в сеть),
- * поэтому ПДн на телефоне не копятся. Кэш очищается командой {type:'clear'} при выходе из приложения. */
-const VERSION = 'crm-shell-v1';
+ * поэтому ПДн на телефоне не копятся. Кэш очищается при выходе (страница сама вызывает caches.delete и ждёт; команда
+ * {type:'clear'} — запасной путь), а HTML оболочки ещё и при заходе на /login и при POST /api/auth/*: следующий сотрудник
+ * не получит страницу прежнего. Если без сети всё же отдана кэшированная оболочка, в неё вшивается метка
+ * <meta name="crm-shell" content="stale">: страница не отправляет итоги, пока не получит себя заново с сервера. */
+const VERSION = 'crm-shell-v2';
 const SHELL_PATH = '/call';
 
 self.addEventListener('install', () => {
@@ -25,15 +28,40 @@ self.addEventListener('message', (event) => {
   }
 });
 
+// HTML оболочки (но не статика сборки) удаляется: смена сотрудника на устройстве
+function dropShellHtml() {
+  return caches.open(VERSION).then((cache) => cache.delete(SHELL_PATH));
+}
+
+// Кэшированная оболочка с меткой «из кэша» (страница по ней понимает, что сессия не проверена)
+async function markStale(hit) {
+  const html = await hit.text();
+  const meta = '<meta name="crm-shell" content="stale">';
+  const marked = /<head[^>]*>/.test(html) ? html.replace(/<head[^>]*>/, (m) => m + meta) : meta + html;
+  const headers = new Headers(hit.headers);
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  return new Response(marked, { status: hit.status, statusText: hit.statusText, headers });
+}
+
 function isStatic(url) {
   return url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/icon/');
 }
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // Вход и выход: оболочка прежнего сотрудника удаляется (запрос идёт в сеть как обычно)
+  if (req.method === 'POST' && url.pathname.startsWith('/api/auth/')) {
+    event.waitUntil(dropShellHtml());
+    return;
+  }
+  if (req.method !== 'GET') return;
+  if (req.mode === 'navigate' && url.pathname.startsWith('/login')) {
+    event.waitUntil(dropShellHtml());
+    return;
+  }
   // API и всё прочее динамическое — мимо кэша
   if (url.pathname.startsWith('/api/')) return;
 
@@ -62,7 +90,7 @@ self.addEventListener('fetch', (event) => {
           return res;
         } catch (e) {
           const hit = await cache.match(SHELL_PATH);
-          if (hit) return hit;
+          if (hit) return markStale(hit);
           throw e;
         }
       })(),

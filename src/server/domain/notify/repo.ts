@@ -8,11 +8,14 @@ import type { NotificationView } from './types';
 // Колокол пользователя
 // ---------------------------------------------------------------------------
 
-export async function listForUser(sql: Sql, a: { userId: string; before: number | null; limit: number }): Promise<NotificationView[]> {
+export async function listForUser(sql: Sql, a: { userId: string; before: { createdAt: number; id: string | null } | null; limit: number }): Promise<NotificationView[]> {
   return sql<NotificationView>`
     SELECT id, kind, params, created_at, read_at
       FROM notifications
-     WHERE user_id = ${a.userId} AND (${a.before}::bigint IS NULL OR created_at < ${a.before}::bigint)
+     WHERE user_id = ${a.userId}
+       AND (${a.before?.createdAt ?? null}::bigint IS NULL
+            OR created_at < ${a.before?.createdAt ?? null}::bigint
+            OR (created_at = ${a.before?.createdAt ?? null}::bigint AND ${a.before?.id ?? null}::text IS NOT NULL AND id < ${a.before?.id ?? null}::text))
      ORDER BY created_at DESC, id DESC
      LIMIT ${a.limit}`;
 }

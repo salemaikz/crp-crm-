@@ -96,3 +96,12 @@ export function withUnsent(server: TallyView, unsentKinds: readonly OutcomeKind[
     booked: server.booked,
   };
 }
+
+/** Выход: счётчик за сутки этого сотрудника удаляется с устройства. */
+export function clearTally(storage: StorageLike, userId: string): void {
+  try {
+    storage.removeItem(key(userId));
+  } catch {
+    // не критично
+  }
+}

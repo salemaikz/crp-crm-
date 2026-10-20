@@ -50,6 +50,20 @@ test('итог + запись + сделка: одна транзакция, к�
   assert.equal(await cnt(db.sql<{ n: number }>`SELECT count(*)::int AS n FROM calls WHERE id = ${req.opId} AND applied = 'applied'`), 1);
 });
 
+test('повтор итога при переносе: автор записи — прежний, но итог мой — запись отдаётся (автор по calls.opId)', async () => {
+  await fresh('cd-a-80');
+  const req = agreedReq('cd-a-80', 'ev-ag');
+  const first = await submitOutcome(deps, opA, req);
+  // перенос чужой записи: у записи остаётся прежний автор, а итог (calls.opId) принадлежит тому, кто переносит
+  await db.sql`UPDATE bookings SET booked_by_user_id = ${U.opB} WHERE id = ${first.bookingId!}`;
+  const again = await submitOutcome(deps, opA, req);
+  assert.equal(again.status, 'duplicate');
+  assert.equal(again.booking?.id, first.bookingId);
+  // чужой итог с тем же opId запись не раскрывает
+  const other = await submitOutcome(deps, await viewerOf(U.opB), req).catch(() => null);
+  assert.equal(other?.booking ?? null, null);
+});
+
 test('запись из шторки попадает в «Сегодня» оператора: итог, дозвон и запись', async () => {
   await fresh('cd-a-79');
   const t0 = await getToday(deps, opA);

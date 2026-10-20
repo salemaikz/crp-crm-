@@ -17,7 +17,7 @@ export function LogoutButton({ userId, className }: { userId: string; className?
     setPhase({ kind: 'busy' });
     const left = await flushDeviceOutbox(userId);
     if (left > 0) setPhase({ kind: 'unsent', count: left });
-    else await finishLogout();
+    else await finishLogout(userId);
   };
 
   if (phase.kind === 'unsent') {
@@ -28,7 +28,7 @@ export function LogoutButton({ userId, className }: { userId: string; className?
           <Button variant="secondary" size="sm" onClick={() => setPhase({ kind: 'idle' })} data-testid="logout-stay">
             {t('stay')}
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => void finishLogout()} data-testid="logout-force">
+          <Button variant="secondary" size="sm" onClick={() => void finishLogout(userId)} data-testid="logout-force">
             {t('force')}
           </Button>
         </div>

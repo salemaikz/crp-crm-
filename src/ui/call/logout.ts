@@ -1,10 +1,15 @@
-// Выход из приложения (D-063): перед выходом неотправленные итоги уходят на сервер, кэш оболочки очищается.
-// Если что-то не ушло (нет сети), выход требует подтверждения: итоги останутся на телефоне до следующего входа.
+// Выход из приложения (D-063): перед выходом неотправленные итоги уходят на сервер, потом телефон очищается:
+// черновик шторки и счётчик за день (localStorage), отказы сервера (IndexedDB), кэш оболочки (Cache Storage).
+// Если что-то не ушло (нет сети), выход требует подтверждения: на телефоне остаются только неотправленные итоги,
+// без названий компаний (в них только то, что нужно для отправки), до следующего входа этого же сотрудника.
 import { createCallApi } from './api';
 import { deviceHeaders, ensureDeviceId } from './device';
 import { Outbox } from './outbox';
 import { createDeviceStore } from './outboxStore';
-import { clearShellCache } from './serviceWorker';
+import { clearShellCache, isStaleShell } from './serviceWorker';
+import { clearPending } from './pending';
+import { clearTally, type StorageLike } from './tally';
+import type { OutboxStore } from './outboxStore';
 
 /** Что нужно от outbox при выходе (узкий срез для тестов). */
 export interface FlushableOutbox {
@@ -30,7 +35,9 @@ export async function openDeviceOutbox(userId: string): Promise<Outbox> {
   const deviceId = await ensureDeviceId(store);
   const holder: { outbox?: Outbox } = {};
   const api = createCallApi(() => deviceHeaders(deviceId, holder.outbox?.pendingCount() ?? 0, holder.outbox?.lastFlushAt() ?? null));
-  const outbox = new Outbox({ store, send: (req) => api.sendOutcome(req), userId });
+  // Страница из кэша service worker: сессия могла смениться, чужие итоги под новой сессией не отправляем
+  const send = (req: Parameters<typeof api.sendOutcome>[0]) => (isStaleShell() ? Promise.reject(new Error('stale_shell')) : api.sendOutcome(req));
+  const outbox = new Outbox({ store, send, userId });
   holder.outbox = outbox;
   return outbox;
 }
@@ -44,8 +51,26 @@ export async function flushDeviceOutbox(userId: string): Promise<number> {
   }
 }
 
-/** Второй шаг: сессия закрывается на сервере, кэш оболочки очищается. Ошибка сети не мешает уйти на вход. */
-export async function finishLogout(): Promise<void> {
+/**
+ * Очистка устройства для сотрудника: черновик, счётчик и отказы сервера удаляются всегда; в неотправленных итогах
+ * (если «Всё равно выйти») стираются названия компаний, остаётся только содержимое запроса, нужное для отправки.
+ */
+export async function purgeDevice(userId: string, deps: { storage: StorageLike; store: OutboxStore }): Promise<void> {
+  clearPending(deps.storage, userId);
+  clearTally(deps.storage, userId);
+  await deps.store.clearRejected(userId);
+  for (const e of await deps.store.all(userId)) {
+    if (e.title !== '') await deps.store.put({ ...e, title: '' });
+  }
+}
+
+/** Второй шаг: телефон очищается, кэш оболочки удаляется (с ожиданием), сессия закрывается. Сбой сети не мешает уйти на вход. */
+export async function finishLogout(userId: string): Promise<void> {
+  try {
+    await purgeDevice(userId, { storage: window.localStorage, store: createDeviceStore().store });
+  } catch {
+    // хранилище недоступно: чистить нечего
+  }
   await clearShellCache().catch(() => undefined);
   try {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });

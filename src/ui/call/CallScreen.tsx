@@ -20,7 +20,7 @@ import { OutcomeSheet } from './OutcomeSheet';
 import { Outbox } from './outbox';
 import { createDeviceStore } from './outboxStore';
 import { clearPending, readPending, writePending, type PendingState } from './pending';
-import { registerShell } from './serviceWorker';
+import { isStaleShell, registerShell, reloadWhenOnline } from './serviceWorker';
 import { callsInLastHour, forgetOutcome, readTally, recordOutcome, viewOf, withUnsent, type Tally } from './tally';
 import {
   DEVICE_PING_MS,
@@ -189,11 +189,17 @@ function CallScreenInner({ config }: { config: CallConfig }) {
 
   useEffect(() => {
     let alive = true;
+    let stopStale: (() => void) | null = null;
     void (async () => {
       const { store, persistent } = createDeviceStore();
       const deviceId = await ensureDeviceId(store);
       const holder: { outbox?: Outbox } = {};
-      const api = createCallApi(() => deviceHeaders(deviceId, holder.outbox?.pendingCount() ?? 0, holder.outbox?.lastFlushAt() ?? null));
+      // Страница из кэша service worker (нет сети): сессия могла смениться, поэтому на сервер ничего не уходит,
+      // пока страница не перезагрузится под текущей сессией (итоги отправляются только под той, что их создала)
+      const stale = isStaleShell();
+      const guardedFetch: typeof fetch = (...a) => (stale ? Promise.reject(new Error('stale_shell')) : fetch(...a));
+      if (stale) stopStale = reloadWhenOnline();
+      const api = createCallApi(() => deviceHeaders(deviceId, holder.outbox?.pendingCount() ?? 0, holder.outbox?.lastFlushAt() ?? null), guardedFetch);
       const onChange = () => {
         setVersion((v) => v + 1);
         setNow(Date.now());
@@ -222,6 +228,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
     })();
     return () => {
       alive = false;
+      stopStale?.();
     };
     // Старт один раз: зависимости стабильны
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -529,7 +536,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       </header>
 
       {rejected.map((r) => (
-        <Alert key={r.opId} tone="danger" title={t('outbox.rejected', { title: r.title })}>
+        <Alert key={r.opId} tone="danger" title={t('outbox.rejected', { title: r.title || '—' })}>
           <span>{te.has(`errors.${r.code}`) ? te(`errors.${r.code}`) : te('errors.not_found')}</span>
           <Button variant="quiet" size="sm" onClick={() => void dismissRejected(r.opId)}>
             {t('outbox.dismiss')}

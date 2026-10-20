@@ -60,11 +60,14 @@ function assertPhonesOnCard(req: OutcomeRequest, row: LockedCardRow): void {
 
 /**
  * Повтор итога «Договорились — записать» (ответ потерялся, мастер повторил тот же opId): запись уже есть, её ключ — opId.
- * Отдаём её целиком, чтобы мастер закончил как после первого запроса. Чужую запись (другая карточка/автор) не показываем.
+ * Отдаём её целиком, чтобы мастер закончил как после первого запроса. Чужую запись (другая карточка или чужой итог) не показываем.
  */
 async function withReplayedBooking(response: OutcomeResponse, req: OutcomeRequest, userId: string): Promise<OutcomeResponse> {
   const row = await findBookingByRequestId((await getDb()).sql, req.opId);
-  if (!row || row.cardId !== req.cardId || row.bookedByUserId !== userId) return response;
+  if (!row || row.cardId !== req.cardId) return response;
+  // Автор итога — по calls.opId (как ownPrior): при переносе автор записи остаётся прежним (bookedByUserId), а итог мой
+  const prior = await findPriorCall((await getDb()).sql, req.opId);
+  if (!prior || prior.userId !== userId || prior.cardId !== req.cardId) return response;
   return { ...response, bookingId: row.id, booking: toBookingView(row), bookingAction: row.movedFromId ? 'moved' : 'created' };
 }
 

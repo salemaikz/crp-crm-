@@ -23,7 +23,7 @@ test('оболочка: «Выйти» есть в «Ещё» телефона �
 
 test('выход: сначала отправка итогов и предупреждение, потом очистка кэша оболочки и POST /api/auth/logout', () => {
   const button = read('src/ui/shells/LogoutButton.tsx');
-  assert.ok(button.indexOf('await flushDeviceOutbox(') < button.indexOf('await finishLogout()'), 'итоги отправляются до выхода');
+  assert.ok(button.indexOf('await flushDeviceOutbox(') < button.indexOf('await finishLogout(userId)'), 'итоги отправляются до выхода');
   const logout = read('src/ui/call/logout.ts');
   assert.ok(logout.indexOf('clearShellCache()') < logout.indexOf("'/api/auth/logout'"), 'кэш очищается до закрытия сессии');
 });

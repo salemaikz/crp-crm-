@@ -11,6 +11,8 @@ export interface OutboxStore {
   putRejected(entry: RejectedEntry): Promise<void>;
   rejected(userId: string): Promise<RejectedEntry[]>;
   removeRejected(opId: string): Promise<void>;
+  /** Выход: отказы сервера этого сотрудника (в них названия компаний) удаляются совсем. */
+  clearRejected(userId: string): Promise<void>;
   getMeta(key: string): Promise<string | null>;
   setMeta(key: string, value: string): Promise<void>;
 }
@@ -31,6 +33,9 @@ export function createMemoryStore(): OutboxStore {
     putRejected: async (e) => void rejected.set(e.opId, structuredClone(e)),
     rejected: async (userId) => [...rejected.values()].filter((e) => e.userId === userId).map((e) => structuredClone(e)),
     removeRejected: async (id) => void rejected.delete(id),
+    clearRejected: async (userId) => {
+      for (const [id, e] of rejected) if (e.userId === userId) rejected.delete(id);
+    },
     getMeta: async (k) => meta.get(k) ?? null,
     setMeta: async (k, v) => void meta.set(k, v),
   };
@@ -78,6 +83,9 @@ export function createIndexedDbStore(): OutboxStore {
     putRejected: async (e) => void (await wrap((await store(REJECTED, 'readwrite')).put(e))),
     rejected: (userId) => allOf<RejectedEntry>(REJECTED, userId),
     removeRejected: async (id) => void (await wrap((await store(REJECTED, 'readwrite')).delete(id))),
+    clearRejected: async (userId) => {
+      for (const e of await allOf<RejectedEntry>(REJECTED, userId)) await wrap((await store(REJECTED, 'readwrite')).delete(e.opId));
+    },
     getMeta: async (key) => {
       const row = (await wrap((await store(META, 'readonly')).get(key))) as { key: string; value: string } | undefined;
       return row?.value ?? null;
