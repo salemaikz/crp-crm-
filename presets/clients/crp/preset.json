@@ -1,0 +1,953 @@
+{
+  "meta": {
+    "key": "crp",
+    "version": "2026.10.1",
+    "schemaVersion": 1,
+    "extends": [
+      "base",
+      "kz",
+      "consulting-sales"
+    ],
+    "requires": {
+      "product": ">=0.1.0"
+    }
+  },
+  "global": {
+    "org": {
+      "productName": {
+        "ru": "CRM ЦРП"
+      }
+    },
+    "sources": [
+      {
+        "key": "new_base",
+        "label": {
+          "ru": "Новая база"
+        },
+        "kind": "ingest",
+        "allowPersonNames": false,
+        "detailedReport": true,
+        "rejectRules": [
+          {
+            "code": "legal_review",
+            "type": "legalFormIn",
+            "values": [
+              "ip"
+            ]
+          }
+        ],
+        "holdRules": [
+          {
+            "code": "region",
+            "type": "regionNotIn",
+            "values": [
+              "Астана"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "import",
+        "holdRules": [
+          {
+            "code": "legal_review",
+            "type": "legalFormIn",
+            "values": [
+              "ip"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "whatsapp_in",
+        "label": {
+          "ru": "WhatsApp, входящее"
+        },
+        "kind": "messenger",
+        "allowPersonNames": true,
+        "detailedReport": false,
+        "rejectRules": [],
+        "holdRules": []
+      }
+    ],
+    "team": {
+      "fallbackOwnerRole": "rop"
+    },
+    "theme": {
+      "brandColor": "#e31e24",
+      "accentColor": "#0e1726",
+      "fontPreset": "geologica_onest",
+      "radius": "md",
+      "density": "normal",
+      "logo": "crp-logo.svg",
+      "statusStyle": "color_text_icon"
+    },
+    "fields": [
+      {
+        "key": "niche",
+        "object": "client",
+        "type": "select",
+        "label": {
+          "ru": "Точная ниша"
+        },
+        "options": [
+          {
+            "key": "retail",
+            "label": {
+              "ru": "Розница"
+            }
+          },
+          {
+            "key": "services",
+            "label": {
+              "ru": "Услуги"
+            }
+          },
+          {
+            "key": "production",
+            "label": {
+              "ru": "Производство"
+            }
+          },
+          {
+            "key": "food",
+            "label": {
+              "ru": "Общепит"
+            }
+          },
+          {
+            "key": "construction",
+            "label": {
+              "ru": "Строительство"
+            }
+          },
+          {
+            "key": "education",
+            "label": {
+              "ru": "Образование"
+            }
+          },
+          {
+            "key": "other",
+            "label": {
+              "ru": "Другое"
+            }
+          }
+        ],
+        "access": {
+          "*": "read",
+          "operator": "edit",
+          "rop": "edit"
+        },
+        "required": {
+          "always": false,
+          "onOutcome": [
+            "agreed"
+          ],
+          "onStage": []
+        },
+        "searchable": false,
+        "filterable": true,
+        "ingest": false,
+        "pii": "none",
+        "showOn": {
+          "card": true,
+          "kanban": false,
+          "list": false
+        }
+      },
+      {
+        "key": "niche_other",
+        "object": "client",
+        "type": "text",
+        "label": {
+          "ru": "Ниша: уточнение"
+        },
+        "options": [],
+        "access": {
+          "*": "read",
+          "operator": "edit",
+          "rop": "edit"
+        },
+        "required": {
+          "always": false,
+          "onOutcome": [],
+          "onStage": []
+        },
+        "searchable": false,
+        "filterable": true,
+        "ingest": false,
+        "pii": "none",
+        "showOn": {
+          "card": true,
+          "kanban": false,
+          "list": false
+        }
+      },
+      {
+        "key": "district",
+        "object": "client",
+        "type": "text",
+        "label": {
+          "ru": "Район"
+        },
+        "options": [],
+        "access": {
+          "*": "read",
+          "operator": "edit",
+          "rop": "edit"
+        },
+        "required": {
+          "always": false,
+          "onOutcome": [],
+          "onStage": []
+        },
+        "searchable": false,
+        "filterable": true,
+        "ingest": true,
+        "pii": "none",
+        "showOn": {
+          "card": true,
+          "kanban": false,
+          "list": false
+        }
+      },
+      {
+        "key": "oked",
+        "object": "client",
+        "type": "text",
+        "label": {
+          "ru": "ОКЭД"
+        },
+        "options": [],
+        "access": {
+          "*": "read",
+          "operator": "edit",
+          "rop": "edit"
+        },
+        "required": {
+          "always": false,
+          "onOutcome": [],
+          "onStage": []
+        },
+        "searchable": true,
+        "filterable": true,
+        "ingest": true,
+        "pii": "none",
+        "showOn": {
+          "card": true,
+          "kanban": false,
+          "list": false
+        }
+      },
+      {
+        "key": "company_size",
+        "object": "client",
+        "type": "select",
+        "label": {
+          "ru": "Размер компании"
+        },
+        "options": [
+          {
+            "key": "micro",
+            "label": {
+              "ru": "Микро"
+            }
+          },
+          {
+            "key": "small",
+            "label": {
+              "ru": "Малая"
+            }
+          },
+          {
+            "key": "medium",
+            "label": {
+              "ru": "Средняя"
+            }
+          },
+          {
+            "key": "large",
+            "label": {
+              "ru": "Крупная"
+            }
+          }
+        ],
+        "access": {
+          "*": "read",
+          "operator": "edit",
+          "rop": "edit"
+        },
+        "required": {
+          "always": false,
+          "onOutcome": [],
+          "onStage": []
+        },
+        "searchable": false,
+        "filterable": true,
+        "ingest": true,
+        "pii": "none",
+        "showOn": {
+          "card": true,
+          "kanban": false,
+          "list": false
+        }
+      },
+      {
+        "key": "head_name",
+        "object": "client",
+        "type": "text",
+        "label": {
+          "ru": "Руководитель"
+        },
+        "options": [],
+        "access": {
+          "*": "read",
+          "operator": "edit",
+          "rop": "edit"
+        },
+        "required": {
+          "always": false,
+          "onOutcome": [],
+          "onStage": []
+        },
+        "searchable": false,
+        "filterable": true,
+        "ingest": false,
+        "pii": "person",
+        "showOn": {
+          "card": true,
+          "kanban": false,
+          "list": false
+        }
+      }
+    ]
+  },
+  "spaces": {
+    "sales": {
+      "calling": {
+        "lprRequiredOnContact": true,
+        "lprNoRequiresInfo": true,
+        "callbackPresets": [
+          "+2h",
+          "nextWorkday@10:00",
+          "nextEvent:br@10:00"
+        ],
+        "outcomes": [
+          {
+            "key": "no_answer",
+            "label": {
+              "ru": "Не берёт"
+            },
+            "color": "#6b707a",
+            "importAliases": [
+              "Не берёт",
+              "Не берет",
+              "Отключен",
+              "Отключен/Не берет"
+            ]
+          },
+          {
+            "key": "bad_number",
+            "label": {
+              "ru": "Номер не работает"
+            },
+            "color": "#9a5200",
+            "importAliases": [
+              "Недоступен",
+              "Не имеет отношение"
+            ]
+          },
+          {
+            "key": "callback",
+            "label": {
+              "ru": "Перезвонить"
+            },
+            "color": "#1f5fbf",
+            "importAliases": [
+              "Перезвонить"
+            ]
+          },
+          {
+            "key": "agreed",
+            "label": {
+              "ru": "Договорились — записать"
+            },
+            "color": "#17803f",
+            "requires": {
+              "fields": [
+                "niche"
+              ]
+            },
+            "importAliases": [
+              "Подтвержден"
+            ]
+          },
+          {
+            "key": "not_interested",
+            "label": {
+              "ru": "Не интересует"
+            },
+            "color": "#4a4f59",
+            "importAliases": [
+              "Не интересует"
+            ]
+          },
+          {
+            "key": "not_target",
+            "label": {
+              "ru": "Не целевой"
+            },
+            "color": "#14161b",
+            "importAliases": [
+              "Закрылся"
+            ]
+          },
+          {
+            "key": "do_not_call",
+            "label": {
+              "ru": "Полный отказ"
+            },
+            "color": "#b3151b",
+            "importAliases": [
+              "Полный отказ"
+            ]
+          }
+        ]
+      },
+      "reasons": {
+        "bad_number": [
+          {
+            "key": "not_exists",
+            "label": {
+              "ru": "Не существует / не обслуживается"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "not_related",
+            "label": {
+              "ru": "Не имеет отношения к компании"
+            },
+            "needsText": false,
+            "softness": "hard"
+          }
+        ],
+        "not_interested": [
+          {
+            "key": "no_need",
+            "label": {
+              "ru": "Нет потребности"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "no_time",
+            "label": {
+              "ru": "Нет времени"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "expensive",
+            "label": {
+              "ru": "Дорого"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "has_vendor",
+            "label": {
+              "ru": "Уже есть подрядчик"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "later",
+            "label": {
+              "ru": "Позже / не сейчас"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "other",
+            "label": {
+              "ru": "Другое (текст)"
+            },
+            "needsText": true,
+            "softness": "soft"
+          }
+        ],
+        "not_target": [
+          {
+            "key": "company_closed",
+            "label": {
+              "ru": "Компания закрылась"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "not_business",
+            "label": {
+              "ru": "Не бизнес / госорган"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "out_of_region",
+            "label": {
+              "ru": "Вне региона"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "contact_left",
+            "label": {
+              "ru": "Контакт ушёл, новых нет"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "other",
+            "label": {
+              "ru": "Другое (текст)"
+            },
+            "needsText": true,
+            "softness": "hard"
+          }
+        ],
+        "do_not_call": [
+          {
+            "key": "asked",
+            "label": {
+              "ru": "Просил не звонить"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "rude",
+            "label": {
+              "ru": "Грубый отказ"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "other",
+            "label": {
+              "ru": "Другое (текст)"
+            },
+            "needsText": true,
+            "softness": "hard"
+          }
+        ],
+        "deal_lost": [
+          {
+            "key": "no_need",
+            "label": {
+              "ru": "Нет потребности"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "no_time",
+            "label": {
+              "ru": "Нет времени"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "expensive",
+            "label": {
+              "ru": "Дорого"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "has_vendor",
+            "label": {
+              "ru": "Уже есть подрядчик"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "later",
+            "label": {
+              "ru": "Позже / не сейчас"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "company_closed",
+            "label": {
+              "ru": "Компания закрылась"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "not_business",
+            "label": {
+              "ru": "Не бизнес / госорган"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "out_of_region",
+            "label": {
+              "ru": "Вне региона"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "contact_left",
+            "label": {
+              "ru": "Контакт ушёл, новых нет"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "no_show_unreachable",
+            "label": {
+              "ru": "Не пришёл, на связь не выходит"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "chose_other",
+            "label": {
+              "ru": "Выбрал другого"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "refund",
+            "label": {
+              "ru": "Возврат денег"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "other",
+            "label": {
+              "ru": "Другое (текст)"
+            },
+            "needsText": true,
+            "softness": "soft"
+          }
+        ]
+      },
+      "distribution": {
+        "mode": "auto_even",
+        "participantRoles": [
+          "operator"
+        ],
+        "inbound": {
+          "offHours": "rop"
+        }
+      },
+      "pipelines": [
+        {
+          "key": "sales",
+          "label": {
+            "ru": "Продажи ЦРП"
+          },
+          "stages": [
+            {
+              "key": "booked",
+              "staleDays": 14
+            },
+            {
+              "key": "attended",
+              "staleDays": 7
+            },
+            {
+              "key": "offer",
+              "staleDays": 14
+            }
+          ]
+        }
+      ],
+      "serviceTypes": [
+        {
+          "key": "master_group",
+          "label": {
+            "ru": "Мастер-группа"
+          },
+          "routeToTeam": null
+        },
+        {
+          "key": "consultation",
+          "label": {
+            "ru": "Консультация"
+          },
+          "routeToTeam": null
+        },
+        {
+          "key": "smm",
+          "label": {
+            "ru": "SMM"
+          },
+          "routeToTeam": "marketing"
+        },
+        {
+          "key": "ads",
+          "label": {
+            "ru": "Реклама"
+          },
+          "routeToTeam": "marketing"
+        },
+        {
+          "key": "automation",
+          "label": {
+            "ru": "Автоматизация"
+          },
+          "routeToTeam": null
+        },
+        {
+          "key": "training",
+          "label": {
+            "ru": "Обучение"
+          },
+          "routeToTeam": null
+        },
+        {
+          "key": "other",
+          "label": {
+            "ru": "Другое"
+          }
+        }
+      ],
+      "teams": [
+        {
+          "key": "marketing",
+          "label": {
+            "ru": "Маркетинг"
+          }
+        }
+      ],
+      "handoff": {
+        "alarmTo": [
+          "rop"
+        ]
+      },
+      "booking": {
+        "eventTypes": [
+          {
+            "key": "br",
+            "behavior": "group",
+            "label": {
+              "ru": "Бизнес-разбор"
+            },
+            "short": {
+              "ru": "БР"
+            },
+            "capacity": 30,
+            "durationMin": 180,
+            "directions": []
+          },
+          {
+            "key": "bk",
+            "behavior": "individual",
+            "label": {
+              "ru": "Бизнес-консультация"
+            },
+            "short": {
+              "ru": "БК"
+            },
+            "capacity": null,
+            "durationMin": 45,
+            "directions": []
+          }
+        ],
+        "directions": [
+          {
+            "key": "program",
+            "label": {
+              "ru": "Программа"
+            }
+          },
+          {
+            "key": "consulting",
+            "label": {
+              "ru": "Консалтинг"
+            }
+          },
+          {
+            "key": "marketing",
+            "label": {
+              "ru": "Маркетинг"
+            }
+          },
+          {
+            "key": "automation",
+            "label": {
+              "ru": "Автоматизация"
+            }
+          },
+          {
+            "key": "training",
+            "label": {
+              "ru": "Обучение"
+            }
+          },
+          {
+            "key": "other",
+            "label": {
+              "ru": "Другое"
+            }
+          }
+        ],
+        "grey": {
+          "mode": "assign"
+        },
+        "duty": {
+          "defaultRole": "rop"
+        },
+        "seedSeries": [
+          {
+            "key": "br_thursday",
+            "eventTypeKey": "br",
+            "weekday": 4,
+            "startTime": "15:00",
+            "durationMin": 180,
+            "location": "",
+            "format": "offline",
+            "capacity": 30
+          }
+        ]
+      },
+      "reminders": {
+        "templates": [
+          {
+            "key": "br_reminder",
+            "eventTypeKey": "br",
+            "text": {
+              "ru": "Здравствуйте, {name}! Напоминаем: бизнес-разбор {date} в {time}, {place}. Подтверждаете участие?"
+            }
+          }
+        ]
+      },
+      "tasks": {
+        "askNextStep": {
+          "consultant": true
+        }
+      },
+      "reports": {
+        "callsPerHourTarget": 10,
+        "intakeTile": false,
+        "tiles": [
+          {
+            "key": "agreed_total",
+            "label": {
+              "ru": "Договорились"
+            },
+            "kind": "outcome_count",
+            "params": {
+              "outcome": "agreed"
+            }
+          },
+          {
+            "key": "callback_total",
+            "label": {
+              "ru": "Перезвонить"
+            },
+            "kind": "outcome_count",
+            "params": {
+              "outcome": "callback"
+            }
+          },
+          {
+            "key": "refusals_total",
+            "label": {
+              "ru": "Полный отказ"
+            },
+            "kind": "outcome_count",
+            "params": {
+              "outcome": "do_not_call"
+            }
+          }
+        ]
+      },
+      "export": {
+        "allowedRoles": [
+          "rop",
+          "director"
+        ]
+      },
+      "alerts": {
+        "intakeStaleHours": null,
+        "stockMinDays": null
+      },
+      "import": {
+        "profiles": [
+          {
+            "key": "operator_tables",
+            "label": {
+              "ru": "Таблицы операторов ЦРП"
+            },
+            "columns": {
+              "Ниша": "niche"
+            },
+            "valueMaps": {
+              "outcome": {
+                "Не берёт": "no_answer",
+                "Не берет": "no_answer",
+                "Отключен": "no_answer",
+                "Отключен/Не берет": "no_answer",
+                "Недоступен": "bad_number",
+                "Не имеет отношение": "bad_number",
+                "Перезвонить": "callback",
+                "Подтвержден": "agreed",
+                "Не интересует": "not_interested",
+                "Закрылся": "not_target",
+                "Полный отказ": "do_not_call"
+              },
+              "lpr": {
+                "да": true,
+                "нет": false
+              },
+              "target": {
+                "да": true,
+                "нет": false
+              }
+            },
+            "ownerBy": "row_ranges",
+            "outcomePriority": [
+              "do_not_call",
+              "not_target",
+              "agreed",
+              "not_interested",
+              "bad_number",
+              "callback",
+              "no_answer"
+            ],
+            "snapshotDate": null
+          }
+        ]
+      }
+    }
+  }
+}

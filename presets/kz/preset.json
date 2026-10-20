@@ -1,0 +1,21 @@
+{
+  "meta": { "key": "kz", "version": "2026.10.1", "schemaVersion": 1, "extends": ["base"], "requires": { "product": ">=0.1.0" } },
+  "global": {
+    "org": {
+      "timezone": "Asia/Almaty",
+      "idRule": "kz_bin",
+      "personIdRule": "kz_iin_hmac",
+      "legalForms": [
+        { "key": "too", "label": { "ru": "ТОО", "kk": "ЖШС" }, "aliases": ["ТОО", "ЖШС", "LLP", "Товарищество с ограниченной ответственностью"], "idIsPersonal": false },
+        { "key": "ip", "label": { "ru": "ИП", "kk": "ЖК" }, "aliases": ["ИП", "ЖК", "Индивидуальный предприниматель"], "idIsPersonal": true },
+        { "key": "ao", "label": { "ru": "АО", "kk": "АҚ" }, "aliases": ["АО", "АҚ", "Акционерное общество"], "idIsPersonal": false }
+      ]
+    },
+    "phone": {
+      "country": "KZ",
+      "mobilePrefixes": ["700", "701", "702", "703", "704", "705", "706", "707", "708", "709", "747", "750", "751", "760", "761", "762", "763", "764", "771", "775", "776", "777", "778"],
+      "reviewPrefixes": ["770", "774"],
+      "landlinePrefixes": ["71", "72"]
+    }
+  }
+}
