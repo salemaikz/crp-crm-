@@ -68,6 +68,26 @@ const place = z.string().max(200);
 export const GroupBookingBody = z
   .object({ kind: z.literal('group'), requestId: opId, clientId: id, eventId: id, contactId: id.nullable().default(null) })
   .strict();
+/** Заявка на консультацию (B3a): пока без консультанта — `resourceId` только `null` (с консультантом — B5). */
+export const IndividualBookingBody = z
+  .object({
+    kind: z.literal('individual'),
+    requestId: opId,
+    clientId: id,
+    eventTypeKey: id,
+    date,
+    time,
+    directionKey: id,
+    resourceId: z.null(),
+    contactId: id.nullable().default(null),
+  })
+  .strict();
+export const BookingBody = z.discriminatedUnion('kind', [GroupBookingBody, IndividualBookingBody]);
+/** Запись внутри итога «Договорились»: без requestId, clientId и contactId — их ставит сервер (calls-design §4.3). */
+export const AgreementBookingBody = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('group'), eventId: id }).strict(),
+  IndividualBookingBody.omit({ requestId: true, clientId: true, contactId: true }).strict(),
+]);
 export const ConfirmBody = z.object({ opId, version, to: z.enum(['confirmed', 'registered']) }).strict();
 export const AttendanceBody = z.object({ opId, version, to: z.enum(['attended', 'no_show']) }).strict();
 export const CancelBookingBody = z.object({ opId, version, reason: z.enum(['client', 'operator_error']) }).strict();

@@ -4,8 +4,10 @@
 import { booking } from '@crm/core';
 import { BadRequestError, ConflictError, NotFoundError, scopeOf, type Viewer } from '@/server/access';
 import { throwNotFoundOrConflict } from '@/server/access/scope';
+import { closeAutoTasks } from '@/server/domain/tasks/auto';
 import { isUniqueViolation, newId, type Sql } from '@/server/platform/db';
 import { noteCardEvent } from './cardEvents';
+import { checkConsultSlot } from './consult';
 import { BookingDomainError } from './errors';
 import { nearestOptions } from './events';
 import { requireRole, requireSpace } from './guards';
@@ -22,6 +24,7 @@ import {
   insertFeed,
   insertGroupBooking,
   insertHistory,
+  insertIndividualBooking,
   lastNoShowAt,
   listBookingRows,
   lockCardOfBooking,
@@ -52,10 +55,11 @@ import type {
   MoveBooking,
   SetConfirmation,
 } from './types';
+import { BOOKING_CLOSES_TASK_SOURCES } from './types';
 
 const LIST_LIMIT = 200;
 /** Новая запись и перенос возможны только для карточки в этих состояниях (D-133). */
-const BOOKABLE_CARD_STATES: readonly string[] = ['agreed', 'client'];
+export const BOOKABLE_CARD_STATES: readonly string[] = ['agreed', 'client'];
 
 const bookingNotFound = () => new BookingDomainError('booking_not_found');
 
@@ -63,10 +67,21 @@ const bookingNotFound = () => new BookingDomainError('booking_not_found');
 // Создать и перенести
 // ---------------------------------------------------------------------------
 
+/** Цель индивидуальной записи (B3a: «серая» заявка, без консультанта). */
+interface IndividualTarget {
+  eventTypeKey: string;
+  date: string;
+  time: string;
+  directionKey: string;
+}
+
 interface PlaceArgs {
   requestId: string;
   clientId: string;
-  eventId: string;
+  /** Групповая запись: мероприятие. Индивидуальная: null. */
+  eventId: string | null;
+  /** Индивидуальная запись: вид, день, время, направление. Групповая: null. */
+  individual: IndividualTarget | null;
   contactId: string | null;
   via: BookingVia;
   importKey: string | null;
@@ -85,6 +100,25 @@ function replayResult(prior: BookingRow): CreateBookingResult {
   return prior.movedFromId ? { action: 'moved', booking: view, movedFromId: prior.movedFromId, replayed: true } : { action: 'created', booking: view, replayed: true };
 }
 
+/** Повтор ключа: тот же клиент и та же цель (мероприятие или вид, день, время, направление). */
+function sameTarget(prior: BookingRow, a: PlaceArgs): boolean {
+  if (prior.clientId !== a.clientId) return false;
+  if (!a.individual) return prior.eventId === a.eventId;
+  const t = a.individual;
+  return prior.kind === 'individual' && prior.eventTypeKey === t.eventTypeKey && prior.bookingDate === t.date && prior.startTime === t.time && prior.directionKey === t.directionKey;
+}
+
+/** Мероприятие или слот консультации, на который встаёт запись. */
+interface Target {
+  eventTypeKey: string;
+  eventDate: string;
+  startTime: string;
+  startsAt: number;
+  durationMin: number;
+  directionKey: string;
+  eventId: string | null;
+}
+
 async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: number, a: PlaceArgs): Promise<CreateBookingResult> {
   const perm = 'booking.create';
   let spaceId: string;
@@ -92,6 +126,8 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
     requireRole(actor, perm, 'object');
     spaceId = requireSpace(actor);
   } else {
+    // Системный исполнитель (импорт) пишет только групповые записи: консультации — только пользователь.
+    if (a.eventId === null) throw new Error('booking: индивидуальную запись создаёт только пользователь');
     const found = await spaceOfEvent(tx, a.eventId);
     if (!found) throw new BookingDomainError('event_not_found');
     spaceId = found;
@@ -104,7 +140,7 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
   // 2. повтор ключа: после блокировки параллельный дубль видит первую вставку
   const prior = await findBookingByRequestId(tx, a.requestId);
   if (prior) {
-    if (prior.clientId === a.clientId && prior.eventId === a.eventId) return replayResult(prior);
+    if (sameTarget(prior, a)) return replayResult(prior);
     throw new BookingDomainError('request_reused');
   }
 
@@ -114,12 +150,19 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
   // 4. контакт «кто придёт» — клиента
   if (a.contactId !== null && !(await contactBelongsToClient(tx, a.contactId, a.clientId))) throw new BadRequestError('contact');
 
-  // 5. мероприятие
+  // 5. цель записи: мероприятие или слот консультации
   const settings = await deps.settings(spaceId, now);
-  const ev = await findEvent(actor, tx, { eventId: a.eventId, perm: 'booking.read', lock: true });
-  // Мероприятие другого пространства для записи не существует (и системному исполнителю тоже)
-  if (!ev || ev.spaceId !== spaceId) throw new BookingDomainError('event_not_found');
-  if (!settings.groupTypes.some((t) => t.key === ev.eventTypeKey)) throw new BookingDomainError('invalid_settings');
+  let ev: Awaited<ReturnType<typeof findEvent>> = null;
+  let target: Target;
+  if (a.individual) {
+    target = individualTarget(settings, a.individual, now);
+  } else {
+    ev = await findEvent(actor, tx, { eventId: a.eventId as string, perm: 'booking.read', lock: true });
+    // Мероприятие другого пространства для записи не существует (и системному исполнителю тоже)
+    if (!ev || ev.spaceId !== spaceId) throw new BookingDomainError('event_not_found');
+    if (!settings.groupTypes.some((t) => t.key === (ev as NonNullable<typeof ev>).eventTypeKey)) throw new BookingDomainError('invalid_settings');
+    target = { eventTypeKey: ev.eventTypeKey, eventDate: ev.eventDate, startTime: ev.startTime, startsAt: ev.startsAt, durationMin: ev.durationMin, directionKey: '', eventId: ev.id };
+  }
 
   // 6. записи клиента: «новая или перенос» (D-042)
   const existing = await lockClientBookings(actor, tx, { spaceId, clientId: a.clientId, perm });
@@ -128,27 +171,33 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
     const old = await findBooking(actor, tx, { id: a.forced.bookingId, perm, lock: true });
     if (!old || old.clientId !== a.clientId) throw bookingNotFound();
     if (old.version !== a.forced.version) throw new ConflictError();
-    if (old.eventId === ev.id) throw new BookingDomainError('already_registered');
+    if (old.eventId === target.eventId) throw new BookingDomainError('already_registered');
     const check = booking.checkTransition(old.status, 'moved', { tz: settings.timeZone, now, startsAt: old.startsAt, durationMin: old.durationMin });
     if (!check.ok) throw new BookingDomainError(check.reason);
-    if (existing.some((b) => b.eventId === ev.id)) throw new BookingDomainError('already_registered');
+    if (existing.some((b) => b.eventId === target.eventId)) throw new BookingDomainError('already_registered');
     from = old;
   } else {
-    const decision = booking.resolveRepeatBooking(existing.map(toClientBookingLite), { eventTypeKey: ev.eventTypeKey, eventId: ev.id }, now);
+    const decision = booking.resolveRepeatBooking(existing.map(toClientBookingLite), { eventTypeKey: target.eventTypeKey, eventId: target.eventId }, now);
     if (decision.action === 'reject') throw new BookingDomainError('already_registered');
     if (decision.action === 'move') from = existing.find((b) => b.id === decision.fromBookingId) ?? null;
+    // Консультация: тот же день, время и направление — не перенос, а повтор
+    if (from && a.individual && from.bookingDate === target.eventDate && from.startTime === target.startTime && from.directionKey === target.directionKey) {
+      throw new BookingDomainError('already_registered');
+    }
   }
 
-  // 7. места: занято считаем отдельным запросом ПОСЛЕ блокировки мероприятия (D-131)
-  const taken = await countTaken(tx, ev.id);
-  // Импорт заносит и прошедшие мероприятия: «уже началось» ему не помеха.
-  const lite = a.via === 'import' ? { ...toEventLite(ev), startsAt: Number.MAX_SAFE_INTEGER } : toEventLite(ev);
-  const bookable = booking.eventBookability(lite, taken, now);
-  if (!bookable.ok) {
-    if (bookable.reason === 'event_full') {
-      throw new BookingDomainError('event_full', await nearestOptions(actor, tx, { spaceId, settings, eventTypeKey: ev.eventTypeKey, now }));
+  // 7. места: занято считаем отдельным запросом ПОСЛЕ блокировки мероприятия (D-131); у заявки на консультацию мест нет
+  if (ev) {
+    const taken = await countTaken(tx, ev.id);
+    // Импорт заносит и прошедшие мероприятия: «уже началось» ему не помеха.
+    const lite = a.via === 'import' ? { ...toEventLite(ev), startsAt: Number.MAX_SAFE_INTEGER } : toEventLite(ev);
+    const bookable = booking.eventBookability(lite, taken, now);
+    if (!bookable.ok) {
+      if (bookable.reason === 'event_full') {
+        throw new BookingDomainError('event_full', await nearestOptions(actor, tx, { spaceId, settings, eventTypeKey: ev.eventTypeKey, now }));
+      }
+      throw new BookingDomainError(bookable.reason);
     }
-    throw new BookingDomainError(bookable.reason);
   }
 
   // 8. сделка: перенос сохраняет сделку исходной записи (D-134)
@@ -158,23 +207,32 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
   const bookedBy = from ? from.bookedByUserId : a.bookedBy === undefined ? actorUserId(actor) : a.bookedBy;
   const id = newId();
   let row: BookingRow | null;
+  const common = {
+    id,
+    spaceId,
+    clientId: a.clientId,
+    cardId: card.id,
+    dealId,
+    contactId: from ? from.contactId : a.contactId,
+    via: a.via,
+    bookedByUserId: bookedBy,
+    responsibleUserId: card.ownerUserId,
+    movedFromId: from?.id ?? null,
+    requestId: a.requestId,
+    at: now,
+  };
   try {
-    row = await insertGroupBooking(tx, {
-      id,
-      spaceId,
-      event: ev,
-      clientId: a.clientId,
-      cardId: card.id,
-      dealId,
-      contactId: from ? from.contactId : a.contactId,
-      via: a.via,
-      bookedByUserId: bookedBy,
-      responsibleUserId: card.ownerUserId,
-      movedFromId: from?.id ?? null,
-      requestId: a.requestId,
-      importKey: a.importKey,
-      at: now,
-    });
+    row = ev
+      ? await insertGroupBooking(tx, { ...common, event: ev, importKey: a.importKey })
+      : await insertIndividualBooking(tx, {
+          ...common,
+          eventTypeKey: target.eventTypeKey,
+          date: target.eventDate,
+          time: target.startTime,
+          startsAt: target.startsAt,
+          durationMin: target.durationMin,
+          directionKey: target.directionKey,
+        });
   } catch (e) {
     // Индексы bookings_group_uq и bookings_import_uq — второй рубеж: под блокировками сюда не дойдём.
     if (isUniqueViolation(e)) throw new BookingDomainError('already_registered');
@@ -182,7 +240,7 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
   }
   if (!row) {
     const again = await findBookingByRequestId(tx, a.requestId);
-    if (again && again.clientId === a.clientId && again.eventId === a.eventId) return replayResult(again);
+    if (again && sameTarget(again, a)) return replayResult(again);
     throw new BookingDomainError('request_reused');
   }
 
@@ -201,11 +259,20 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
       actorId,
       bookingId: row.id,
       at: now,
-      data: { fromId: from.id, toId: row.id, fromEventId: from.eventId, toEventId: ev.id },
+      data: { fromId: from.id, toId: row.id, fromEventId: from.eventId, toEventId: target.eventId },
     });
+    await closeTasksOnBooking(tx, actor, { spaceId, clientId: a.clientId, via: a.via, at: now });
     return { action: 'moved', booking: toBookingView(row), movedFromId: from.id, replayed: false };
   }
-  await insertHistory(tx, { bookingId: row.id, action: 'created', from: '', to: 'registered', actorId, meta: { requestId: a.requestId, via: a.via }, at: now });
+  await insertHistory(tx, {
+    bookingId: row.id,
+    action: 'created',
+    from: '',
+    to: 'registered',
+    actorId,
+    meta: { requestId: a.requestId, via: a.via, ...(a.individual ? { grey: true } : {}) },
+    at: now,
+  });
   await insertFeed(tx, {
     clientId: a.clientId,
     spaceId,
@@ -214,19 +281,54 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
     actorId,
     bookingId: row.id,
     at: now,
-    data: { bookingId: row.id, eventId: ev.id, eventTypeKey: ev.eventTypeKey, eventDate: ev.eventDate, startTime: ev.startTime, via: a.via },
+    data: {
+      bookingId: row.id,
+      eventId: target.eventId,
+      eventTypeKey: target.eventTypeKey,
+      eventDate: target.eventDate,
+      startTime: target.startTime,
+      via: a.via,
+      ...(a.individual ? { directionKey: target.directionKey } : {}),
+    },
   });
+  await closeTasksOnBooking(tx, actor, { spaceId, clientId: a.clientId, via: a.via, at: now });
   return { action: 'created', booking: toBookingView(row), replayed: false };
 }
 
+/** Новая запись или перенос закрывает задачи клиента «записать» (PROCESS 6.2, D-204); импорт их не трогает. */
+async function closeTasksOnBooking(tx: Sql, actor: BookingActor, a: { spaceId: string; clientId: string; via: BookingVia; at: number }): Promise<void> {
+  if (a.via === 'import') return;
+  await closeAutoTasks(tx, actor, { spaceId: a.spaceId, clientId: a.clientId, sources: BOOKING_CLOSES_TASK_SOURCES, at: a.at });
+}
+
+/** Вид, направление и слот заявки на консультацию (шаг 5 дизайна B3a); отказ — ошибка домена. */
+function individualTarget(settings: Awaited<ReturnType<BookingDeps['settings']>>, t: IndividualTarget, now: number): Target {
+  const type = settings.catalog.eventTypes.find((x) => x.key === t.eventTypeKey);
+  if (!type || type.behavior !== 'individual') throw new BookingDomainError('not_an_individual_event');
+  const known = settings.catalog.directions.some((d) => d.key === t.directionKey);
+  if (!known || (type.directions.length > 0 && !type.directions.includes(t.directionKey))) throw new BadRequestError('direction');
+  const check = checkConsultSlot(settings, t.date, t.time, now);
+  if (check !== 'ok') throw new BookingDomainError(check);
+  return {
+    eventTypeKey: type.key,
+    eventDate: t.date,
+    startTime: t.time,
+    startsAt: booking.localToEpoch(settings.timeZone, t.date, t.time),
+    durationMin: type.durationMin,
+    directionKey: t.directionKey,
+    eventId: null,
+  };
+}
+
 export const createBooking: CreateBooking = async (deps, actor, req, opts = {}) => {
-  // Консультации и «серые» заявки — B3a/B5: сюда они попасть не должны (ошибка сборки, не ответ пользователю).
-  if (req.kind !== 'group') throw new Error('B3a: индивидуальная запись ещё не реализована');
+  // Запись к консультанту (resource_id) — B5: до него сюда она попасть не должна (ошибка сборки, не ответ пользователю).
+  if (req.kind === 'individual' && req.resourceId !== null) throw new Error('B5: запись к консультанту ещё не реализована');
   const now = deps.now();
   const args: PlaceArgs = {
     requestId: req.requestId,
     clientId: req.clientId,
-    eventId: req.eventId,
+    eventId: req.kind === 'group' ? req.eventId : null,
+    individual: req.kind === 'individual' ? { eventTypeKey: req.eventTypeKey, date: req.date, time: req.time, directionKey: req.directionKey } : null,
     contactId: req.contactId,
     via: opts.imported ? 'import' : 'ui',
     importKey: opts.imported?.importKey ?? null,
@@ -249,6 +351,7 @@ export const moveBooking: MoveBooking = async (deps, viewer, input) => {
       requestId: input.requestId,
       clientId: old.clientId,
       eventId: input.eventId,
+      individual: null,
       contactId: old.contactId,
       via: 'ui',
       importKey: null,

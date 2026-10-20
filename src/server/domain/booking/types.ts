@@ -64,6 +64,8 @@ export interface BookingSettings {
   deals: DealStages | null;
   /** Окно отмены «ошибка оператора» автором (PROCESS 12.7), минуты. Константа продукта: 10. */
   operatorErrorWindowMin: number;
+  /** B3a: виды, направления и консультации без графиков (мастер записи, «серая» заявка на консультацию). */
+  catalog: BookingCatalog;
 }
 
 export type LoadBookingSettings = (spaceId: string, now: number) => Promise<BookingSettings>;

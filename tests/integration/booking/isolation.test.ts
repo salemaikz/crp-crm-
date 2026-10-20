@@ -20,6 +20,7 @@ import * as eventsGuests from '../../../src/app/api/events/[id]/guests/route';
 import * as seriesRoot from '../../../src/app/api/events/series/route';
 import * as seriesById from '../../../src/app/api/events/series/[id]/route';
 import * as bookingsRoot from '../../../src/app/api/bookings/route';
+import * as bookingsWizard from '../../../src/app/api/bookings/wizard/[cardId]/route';
 import * as bookingsById from '../../../src/app/api/bookings/[id]/route';
 import * as bookingsConfirm from '../../../src/app/api/bookings/[id]/confirm/route';
 import * as bookingsCancel from '../../../src/app/api/bookings/[id]/cancel/route';
@@ -188,7 +189,7 @@ test('директор: чтение 200, любая мутация — 423; о�
 
 test('валидация тел и ответы на ошибки домена: 400, 409 с кодом, event_full с альтернативами, 201/200', async () => {
   const good = { kind: 'group', requestId: uuid(), clientId: 'cl-a-10', eventId: 'iso-future', contactId: null };
-  for (const bad of [{ ...good, extra: 1 }, { ...good, requestId: 'не-uuid' }, { ...good, kind: 'individual' }, { kind: 'group' }]) {
+  for (const bad of [{ ...good, extra: 1 }, { ...good, requestId: 'не-uuid' }, { ...good, kind: 'individual' }, { kind: 'group' }, { kind: 'individual', requestId: uuid(), clientId: 'cl-a-10', eventTypeKey: 'bk', date: '2026-11-03', time: '10:30', directionKey: 'marketing', resourceId: 'r1', contactId: null }]) {
     assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: bad })).status, 400);
   }
   assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: undefined })).status, 400, 'пустое тело');
@@ -280,4 +281,37 @@ test('все маршруты «по кругу» на живых телах: м
   const cancelEv = await call(eventsCancel.POST, 'POST', `/api/events/${evReq}/cancel`, { ...asRop, params: { id: evReq }, body: { opId: uuid() } });
   assert.equal(cancelEv.status, 200);
   assert.equal((cancelEv.json.event as { status: string }).status, 'cancelled');
+});
+
+test('мастер записи: чужая карточка — 404 байт в байт как несуществующая; своя — 200 без лишних полей', async () => {
+  const foreign = await call(bookingsWizard.GET, 'GET', '/api/bookings/wizard/cd-a-1', { as: U.opB, params: { cardId: 'cd-a-1' } });
+  const missing = await call(bookingsWizard.GET, 'GET', '/api/bookings/wizard/нет-такой', { as: U.opB, params: { cardId: 'нет-такой' } });
+  assert.equal(foreign.status, 404);
+  assert.equal(foreign.text, missing.text);
+  const own = await call(bookingsWizard.GET, 'GET', '/api/bookings/wizard/cd-a-1', { as: U.opA, params: { cardId: 'cd-a-1' } });
+  assert.equal(own.status, 200);
+  assert.deepEqual(Object.keys(own.json).sort(), ['cardId', 'clientId', 'clientName', 'consultOffers', 'groupOffers', 'mode', 'timeZone', 'today', 'types']);
+  assert.equal((await call(bookingsWizard.GET, 'GET', '/api/bookings/wizard/cd-a-1', { as: U.consultant, params: { cardId: 'cd-a-1' } })).status, 404, 'консультант по booked_with_me не пишет групповые');
+  assert.equal((await call(bookingsWizard.GET, 'GET', '/api/bookings/wizard/cd-a-1', { as: null, params: { cardId: 'cd-a-1' } })).status, 401);
+});
+
+test('заявка на консультацию через маршрут: 201/200, чужой клиент — 404 без изменений, resourceId строкой — 400', async () => {
+  const body = (clientId: string, over: Record<string, unknown> = {}) => ({
+    kind: 'individual', requestId: uuid(), clientId, eventTypeKey: 'bk', date: '2026-10-29', time: '10:30', directionKey: 'marketing', resourceId: null, contactId: null, ...over,
+  });
+  const good = body('cl-a-14');
+  const created = await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: good });
+  assert.equal(created.status, 201);
+  assert.equal((created.json.booking as { kind: string }).kind, 'individual');
+  assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: good })).status, 200);
+
+  const before = await snapshot();
+  const foreign = await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opB, body: body('cl-a-15') });
+  const missing = await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opB, body: body('cl-none') });
+  assert.equal(foreign.status, 404);
+  assert.equal(foreign.text, missing.text);
+  assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: body('cl-a-15', { resourceId: 'r1' }) })).status, 400);
+  assert.equal(await snapshot(), before, 'таблицы не изменились');
+  const late = await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: body('cl-a-15', { time: '10:20' }) });
+  assert.deepEqual([late.status, late.json], [409, { error: 'conflict', detail: 'outside_hours' }]);
 });

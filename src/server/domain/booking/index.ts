@@ -2,6 +2,9 @@
 export { bookingDeps, overrideBookingDepsForTests } from './deps';
 export { BookingDomainError, httpFailure, isBookingDomainError, fromCore, BOOKING_HTTP_STATUS, type HttpFailure } from './errors';
 export { cancelBooking, createBooking, getBooking, listBookings, markAttendance, moveBooking, setConfirmation } from './bookings';
+export { listBookingItems } from './list';
+export { getBookingWizard, pickLabel } from './wizard';
+export { checkConsultSlot, consultDays } from './consult';
 export { applyBookingEffects } from './effects';
 export { cancelEvent, createEvent, getEvent, listEvents, listGuests, offerEvents, setEventDuty, updateEvent } from './events';
 export { createSeries, ensureAllSeries, listSeries, syncSeries, updateSeries } from './series';

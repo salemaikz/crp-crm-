@@ -5,7 +5,10 @@ import { z } from 'zod';
 import { bookingPipeline, parsePipelines, toDealStages } from '@/server/domain/deals/pipelines';
 import { getActiveConfig } from '@/server/platform/config/active';
 import { BookingDomainError } from './errors';
-import { EVENT_FORMATS, type BookingSettings, type LoadBookingSettings } from './types';
+import { EVENT_FORMATS, type BookingSettings, type LoadBookingSettings, type LocalizedLabel } from './types';
+
+const toLabel = (l: { ru: string; kk?: string | undefined } | undefined, fallback: string): LocalizedLabel =>
+  l ? { ru: l.ru, ...(l.kk !== undefined ? { kk: l.kk } : {}) } : { ru: fallback };
 
 const Hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const Weekday = z.number().int().min(1).max(7);
@@ -25,14 +28,21 @@ const GlobalSlice = z
   })
   .passthrough();
 
+const Label = z.object({ ru: z.string(), kk: z.string().optional() }).passthrough();
+
 const EventType = z
   .object({
     key: z.string().min(1),
     behavior: z.enum(['group', 'individual']),
+    label: Label.optional(),
+    short: Label.optional(),
     capacity: z.number().int().positive().nullable(),
     durationMin: z.number().int().positive(),
+    directions: z.array(z.string()).optional(),
   })
   .passthrough();
+
+const Direction = z.object({ key: z.string().min(1), label: Label }).passthrough();
 
 const SeedSeries = z
   .object({
@@ -55,6 +65,14 @@ const SpaceSlice = z
         horizonDays: z.number().int().min(1),
         groupOptions: z.number().int().min(1),
         seedSeries: z.array(SeedSeries),
+        directions: z.array(Direction).optional(),
+        consultStripDays: z.number().int().min(1),
+        consult: z
+          .object({
+            slotMinutes: z.number().int().min(1),
+            hours: z.object({ workdays: z.array(Weekday).min(1), start: Hhmm, end: Hhmm }).passthrough(),
+          })
+          .passthrough(),
       })
       .passthrough(),
     pipelines: z.array(z.unknown()),
@@ -112,6 +130,22 @@ export function parseBookingSettings(input: { spaceId: string; global: unknown; 
     })),
     deals: pipeline ? toDealStages(pipeline) : null,
     operatorErrorWindowMin: OPERATOR_ERROR_WINDOW_MIN,
+    catalog: {
+      eventTypes: b.eventTypes.map((t) => ({
+        key: t.key,
+        behavior: t.behavior,
+        label: toLabel(t.label, t.key),
+        short: toLabel(t.short, t.label?.ru ?? t.key),
+        durationMin: t.durationMin,
+        directions: t.directions ?? [],
+      })),
+      directions: (b.directions ?? []).map((d) => ({ key: d.key, label: toLabel(d.label, d.key) })),
+      consult: {
+        slotMinutes: b.consult.slotMinutes,
+        hours: { workdays: b.consult.hours.workdays, start: b.consult.hours.start, end: b.consult.hours.end },
+        stripDays: b.consultStripDays,
+      },
+    },
   };
 }
 

@@ -2,7 +2,7 @@
 // карточки в «Договорились», настройки записи, часы, сделки и порт карточки, который зовёт настоящий
 // calling.applyOutcome и записывает события (без записи в БД): проверяется вход порта, а не эффекты C5.
 import { booking, calling, time } from '../../../packages/core/src';
-import type { BookingCardEvent, BookingDeps, BookingSettings, CardPort, LockedCard } from '../../../src/server/domain/booking/types';
+import type { BookingCardEvent, BookingCatalog, BookingDeps, BookingSettings, CardPort, LockedCard } from '../../../src/server/domain/booking/types';
 import { createDealLink } from '../../../src/server/domain/deals/effects';
 import type { PipelineInfo } from '../../../src/server/domain/deals/pipelines';
 import type { Sql } from '../../../src/server/platform/db';
@@ -37,6 +37,23 @@ export const PIPELINES: PipelineInfo[] = [
   },
 ];
 
+/** Каталог записи ЦРП: БР (групповой) и БК (индивидуальный, 45 мин), 6 направлений, пн–пт 09:00–18:00, шаг 45. */
+export const CRP_CATALOG: BookingCatalog = {
+  eventTypes: [
+    { key: 'br', behavior: 'group', label: { ru: 'Бизнес-разбор' }, short: { ru: 'БР' }, durationMin: 180, directions: [] },
+    { key: 'bk', behavior: 'individual', label: { ru: 'Бизнес-консультация' }, short: { ru: 'БК' }, durationMin: 45, directions: [] },
+  ],
+  directions: [
+    { key: 'program', label: { ru: 'Программа' } },
+    { key: 'consulting', label: { ru: 'Консалтинг' } },
+    { key: 'marketing', label: { ru: 'Маркетинг' } },
+    { key: 'automation', label: { ru: 'Автоматизация' } },
+    { key: 'training', label: { ru: 'Обучение' } },
+    { key: 'other', label: { ru: 'Другое' } },
+  ],
+  consult: { slotMinutes: 45, hours: { workdays: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' }, stripDays: 7 },
+};
+
 export function testSettings(over: Partial<BookingSettings> = {}): BookingSettings {
   return {
     spaceId: SPACE,
@@ -48,6 +65,7 @@ export function testSettings(over: Partial<BookingSettings> = {}): BookingSettin
     seedSeries: [{ key: 'seed_thu', eventTypeKey: 'br', weekday: 4, startTime: '15:00', durationMin: 180, location: 'Зал 1', format: 'offline', capacity: 30 }],
     deals: { pipelineKey: 'sales', onAgreedStageKey: 'booked', onAttendedStageKey: 'attended' },
     operatorErrorWindowMin: 10,
+    catalog: CRP_CATALOG,
     ...over,
   };
 }
