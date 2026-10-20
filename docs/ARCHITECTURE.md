@@ -176,6 +176,11 @@ crp-crm-/
 - Лента `client_events`, `audit_log`, `booking_history`, `consents` и
   `config_revisions` — только добавление: у `crm_app` нет `UPDATE` и `DELETE`;
   у `clients` нет `DELETE` (права — `deploy/postgres/grants.sql`, D-068).
+  `DELETE` у `crm_app` есть **только** у служебных таблиц по явному списку в
+  `grants.sql` (сессии, приглашения, очереди, purge, сменяемые настройки
+  консультанта, стоп-лист для снятия «Не звонить»); у остальных — нет, и у
+  таблиц из будущих миграций по умолчанию тоже нет. Звонки, сделки, карточки,
+  записи, задачи, сотрудники не удаляются даже ошибкой репозитория.
   Слияние эти таблицы не переписывает: данные слитого клиента читаются по
   цепочке `merged_into_id`. Обезличивание чистит ленту функцией
   `depersonalize_client(id)` с `SECURITY DEFINER` от `crm_owner` — она
@@ -232,7 +237,7 @@ CREATE TABLE IF NOT EXISTS invites (
   id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, phone_digits TEXT NOT NULL,
   space_id TEXT REFERENCES spaces(id), role_key TEXT NOT NULL DEFAULT '', team_id TEXT, -- оба пусты или оба заданы (D-070)
   kind TEXT NOT NULL DEFAULT 'invite' CHECK (kind IN ('invite','reset')),
-  expires_at BIGINT NOT NULL, used_at BIGINT, created_by TEXT NOT NULL, created_at BIGINT NOT NULL
+  expires_at BIGINT NOT NULL, used_at BIGINT, created_by TEXT, created_at BIGINT NOT NULL -- created_by NULL: CLI
 );
 
 CREATE TABLE IF NOT EXISTS teams (
@@ -257,7 +262,7 @@ CREATE TABLE IF NOT EXISTS absences (
   user_id TEXT NOT NULL REFERENCES users(id),
   from_day TEXT NOT NULL, to_day TEXT NOT NULL,          -- включительно, местные даты
   substitute_user_id TEXT REFERENCES users(id),           -- NULL = поровну между работающими
-  created_by TEXT NOT NULL, created_at BIGINT NOT NULL, cancelled_at BIGINT,
+  created_by TEXT, created_at BIGINT NOT NULL, cancelled_at BIGINT,   -- created_by NULL: система
   CHECK (from_day <= to_day)
 );
 CREATE INDEX IF NOT EXISTS absences_user_idx ON absences (space_id, user_id, from_day);
@@ -410,7 +415,7 @@ CREATE INDEX IF NOT EXISTS cards_return_idx ON cards (space_id, return_at) WHERE
 CREATE TABLE IF NOT EXISTS calls (
   id TEXT PRIMARY KEY,                          -- opId с устройства; повтор = ON CONFLICT DO NOTHING
   space_id TEXT NOT NULL, card_id TEXT NOT NULL REFERENCES cards(id), client_id TEXT NOT NULL,
-  user_id TEXT NOT NULL, owner_user_id_at_call TEXT,
+  user_id TEXT, owner_user_id_at_call TEXT,   -- user_id NULL только при via import/telephony
   direction TEXT NOT NULL DEFAULT 'out' CHECK (direction IN ('out','in')),
   via TEXT NOT NULL CHECK (via IN ('ui','offline','import','telephony','manual_entry')),
   phone_digits TEXT NOT NULL DEFAULT '',
@@ -489,7 +494,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   status TEXT NOT NULL DEFAULT 'registered' CHECK (status IN
     ('registered','confirmed','attended','no_show','cancelled','moved')),
   cancel_reason TEXT NOT NULL DEFAULT '',      -- 'client','event_cancelled','operator_error','do_not_call'
-  booked_by_user_id TEXT NOT NULL,             -- заслуга (не меняется при передаче)
+  booked_by_user_id TEXT,                      -- заслуга (не меняется при передаче); NULL: импорт, система
   responsible_user_id TEXT,                    -- ответственный (меняется при передаче)
   moved_from_id TEXT, moved_to_id TEXT, grey_processed_at BIGINT,
   custom JSONB NOT NULL DEFAULT '{}',          -- поля объекта booking (D-070)
@@ -517,7 +522,7 @@ CREATE TABLE IF NOT EXISTS deals (
   won_at BIGINT, lost_at BIGINT, lost_reason_code TEXT NOT NULL DEFAULT '',
   needs_rebook BOOLEAN NOT NULL DEFAULT FALSE, stage_changed_at BIGINT NOT NULL,
   custom JSONB NOT NULL DEFAULT '{}', request_id TEXT, version INTEGER NOT NULL DEFAULT 0,
-  created_by TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+  created_by TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL  -- created_by NULL: система
 );
 CREATE UNIQUE INDEX IF NOT EXISTS deals_request_uq ON deals (request_id) WHERE request_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS deals_board_idx  ON deals (space_id, pipeline_key, status, stage_key);
@@ -540,10 +545,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     'attendance_mark','next_step','agreement','clarify_import','absent_review')),
   title TEXT NOT NULL, due_at BIGINT, assignee_user_id TEXT, team_id TEXT,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','done','cancelled')),
-  source_key TEXT,                             -- автозадача не задваивается
+  source_key TEXT,                             -- автозадача не задваивается: одна открытая на ключ
   created_by TEXT, done_at BIGINT, created_at BIGINT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS tasks_source_uq ON tasks (source_key) WHERE source_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_source_uq ON tasks (source_key) WHERE source_key IS NOT NULL AND status = 'open';
 CREATE INDEX IF NOT EXISTS tasks_assignee_idx ON tasks (assignee_user_id, status, due_at);
 CREATE INDEX IF NOT EXISTS tasks_client_idx   ON tasks (client_id) WHERE status = 'open';
 
@@ -613,7 +618,7 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
 | Слот консультанта | advisory lock по `(resource_id, booking_date)` + проверка слота в транзакции |
 | Одна активная будущая запись клиента на тип | проверка под advisory lock по `client_id` в транзакции (индекс невозможен: «будущая» зависит от времени) |
 | Повтор записи, покупки | `UNIQUE(request_id)` |
-| Двойная автозадача, передача | `UNIQUE(source_key)`, `UNIQUE(deal_id)` у `handoffs` |
+| Двойная автозадача, передача | `UNIQUE(source_key)` среди открытых задач, `UNIQUE(deal_id)` у `handoffs` |
 | Повтор вебхука | `UNIQUE(integration_id, dedupe_key)` |
 | Двойной запуск задачи | `UNIQUE(job, slot_key)` + `pg_try_advisory_lock` |
 | Двойная сводка в 09:00 | `notifications.dedupe_key` = `digest:<user>:<дата>` |
@@ -622,7 +627,13 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
 
 Реестр — `src/server/domain/clients/piiRegistry.ts` (код) и эта таблица
 (смысл). Каждая колонка с ПДн помечена в миграции `-- pii`; статический тест
-сверяет пометки с реестром. `depersonalize_client(id)` (`SECURITY DEFINER`, от
+`tests/unit/static-pii-registry.test.ts` сверяет пометки с этой таблицей в обе
+стороны (а с `piiRegistry.ts` — когда файл появится, B9). Формат строки для
+теста: в первой колонке — таблицы в обратных кавычках (несколько — только с
+одинаковыми колонками), во второй — колонки в обратных кавычках (`pii` в
+пояснении не считается); строка без
+таблицы в кавычках (копии БД) и строки таблиц телефонии, которых ещё нет
+(D-069), тест пропускает. `depersonalize_client(id)` (`SECURITY DEFINER`, от
 `crm_owner`) обрабатывает **каждую** строку реестра в одной транзакции;
 интеграционный тест создаёт клиента со всеми видами данных, обезличивает и
 проверяет, что исходных значений нет ни в одной колонке реестра (по образцу
@@ -638,7 +649,8 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
 | `notes`, `task_comments` | `body` | «Удалено по запросу» |
 | `tasks` | `title` (может содержать имя) | заголовок по коду источника без имён |
 | `client_events` | `data` (значения полей) | значения полей удаляются, коды и числа остаются |
-| `bookings`, `deals` | `custom` (поля с `pii`); у `deals` ещё `lost_reason_text` | пусто |
+| `bookings` | `custom` (поля с `pii`) | пусто |
+| `deals` | `custom` (поля с `pii`), `lost_reason_text` | пусто |
 | `handoffs` | `declined_reason` | пусто |
 | `proposals` | `digits`, `name` | пусто |
 | `import_rows` | `parsed` | строки клиента удаляются (и так живут 14 дней) |
@@ -647,11 +659,13 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
 | `change_snapshots` | `before` | строки клиента (`client_id`) удаляются (и так 30 дней) |
 | `dup_pairs` | `comment` | пусто |
 | `client_sources` | `external_id` | пусто (у источника «Новая база» — хэш БИН, но чистим тоже) |
-| `messenger_chats`, `messenger_messages` | `chat_id`, `body` | номер → пусто, тексты → «Удалено по запросу»; запрос удаления чата у провайдера (Wazzup API), отметка в аудите |
+| `messenger_chats` | `chat_id` | номер → пусто; запрос удаления чата у провайдера (Wazzup API), отметка в аудите |
+| `messenger_messages` | `body` | тексты → «Удалено по запросу» |
 | `call_intents`, `telephony_calls` (таблиц ещё нет, INTEGRATIONS §2.7) | `client_digits` | пусто |
 | `call_recordings` (таблицы ещё нет) и файлы в томе `crm_recordings` | файл | файл удаляется с диска; у провайдера — запрос удаления |
 | `audit_log` | — | ПДн в аудит не пишутся (только id и коды) |
-| `users`, `invites` | `name`, `phone_digits` — ПДн **сотрудников**, не клиентов | функцией клиента не обезличиваются; порядок для уволенных сотрудников — после 1.11 `[дозаполни: решение ЦРП и юриста, PLAN §9 В-9]` |
+| `users` | `name`, `phone_digits` — ПДн **сотрудников**, не клиентов | функцией клиента не обезличиваются; порядок для уволенных сотрудников — после 1.11 `[дозаполни: решение ЦРП и юриста, PLAN §9 В-9]` |
+| `invites` | `phone_digits` — ПДн сотрудника | то же; строки удаляет `purge` по сроку |
 | копии БД | все | обезличенные данные пропадают из копий не позже чем через 35 дней (7 дневных + 4 недельные) — это пишется в ответе субъекту |
 
 ---
@@ -743,7 +757,12 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
    отключение, смена роли, каждая ревизия настроек (ключи без значений ПДн),
    выгрузки (кто, что, сколько строк), слияние, передача, ручная раздача,
    возврат в обзвон, снятие «Не звонить», открытие чата Wazzup, обезличивание,
-   загрузка лицензии, переход в «только чтение».
+   загрузка лицензии, переход в «только чтение». В `meta` — только id, коды и
+   числа: у выгрузки — вид, **коды** полей фильтра и сортировки и число строк,
+   но не значения (текст поиска, номер, имя, БИН). Журнал только дополняется и
+   обезличиванием клиента не чистится, поэтому значение ПДн в нём осталось бы
+   навсегда; тест модуля выгрузок проверяет, что `meta` не содержит значений
+   фильтра.
 
 ### 5.3. Как проверяется тестами
 
@@ -1035,7 +1054,7 @@ UI, лента (`timeline.ts` собирает из источников — у 
 | CSV | `src/lib/team/csv.ts` | защита от формул во всех выгрузках |
 | UI и бренд | `src/components/ui/*` (27 компонентов), `src/styles/tokens.css`, `docs/brand/logo/` | токены в тему из настроек; логотипы не перерисовываем |
 | Выкладка | `deploy/nginx/*`, `deploy/postgres/{roles,grants}.sql`, `deploy/bin/{backup,restore,healthcheck,lib}.sh` | под Docker; PM2 и `deploy.sh` не берём |
-| Тесты и CI | node:test + tsx, PGlite или `TEST_DATABASE_URL`, тест паритета локалей, тест идемпотентности миграций, `.github/workflows/ci.yml` | + изоляция, образ, пакет |
+| Тесты и CI | node:test + tsx, PGlite или `TEST_DATABASE_URL`, тест паритета локалей, тест идемпотентности миграций, `.github/workflows/ci.yml` | PGlite не берём: тесты только на Postgres 16 (`TEST_DATABASE_URL`); + изоляция, образ, пакет |
 | Правила агентов | `docs/agents/ROUTING.md` | копия |
 
 ### 9.3. Пишем заново
