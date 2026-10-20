@@ -24,7 +24,7 @@ import type {
 export type HeldReason = 'twin_unavailable' | 'blocked';
 
 export interface AllocationPlan {
-  /** userId → id карточек в порядке выдачи. Ключ есть у каждого участника со статусом «Работает» (даже с пустым списком); на паузе и отсутствующих ключа нет. */
+  /** userId → id карточек в порядке выдачи (группа двойников — целиком одному оператору, место под неё резервируется при первой выдаче). Ключ есть у каждого участника со статусом «Работает» (даже с пустым списком); на паузе и отсутствующих ключа нет. */
   byOperator: Record<UserId, string[]>;
   /** Пара не делится: владелец двойника не может принять всю группу (пауза, нет в раздаче, мало места). Ждут РОП («Пул: Дубли»). */
   heldBack: string[];
@@ -120,11 +120,15 @@ export function planAllocation(
 
   const give = (o: (typeof ops)[number], leadId: string, group: string | undefined) => {
     (byOperator[o.userId] ??= []).push(leadId);
-    if (group) groupOwner.set(group, o.userId);
     o.open++;
     o.issued++;
-    o.room--;
-    if (group) groupLeft.set(group, (groupLeft.get(group) ?? 1) - 1);
+    if (group) {
+      // Первая выдача из группы резервирует место под всю группу сразу; остальные карточки группы
+      // место уже не тратят, а одиночные карточки не успевают занять резерв.
+      if (!groupOwner.has(group)) o.room -= groupLeft.get(group) ?? 1;
+      groupLeft.set(group, (groupLeft.get(group) ?? 1) - 1);
+      groupOwner.set(group, o.userId);
+    } else o.room--;
   };
 
   for (const lead of ordered) {
@@ -143,7 +147,9 @@ export function planAllocation(
     const affinity = lead.heldBy ?? (group ? (groupOwner.get(group) ?? groupHolder.get(group)) : undefined) ?? null;
     if (affinity) {
       const o = byUser.get(affinity);
-      if (o && o.room >= need) give(o, lead.id, group);
+      // Место под группу уже зарезервировано за её владельцем — повторно не проверяем.
+      const reserved = group !== undefined && groupOwner.get(group) === affinity;
+      if (o && (reserved || o.room >= need)) give(o, lead.id, group);
       else {
         plan.heldBack.push(lead.id);
         if (group) groupFate.set(group, 'heldBack');

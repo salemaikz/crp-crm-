@@ -243,3 +243,15 @@ test('владелец двойника с местом не на всю гру�
   assert.deepEqual(plan.heldBack, ['h1', 'h2']);
   assert.deepEqual(plan.byOperator, { a: [], b: [] });
 });
+
+test('группа не подряд в пуле: резерв под всю группу, одиночные не съедают остаток', () => {
+  // mobileFirst уносит g2 в конец: порядок выдачи g1, s1, g2
+  const pool: PoolLead[] = [{ id: 'g1', twins: ['g2'] }, { id: 'g2', hasMobile: false }, { id: 's1' }];
+  const one = planAllocation([op('a', 0, { auto: 38 })], pool, S);
+  assert.deepEqual(one.byOperator, { a: ['g1', 'g2'] });
+  assert.deepEqual(one.overCap, ['s1']);
+  assert.deepEqual(one.heldBack, []);
+  // со вторым оператором одиночная карточка уходит ему
+  const two = planAllocation([op('a', 0, { auto: 38 }), op('b', 5)], pool, S);
+  assert.deepEqual(two.byOperator, { a: ['g1', 'g2'], b: ['s1'] });
+});
