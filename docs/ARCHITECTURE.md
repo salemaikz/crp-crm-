@@ -173,9 +173,13 @@ crp-crm-/
   том числе 12 цифр у ИП, D-052), стоп-лист — HMAC номера. Ключи HMAC — в
   окружении, не в БД. Каждая колонка с ПДн помечена `-- pii` в миграции и
   стоит в реестре §4.6.
-- Лента `client_events` и `audit_log` — только добавление: у `crm_app` нет
-  `UPDATE` и `DELETE`. Обезличивание чистит ленту функцией
-  `depersonalize_client(id)` с `SECURITY DEFINER` от `crm_owner`.
+- Лента `client_events`, `audit_log`, `booking_history`, `consents` и
+  `config_revisions` — только добавление: у `crm_app` нет `UPDATE` и `DELETE`;
+  у `clients` нет `DELETE` (права — `deploy/postgres/grants.sql`, D-068).
+  Слияние эти таблицы не переписывает: данные слитого клиента читаются по
+  цепочке `merged_into_id`. Обезличивание чистит ленту функцией
+  `depersonalize_client(id)` с `SECURITY DEFINER` от `crm_owner` — она
+  приходит отдельной миграцией вместе с B9 (D-069).
 
 ### 4.2. Где `space_id`
 
@@ -191,6 +195,10 @@ crp-crm-/
 
 Эскиз для architect при написании миграций. Окончательный SQL пишет architect
 (T2), builder не меняет ограничения без записи в `docs/DECISIONS.md`.
+**Окончательный SQL v1 — `migrations/2026-10-21-platform-schema-v1.sql`**,
+карта таблиц — `docs/schema-v1.md`. Эскиз ниже уточнён решениями
+D-067…D-070 (внешние ключи на все ссылки, `custom` у контактов и записей,
+приглашение без роли и др.); при расхождении эскиза с файлом действует файл.
 
 ```sql
 -- ===== Платформа =====
@@ -222,7 +230,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS spaces_one_default ON spaces ((true)) WHERE is
 
 CREATE TABLE IF NOT EXISTS invites (
   id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, phone_digits TEXT NOT NULL,
-  space_id TEXT NOT NULL REFERENCES spaces(id), role_key TEXT NOT NULL, team_id TEXT,
+  space_id TEXT REFERENCES spaces(id), role_key TEXT NOT NULL DEFAULT '', team_id TEXT, -- оба пусты или оба заданы (D-070)
   kind TEXT NOT NULL DEFAULT 'invite' CHECK (kind IN ('invite','reset')),
   expires_at BIGINT NOT NULL, used_at BIGINT, created_by TEXT NOT NULL, created_at BIGINT NOT NULL
 );
@@ -322,7 +330,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   id TEXT PRIMARY KEY, client_id TEXT NOT NULL REFERENCES clients(id),
   name TEXT NOT NULL DEFAULT '', position TEXT NOT NULL DEFAULT '',
   is_decision_maker BOOLEAN NOT NULL DEFAULT FALSE, call_hint TEXT NOT NULL DEFAULT '',
-  note TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, archived_at BIGINT
+  note TEXT NOT NULL DEFAULT '', custom JSONB NOT NULL DEFAULT '{}',  -- поля объекта contact (D-070)
+  created_at BIGINT NOT NULL, archived_at BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS client_phones (
@@ -483,6 +492,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   booked_by_user_id TEXT NOT NULL,             -- заслуга (не меняется при передаче)
   responsible_user_id TEXT,                    -- ответственный (меняется при передаче)
   moved_from_id TEXT, moved_to_id TEXT, grey_processed_at BIGINT,
+  custom JSONB NOT NULL DEFAULT '{}',          -- поля объекта booking (D-070)
+  via TEXT NOT NULL DEFAULT 'ui' CHECK (via IN ('ui','import','walk_in')), import_key TEXT, -- профиль «Записи», гость без записи
   request_id TEXT, version INTEGER NOT NULL DEFAULT 0,
   created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
   CHECK (kind <> 'group' OR event_id IS NOT NULL)
@@ -559,7 +570,8 @@ CREATE TABLE IF NOT EXISTS webhook_inbox (
   UNIQUE (integration_id, dedupe_key)
 );
 CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, next_at) WHERE state = 'pending';
--- integrations, integration_secrets, messenger_* , telephony_* — docs/INTEGRATIONS.md
+-- integrations, integration_secrets, messenger_* — docs/INTEGRATIONS.md, в схеме v1 (D-069);
+-- telephony_*, call_intents, call_recordings — отдельной миграцией с первым живым адаптером (INTEGRATIONS §2.7)
 ```
 
 ### 4.4. Остальные таблицы (кратко)
@@ -576,12 +588,14 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
 | `resources` | space_id, user_id, directions TEXT[] (ключи), slot_min, capacity, auto_assign, active, sort |
 | `resource_schedule`, `resource_exceptions` | недельный график с перерывами; исключения по датам (`off`, `custom`) |
 | `booking_history` | booking_id, action, from_status, to_status, actor_id, meta; только добавление |
-| `integrations` | id, plugin_id, space_id (NULL = вся установка), config jsonb без секретов, enabled, status, last_event_at |
-| `integration_secrets` | integration_id, name, kid, iv, ciphertext, tag (AES-256-GCM) |
-| `consents` | client_id, kind (`messenger_crossborder`, `call_recording`), given_at, text_hash (как D-035 crp-kz), recorded_by; только добавление, отзыв — новой строкой |
+| `integrations` | id, plugin_id, space_id (NULL = вся установка), config jsonb без секретов, enabled, status, `webhook_token_hash` (UNIQUE, sha256 токена из пути, §4 INTEGRATIONS), last_event_at, crossborder_approved_at/by |
+| `integration_secrets` | PK(integration_id, name), kid, iv, ciphertext, tag (AES-256-GCM), last4 для UI |
+| `consents` | client_id, kind (`messenger_crossborder`, `call_recording`), action (`given`, `revoked`), at, text_hash (как D-035 crp-kz), recorded_by; только добавление, отзыв — новой строкой `revoked` |
 | `device_status` | PK(user_id, device_id), pending_outbox, last_flush_at, seen_at; без ПДн (D-063) |
-| `change_snapshots` | operation_id, kind (`merge`, `bulk_transfer`), table_name, row_id, before jsonb, created_by, created_at; чистится через 30 дней (D-062) |
+| `change_snapshots` | operation_id, kind (`merge`, `bulk_transfer`), table_name, row_id, client_id (для обезличивания), before jsonb, created_by, created_at; чистится через 30 дней (D-062) |
 | `phone_probes` | user_id, day, path (`proposal`, `add_phone`, `walk_in`, `manual_create`), matched; счётчик `security.phoneProbesPerDay` (D-040) |
+| `push_subscriptions`, `push_outbox` | подписка: endpoint UNIQUE, ключи, device_id; очередь: строка на пару «уведомление, подписка» (UNIQUE), state, attempts, next_at, lease_until; текст без ПДн (D-033) |
+| `messenger_channels`, `messenger_chats`, `messenger_messages` | DDL — INTEGRATIONS §3.2, в v1 с FK и `space_id` (D-069) |
 
 ### 4.5. Гарантии уникальности и порядка
 
@@ -616,23 +630,28 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
 
 | Где | Колонки | Что делает обезличивание |
 |---|---|---|
-| `clients` | `name`, `name_norm`, `org_id`, `address`, `email`, `website`, `custom` (поля с `pii`), `search_norm` | имя → «Обезличено», остальное пусто; `depersonalized_at` |
-| `contacts` | `name`, `position`, `call_hint`, `note` | пусто |
+| `clients` | `name`, `name_norm`, `org_id`, `iin_hmac`, `address`, `email`, `website`, `custom` (поля с `pii`), `search_norm` | имя → «Обезличено», `iin_hmac` → NULL, остальное пусто; `depersonalized_at` |
+| `cards` | `custom` (поля с `pii`) | пусто |
+| `contacts` | `name`, `position`, `call_hint`, `note`, `custom` (поля с `pii`) | пусто |
 | `client_phones` | `digits`, `ext` | номер → HMAC в `stop_list`, строка удаляется |
 | `calls` | `phone_digits`, `note`, `fields_patch` | пусто; итог, время, вид остаются для отчётов |
 | `notes`, `task_comments` | `body` | «Удалено по запросу» |
 | `tasks` | `title` (может содержать имя) | заголовок по коду источника без имён |
 | `client_events` | `data` (значения полей) | значения полей удаляются, коды и числа остаются |
-| `bookings`, `deals` | `custom` (поля с `pii`) | пусто |
+| `bookings`, `deals` | `custom` (поля с `pii`); у `deals` ещё `lost_reason_text` | пусто |
+| `handoffs` | `declined_reason` | пусто |
 | `proposals` | `digits`, `name` | пусто |
 | `import_rows` | `parsed` | строки клиента удаляются (и так живут 14 дней) |
 | `webhook_inbox` | `payload` | обнуляется (и так через 14 дней) |
+| `ingest_batches` | `report` (externalId записей) | externalId клиента в отчёте → пусто (и так 30 дней) |
+| `change_snapshots` | `before` | строки клиента (`client_id`) удаляются (и так 30 дней) |
 | `dup_pairs` | `comment` | пусто |
 | `client_sources` | `external_id` | пусто (у источника «Новая база» — хэш БИН, но чистим тоже) |
 | `messenger_chats`, `messenger_messages` | `chat_id`, `body` | номер → пусто, тексты → «Удалено по запросу»; запрос удаления чата у провайдера (Wazzup API), отметка в аудите |
-| `call_intents`, `telephony_calls` | `client_digits` | пусто |
-| `call_recordings` и файлы в томе `crm_recordings` | файл | файл удаляется с диска; у провайдера — запрос удаления |
+| `call_intents`, `telephony_calls` (таблиц ещё нет, INTEGRATIONS §2.7) | `client_digits` | пусто |
+| `call_recordings` (таблицы ещё нет) и файлы в томе `crm_recordings` | файл | файл удаляется с диска; у провайдера — запрос удаления |
 | `audit_log` | — | ПДн в аудит не пишутся (только id и коды) |
+| `users`, `invites` | `name`, `phone_digits` — ПДн **сотрудников**, не клиентов | функцией клиента не обезличиваются; порядок для уволенных сотрудников — после 1.11 `[дозаполни: решение ЦРП и юриста, PLAN §9 В-9]` |
 | копии БД | все | обезличенные данные пропадают из копий не позже чем через 35 дней (7 дневных + 4 недельные) — это пишется в ответе субъекту |
 
 ---
