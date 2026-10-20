@@ -3,6 +3,7 @@
 import { fields, names, type phone } from '@crm/core';
 import type { Viewer } from '@/server/access';
 import { can } from '@/server/access';
+import type { GlobalConfigV1, SpaceConfigV1 } from '@crm/core/config';
 import { getActiveConfig } from '@/server/platform/config/active';
 
 export type ClientsConfig = {
@@ -18,6 +19,8 @@ export type ClientsConfig = {
   probesPerDay: number;
   /** Ключи полей клиента, значения которых входят в search_norm (видны всем ролям). */
   searchable: string[];
+  /** ИИН хранится только HMAC (`kz_iin_hmac`); иначе 12 цифр с возможным ИИН не принимаются (D-052). */
+  personIdRule: GlobalConfigV1['org']['personIdRule'];
 };
 
 const ACCESS = new Set(['edit', 'read', 'hidden']);
@@ -31,12 +34,27 @@ function roleOf(r: Record<string, unknown>): fields.FieldRole {
   return { key: String(r.key), fieldAccessDefault: accessOf(r.fieldAccessDefault), archived: r.archived === true };
 }
 
+/** Поля (global + пространство) и роли для расчёта доступа. */
+function defsAndRoles(g: GlobalConfigV1, space: SpaceConfigV1 | undefined): { defs: fields.FieldDef[]; roles: fields.FieldRole[] } {
+  const defs = [...g.fields, ...(space?.fields ?? [])] as unknown as fields.FieldDef[];
+  const roles = (g.roles as unknown as Record<string, unknown>[]).map(roleOf);
+  return { defs, roles };
+}
+
+/**
+ * Ключи полей клиента для search_norm (D-123): одно правило для всех путей записи — правка в карточке и
+ * приём лидов. Поле, скрытое хоть одной роли, в поиск не входит.
+ */
+export function clientSearchableKeys(g: GlobalConfigV1, space: SpaceConfigV1 | undefined): string[] {
+  const { defs, roles } = defsAndRoles(g, space);
+  return fields.searchableKeys(defs, roles);
+}
+
 export async function loadClientsConfig(viewer: Viewer): Promise<ClientsConfig> {
   const cfg = await getActiveConfig();
   const g = cfg.global.doc;
   const space = Object.values(cfg.spaces).find((s) => s.spaceId === viewer.spaceId);
-  const defs = [...g.fields, ...(space?.doc.fields ?? [])] as unknown as fields.FieldDef[];
-  const roles = (g.roles as unknown as Record<string, unknown>[]).map(roleOf);
+  const { defs, roles } = defsAndRoles(g, space?.doc);
   const legal = g.org.legalForms;
   return {
     rev: cfg.global.rev,
@@ -48,6 +66,7 @@ export async function loadClientsConfig(viewer: Viewer): Promise<ClientsConfig> 
     phoneRules: g.phone,
     probesPerDay: g.security.phoneProbesPerDay,
     searchable: fields.searchableKeys(defs, roles),
+    personIdRule: g.org.personIdRule,
   };
 }
 

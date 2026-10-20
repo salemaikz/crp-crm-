@@ -203,6 +203,7 @@ export async function selectWorkingPhones(
 
 export type LockedClient = {
   id: string;
+  kind: 'company' | 'person';
   name: string;
   legalForm: string;
   orgId: string;
@@ -217,7 +218,7 @@ export type LockedClient = {
 /** 4.6. Клиент под блокировкой с охватом `client.edit`. Нет строки — вызывающий зовёт throwNotFoundOrForbidden. */
 export async function lockClientForEdit(sql: Sql, viewer: Viewer, id: string): Promise<LockedClient | null> {
   const rows = await scoped(sql)<LockedClient>`
-    SELECT cl.id, cl.name, cl.legal_form, cl.org_id, cl.region, cl.address, cl.email, cl.website, cl.custom,
+    SELECT cl.id, cl.kind, cl.name, cl.legal_form, cl.org_id, cl.region, cl.address, cl.email, cl.website, cl.custom,
            (${scopeSql(viewer, 'client', 'client.edit_identity')}) AS can_identity
       FROM clients cl
      WHERE cl.id = ${id} AND cl.merged_into_id IS NULL AND ${scopeSql(viewer, 'client', 'client.edit')}
@@ -234,6 +235,8 @@ export type SystemColumns = {
   email: string | null;
   website: string | null;
   nameNorm: string | null;
+  /** HMAC ИИН (D-181): null — не менять. Открытый ИИН в `org_id` не пишется никогда. */
+  iinHmac: string | null;
 };
 
 /** UPDATE клиента с тем же охватом; null в колонке — не менять. `custom` пишется целиком. */
@@ -248,6 +251,7 @@ export async function updateClient(sql: Sql, viewer: Viewer, id: string, c: Syst
            email = COALESCE(${c.email}::text, cl.email),
            website = COALESCE(${c.website}::text, cl.website),
            name_norm = COALESCE(${c.nameNorm}::text, cl.name_norm),
+           iin_hmac = COALESCE(${c.iinHmac}::text, cl.iin_hmac),
            custom = ${jsonParam(custom)},
            updated_at = ${viewer.now}
      WHERE cl.id = ${id} AND ${scopeSql(viewer, 'client', 'client.edit')}

@@ -34,14 +34,17 @@ import type { PhoneDto } from './types';
 export type AddPhoneResult = { status: 'added'; phone: PhoneDto } | { status: 'review' };
 
 /**
- * Добавить номер клиенту. Порядок (D-126): блокировка клиента с охватом → разбор номера → свой дубль →
- * контакт → общая блокировка приёма, лимит проверок, стоп-лист, номер у другого клиента → либо запись,
- * либо задача РОП. Наружу «занят» и «стоп-лист» неотличимы: ответ один — `review`.
+ * Добавить номер клиенту. Порядок (D-126): общая блокировка приёма → блокировка клиента с охватом →
+ * разбор номера → свой дубль → контакт → лимит проверок, стоп-лист, номер у другого клиента → либо
+ * запись, либо задача РОП. Наружу «занят» и «стоп-лист» неотличимы: ответ один — `review`.
+ * Блокировка приёма — первой, как у приёма (INTAKE_LOCK_KEY → строка клиента): при обратном порядке
+ * партия, дописывающая этого клиента, и добавление номера ждали друг друга (40P01).
  */
 export async function addPhone(viewer: Viewer, clientId: string, body: AddPhoneBody): Promise<AddPhoneResult> {
   const cfg = await loadClientsConfig(viewer);
   const db = await getDb();
   return db.tx(async (sql: Sql): Promise<AddPhoneResult> => {
+    await lockIntake(sql);
     const client = await lockClientForEdit(sql, viewer, clientId);
     if (!client) return throwNotFoundOrForbidden(viewer, sql, 'client', clientId);
 
@@ -56,7 +59,6 @@ export async function addPhone(viewer: Viewer, clientId: string, body: AddPhoneB
     const contactId = body.contactId ?? null;
     if (contactId !== null && !(await contactBelongsToClient(sql, viewer, contactId, clientId))) throw new BadRequestError('contact');
 
-    await lockIntake(sql);
     const used = await countProbesToday(sql, viewer);
     const stopped = await isStopListed(sql, phoneHmac(digits));
     const taken = await phoneTakenElsewhere(sql, digits, clientId);
@@ -82,7 +84,8 @@ export async function addPhone(viewer: Viewer, clientId: string, body: AddPhoneB
 export async function updatePhone(viewer: Viewer, phoneId: string, body: PatchPhoneBody): Promise<PhoneDto[]> {
   const db = await getDb();
   return db.tx(async (sql: Sql): Promise<PhoneDto[]> => {
-    // Клиент блокируется первым: так порядок блокировок совпадает с addPhone
+    // Блокировка приёма не нужна: путь не ждёт ничего, что держит приём, кроме строки клиента
+    // (D-126). Клиент блокируется раньше номера — как в addPhone.
     const clientId = await phoneClientId(sql, viewer, phoneId);
     if (!clientId) return throwNotFoundOrForbidden(viewer, sql, 'client_phone', phoneId);
     const client = await lockClientForEdit(sql, viewer, clientId);

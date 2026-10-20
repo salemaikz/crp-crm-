@@ -13,8 +13,8 @@ before(async () => {
   db = await openClientsWorld();
   const rop = await viewerOf(U.rop);
   await updateClient(rop, clientOf('a', 70), {
-    set: { system: { name: 'ТОО «Қазына Ай»', org_id: '987654321098' }, custom: { segment: 'Оптовая торговля', industry: 'trade', tags: ['vip'] } },
-    expect: { system: { name: 'ТОО Синтетика Альфа 70', org_id: '' }, custom: { segment: null, industry: null, tags: null } },
+    set: { system: { name: 'ТОО «Қазына Ай»', legal_form: 'llp', org_id: '987654321098' }, custom: { segment: 'Оптовая торговля', industry: 'trade', tags: ['vip'] } },
+    expect: { system: { name: 'ТОО Синтетика Альфа 70', legal_form: '', org_id: '' }, custom: { segment: null, industry: null, tags: null } },
   });
   await db.sql`UPDATE clients SET custom = custom || ${db.json({ secret: 'засекречено' }) as never} WHERE id = ${clientOf('a', 70)}`;
   await updateClient(rop, clientOf('a', 70), { set: { system: { region: 'Алматы' }, custom: {} }, expect: { system: { region: '' }, custom: {} } });
