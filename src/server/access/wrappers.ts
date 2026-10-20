@@ -1,4 +1,4 @@
-// Обёртки route(), publicRoute(), page(), action() (ARCHITECTURE §5.2 п. 1–3, D-017, D-075).
+// Обёртки route(), publicRoute(), page(), action() (ARCHITECTURE §5.2 п. 1–3, D-017, D-074).
 // Каждый route handler, server action и страница с данными обёрнуты и описаны в манифесте изоляции.
 // Порядок: Origin (мутирующий метод) → сессия → Viewer (перечитывается из БД) → блокировка
 // мутаций (роль «только чтение», лицензия; кроме D-054) → разрешение → обработчик → аудит.
@@ -202,7 +202,7 @@ function pageFailure(e: unknown): never {
 
 /**
  * Страница или layout с данными. Нет сессии — переход на вход; нет права или объекта — notFound():
- * 404 и для раздела, потому что forbidden() в Next 16 экспериментален (D-075). Страница ничего не
+ * 404 и для раздела, потому что forbidden() в Next 16 экспериментален (D-074). Страница ничего не
  * меняет, поэтому блокировка мутаций к ней не применяется.
  */
 export function page<P, R>(opts: PageOptions, loader: (ctx: PageContext<P>) => Promise<R>): (props: P) => Promise<R> {
