@@ -35,6 +35,10 @@ jobs:
       MIGRATE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/crm_e2e
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/crm_e2e
       PW_SKIP_BUILD: '1'
+      # next start идёт с NODE_ENV=production: без APP_ORIGIN мутации получают 403 (D-153), без
+      # CRM_PROXY_SECRET приложение не стартует (D-155). Секрет — синтетика только для e2e.
+      APP_ORIGIN: http://localhost:3100
+      CRM_PROXY_SECRET: e2e-proxy-secret-synthetic-not-for-production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -431,23 +431,29 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 `deploy/env/*.env.example` без значений; файлы `*.env` в git и в чтение
 агентам закрыты (`.gitignore`, `.claude/settings.json`).
 
-| Переменная | Что | Секрет |
-|---|---|---|
-| `DATABASE_URL` | БД под ролью `crm_app` | да |
-| `MIGRATE_DATABASE_URL` | БД под `crm_owner`, только для `migrate` | да |
-| `APP_ORIGIN` | адрес CRM (проверка `Origin`, cookie, ссылки приглашений); сравнивается после нормализации (`https://crm.x.kz/` = `https://crm.x.kz`). В production обязателен: без него мутирующие запросы получают 403 | нет |
-| `TRUST_X_REAL_IP` | `1` — IP клиента берётся из `X-Real-IP`, который ставит nginx установки (порт приложения опубликован только на loopback). Обязателен в production за nginx: без него у всех IP «unknown», лимиты входа и приглашений общие, в лог раз в час пишется `[security] ВНИМАНИЕ` (D-152) | нет |
-| `TRUSTED_PROXY_HOPS` | вместо `TRUST_X_REAL_IP`, если перед приложением цепочка своих прокси: сколько их (IP — N-е значение `X-Forwarded-For` справа). По умолчанию `0` | нет |
-| `CRM_SECRETS_KID`, `CRM_SECRETS_KEY_<kid>` | ключ AES-256-GCM для секретов интеграций | да |
-| `CRM_PHONE_HMAC_KEY` | HMAC номеров стоп-листа | да |
-| `CRM_IIN_HMAC_KEY` | HMAC ИИН | да |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | web-push | приватный — да |
-| `LICENSE_PATH` | путь к файлу лицензии в томе | нет |
-| `INGEST_PUBLIC` | `0` — `/api/ingest/` закрыт снаружи (по умолчанию): nginx и второй рубеж в приложении по заголовку `X-Via-Proxy` | нет |
-| `INGEST_ACCEPTING` | `1` — приём ingest/v1 включён; `0` — выключен целиком, ответ 423 (рубильник на время разбора проблем источника) | нет |
-| `FEATURE_BK_WIZARD`, `FEATURE_PURCHASES`, `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_PUSH`, `FEATURE_MERGE`, `FEATURE_BULK_TRANSFER` | флаги модулей пилота — аварийные выключатели (D-047, D-062; таблица — PLAN §7.3) | нет |
-| `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_ZADARMA`, `FEATURE_TELEPHONY_BEELINE` | флаги интеграций (D-025 crp-kz) | нет |
-| `TELEMETRY` | `off` по умолчанию | нет |
+| Переменная | Что | Обязательна | Секрет |
+|---|---|---|---|
+| `DATABASE_URL` | БД под ролью `crm_app` | да | да |
+| `MIGRATE_DATABASE_URL` | БД под `crm_owner`, только для `migrate` | на сервере — да | да |
+| `APP_ORIGIN` | адрес CRM (проверка `Origin`, cookie, ссылки приглашений); сравнивается после нормализации (`https://crm.x.kz/` = `https://crm.x.kz`). Пишет `crmctl install`. Без него мутирующие запросы получают 403 (D-153), поэтому в production приложение без него не стартует | в production — да | нет |
+| `CRM_PROXY_SECRET` | секрет доверенного прокси (D-155): base64url от 32 символов. `crmctl install` генерирует, `crmctl update` дописывает в старый `app.env`; копия для nginx — `/etc/crm/nginx-proxy.d/secret.conf`, nginx ставит её в `X-Proxy-Secret`. Только при совпавшем секрете (сравнение за постоянное время) приложение верит `X-Real-IP`, `X-Forwarded-For` и `X-Via-Proxy`; прямые запросы из сети `crm_ingest` IP подделать не могут. Без секрета у всех IP «unknown» и лимиты входа общие, поэтому в production приложение без него не стартует | в production — да | да |
+| `TRUST_X_REAL_IP` | устарела (D-155): больше ничего не включает, строку в старом `app.env` можно оставить. В production без `CRM_PROXY_SECRET` сообщение об отказе запуска напоминает об этом | нет | нет |
+| `TRUSTED_PROXY_HOPS` | если перед nginx стоит цепочка своих прокси: сколько их (IP — N-е значение `X-Forwarded-For` справа вместо `X-Real-IP`). Читается тоже только при верном `X-Proxy-Secret`. По умолчанию `0` | нет | нет |
+| `CRM_SECRETS_KID`, `CRM_SECRETS_KEY_<kid>` | ключ AES-256-GCM для секретов интеграций. Пишет `crmctl install` | для интеграций | да |
+| `CRM_PHONE_HMAC_KEY` | HMAC номеров стоп-листа. Пишет `crmctl install` | да | да |
+| `CRM_IIN_HMAC_KEY` | HMAC ИИН. Пишет `crmctl install` | да | да |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | web-push | при `FEATURE_PUSH` | приватный — да |
+| `LICENSE_PATH` | путь к файлу лицензии в томе. Пишет `crmctl install` | да | нет |
+| `INGEST_PUBLIC` | `0` — `/api/ingest/` закрыт снаружи (по умолчанию): nginx и второй рубеж в приложении — запрос через nginx (верный `X-Proxy-Secret`) получает 404, запрос с `X-Via-Proxy` без верного секрета — 404 всегда | нет | нет |
+| `INGEST_ACCEPTING` | `1` — приём ingest/v1 включён; `0` — выключен целиком, ответ 423 (рубильник на время разбора проблем источника) | нет | нет |
+| `FEATURE_BK_WIZARD`, `FEATURE_PURCHASES`, `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_PUSH`, `FEATURE_MERGE`, `FEATURE_BULK_TRANSFER` | флаги модулей пилота — аварийные выключатели (D-047, D-062; таблица — PLAN §7.3) | нет | нет |
+| `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_ZADARMA`, `FEATURE_TELEPHONY_BEELINE` | флаги интеграций (D-025 crp-kz) | нет | нет |
+| `TELEMETRY` | `off` по умолчанию | нет | нет |
+
+Проверка при старте (`src/instrumentation.ts`): в production без `APP_ORIGIN` или без
+`CRM_PROXY_SECRET` веб-приложение не запускается и пишет в лог, какой строки не хватает и что
+делать (`sudo crmctl update` допишет секрет). `crmctl update` дописывает недостающий секрет до
+проверки новой версии, поэтому обновление старой установки этим не ломается.
 
 Ключи `CRM_*_KEY` не лежат в БД и не попадают в её бэкап. Их потеря делает
 стоп-лист и секреты интеграций нечитаемыми, поэтому копия хранится вне

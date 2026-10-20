@@ -2,15 +2,15 @@
 import { resolvers } from '@/server/access/context';
 import { LOCKING_LICENSE_STATES } from '@/server/access/types';
 import { readEnv, type Env } from '@/server/platform/env';
+import { ingestReachable } from '@/server/platform/http/trustedProxy';
 
 /**
- * Приём закрыт снаружи: `INGEST_PUBLIC` не равен `1`, а запрос пришёл через nginx (заголовок `X-Via-Proxy` ставит он на
- * все проксируемые запросы). Первый рубеж — сам nginx; этот работает, даже если конфигурация nginx ошибочна.
- * Внутренние источники ходят по сети Docker напрямую и заголовка не имеют. Fail closed: открывает только точное `1`.
+ * Приём закрыт снаружи (второй рубеж, D-155): через nginx запрос несёт верный `X-Proxy-Secret` и проходит
+ * только при `INGEST_PUBLIC=1`; запрос с меткой прокси без верного секрета — подделка и закрыт всегда.
+ * Внутренние источники ходят по сети Docker напрямую, без меток. Первый рубеж — сам nginx.
  */
 export function isClosedFromOutside(headers: { get(name: string): string | null }, env: Env = process.env): boolean {
-  if (readEnv(env, 'INGEST_PUBLIC') === '1') return false;
-  return headers.get('x-via-proxy') !== null;
+  return !ingestReachable(headers, env);
 }
 
 /**

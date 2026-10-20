@@ -33,5 +33,11 @@ export default defineConfig({
     timeout: 300_000,
     stdout: 'pipe',
     stderr: 'pipe',
+    // next start — это production: APP_ORIGIN (иначе 403 на мутации, D-153) и CRM_PROXY_SECRET (иначе отказ
+    // запуска, D-155). Секрет — синтетика для e2e; запросы браузера идут мимо nginx, IP у всех «unknown».
+    env: {
+      APP_ORIGIN: `http://localhost:${PORT}`,
+      CRM_PROXY_SECRET: process.env.CRM_PROXY_SECRET || 'e2e-proxy-secret-synthetic-not-for-production',
+    },
   },
 });

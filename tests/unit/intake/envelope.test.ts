@@ -27,13 +27,17 @@ test('ошибки: пути и коды, значений нет', () => {
   assert.ok(!r.ok && !JSON.stringify(r.issues).includes('СЕКРЕТНОЕ'));
 });
 
-test('закрытие снаружи: открывает только INGEST_PUBLIC=1; без заголовка прокси запрос внутренний', () => {
-  const via = { get: (n: string) => (n === 'x-via-proxy' ? '1' : null) };
+test('закрытие снаружи (D-155): через прокси с верным секретом — только при INGEST_PUBLIC=1; метка без секрета закрыта всегда', () => {
+  const SECRET = 'synthetic-proxy-secret-0123456789abcdef';
+  const env = (extra: Record<string, string> = {}) => ({ CRM_PROXY_SECRET: SECRET, ...extra });
+  const proxied = { get: (n: string) => (n === 'x-proxy-secret' ? SECRET : n === 'x-via-proxy' ? '1' : null) };
+  const forged = { get: (n: string) => (n === 'x-via-proxy' ? '1' : n === 'x-proxy-secret' ? 'wrong' : null) };
   const direct = { get: () => null };
-  assert.equal(isClosedFromOutside(via, {}), true);
-  assert.equal(isClosedFromOutside(via, { INGEST_PUBLIC: '0' }), true);
-  assert.equal(isClosedFromOutside(via, { INGEST_PUBLIC: 'yes' }), true);
-  assert.equal(isClosedFromOutside(via, { INGEST_PUBLIC: '1' }), false);
-  assert.equal(isClosedFromOutside(direct, {}), false);
-  assert.equal(isClosedFromOutside(direct, { INGEST_PUBLIC: '0' }), false);
+  assert.equal(isClosedFromOutside(proxied, env()), true);
+  assert.equal(isClosedFromOutside(proxied, env({ INGEST_PUBLIC: '0' })), true);
+  assert.equal(isClosedFromOutside(proxied, env({ INGEST_PUBLIC: 'yes' })), true);
+  assert.equal(isClosedFromOutside(proxied, env({ INGEST_PUBLIC: '1' })), false);
+  assert.equal(isClosedFromOutside(forged, env({ INGEST_PUBLIC: '1' })), true);
+  assert.equal(isClosedFromOutside(direct, env()), false);
+  assert.equal(isClosedFromOutside(direct, env({ INGEST_PUBLIC: '0' })), false);
 });

@@ -11,7 +11,7 @@ import { applyGrants, ensureRoles, runMigrate } from './db';
 import { probeHost, waitHealthy } from './health';
 import { loadImages } from './images';
 import { openPackage, isDirectory } from './manifest';
-import { ensureEnvFiles, envValue } from './secrets';
+import { ensureEnvFiles, ensureProxyTrust, envValue } from './secrets';
 import { composeFile, readState, writeProjectEnv, writeState } from './state';
 import { CrmctlError, type Deps } from './types';
 
@@ -65,6 +65,8 @@ export async function install(deps: Deps, args: ParsedArgs): Promise<number> {
     for (const s of gen.secrets) io.out(`${s.name}=${s.value}`);
     io.out('');
   }
+  // Секрет доверенного прокси: в новом app.env он уже есть; в app.env прежней попытки — дописывается (D-155)
+  await ensureProxyTrust(deps);
   const composeSrc = path.join(dir, 'compose');
   if (!(await isDirectory(composeSrc))) throw new CrmctlError('В пакете нет каталога compose/');
   await mkdir(path.dirname(composeFile(paths)), { recursive: true });

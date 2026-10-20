@@ -33,7 +33,9 @@
    ```
    Шаги: проверка окружения и подписи, `/etc/crm/{app,db,project}.env` (0600), загрузка образов,
    БД, роли, миграции под `crm_owner`, `deploy/postgres/grants.sql`, `installId`, первый
-   администратор, запуск `app` и `worker`, проверка `/api/health`.
+   администратор, запуск `app` и `worker`, проверка `/api/health`. В `app.env` создаётся и
+   `CRM_PROXY_SECRET`, его копия для nginx — `/etc/crm/nginx-proxy.d/secret.conf` (D-155). Печатать и
+   хранить его вне сервера не нужно: при потере `crmctl update` выпустит новый.
 3. **Вывод команды показывается один раз.** Сохраните вне сервера: `installId`, ссылку первого входа
    администратора (одноразовая, 72 ч, формат `https://<хост>/invite#<токен>`), три ключа
    (`CRM_SECRETS_KEY_k1`, `CRM_PHONE_HMAC_KEY`, `CRM_IIN_HMAC_KEY`). Копия ключей вне сервера и
@@ -58,6 +60,13 @@ sudo crmctl update /var/lib/crm/packages/crm-crp-1.2.0.tar.zst
    стоп, прежняя версия работает.
 3. Если есть ненакатанные миграции — копия БД (`/usr/local/lib/crm/backup.sh`, ставит O3); не вышла —
    стоп. Затем `migrate` под `crm_owner` и `grants.sql` (применяется при каждом обновлении).
+   Окружение (D-155): если в `/etc/crm/app.env` нет `CRM_PROXY_SECRET`, строка дописывается в конец
+   файла, прежние строки не меняются. Секрет для nginx пишется в `/etc/crm/nginx-proxy.d/secret.conf`.
+   В конфиг nginx на хосте (`/etc/nginx/conf.d/crm.conf`, другой путь — `CRM_NGINX_CONF`) в каждый
+   location с `X-Via-Proxy` дописывается `include /etc/crm/nginx-proxy.d/*.conf;`, если его там нет.
+   Затем `nginx -t` и `systemctl reload nginx`. Каждое изменение видно в выводе команды, значение
+   секрета не печатается. Если `nginx -t` не прошёл, конфиг возвращается как был, и обновление
+   останавливается: прежняя версия работает.
 4. Новая версия поднимается отдельным контейнером `crm-app-next` в сети `crm_internal` (порты не
    публикуются) и проверяется `/api/health`; нездорова — стоп, прежняя работает.
 5. Переключение: `docker compose up -d app worker` с новой версией (app пересоздаётся за секунды,
@@ -67,6 +76,18 @@ sudo crmctl update /var/lib/crm/packages/crm-crp-1.2.0.tar.zst
    удался, нужно вмешательство (`crmctl status`, `docker compose -p crm logs app`).
 
 Окна выкладки в пилот — DEPLOY §5.3.
+
+Если приложение не стартует и в `docker compose -p crm logs app` есть «Запуск остановлен, окружение
+/etc/crm/app.env не годится», значит в production нет `CRM_PROXY_SECRET` или `APP_ORIGIN`
+(docs/CONFIG.md §7). Секрет дописывает `sudo crmctl update` при обновлении на новый пакет. Если строку
+удалили вручную, а нового пакета нет, верните её в `/etc/crm/app.env`: `CRM_PROXY_SECRET=<значение>`, где
+значение — строка в кавычках из `/etc/crm/nginx-proxy.d/secret.conf`. Затем выполните
+`docker compose -p crm -f /var/lib/crm/compose/compose.yaml --env-file /etc/crm/project.env up -d app`.
+`APP_ORIGIN` вписывается вручную: `APP_ORIGIN=https://<хост>`.
+Если в журнале раз в час появляется `[security] ВНИМАНИЕ: запрос с меткой прокси … без верного
+секрета`, значит nginx не передаёт секрет. Проверьте, что в
+`/etc/nginx/conf.d/crm.conf` есть `include /etc/crm/nginx-proxy.d/*.conf;`, затем выполните `nginx -t` и
+`systemctl reload nginx`.
 
 ## Откат
 

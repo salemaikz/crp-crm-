@@ -107,6 +107,24 @@ test('дежурный: гости своего мероприятия сего�
   assert.deepEqual(await visible(d, 'event', 'booking.walk_in'), [FX.eventToday.event]);
 });
 
+test('дежурный не отмечает явку по отменённой или перенесённой записи, но видит её в списке гостей', async () => {
+  const d = await viewerOf(U.duty);
+  const id = FX.eventToday.booking;
+  const rowsNow = await db.sql<{ status: string }>`SELECT status FROM bookings WHERE id = ${id}`;
+  const status = rowsNow[0]!.status;
+  try {
+    for (const dead of ['cancelled', 'moved']) {
+      await db.sql`UPDATE bookings SET status = ${dead} WHERE id = ${id}`;
+      assert.ok(!(await visible(d, 'booking', 'booking.attend')).includes(id), dead);
+      assert.ok((await visible(d, 'booking', 'booking.read')).includes(id), `${dead}: список гостей`);
+    }
+    await db.sql`UPDATE bookings SET status = 'registered' WHERE id = ${id}`;
+    assert.ok((await visible(d, 'booking', 'booking.attend')).includes(id));
+  } finally {
+    await db.sql`UPDATE bookings SET status = ${status} WHERE id = ${id}`;
+  }
+});
+
 test('руководитель отдела: только переданные (живые) клиенты, приём передачи; отклонённая — не видна', async () => {
   const h = await viewerOf(U.mktHead);
   assert.deepEqual(await visible(h, 'client', 'client.read'), [FX.handoffLive.client]);
