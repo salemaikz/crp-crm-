@@ -78,3 +78,31 @@ test(`свойство: выдано ровно min(пул, суммарный �
     assert.equal(total, Math.min(pool.length, remaining), `случай ${i}: ${JSON.stringify({ settings, participants, pool: pool.length })}`);
   }
 });
+
+test(`свойство: с heldBy и двойниками лимит не превышается, карточки не теряются (${CASES} случаев)`, () => {
+  const r = rng(303);
+  for (let i = 0; i < CASES; i++) {
+    const { settings, participants } = gen(r);
+    const n = r.int(0, 60);
+    const pool: PoolLead[] = Array.from({ length: n }, (_, k) => ({
+      id: `c-${k}`,
+      hasMobile: r.chance(0.7),
+      blocked: r.chance(0.05),
+      heldBy: r.chance(0.3) ? `u-${r.int(0, 13)}` : null,
+      twins: k > 0 && r.chance(0.4) ? [`c-${r.int(0, k - 1)}`] : undefined,
+    }));
+    const plan = planAllocation(participants, pool, settings, { mobileFirst: r.chance(0.5) });
+    const ctx = `случай ${i}: ${JSON.stringify({ settings, participants, pool })}`;
+    const seen = new Set<string>();
+    for (const p of participants) {
+      const got = plan.byOperator[p.userId] ?? [];
+      const limit = p.status === 'working' ? capRemaining(p, settings) : 0;
+      assert.ok(got.length <= limit, `${ctx}\n${p.userId} получил ${got.length} при остатке ${limit}`);
+      for (const id of got) {
+        assert.ok(!seen.has(id), `${ctx}\nкарточка ${id} выдана дважды`);
+        seen.add(id);
+      }
+    }
+    assert.equal(seen.size + plan.overCap.length + plan.heldBack.length + plan.blocked.length, n, `${ctx}\nкарточки потеряны`);
+  }
+});

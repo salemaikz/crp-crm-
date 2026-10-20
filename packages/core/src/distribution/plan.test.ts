@@ -255,3 +255,11 @@ test('группа не подряд в пуле: резерв под всю г�
   const two = planAllocation([op('a', 0, { auto: 38 }), op('b', 5)], pool, S);
   assert.deepEqual(two.byOperator, { a: ['g1', 'g2'], b: ['s1'] });
 });
+
+test('двойники закреплены за разными операторами: вся группа ждёт РОП, лимит не превышается', () => {
+  const pool: PoolLead[] = [{ id: 'g1', twins: ['g2'], heldBy: 'a' }, { id: 'g2', heldBy: 'b' }, { id: 's1' }, { id: 's2' }];
+  const plan = planAllocation([op('a', 0, { auto: 38 }), op('b', 0, { auto: 39 })], pool, S);
+  assert.deepEqual(plan.heldBack, ['g1', 'g2']);
+  assert.deepEqual(plan.byOperator, { a: ['s1'], b: ['s2'] });
+  assert.deepEqual(plan.overCap, []);
+});
