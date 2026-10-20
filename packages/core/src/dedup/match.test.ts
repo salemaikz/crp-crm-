@@ -96,15 +96,17 @@ test('pairs.nameAndHead выключен — пары по названию и �
   assert.equal(r.kind, 'new');
 });
 
-test('без рабочего номера: то же название + тот же руководитель — тот же клиент', () => {
+test('без рабочего номера: то же название + тот же руководитель — спорная пара, не склейка (PROCESS 2.3 п. 4)', () => {
   const known = [co('c1', { nameNorm: 'альфа', headNorm: 'иванов иван', phones: ['77091110001'] })];
   const r = classifyCompany(who({ nameNorm: 'альфа', headNorm: 'иванов иван' }), known, settings());
-  assert.deepEqual(r, { kind: 'duplicate', matchId: 'c1', basis: 'stub_name_head' });
+  assert.deepEqual(r, { kind: 'disputed', pairs: [{ id: 'c1', reason: 'name_and_head' }] });
+  const stub = classifyCompany(who({ nameNorm: 'альфа', headNorm: 'иванов иван', stubPhones: ['77090000000'] }), known, settings());
+  assert.deepEqual(stub, { kind: 'disputed', pairs: [{ id: 'c1', reason: 'name_and_head' }] }, 'своя заглушка без общей — тоже пара');
 });
 
 test('без рабочего номера: то же название + та же записанная заглушка — тот же клиент', () => {
-  const known = [co('c1', { nameNorm: 'альфа', headNorm: 'иванов иван', stubPhones: ['77777777777'] })];
-  const r = classifyCompany(who({ nameNorm: 'альфа', headNorm: 'сидоров сидор', stubPhones: ['77777777777'] }), known, settings());
+  const known = [co('c1', { nameNorm: 'альфа', headNorm: 'иванов иван', stubPhones: ['77090000000'] })];
+  const r = classifyCompany(who({ nameNorm: 'альфа', headNorm: 'сидоров сидор', stubPhones: ['77090000000'] }), known, settings());
   assert.deepEqual(r, { kind: 'duplicate', matchId: 'c1', basis: 'stub_name_head' });
 });
 
@@ -135,4 +137,31 @@ test('индекс видит добавленные в процессе зап�
 test('пустая запись без ключей — новая; пустые поля не склеивают друг с другом', () => {
   const known = [co('c1')];
   assert.equal(classifyCompany(who(), known, settings()).kind, 'new');
+});
+
+test('разные непустые БИН при общем номере и том же названии — только пара, не склейка', () => {
+  const known = [co('c1', { orgId: '111111111111', nameNorm: 'альфа', phones: ['77091110001'] })];
+  const r = classifyCompany(who({ orgId: '222222222222', nameNorm: 'альфа', phones: ['77091110001'] }), known, settings());
+  assert.deepEqual(r, { kind: 'disputed', pairs: [{ id: 'c1', reason: 'shared_phone' }] });
+  // Пары по общему номеру выключены — пара всё равно есть: иначе это была бы склейка.
+  const off = settings({ pairs: { sharedPhone: false, nameAndHead: true } });
+  assert.equal(classifyCompany(who({ orgId: '222222222222', nameNorm: 'альфа', phones: ['77091110001'] }), known, off).kind, 'disputed');
+  // БИН только у одной стороны — склейка по номеру и названию как раньше.
+  assert.equal(classifyCompany(who({ nameNorm: 'альфа', phones: ['77091110001'] }), known, settings()).kind, 'duplicate');
+});
+
+test('«ТОО Альфа» и «ИП Альфа» с общим номером — пара (формы разные, названия после нормализации совпали)', () => {
+  const known = [co('c1', { legalForm: 'тоо', nameNorm: 'альфа', phones: ['77091110001'] })];
+  const r = classifyCompany(who({ legalForm: 'ип', nameNorm: 'альфа', phones: ['77091110001'] }), known, settings());
+  assert.deepEqual(r, { kind: 'disputed', pairs: [{ id: 'c1', reason: 'shared_phone' }] });
+  assert.equal(classifyCompany(who({ legalForm: '', nameNorm: 'альфа', phones: ['77091110001'] }), known, settings()).kind, 'duplicate', 'форма неизвестна — не мешает');
+  assert.equal(classifyCompany(who({ legalForm: 'тоо', nameNorm: 'альфа', phones: ['77091110001'] }), known, settings()).kind, 'duplicate');
+});
+
+test('ИИН (iin:HMAC) против БИН — разные лица; заглушка с разными БИН не склеивает', () => {
+  const known = [co('c1', { orgId: '111111111111', nameNorm: 'альфа', stubPhones: ['77090000000'] })];
+  const r = classifyCompany(who({ orgId: 'iin:h1', nameNorm: 'альфа', stubPhones: ['77090000000'] }), known, settings());
+  assert.equal(r.kind, 'new');
+  const same = classifyCompany(who({ orgId: 'iin:h1', nameNorm: 'бета' }), [co('c2', { orgId: 'iin:h1' })], settings());
+  assert.deepEqual(same, { kind: 'duplicate', matchId: 'c2', basis: 'org_id' });
 });

@@ -41,8 +41,16 @@ export const DEFAULT_DEDUP_SETTINGS: DedupSettings = {
 
 /** Опознающие ключи компании — уже нормализованные. */
 export interface CompanyKeys {
-  /** Ровно 12 цифр или `null`. Для форм с «личным» номером (ИП) это ИИН: хранится только HMAC. */
+  /**
+   * БИН (12 цифр) или `null`. Для форм с «личным» номером (ИП) — только ключ `iin:<HMAC>`, открытый
+   * ИИН сюда не попадает (D-052). Разные непустые значения у двух сторон — разные лица: не склеиваем.
+   */
   orgId: string | null;
+  /**
+   * Код формы собственности (`тоо`, `ип`…), пусто — неизвестна. Разные известные формы («ТОО Альфа»
+   * и «ИП Альфа» — названия после нормализации совпали) — разные лица: только спорная пара.
+   */
+  legalForm?: string;
   /** Только рабочие номера, канон `7XXXXXXXXXX`, без повторов. */
   phones: readonly string[];
   /** Цифры нерабочих номеров (заглушки): учитываются, только если рабочих нет. */
@@ -61,7 +69,11 @@ export interface KnownCompany extends CompanyKeys {
 }
 
 /** Основание, по которому запись признана тем же клиентом. */
-export type MatchBasis = 'org_id' | 'phone_and_name' | 'stub_name_head';
+export type MatchBasis =
+  | 'org_id'
+  | 'phone_and_name'
+  /** Без рабочего номера: то же название и та же записанная заглушка. */
+  | 'stub_name_head';
 
 /** Причина спорной пары (`dup_pairs.reason`). */
 export type PairReason = 'shared_phone' | 'name_and_head';

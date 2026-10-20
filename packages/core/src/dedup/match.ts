@@ -3,7 +3,8 @@
 // Основа: SalemAI 108fb70 src/lib/db/crm/coldMatch.ts (findColdMatch), SQL убран.
 // Отличия от SalemAI: правила управляются флагами `dedup.*`; «одно название без руководителя» больше
 // не даёт пару (PROCESS 2.3 п. 4: название И руководитель); пара-причина `name_and_head`.
-// При сомнении не склеиваем: слияние решает РОП.
+// При сомнении не склеиваем: слияние решает РОП. Склейка по номеру или заглушке запрещена, если у
+// сторон разные непустые БИН/ИИН или разные известные формы собственности — тогда только пара (D-142).
 
 import type { CompanyKeys, DedupResult, DedupSettings, DupPair, KnownCompany } from './types';
 
@@ -13,6 +14,13 @@ export interface CompanyIndex {
   /** Добавить компанию (например, только что принятую строку той же партии). */
   add(company: KnownCompany): void;
   readonly size: number;
+}
+
+/** Стороны могут быть одним лицом: нет двух разных БИН/ИИН и двух разных известных форм. */
+function compatible(a: CompanyKeys, b: CompanyKeys): boolean {
+  if (a.orgId && b.orgId && a.orgId !== b.orgId) return false;
+  if (a.legalForm && b.legalForm && a.legalForm !== b.legalForm) return false;
+  return true;
 }
 
 const byAge = (a: KnownCompany, b: KnownCompany) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -64,10 +72,14 @@ export function createCompanyIndex(known: readonly KnownCompany[], settings: Ded
 
     // 2. Рабочий номер: то же название (или названия нет у одной из сторон) — тот же клиент,
     //    иначе общий номер (бухгалтер, секретарь, директор нескольких фирм) — спорная пара.
+    //    Разные БИН/ИИН или формы при «том же» названии — тоже пара, даже если пары по номеру выключены:
+    //    без этого правила запись была бы склеена.
     const byPhones = collect(byPhone, who.phones);
+    const sameName = (c: KnownCompany) => !who.nameNorm || !c.nameNorm || c.nameNorm === who.nameNorm;
     if (settings.byPhoneAndName) {
-      const same = byPhones.find((c) => !who.nameNorm || !c.nameNorm || c.nameNorm === who.nameNorm);
+      const same = byPhones.find((c) => sameName(c) && compatible(who, c));
       if (same) return { kind: 'duplicate', matchId: same.id, basis: 'phone_and_name' };
+      for (const c of byPhones) if (sameName(c)) addPair(c.id, 'shared_phone');
     }
     if (settings.pairs.sharedPhone) for (const c of byPhones) addPair(c.id, 'shared_phone');
 
@@ -75,12 +87,10 @@ export function createCompanyIndex(known: readonly KnownCompany[], settings: Ded
     if (who.nameNorm) {
       const named = [...(byName.get(who.nameNorm) ?? [])].sort(byAge);
       // Без рабочего номера (пусто или заглушка) тот же клиент — то же название И та же записанная
-      // заглушка или тот же руководитель.
+      // заглушка. Тот же руководитель без общей заглушки — только спорная пара (п. 4 ниже).
       if (settings.byPhoneAndName && who.phones.length === 0 && named.length > 0) {
         const stubOwners = new Set(collect(byStub, who.stubPhones ?? []).map((c) => c.id));
-        const same =
-          named.find((c) => stubOwners.has(c.id)) ??
-          named.find((c) => !!who.headNorm && c.headNorm === who.headNorm);
+        const same = named.find((c) => stubOwners.has(c.id) && compatible(who, c));
         if (same) return { kind: 'duplicate', matchId: same.id, basis: 'stub_name_head' };
       }
       if (settings.pairs.nameAndHead && who.headNorm) {
