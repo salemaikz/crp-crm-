@@ -129,9 +129,11 @@ services:
     environment:
       CRM_DOMAIN: ${CRM_DOMAIN:?задайте CRM_DOMAIN}
       INGEST_PUBLIC: ${INGEST_PUBLIC:-0}
-      NGINX_ENVSUBST_FILTER: ^(CRM_DOMAIN|INGEST_PUBLIC)$
+      CRM_UPSTREAM: app:3000
+      NGINX_ENVSUBST_FILTER: ^(CRM_DOMAIN|INGEST_PUBLIC|CRM_UPSTREAM)$
     volumes:
       - ../nginx/crm.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ../nginx/maintenance.html:/etc/nginx/crm-static/maintenance.html:ro
       - ${CRM_TLS_DIR:-/etc/crm/tls}:/etc/nginx/tls:ro
     ports:
       - "80:80"
