@@ -1,0 +1,11 @@
+# /etc/cron.d/crm-backup — задания копий на хосте (DEPLOY 6.1, D-031). Время — по Алматы.
+CRON_TZ=Asia/Almaty
+SHELL=/bin/bash
+# crmctl сам читает пароли и пути из этого файла (cron их не видит)
+BACKUP_ENV_FILE=/etc/crm/backup.env
+
+# Пилот (до 15.11): каждый час рабочего дня. После пилота строку убрать (RPO сутки).
+0 9-19 * * 1-6  root  /usr/local/bin/crmctl backup run --kind hourly --no-verify
+# Ночная копия каждый день; воскресенье отдельно как недельная, с проверкой восстановления
+0 2 * * 1-6     root  /usr/local/bin/crmctl backup run --kind daily
+0 2 * * 0       root  /usr/local/bin/crmctl backup run --kind weekly

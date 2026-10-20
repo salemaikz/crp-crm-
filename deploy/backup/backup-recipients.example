@@ -1,0 +1,6 @@
+# Образец /etc/crm/backup-recipients.txt: публичные ключи age двух хранителей (age-keygen -y ключ.txt).
+# Нужно не меньше двух разных ключей, иначе копия не делается. Закрытые ключи сюда не класть.
+# владелец
+age1REPLACE_WITH_OWNER_PUBLIC_KEY
+# директор ЦРП
+age1REPLACE_WITH_DIRECTOR_PUBLIC_KEY
