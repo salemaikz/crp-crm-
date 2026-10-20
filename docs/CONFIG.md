@@ -216,7 +216,7 @@ Zod + `superRefine` проверяют документ целиком:
 | `org.locales` | `('ru'\|'kk')[]` | `["ru"]` | `["ru"]` (kk позже) | CLI |
 | `org.defaultLocale` | `ru\|kk` | `ru` | `ru` | CLI |
 | `org.currency` | `KZT` | `KZT` (целые тенге, не настраивается дальше) | `KZT` | — |
-| `org.legalForms` | `{key, label, aliases[], idIsPersonal}[]` | пусто; kz: ТОО, ИП (`idIsPersonal: true` — 12 цифр это ИИН, только HMAC), АО | ТОО, ИП, АО, ЖШС, LLP + полные написания | CLI |
+| `org.legalForms` | `{key, label, aliases[], idIsPersonal}[]` | пусто; kz: ТОО, ИП и КХ (`idIsPersonal: true` — 12 цифр это ИИН, только HMAC; признак есть и в словаре ядра, профиль не может его снять, D-141), АО, ГКП, ГУ, ОО, ПК | ТОО, ИП, АО, ЖШС, LLP + полные написания | CLI |
 | `org.idRule` | `kz_bin\|none` | `none`; kz: `kz_bin` | `kz_bin` (12 цифр) | CLI |
 | `org.personIdRule` | `kz_iin_hmac\|none` | `none`; kz: `kz_iin_hmac` | `kz_iin_hmac` (только HMAC) | CLI |
 
