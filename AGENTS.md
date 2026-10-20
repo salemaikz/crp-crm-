@@ -27,7 +27,7 @@ Code — в `CLAUDE.md`.
 | Настройки, пресеты, окружение, флаги | `docs/CONFIG.md` |
 | Телефония, Wazzup, API приёма лидов, секреты | `docs/INTEGRATIONS.md` |
 | **План по дням, потоки и зоны файлов** | `docs/PLAN.md` |
-| Сервер, выкладка, копии, лицензия | `docs/DEPLOY.md`, `docs/ops/RUNBOOK.md` |
+| Сервер, выкладка, копии, лицензия | `docs/DEPLOY.md`, `docs/ops/RUNBOOK.md` (появится в задачах O2, O3) |
 | Журнал решений | `docs/DECISIONS.md` |
 | Маршрутизация моделей | `docs/agents/ROUTING.md` |
 | Передача работы между сессиями | `docs/handoffs/` |
@@ -66,6 +66,8 @@ Code — в `CLAUDE.md`.
 - Ветки: `feat/<поток>-<тема>`, `fix/<поток>-<тема>`, `docs/<тема>`. Облачные
   сессии получают `claude/*` — остаёшься на ней и подтягиваешь `main`
   (`git fetch origin main && git merge origin/main`).
+  `[дозаполни: ветку main создаёт владелец из первого коммита документов; до
+  этого базовая — claude/awesome-cori-ka0k46]`
 - **Conventional commits, тема по-русски**: `feat(calls): …`,
   `fix(access): …`, `docs(plan): …`. Скоуп — домен:
   `core`, `db`, `auth`, `access`, `config`, `fields`, `clients`, `cards`,
