@@ -25,7 +25,7 @@
  */
 
 import type { BookingStatus } from './types';
-import { addWorkdays, type IsWorkday } from './calendar';
+import type { WorkCalendar } from '../time';
 import { addDays, epochToLocalDate, localDayStart, type Tz } from './time';
 
 const TRANSITIONS: Record<BookingStatus, readonly BookingStatus[]> = {
@@ -99,10 +99,11 @@ export function isAttendanceCorrection(from: BookingStatus, to: BookingStatus): 
 export function autoNoShowDue(
   b: { status: BookingStatus; startsAt: number },
   now: number,
-  opts: { tz: Tz; workdays: number | null; isWorkday: IsWorkday },
+  opts: { tz: Tz; workdays: number | null; calendar: Pick<WorkCalendar, 'addWorkdays'> },
 ): boolean {
   if (opts.workdays === null) return false;
   if (b.status !== 'registered' && b.status !== 'confirmed') return false;
-  const due = addWorkdays(epochToLocalDate(opts.tz, b.startsAt), opts.workdays, opts.isWorkday);
+  const day = epochToLocalDate(opts.tz, b.startsAt);
+  const due = opts.workdays < 1 ? day : opts.calendar.addWorkdays(day, opts.workdays);
   return now >= localDayStart(opts.tz, due);
 }

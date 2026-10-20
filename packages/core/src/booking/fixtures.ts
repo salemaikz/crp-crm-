@@ -1,10 +1,17 @@
 // Синтетические данные для тестов ядра записи: имена и телефоны выдуманы.
+import { createWorkCalendar, type CalendarHoliday } from '../time';
 import type { Consultant, ScheduleWindow, SlotBooking } from './types';
 import type { ConsultantSchedule, DaySnapshot } from './daySnapshot';
 
 export const TZ = 'Asia/Almaty';
 export const MIN = 60_000;
 export const HOUR = 60 * MIN;
+
+/** Рабочий календарь тестов: Asia/Almaty, пн–пт 09:00–18:00; `holidays` — праздники и переносы. */
+export function testCalendar(holidays: readonly CalendarHoliday[] = [], workdays: readonly number[] = [1, 2, 3, 4, 5]) {
+  const hours = { start: '09:00', end: '18:00' };
+  return createWorkCalendar({ timezone: TZ, workdays, workHours: hours, callWindow: hours, holidays });
+}
 
 export const MONDAY = '2026-10-19';
 export const THURSDAY = '2026-10-22';
