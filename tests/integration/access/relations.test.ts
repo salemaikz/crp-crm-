@@ -79,6 +79,23 @@ test('консультант меняет только свою БК в окне
   assert.deepEqual(await visible(c, 'note', 'note.write'), ['nt-dl-b2']);
 });
 
+test('консультант не отмечает явку по отменённой или перенесённой записи', async () => {
+  const c = await viewerOf(U.consultant);
+  const id = FX.bkInWindow.booking;
+  const rowsNow = await db.sql<{ status: string }>`SELECT status FROM bookings WHERE id = ${id}`;
+  const status = rowsNow[0]!.status;
+  try {
+    for (const dead of ['cancelled', 'moved']) {
+      await db.sql`UPDATE bookings SET status = ${dead} WHERE id = ${id}`;
+      assert.ok(!(await visible(c, 'booking', 'booking.attend')).includes(id), dead);
+    }
+    await db.sql`UPDATE bookings SET status = 'confirmed' WHERE id = ${id}`;
+    assert.ok((await visible(c, 'booking', 'booking.attend')).includes(id));
+  } finally {
+    await db.sql`UPDATE bookings SET status = ${status} WHERE id = ${id}`;
+  }
+});
+
 test('дежурный: гости своего мероприятия сегодня; завтрашнее — нет; карточку и клиента не открывает', async () => {
   const d = await viewerOf(U.duty);
   const guests = await visible(d, 'booking', 'booking.read');

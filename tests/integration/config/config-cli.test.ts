@@ -29,7 +29,7 @@ after(async () => {
   await rm(work, { recursive: true, force: true });
 });
 
-function run(argv: string[]) {
+function run(argv: string[], beforeWrite?: () => Promise<void>) {
   const out: string[] = [];
   const err: string[] = [];
   const ctx: ConfigCtx = {
@@ -37,6 +37,7 @@ function run(argv: string[]) {
     openDb: async () => async () => {},
     env: { CRM_PRESETS_DIR: presets, CRM_ASSETS_DIR: assets },
     productVersion: async () => '0.1.0',
+    ...(beforeWrite ? { beforeWrite } : {}),
   };
   return runConfig(argv, ctx).then((code) => ({ code, out: out.join('\n'), err: err.join('\n') }));
 }
@@ -267,4 +268,34 @@ test('apply: плохой ассет накладки (расширение) —
   assert.equal(r.code, 1);
   assert.match(r.err, /расширение/);
   assert.equal(await countRevs(db), total);
+});
+
+test('apply: правка из UI между расчётом слияния и записью не затирается (код 4), ассеты не копируются', async () => {
+  const total = await countRevs(db);
+  const logoBefore = await readFile(path.join(assets, 'logo.svg'), 'utf8');
+  await editBase((d) => {
+    d.meta.version = '2026.10.7';
+    d.spaceDefaults.distribution.dailyCap = 61;
+  });
+  await writeFile(path.join(presets, 'base', 'assets', 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><title>новый</title></svg>');
+  resetConfigCache();
+  const cfg = await getActiveConfig({ now: 40 });
+  const r = await run(['apply', ...LAYERS, '--yes'], async () => {
+    // «оператор» сохраняет настройки в UI, пока apply уже посчитал слияние по старой ревизии
+    const sp = structuredClone(cfg.spaces.sales!.doc) as any;
+    sp.distribution.dailyCap = 34;
+    await writeConfig({ docs: { spaces: { sales: sp } }, source: 'ui', expectedRev: { sales: cfg.spaces.sales!.rev }, authorId: null });
+  });
+  assert.equal(r.code, 4, r.err);
+  assert.equal(await countRevs(db), total + 1, 'записана только правка из UI');
+  resetConfigCache();
+  assert.equal((await getActiveConfig({ now: 50 })).spaces.sales!.doc.distribution.dailyCap, 34, 'правка из UI на месте');
+  assert.equal(await readFile(path.join(assets, 'logo.svg'), 'utf8'), logoBefore, 'логотип не заменён при отклонённой записи');
+
+  // повтор без гонки проходит и обновляет ассет
+  const again = await run(['apply', ...LAYERS, '--yes']);
+  assert.equal(again.code, 0, again.err);
+  assert.match(await readFile(path.join(assets, 'logo.svg'), 'utf8'), /новый/);
+  resetConfigCache();
+  assert.equal((await getActiveConfig({ now: 60 })).spaces.sales!.doc.distribution.dailyCap, 34, 'клиентское значение сохранено слиянием');
 });
