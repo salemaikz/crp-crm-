@@ -78,6 +78,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # age и rsync нужны интеграционным тестам копий (O3); без них тесты пропускаются
+      - name: Утилиты копий
+        run: sudo apt-get update -q && sudo apt-get install -y -q age rsync
       - run: npm ci
       - name: Миграции с нуля дважды и контрольные суммы
         run: scripts/ci/check-migrations.sh
