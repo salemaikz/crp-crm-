@@ -2,9 +2,11 @@
 // Здесь нет scopeSql намеренно: приём работает не от лица сотрудника, а по ключу источника, и должен видеть всю базу
 // клиентов (дедуп со всей базой, стоп-лист). Наружу репозиторий не выходит: его вызывают сервисы модуля, которым
 // ключ уже дал `IngestPrincipal`. Журналы и отчёты — без ПДн.
-import type { dedup } from '@crm/core';
+import { dedup } from '@crm/core';
 import { jsonParam, type Sql } from '@/server/platform/db/core';
 import { INTAKE_LOCK_KEY } from '@/server/platform/db/locks';
+
+const { HIDDEN_ORG_ID_PREFIX } = dedup;
 import type { BatchReport, IngestScope } from './types';
 
 // ---------- Ключи ----------
@@ -119,12 +121,27 @@ export async function clientsByExternalId(sql: Sql, sourceKey: string, externalI
   return out;
 }
 
-/** Ключ БИН/ИИН для дедупа: у ИП — HMAC ИИН, он же уникален в БД (clients_iin_uq). */
-export const orgKeyOf = (orgId: string, iinHmac: string | null): string | null => orgId || iinHmac || null;
+/** Скрытый ключ номера в индексе дедупа: `iin:<HMAC>` (D-052, D-141). */
+export const hiddenKey = (iinHmac: string): string => `${HIDDEN_ORG_ID_PREFIX}${iinHmac}`;
+
+/**
+ * Ключи номера клиента базы для индекса (D-141): открытый БИН — с псевдонимом `iin:<HMAC БИН>` (по нему
+ * находится запись, скрытая «по неуверенности»), иначе — `iin:<HMAC>`. ИИН рядом с БИН (`iin_hmac` у ТОО)
+ * псевдонимом не становится: это другой номер, его уникальность проверяет запись (`orgKeysTaken`).
+ */
+export function storedOrgKeys(
+  c: { orgId: string; iinHmac: string | null },
+  hmacOf: (digits: string) => string,
+): Pick<dedup.CompanyKeys, 'orgId' | 'orgIdAliases'> {
+  if (c.orgId) return { orgId: c.orgId, orgIdAliases: [hiddenKey(hmacOf(c.orgId))] };
+  if (c.iinHmac) return { orgId: hiddenKey(c.iinHmac), orgIdAliases: [] };
+  return { orgId: null, orgIdAliases: [] };
+}
 
 interface KnownRow {
   id: string;
   nameNorm: string;
+  legalForm: string;
   orgId: string;
   iinHmac: string | null;
   createdAt: number;
@@ -134,20 +151,23 @@ interface KnownRow {
 }
 
 /**
- * Клиенты базы, у которых есть хоть один общий ключ с записями партии (БИН/ИИН, рабочий номер, название).
- * Слитые и обезличенные не участвуют. Остальную базу в память не грузим.
+ * Клиенты базы, у которых есть хоть один общий ключ с записями партии: БИН (`org_id`), HMAC ИИН
+ * (`iin_hmac`, в том числе HMAC открытого БИН записи — так находится клиент, скрытый «по неуверенности»),
+ * рабочий номер, название. Слитые и обезличенные не участвуют. Остальную базу в память не грузим.
  */
 export async function loadKnownCompanies(
   sql: Sql,
-  keys: { orgKeys: readonly string[]; phones: readonly string[]; nameNorms: readonly string[] },
+  keys: { bins: readonly string[]; iinHmacs: readonly string[]; phones: readonly string[]; nameNorms: readonly string[] },
   normalizePerson: (s: string) => string,
+  hmacOf: (digits: string) => string,
 ): Promise<dedup.KnownCompany[]> {
-  const org = [...keys.orgKeys];
-  const phones = [...keys.phones];
-  const nameNorms = [...keys.nameNorms];
-  if (org.length + phones.length + nameNorms.length === 0) return [];
+  const bins = [...new Set(keys.bins)];
+  const iins = [...new Set(keys.iinHmacs)];
+  const phones = [...new Set(keys.phones)];
+  const nameNorms = [...new Set(keys.nameNorms)];
+  if (bins.length + iins.length + phones.length + nameNorms.length === 0) return [];
   const rows = await sql<KnownRow>`
-    SELECT c.id, c.name_norm, c.org_id, c.iin_hmac, c.created_at,
+    SELECT c.id, c.name_norm, c.legal_form, c.org_id, c.iin_hmac, c.created_at,
            COALESCE(array_agg(p.digits) FILTER (WHERE p.is_working), '{}') AS phones,
            COALESCE(array_agg(p.digits) FILTER (WHERE NOT p.is_working), '{}') AS stubs,
            (SELECT ct.name FROM contacts ct WHERE ct.client_id = c.id AND ct.archived_at IS NULL
@@ -155,8 +175,8 @@ export async function loadKnownCompanies(
       FROM clients c LEFT JOIN client_phones p ON p.client_id = c.id
      WHERE c.merged_into_id IS NULL AND c.depersonalized_at IS NULL
        AND (
-            (c.org_id <> '' AND c.org_id = ANY(${org}::text[]))
-         OR (c.iin_hmac IS NOT NULL AND c.iin_hmac = ANY(${org}::text[]))
+            (c.org_id <> '' AND c.org_id = ANY(${bins}::text[]))
+         OR (c.iin_hmac IS NOT NULL AND c.iin_hmac = ANY(${iins}::text[]))
          OR c.id IN (SELECT cp.client_id FROM client_phones cp WHERE cp.digits = ANY(${phones}::text[]))
          OR (c.name_norm <> '' AND c.name_norm = ANY(${nameNorms}::text[]))
        )
@@ -164,7 +184,8 @@ export async function loadKnownCompanies(
   return rows.map((r) => ({
     id: r.id,
     createdAt: r.createdAt,
-    orgId: orgKeyOf(r.orgId, r.iinHmac),
+    ...storedOrgKeys(r, hmacOf),
+    legalForm: r.legalForm,
     phones: r.phones,
     stubPhones: r.stubs,
     nameNorm: r.nameNorm,
@@ -172,10 +193,26 @@ export async function loadKnownCompanies(
   }));
 }
 
+/**
+ * Заняты ли БИН и HMAC ИИН другим неслитым клиентом (уникальные clients_org_uq, clients_iin_uq). Вызывается под
+ * INTAKE_LOCK_KEY: все пути, ставящие БИН или ИИН, берут её первой (D-126), поэтому ответ не устареет до записи.
+ */
+export async function orgKeysTaken(sql: Sql, orgId: string, iinHmac: string | null): Promise<{ org: boolean; iin: boolean }> {
+  if (!orgId && !iinHmac) return { org: false, iin: false };
+  const [r] = await sql<{ org: boolean; iin: boolean }>`
+    SELECT COALESCE(bool_or(org_id <> '' AND org_id = ${orgId}), FALSE) AS org,
+           COALESCE(bool_or(iin_hmac = ${iinHmac}::text), FALSE) AS iin
+      FROM clients
+     WHERE merged_into_id IS NULL AND ((${orgId} <> '' AND org_id = ${orgId}) OR iin_hmac = ${iinHmac}::text)`;
+  return { org: r?.org ?? false, iin: r?.iin ?? false };
+}
+
 // ---------- Дописывание в существующего клиента ----------
 
 export interface ClientForMerge {
   id: string;
+  kind: 'company' | 'person';
+  legalForm: string;
   region: string;
   address: string;
   email: string;
@@ -192,7 +229,8 @@ export interface ClientForMerge {
 
 export async function clientForMerge(sql: Sql, id: string): Promise<ClientForMerge | null> {
   const [c] = await sql<Omit<ClientForMerge, 'hasPrimaryPhone' | 'phones' | 'contactCount'>>`
-    SELECT id, region, address, email, website, org_id, iin_hmac, custom, name_norm, created_at FROM clients WHERE id = ${id}`;
+    SELECT id, kind, legal_form, region, address, email, website, org_id, iin_hmac, custom, name_norm, created_at
+      FROM clients WHERE id = ${id}`;
   if (!c) return null;
   const phones = await sql<{ digits: string; isPrimary: boolean }>`SELECT digits, is_primary FROM client_phones WHERE client_id = ${id}`;
   const [n] = await sql<{ n: number }>`SELECT count(*)::int AS n FROM contacts WHERE client_id = ${id} AND archived_at IS NULL`;
@@ -207,13 +245,14 @@ export interface ClientPatch {
   orgId?: string;
   iinHmac?: string;
   custom?: Record<string, unknown>;
-  /** Дописать к `search_norm` (то, что уже искалось, не теряется). */
-  searchAppend?: string;
 }
 
-/** Дописать пустые поля. БИН/ИИН ставятся, только если их ещё нет ни у кого другого (уникальные индексы). */
-export async function patchClient(sql: Sql, id: string, p: ClientPatch, now: number): Promise<void> {
-  await sql`
+/**
+ * Дописать пустые поля. БИН/ИИН ставятся, только если их ещё нет ни у кого другого (уникальные индексы).
+ * Возвращает то, что после записи лежит в `org_id` и `iin_hmac`.
+ */
+export async function patchClient(sql: Sql, id: string, p: ClientPatch, now: number): Promise<{ orgId: string; iinHmac: string | null }> {
+  const [r] = await sql<{ orgId: string; iinHmac: string | null }>`
     UPDATE clients SET
       region      = COALESCE(${p.region ?? null}, region),
       address     = COALESCE(${p.address ?? null}, address),
@@ -226,10 +265,23 @@ export async function patchClient(sql: Sql, id: string, p: ClientPatch, now: num
                           AND NOT EXISTS (SELECT 1 FROM clients o WHERE o.iin_hmac = ${p.iinHmac ?? null}::text AND o.id <> clients.id AND o.merged_into_id IS NULL)
                          THEN ${p.iinHmac ?? null}::text ELSE iin_hmac END,
       custom      = COALESCE(${p.custom ? jsonParam(p.custom) : null}::jsonb, custom),
-      search_norm = CASE WHEN ${p.searchAppend ?? null}::text IS NULL THEN search_norm
-                         ELSE btrim(search_norm || ' ' || ${p.searchAppend ?? null}::text) END,
       updated_at  = ${now}
-    WHERE id = ${id}`;
+    WHERE id = ${id}
+    RETURNING org_id, iin_hmac`;
+  if (!r) throw new Error('клиент для дописывания не найден');
+  return r;
+}
+
+/** Источник строки поиска клиента (D-123): название, БИН, значения полей и все номера. */
+export async function searchSource(sql: Sql, id: string): Promise<{ name: string; orgId: string; custom: Record<string, unknown>; phones: string[] } | null> {
+  const [c] = await sql<{ name: string; orgId: string; custom: Record<string, unknown> }>`SELECT name, org_id, custom FROM clients WHERE id = ${id}`;
+  if (!c) return null;
+  const phones = await sql<{ digits: string }>`SELECT digits FROM client_phones WHERE client_id = ${id} ORDER BY created_at, id`;
+  return { ...c, phones: phones.map((p) => p.digits) };
+}
+
+export async function setSearchNorm(sql: Sql, id: string, searchNorm: string): Promise<void> {
+  await sql`UPDATE clients SET search_norm = ${searchNorm} WHERE id = ${id}`;
 }
 
 export async function addPhones(
