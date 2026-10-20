@@ -5,6 +5,7 @@ import { createTestDb, type TestDb } from '../../../src/server/platform/db/testi
 import { systemActor } from '../../../src/server/access/systemActor';
 import { revokeKey } from '../../../src/server/domain/intake';
 import { installIntakeConfig, mkKey, T0 } from '../intake/helpers';
+import { parseKey } from '../../../src/server/domain/intake/keys';
 
 let db: TestDb;
 before(async () => {
@@ -24,5 +25,8 @@ test('create/revoke ключа приёма попадают в audit_log без
   assert.deepEqual(rows.map((r) => r.action).sort(), ['ingest_key.create', 'ingest_key.revoke']);
   const dump = JSON.stringify(rows);
   assert.ok(!dump.includes(k.key), 'значение ключа не должно быть в журнале');
-  assert.ok(!dump.includes(k.key.split('_')[2] as string), 'секрет не должен быть в журнале');
+  // Секрет base64url может содержать «_»: берём его разбором ключа, а не split — иначе обрывок совпадает случайно
+  const secret = parseKey(k.key)?.secret;
+  assert.ok(secret && secret.length >= 40);
+  assert.ok(!dump.includes(secret), 'секрет не должен быть в журнале');
 });
