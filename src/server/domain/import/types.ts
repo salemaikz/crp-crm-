@@ -300,7 +300,7 @@ export interface ImportService {
   preview(actor: ImportActor, importId: string, req: PreviewRequest, now: number): Promise<PreviewSummary>;
   listRows(actor: ImportActor, importId: string, q: RowQuery, now: number): Promise<{ rows: ImportRowView[]; total: number }>;
   /** CSV строк по фильтру (формулы обезврежены); аудит import.export с кодом фильтра и числом строк. */
-  exportRowsCsv(actor: ImportActor, importId: string, filter: RowFilter, now: number): Promise<{ csv: string; rows: number }>;
+  exportRowsCsv(actor: ImportActor, importId: string, filter: RowFilter, now: number, headers?: readonly string[]): Promise<{ csv: string; rows: number }>;
   /** Применение строго по предпросмотру с тем же отпечатком (D-113). */
   apply(actor: ImportActor, importId: string, req: ApplyRequest, now: number): Promise<ApplyResult>;
 }
