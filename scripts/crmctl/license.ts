@@ -117,6 +117,17 @@ function watermarkProblem(v: ImageVerdict, customer: string): string | null {
   return null;
 }
 
+/**
+ * `crmctl install`: ядро образа собрано для клиента пакета (D-213). Общий образ без водяного знака работает
+ * без лицензии, поэтому на сервер клиента он не ставится. Файл лицензии не нужен: без него образ отвечает
+ * «missing» и своим водяным знаком.
+ */
+export async function assertImageForCustomer(deps: Deps, image: string, customer: string): Promise<void> {
+  const v = await verifyInImage(deps, image, null, 'watermark-check');
+  const wm = watermarkProblem(v, customer);
+  if (wm) throw new CrmctlError(`Образ не подходит для установки: ${wm}`);
+}
+
 const REASON_TEXT: Record<string, string> = {
   missing: 'файла нет',
   unreadable: 'файл не читается',

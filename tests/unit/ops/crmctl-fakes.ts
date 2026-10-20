@@ -34,6 +34,8 @@ export interface FakeServer {
   /** Вызывается при sleep (например, «через 2 минуты приложение упало»). */
   onSleep?: () => void;
   candidate?: string;
+  /** Водяной знак ядра образа для `docker run … license verify` (D-213); customer null — общий образ. */
+  imageWatermark: { customer: string | null; buildId: string | null };
 }
 
 export interface Fake {
@@ -78,6 +80,7 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
     backupCode: 0,
     migrateCode: 0,
     composeUpFails: new Set(),
+    imageWatermark: { customer: 'crp', buildId: null },
   };
   const calls: Call[] = [];
   const out: string[] = [];
@@ -105,6 +108,10 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
           return ok(`${imageId(ref)}\n`);
         }
         return server.images.has(ref) ? ok() : fail('No such image');
+      }
+      // Проверка лицензии ядром образа без файла: «missing» и водяной знак (тесты с файлом подменяют override)
+      if (a[0] === 'run' && a.includes('dist/crmctl.mjs') && a.includes('license')) {
+        return { code: 3, stdout: `${JSON.stringify({ ok: false, reason: 'missing', watermark: server.imageWatermark })}\n`, stderr: '' };
       }
       if (a[0] === 'run' && a.includes('--entrypoint')) return ok('-- grants\nSELECT 1;\n');
       if (a[0] === 'run' && a.includes('-d')) {

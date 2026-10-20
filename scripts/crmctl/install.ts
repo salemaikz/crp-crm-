@@ -1,7 +1,8 @@
 // crmctl install <пакет> --domain <хост> --admin-phone <номер> --admin-name <имя>
 // Первичная установка на сервер (DEPLOY §4 п. 3): окружение, секреты, образы, роли БД, миграции, grants,
 // installId, первый администратор по одноразовой ссылке. Лицензия на этом шаге не нужна: до
-// `crmctl license install` установка в состоянии missing («только чтение»).
+// `crmctl license install` установка в состоянии missing («только чтение»). Ядро образа должно нести
+// водяной знак клиента пакета: общий образ (без знака) работает без лицензии и клиенту не ставится (D-213).
 import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import { describe, mustCompose, psql, sqlLit } from './compose';
 import { applyGrants, ensureRoles, runMigrate } from './db';
 import { probeHost, waitHealthy } from './health';
 import { loadImages } from './images';
+import { assertImageForCustomer } from './license';
 import { openPackage, isDirectory } from './manifest';
 import { ensureEnvFiles, ensureProxyTrust, envValue } from './secrets';
 import { composeFile, readState, writeProjectEnv, writeState } from './state';
@@ -76,6 +78,8 @@ export async function install(deps: Deps, args: ParsedArgs): Promise<number> {
 
   io.out('[4/8] Образы');
   await loadImages(deps, dir, manifest);
+  // До БД и installId: общий образ или образ другого клиента не должен дойти до запуска
+  await assertImageForCustomer(deps, `crm-app:${version}`, manifest.customer);
 
   io.out('[5/8] База данных: роли, миграции, права');
   await mustCompose(deps, version, 'Запуск БД', ['up', '-d', '--wait', 'db']);
