@@ -13,7 +13,7 @@ export {
 export type { DecodeResult, Decoded, InvalidReason, LicensePayload } from './format';
 export { TEST_KEYS, buildWatermark, embeddedKeys, isTestKid, parseTrustedKeys, publicKeyObject, rawPublicKeyBase64 } from './keys';
 export type { TrustedKeys, Watermark } from './keys';
-export { verifyLicense } from './verify';
+export { verifyLicense, verifyStoredCopy } from './verify';
 export type { Verdict, VerifyExpect } from './verify';
 export { CLOCK_BACKWARD_TOLERANCE_MS, CLOCK_JUMP_STEP_INTERVAL_MS, CLOCK_MAX_STEP_MS, advanceClock } from './clock';
 export type { ClockInput, ClockJump, ClockResult } from './clock';
