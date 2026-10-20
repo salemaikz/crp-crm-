@@ -1,0 +1,129 @@
+'use client';
+
+// Карточка «Звонить»: компания, ЛПР, попытка, последний итог, поля, номера и действия. Одна главная кнопка —
+// большая зелёная «Позвонить» (tel:); остальное вторично.
+import { Phone } from 'lucide-react';
+import { useFormatter, useTranslations } from 'next-intl';
+import { formatKzPhone, telHref } from '@/shared/tel';
+import { Badge, Button, Card, TextLink, type BadgeTone } from '@/ui/kit';
+import type { CallConfig, QueueCard, QueuePhone } from './types';
+
+const GROUP_TONE: Record<QueueCard['group'], BadgeTone> = { callbacks: 'warning', retries: 'info', returns: 'neutral', new: 'brand' };
+
+export function primaryPhone(phones: readonly QueuePhone[]): QueuePhone | null {
+  return phones.find((p) => p.isPrimary) ?? phones[0] ?? null;
+}
+
+/** Значение поля для строки карточки: вариант списка — подписью, массив — через запятую, прочее — текстом. */
+export function fieldText(value: unknown, options: Record<string, string>): string {
+  if (value === null || value === undefined || value === '') return '';
+  if (Array.isArray(value)) return value.map((v) => options[String(v)] ?? String(v)).join(', ');
+  if (typeof value === 'object') return '';
+  if (typeof value === 'boolean') return '';
+  return options[String(value)] ?? String(value);
+}
+
+type Props = {
+  card: QueueCard;
+  config: CallConfig;
+  /** По карточке уже есть звонок без итога: показываем «Указать итог». */
+  hasPendingCall: boolean;
+  /** Пропуск возможен: есть сеть, не исчерпан лимит дня, по карточке нет звонка без итога. */
+  canSkip: boolean;
+  onCall: (phone: QueuePhone) => void;
+  onResume: () => void;
+  onSkip: () => void;
+};
+
+export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResume, onSkip }: Props) {
+  const t = useTranslations('call');
+  const f = useFormatter();
+  const when = (ms: number) => f.dateTime(ms, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const main = primaryPhone(card.phones);
+  const others = card.phones.filter((p) => p.id !== main?.id);
+  const lastLabel = card.lastOutcomeCode ? (config.outcomes.find((o) => o.key === card.lastOutcomeCode)?.label ?? card.lastOutcomeCode) : '';
+  const rows = config.cardFields
+    .map((fl) => ({ key: fl.key, label: fl.label, text: fieldText(card.fields[fl.key], fl.options) }))
+    .filter((r) => r.text !== '')
+    .slice(0, 4);
+
+  return (
+    <section aria-labelledby="call-title" className="flex flex-col gap-3" data-testid="call-card">
+      <Card as="article" padding="lg" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={GROUP_TONE[card.group]}>{t(`card.group.${card.group}`)}</Badge>
+          <span className="text-sm" style={{ color: 'var(--text-2)' }}>
+            {t('card.attempt', { n: card.attempts + 1 })}
+          </span>
+          {card.skippedToday && <Badge tone="neutral">{t('card.skipped')}</Badge>}
+        </div>
+        <h1 id="call-title" className="text-xl font-semibold break-words" style={{ fontFamily: 'var(--font-display)' }}>
+          {card.name}
+        </h1>
+        <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+          {card.lpr === 'yes' ? t('card.lprYes') : card.lpr === 'no' ? t('card.lprNo') : t('card.lprUnknown')}
+          {card.isTarget === 'yes' ? ` · ${t('card.target')}` : ''}
+        </p>
+        <p className="text-sm" data-testid="call-last">
+          {card.lastOutcomeAt !== null
+            ? t('card.last', { label: lastLabel || t('card.lastUnknown'), when: when(card.lastOutcomeAt) })
+            : t('card.first')}
+          {card.nextCallAt !== null && card.group === 'callbacks' ? ` · ${t('card.callbackAt', { when: when(card.nextCallAt) })}` : ''}
+        </p>
+        {rows.length > 0 && (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+            {rows.map((r) => (
+              <div key={r.key} className="contents">
+                <dt style={{ color: 'var(--text-3)' }}>{r.label}</dt>
+                <dd className="break-words">{r.text}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </Card>
+
+      <div className="flex flex-col gap-2">
+        {main ? (
+          <Button
+            href={telHref(main.digits)}
+            external
+            size="lg"
+            block
+            className="bg-success text-white"
+            aria-label={t('call.aria', { phone: formatKzPhone(main.digits) })}
+            onClick={() => onCall(main)}
+            data-testid="call-button"
+          >
+            <Phone aria-hidden="true" />
+            <span>{t('call.button')}</span>
+            <span className="font-normal opacity-90">{formatKzPhone(main.digits)}</span>
+          </Button>
+        ) : (
+          <p className="rounded-[var(--radius-card)] p-3 text-sm" style={{ background: 'var(--warning-tint)', color: 'var(--warning)' }}>
+            {t('call.noPhone')}
+          </p>
+        )}
+        {others.map((p) => (
+          <Button key={p.id} href={telHref(p.digits)} external variant="secondary" block onClick={() => onCall(p)} data-testid="call-second">
+            <Phone aria-hidden="true" />
+            {t('call.second', { phone: formatKzPhone(p.digits) })}
+          </Button>
+        ))}
+        {hasPendingCall && (
+          <Button variant="quiet" block onClick={onResume} data-testid="call-resume">
+            {t('call.resume')}
+          </Button>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <TextLink href={`/clients/${card.clientId}`} className="inline-flex min-h-11 items-center">
+          {t('card.open')}
+        </TextLink>
+        <Button variant="quiet" onClick={onSkip} disabled={!canSkip} data-testid="call-skip">
+          {t('card.skip')}
+        </Button>
+      </div>
+    </section>
+  );
+}
