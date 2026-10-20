@@ -435,7 +435,9 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 |---|---|---|
 | `DATABASE_URL` | БД под ролью `crm_app` | да |
 | `MIGRATE_DATABASE_URL` | БД под `crm_owner`, только для `migrate` | да |
-| `APP_ORIGIN` | адрес CRM (проверка `Origin`, ссылки приглашений) | нет |
+| `APP_ORIGIN` | адрес CRM (проверка `Origin`, cookie, ссылки приглашений); сравнивается после нормализации (`https://crm.x.kz/` = `https://crm.x.kz`). В production обязателен: без него мутирующие запросы получают 403 | нет |
+| `TRUST_X_REAL_IP` | `1` — IP клиента берётся из `X-Real-IP`, который ставит nginx установки (порт приложения опубликован только на loopback). Обязателен в production за nginx: без него у всех IP «unknown», лимиты входа и приглашений общие, в лог раз в час пишется `[security] ВНИМАНИЕ` (D-152) | нет |
+| `TRUSTED_PROXY_HOPS` | вместо `TRUST_X_REAL_IP`, если перед приложением цепочка своих прокси: сколько их (IP — N-е значение `X-Forwarded-For` справа). По умолчанию `0` | нет |
 | `CRM_SECRETS_KID`, `CRM_SECRETS_KEY_<kid>` | ключ AES-256-GCM для секретов интеграций | да |
 | `CRM_PHONE_HMAC_KEY` | HMAC номеров стоп-листа | да |
 | `CRM_IIN_HMAC_KEY` | HMAC ИИН | да |
