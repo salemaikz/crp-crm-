@@ -48,7 +48,8 @@ export function testProfile(slots: readonly OperatorSlot[], over: Partial<Import
       { code: 'dnc_request', words: ['не звонить', 'удалить'] },
       { code: 'sensitive', words: ['[личное]'] },
     ],
-    personalIdForms: ['ип'],
+    // КХ — форма ИП: номер — ИИН главы хозяйства.
+    personalIdForms: ['ип', 'кх'],
     ...over,
   };
 }

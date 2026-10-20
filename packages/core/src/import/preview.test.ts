@@ -328,3 +328,45 @@ test('«ТОО Альфа» и «ИП Альфа» с общим номером 
   assert.deepEqual(p.rows.map((r) => r.action), ['create', 'create']);
   assert.deepEqual(p.rows[1]?.pairs, [{ id: 'row:2', reason: 'shared_phone' }]);
 });
+
+test('форма не определена, 12 цифр — открытый БИН клиента базы: тот же клиент по БИН, не пара (D-141)', () => {
+  const bin = '120340012345';
+  const rs = parseSmall(line({ Тип: '', Наименование: 'Альфа', Телефон: '+7 709 111 22 33', БИН: bin }));
+  assert.equal(rs[0]!.orgIdUncertain, true);
+  const known = [{ id: 'c1', createdAt: 1, orgId: bin, legalForm: 'тоо', phones: ['77091112233'], nameNorm: 'альфа', headNorm: '' }];
+  const p = buildPreview(input({ rows: rs, known }));
+  assert.equal(p.rows[0]?.action, 'merge');
+  assert.equal(p.rows[0]?.matchId, 'c1');
+  assert.deepEqual(p.rows[0]?.pairs, []);
+  assert.equal(p.rows[0]?.issues.includes('duplicate_org_id_differs'), false);
+  // Только БИН совпал (номер и название другие) — всё равно тот же клиент.
+  const byBin = buildPreview(input({ rows: parseSmall(line({ Наименование: 'Альфа-Плюс', Телефон: '+7 709 111 22 99', БИН: bin })), known }));
+  assert.equal(byBin.rows[0]?.action, 'merge');
+});
+
+test('неуверенный номер против другого открытого БИН: склейка по номеру и названию разрешена, но на разбор', () => {
+  const rs = parseSmall(line({ Наименование: 'Альфа', Телефон: '+7 709 111 22 33', БИН: '990440000777' }));
+  const known = [{ id: 'c1', createdAt: 1, orgId: '120340012345', legalForm: 'тоо', phones: ['77091112233'], nameNorm: 'альфа', headNorm: '' }];
+  const p = buildPreview(input({ rows: rs, known }));
+  assert.equal(p.rows[0]?.action, 'merge');
+  assert.ok(p.rows[0]?.issues.includes('duplicate_org_id_differs'));
+  assert.equal(p.counts.duplicateConflicts, 1);
+  assert.equal(JSON.stringify(p).includes('990440000777'), false, 'неуверенный номер в отчёт не попадает');
+  // Уверенный ИИН (Тип = ИП) против открытого БИН — разные лица: только пара.
+  const ip = parseSmall(line({ Тип: 'ИП', Наименование: 'Альфа', Телефон: '+7 709 111 22 33', БИН: '880101300123' }));
+  const q = buildPreview(input({ rows: ip, known: [{ ...known[0]!, legalForm: '' }] }));
+  assert.equal(q.rows[0]?.action, 'create');
+  assert.deepEqual(q.rows[0]?.pairs, [{ id: 'c1', reason: 'shared_phone' }]);
+});
+
+test('в одном файле: неуверенная строка и строка с тем же открытым БИН склеиваются в любом порядке', () => {
+  const bin = '120340012345';
+  const unsure = line({ Наименование: 'Альфа', Телефон: '+7 709 111 22 33', БИН: bin });
+  const sure = line({ Тип: 'ТОО', Наименование: 'ТОО Альфа', Телефон: '+7 709 111 22 44', БИН: bin });
+  for (const order of [[unsure, sure], [sure, unsure]]) {
+    const p = buildPreview(input({ rows: parseSmall(...order) }));
+    assert.deepEqual(p.rows.map((r) => r.action), ['create', 'merge']);
+    assert.equal(p.rows[1]?.matchId, 'row:2');
+    assert.equal(p.rows[1]?.issues.includes('duplicate_org_id_differs'), false);
+  }
+});

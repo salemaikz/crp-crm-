@@ -86,8 +86,19 @@ test('колонка «Тип»: полные, короткие и казахс�
   assert.equal(T('Товарищество с ограниченной ответственностью'), 'llp');
   assert.equal(T('ЖШС'), 'llp');
   assert.equal(T('АО'), 'jsc');
-  assert.equal(T('Крестьянское хозяйство'), null);
+  assert.equal(T('IP'), 'sole_proprietor');
+  assert.equal(T('Т.О.О.'), 'llp');
+  assert.equal(T('Крестьянское хозяйство'), 'farm');
+  assert.equal(T('ГКП'), 'state_enterprise');
+  assert.equal(T('ГУ'), 'state_institution');
+  assert.equal(T('ОО'), 'public_association');
+  assert.equal(T('ПК'), 'production_coop');
+  assert.equal(T('Форма-Икс'), null);
   assert.equal(T(''), null);
+  // «ПК» и «IP» — только в «Тип»: в названии это не форма.
+  assert.equal(detectLegalForm('Сервис ПК'), null);
+  assert.equal(detectLegalForm('IP Телеком'), null);
+  assert.equal(legalFormCode('production_coop'), 'пк');
   assert.equal(legalFormCode('sole_proprietor'), 'ип');
   assert.equal(legalFormCode('llp'), 'тоо');
   assert.equal(legalFormCode(null), '');

@@ -133,8 +133,11 @@ function buildRow(
 
   const orgId = n.normalizeOrgId(get(F.orgId));
   // D-052, D-141: ИИН не должен попасть в базу открыто. Форма не определена (пусто или «Тип» не
-  // распознан) — тоже «личный»: потерять склейку по БИН дешевле, чем сохранить ИИН открыто.
-  const orgIdPersonal = !!orgId && personal.size > 0 && (personal.has(legalForm) || legalForm === '' || form.typeUnknown);
+  // распознан) — тоже «личный», но «по неуверенности»: предпросмотр сверяет такой ключ с открытыми БИН
+  // базы и файла, совпал — это БИН и склейка не теряется.
+  const personalForm = personal.has(legalForm);
+  const orgIdPersonal = !!orgId && personal.size > 0 && (personalForm || legalForm === '' || form.typeUnknown);
+  const orgIdUncertain = orgIdPersonal && !personalForm;
 
   return {
     rowNo,
@@ -147,6 +150,7 @@ function buildRow(
     region: get(F.region),
     orgId,
     orgIdPersonal,
+    orgIdUncertain,
     phones,
     workingPhones,
     stubPhones,

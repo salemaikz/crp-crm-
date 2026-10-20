@@ -62,11 +62,11 @@ function findForm(text: string | null | undefined, forms: readonly LegalForm[], 
   return null;
 }
 
-/** Код формы для правил и профиля — первая аббревиатура (`тоо`, `ип`), иначе ключ. */
+/** Код формы для правил и профиля — первая аббревиатура (`тоо`, `ип`), затем первая из `typeOnly`, иначе ключ. */
 export function legalFormCode(key: string | null, forms: readonly LegalForm[] = DEFAULT_LEGAL_FORMS): string {
   if (!key) return '';
   const f = forms.find((x) => x.key === key);
-  return f ? foldLetters(f.short[0] ?? f.key) : '';
+  return f ? foldLetters(f.short[0] ?? f.typeOnly?.[0] ?? f.key) : '';
 }
 
 /** ФИО для сравнения руководителей: регистр, ё, казахские буквы, только буквы. */

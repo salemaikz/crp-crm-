@@ -218,7 +218,7 @@ test('ИП: форма определяется по названию, 12 циф
 
 test('колонка «Тип»: каждая форма записи ИП даёт код «ип», личный ИИН и срабатывание правила (D-052)', () => {
   const p = testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' } });
-  const forms = ['ИП', 'ип', 'ИП.', 'Индивидуальный предприниматель', 'ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ', 'ЖК', 'Жеке кәсіпкер', 'жеке касипкер'];
+  const forms = ['ИП', 'ип', 'ИП.', 'Индивидуальный предприниматель', 'ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ', 'ЖК', 'Жеке кәсіпкер', 'жеке касипкер', 'IP'];
   const grid = [[...HEAD, 'БИН'], ...forms.map((t, i) => [...line({ Тип: t, Наименование: `Пример-${i}`, Телефон: `+7 709 000 10 ${10 + i}` }), '880101300123'])];
   const { rows } = parseOrThrow(grid, p);
   for (const [i, r] of rows.entries()) {
@@ -234,21 +234,24 @@ test('колонка «Тип»: каждая форма записи ИП да�
   assert.equal(pv.counts.byAction.rejected_rule, forms.length);
 });
 
-test('колонка «Тип»: ТОО и АО распознаются; неизвестное значение — на разбор, форма из названия, номер считается личным', () => {
+test('колонка «Тип»: ТОО и АО распознаются; неизвестное значение — на разбор, форма из названия, номер — «неуверенный» личный', () => {
   const p = testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' } });
   const { rows } = parseOrThrow(
     [
       [...HEAD, 'БИН'],
       [...line({ Тип: 'Товарищество с ограниченной ответственностью', Наименование: 'Альфа', Телефон: '+7 709 000 20 01' }), '990440000001'],
       [...line({ Тип: 'ЖШС', Наименование: 'Бета', Телефон: '+7 709 000 20 02' }), '990440000002'],
-      [...line({ Тип: 'Крестьянское хозяйство', Наименование: 'ТОО Гамма', Телефон: '+7 709 000 20 03' }), '990440000003'],
+      [...line({ Тип: 'Форма-Икс', Наименование: 'ТОО Гамма', Телефон: '+7 709 000 20 03' }), '990440000003'],
       [...line({ Тип: '', Наименование: 'Дельта', Телефон: '+7 709 000 20 04' }), '990440000004'],
       [...line({ Тип: '', Наименование: 'ЖК «Альфа Парк»', Телефон: '+7 709 000 20 05' }), ''],
+      [...line({ Тип: 'ИП', Наименование: 'Эпсилон', Телефон: '+7 709 000 20 08' }), '880101300123'],
     ],
     p,
   );
-  assert.deepEqual(rows.map((r) => r.legalForm), ['тоо', 'тоо', 'тоо', '', '']);
-  assert.deepEqual(rows.map((r) => r.orgIdPersonal), [false, false, true, true, false]);
+  assert.deepEqual(rows.map((r) => r.legalForm), ['тоо', 'тоо', 'тоо', '', '', 'ип']);
+  assert.deepEqual(rows.map((r) => r.orgIdPersonal), [false, false, true, true, false, true]);
+  // «Неуверенный» — только когда форма не определена; у ИП номер личный наверняка.
+  assert.deepEqual(rows.map((r) => r.orgIdUncertain), [false, false, true, true, false, false]);
   assert.ok(rows[2]?.issues.some((x) => x.code === 'unknown_legal_form' && x.severity === 'review'));
   // Профиль может назвать «личную» форму полностью — признак тот же.
   const full = parseOrThrow([[...HEAD, 'БИН'], [...line({ Тип: 'ИП', Наименование: 'Пример', Телефон: '+7 709 000 20 06' }), '880101300123']],
@@ -258,6 +261,21 @@ test('колонка «Тип»: ТОО и АО распознаются; неи
   const none = parseOrThrow([[...HEAD, 'БИН'], [...line({ Наименование: 'Пример', Телефон: '+7 709 000 20 07' }), '990440000007']],
     testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' }, personalIdForms: [] }));
   assert.equal(none.rows[0]?.orgIdPersonal, false);
+});
+
+test('колонка «Тип»: ГКП, КХ, ГУ, ОО, ПК и «Т.О.О.» распознаются, «ТОО» в названии не перебивает «Тип» (D-141)', () => {
+  const p = testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' } });
+  const types = ['ГКП', 'КХ', 'ГУ', 'ОО', 'ПК', 'Т.О.О.', 'Крестьянское (фермерское) хозяйство', 'Государственное учреждение'];
+  const grid = [[...HEAD, 'БИН'], ...types.map((t, i) => [...line({ Тип: t, Наименование: `ТОО Пример-${i}`, Телефон: `+7 709 000 40 ${10 + i}` }), `99044000004${i}`])];
+  const { rows } = parseOrThrow(grid, p);
+  assert.deepEqual(rows.map((r) => r.legalForm), ['гкп', 'кх', 'гу', 'оо', 'пк', 'тоо', 'кх', 'гу']);
+  for (const [i, r] of rows.entries()) assert.equal(r.issues.some((x) => x.code === 'unknown_legal_form'), false, types[i]);
+  // КХ — форма ИП (личный номер по профилю); остальные — юрлица: БИН открыт, «неуверенных» нет.
+  assert.deepEqual(rows.map((r) => r.orgIdPersonal), [false, true, false, false, false, false, true, false]);
+  assert.ok(rows.every((r) => !r.orgIdUncertain));
+  // «ПК» — форма только в «Тип»: в названии это не форма.
+  assert.equal(normalizers.normalizeName('Сервис ПК'), 'сервис пк');
+  assert.equal(normalizers.normalizeName('Т.О.О. «Альфа»'), 'альфа');
 });
 
 test('redactPersonalId: открытого ИИН в строке для хранения нет, ключ iin:HMAC не хэшируется повторно', () => {
