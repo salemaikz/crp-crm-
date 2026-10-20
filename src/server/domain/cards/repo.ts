@@ -8,7 +8,7 @@ import { writeAudit, type AuditAction } from '@/server/platform/audit';
 import { newId, type Sql } from '@/server/platform/db';
 import { jsonParam } from '@/server/platform/db/core';
 import { phoneHmac } from '@/server/platform/hmac';
-import type { CardActor, LockedCardRow } from './types';
+import type { CardActor, CardEventPerm, LockedCardRow } from './types';
 
 export const actorUserId = (a: CardActor): string | null => (a.kind === 'user' ? a.userId : null);
 
@@ -68,7 +68,7 @@ async function toLocked(sql: Sql, row: CardDb): Promise<LockedCardRow> {
 
 
 /** Блокировка с охватом: чужая и несуществующая карточка неотличимы (null). */
-export async function lockCardScoped(tx: Sql, viewer: Viewer, cardId: string, perm: 'card.outcome' | 'card.edit'): Promise<LockedCardRow | null> {
+export async function lockCardScoped(tx: Sql, viewer: Viewer, cardId: string, perm: CardEventPerm): Promise<LockedCardRow | null> {
   const rows = await scoped(tx)<CardDb>`
     SELECT c.id, c.space_id, c.client_id, c.owner_user_id, c.acting_user_id, c.acting_until_day, c.state, c.hold_reason, c.attempts,
            c.next_call_at, c.return_at, c.lpr, c.is_target, c.last_outcome_code, c.last_outcome_kind, c.last_outcome_at, c.close_reason_code,

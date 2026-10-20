@@ -5,7 +5,7 @@ import type { calling } from '@crm/core';
 import type { BookingActor, DealLink, DealStages, LockedCard } from '@/server/domain/booking/types';
 import type { Sql } from '@/server/platform/db';
 import { bookingPipeline, configPipelineResolver, toDealStages, type PipelineResolver } from './pipelines';
-import { dealIdOfBooking, findDealById, findDealByRequestId, findOpenDealId, insertDeal, insertDealFeed, listOpenDealsOfClient, loseDeal, setDealStage, setNeedsRebook, type DealRow } from './repo';
+import { dealIdOfBooking, findDealById, findDealByRequestId, findOpenDealId, insertDeal, insertDealFeed, listOpenDealsOfClient, loseDeal, reassignOpenDeals, setDealStage, setNeedsRebook, type DealRow } from './repo';
 
 type CardRef = Pick<LockedCard, 'id' | 'clientId' | 'spaceId' | 'ownerUserId'>;
 
@@ -144,8 +144,12 @@ export async function applyDealEffects(
         for (const deal of await listOpenDealsOfClient(sql, card.spaceId, card.clientId)) await loseOne(sql, actor, resolve, deal, e.reasonCode, at);
         break;
       }
+      case 'reassign_open':
+        // PROCESS 8.5: открытые сделки идут за карточкой; ленты не пишем
+        await reassignOpenDeals(sql, { spaceId: card.spaceId, clientId: card.clientId, toUserId: e.to, at });
+        break;
       default:
-        throw new Error(`deals: операция ${e.op} появится в B6/B9a`);
+        throw new Error(`deals: операция ${e.op} появится в B6`);
     }
   }
 }

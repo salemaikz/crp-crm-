@@ -95,3 +95,12 @@ export async function insertDealFeed(
     VALUES (${newId()}, ${e.clientId}, ${e.spaceId}, ${e.dealId}, ${e.kind}, ${e.actorId}, ${e.at}, 'deal', ${e.dealId}, ${jsonParam(e.data)})`;
 }
 
+
+/** Открытые сделки клиента в пространстве → новому ответственному (передача, PROCESS 8.5). Выигранные и проигранные не трогаются. */
+export async function reassignOpenDeals(sql: Sql, a: { spaceId: string; clientId: string; toUserId: string; at: number }): Promise<number> {
+  const rows = await sql<{ id: string }>`
+    UPDATE deals d SET owner_user_id = ${a.toUserId}, version = d.version + 1, updated_at = ${a.at}
+     WHERE d.space_id = ${a.spaceId} AND d.client_id = ${a.clientId} AND d.status = 'open'
+    RETURNING d.id`;
+  return rows.length;
+}

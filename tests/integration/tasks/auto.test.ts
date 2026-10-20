@@ -53,7 +53,7 @@ test('закрытие по источникам и «все»; передача
     await ensureAutoTask(tx, opA, { ...c, source: 'review', kind: 'check', sourceKey: 'review:x' });
     await ensureAutoTask(tx, opA, { ...c, source: 'no_show', sourceKey: 'no_show:x' });
   });
-  const moved = await db.tx((tx) => reassignOpenTasks(tx, rop, { spaceId: SPACE, clientId: 'cl-a-42', toUserId: U.opB, at: SEED_NOW }));
+  const moved = await db.tx((tx) => reassignOpenTasks(tx, rop, { spaceId: SPACE, clientId: 'cl-a-42', fromUserIds: [U.opA], toUserId: U.opB, at: SEED_NOW }));
   assert.equal(moved, 3);
   assert.ok((await openOf('cl-a-42')).every((t) => t.assigneeUserId === U.opB));
   assert.equal(await db.tx((tx) => closeAutoTasks(tx, opA, { spaceId: SPACE, clientId: 'cl-a-42', sources: ['callback', 'no_show'], at: SEED_NOW })), 2);
@@ -79,4 +79,18 @@ test('мои открытые: своё по охвату, просроченн�
   assert.deepEqual(keys, ['no_show', 'callback', 'review']);
   const other = await listMyOpenTasks(await viewerOf(U.opB), { limit: 50 });
   assert.ok(other.every((t) => t.clientId !== 'cl-a-43'), 'чужие задачи не отдаются');
+});
+
+test('передача забирает задачи прежнего и временного владельца, задачи РОП без исполнителя и чужие остаются (D-254)', async () => {
+  await db.sql`
+    INSERT INTO tasks (id, space_id, client_id, kind, source, title, assignee_user_id, status, source_key, created_at) VALUES
+      ('tk-re-own', ${SPACE}, 'cl-a-44', 'call', 'callback', '', ${U.opA}, 'open', 're:own', ${SEED_NOW}),
+      ('tk-re-act', ${SPACE}, 'cl-a-44', 'call', 'no_show', '', ${U.opB}, 'open', 're:act', ${SEED_NOW}),
+      ('tk-re-rop', ${SPACE}, 'cl-a-44', 'check', 'review', '', ${U.rop}, 'open', 're:rop', ${SEED_NOW}),
+      ('tk-re-nul', ${SPACE}, 'cl-a-44', 'check', 'stoplist_confirm', '', NULL, 'open', 're:nul', ${SEED_NOW})`;
+  const moved = await db.tx((tx) => reassignOpenTasks(tx, rop, { spaceId: SPACE, clientId: 'cl-a-44', fromUserIds: [U.opA, U.opB], toUserId: U.consultant, at: SEED_NOW }));
+  assert.equal(moved, 2);
+  const rows = await db.sql<{ id: string; assigneeUserId: string | null }>`SELECT id, assignee_user_id FROM tasks WHERE id LIKE 'tk-re-%' ORDER BY id`;
+  assert.deepEqual(rows.map((r) => [r.id, r.assigneeUserId]), [['tk-re-act', U.consultant], ['tk-re-nul', null], ['tk-re-own', U.consultant], ['tk-re-rop', U.rop]]);
+  assert.equal(await db.tx((tx) => reassignOpenTasks(tx, rop, { spaceId: SPACE, clientId: 'cl-a-44', fromUserIds: [], toUserId: U.opA, at: SEED_NOW })), 0);
 });

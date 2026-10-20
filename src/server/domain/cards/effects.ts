@@ -75,7 +75,9 @@ export const applyCardEffects: ApplyCardEffects = async (tx, actor, card, effect
     } else if (e.op === 'close_by_key') {
       await closeAutoTaskByKey(tx, actor, { sourceKey: e.sourceKey, at });
     } else {
-      await reassignOpenTasks(tx, actor, { spaceId: card.spaceId, clientId: card.clientId, toUserId: e.to, at });
+      // D-254: только задачи прежнего и временного владельца; задачи РОП без исполнителя остаются
+      const from = [card.priorOwnerUserId, card.priorActingUserId].filter((u): u is string => typeof u === 'string');
+      await reassignOpenTasks(tx, actor, { spaceId: card.spaceId, clientId: card.clientId, fromUserIds: from, toUserId: e.to, at });
     }
   }
 

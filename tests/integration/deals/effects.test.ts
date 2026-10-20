@@ -114,3 +114,16 @@ test('ensure_open при воронке manual сделку не создаёт;
     /B6/,
   );
 });
+
+test('reassign_open: открытая сделка уходит новому ответственному, выигранная остаётся у прежнего', async () => {
+  const mk = (id: string, status: 'open' | 'won') => db.sql`
+    INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, won_at, stage_changed_at, created_at, updated_at)
+    VALUES (${id}, ${SPACE}, 'sales', ${status === 'won' ? 'won' : 'negotiation'}, ${status}, 'cl-a-7', 'cd-a-7', ${U.opA}, ${status === 'won' ? SEED_NOW : null}, ${SEED_NOW}, ${SEED_NOW}, ${SEED_NOW})`;
+  await mk('dl-ro-open', 'open');
+  await mk('dl-ro-won', 'won');
+  await db.tx((tx) => applyDealEffects(tx, actor, lockedCard(7), [{ op: 'reassign_open', to: U.opB }], SEED_NOW + 5));
+  const rows = await db.sql<{ id: string; ownerUserId: string; version: number }>`SELECT id, owner_user_id, version FROM deals WHERE id IN ('dl-ro-open', 'dl-ro-won') ORDER BY id`;
+  assert.deepEqual(rows.map((r) => [r.id, r.ownerUserId, r.version]), [['dl-ro-open', U.opB, 1], ['dl-ro-won', U.opA, 0]]);
+  const feed = await db.sql`SELECT 1 FROM client_events WHERE deal_id = 'dl-ro-open'`;
+  assert.equal(feed.length, 0, 'ленты передача сделок не пишет');
+});

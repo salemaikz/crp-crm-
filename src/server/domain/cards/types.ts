@@ -17,6 +17,9 @@ import type { Sql } from '@/server/platform/db';
 
 export type CardActor = Viewer | SystemActor;
 
+/** Разрешения, под которыми карточку блокируют ручные события (`scopeSql` умеет любое, D-251). */
+export type CardEventPerm = 'card.outcome' | 'card.edit' | 'card.assign' | 'card.return' | 'card.unblock' | 'client.transfer' | 'client.merge';
+
 // ---------------------------------------------------------------------------
 // Настройки обзвона пространства (CONFIG §6.5, §6.6, §6.12, календарь §6.1–6.2)
 // ---------------------------------------------------------------------------
@@ -65,7 +68,7 @@ export interface LockedCardRow {
  * с номерами (рабочие, основной, стоп-лист по HMAC, общий с другим клиентом, держит ли его другой клиент
  * в `do_not_call`). null — карточки нет или она не видна.
  */
-export type LockCardScoped = (tx: Sql, viewer: Viewer, cardId: string, perm: 'card.outcome' | 'card.edit') => Promise<LockedCardRow | null>;
+export type LockCardScoped = (tx: Sql, viewer: Viewer, cardId: string, perm: CardEventPerm) => Promise<LockedCardRow | null>;
 
 /** Без охвата: только для путей из шапки файла. null — карточки нет. */
 export type LockCardUnscoped = (tx: Sql, actor: CardActor, cardId: string) => Promise<LockedCardRow | null>;
@@ -101,6 +104,8 @@ export interface PersistInput {
   call?: CallExtras;
   /** Момент записи (receivedAt запроса или `now` события). */
   at: number;
+  /** opId ручного действия без звонка: `assign_log.run_id` (идемпотентность выдач, D-173). */
+  opId?: string;
 }
 
 /**
@@ -121,6 +126,9 @@ export interface EffectCard {
   phoneDigits: ReadonlyMap<string, string>;
   /** opId события: `assign_log.run_id`; нет — новый id. */
   opId?: string;
+  /** Владелец и временный владелец ДО перехода: у кого `reassign_open` забирает открытые задачи (D-254). */
+  priorOwnerUserId?: string | null;
+  priorActingUserId?: string | null;
 }
 
 /**

@@ -63,7 +63,9 @@ export const persistTransition: PersistTransition = async (tx, actor, input) => 
     ownerUserId: after.ownerUserId,
     actingUserId: after.actingUserId,
     phoneDigits: before.phoneDigits,
-    ...(result.call ? { opId: result.call.id } : {}),
+    ...(result.call ? { opId: result.call.id } : input.opId ? { opId: input.opId } : {}),
+    priorOwnerUserId: snap.ownerUserId,
+    priorActingUserId: snap.actingUserId,
   };
   await applyCardEffects(tx, actor, card, enrichCallEvents(result, input.call), at, ctx);
 };

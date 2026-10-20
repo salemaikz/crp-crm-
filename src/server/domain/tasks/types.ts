@@ -48,8 +48,16 @@ export type CloseAutoTasks = (
 /** Закрыть открытую задачу по ключу (если есть). */
 export type CloseAutoTaskByKey = (tx: Sql, actor: TaskActor, input: { sourceKey: string; at: number }) => Promise<number>;
 
-/** Передать открытые задачи клиента в пространстве другому исполнителю (передача, слияние, D-066). */
-export type ReassignOpenTasks = (tx: Sql, actor: TaskActor, input: { spaceId: string; clientId: string; toUserId: string; at: number }) => Promise<number>;
+/**
+ * Передать открытые задачи клиента в пространстве другому исполнителю (передача, слияние, D-066, D-254):
+ * только те, исполнитель которых — один из `fromUserIds` (прежний и временный владелец). Задачи РОП без
+ * исполнителя и чужие остаются на месте.
+ */
+export type ReassignOpenTasks = (
+  tx: Sql,
+  actor: TaskActor,
+  input: { spaceId: string; clientId: string; fromUserIds: readonly string[]; toUserId: string; at: number },
+) => Promise<number>;
 
 /** Строка «мои открытые» (D-050): для «Мои перезвоны» и колокола; без title и комментариев. */
 export interface MyOpenTask {
