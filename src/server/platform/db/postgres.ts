@@ -65,6 +65,10 @@ export async function createPostgresDb(url: string, opts: { schema?: string } = 
     driver: 'postgres',
     sql,
     tx: (fn) => withTx((c) => fn(c.sql)),
+    reserve: async () => {
+      const r = await client.reserve();
+      return { sql: makeConn(r as unknown as Target).sql, release: async () => r.release() };
+    },
     json: jsonParam,
     exec: (script) => (scope.current() ?? base).exec(script),
     withTx,

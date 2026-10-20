@@ -7,8 +7,16 @@ export interface Sql {
   <T = Row>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T[]>;
 }
 
+/** Выделенное соединение из пула (сессионные advisory-блокировки воркера). release() возвращает его в пул. */
+export interface ReservedConn {
+  sql: Sql;
+  release(): Promise<void>;
+}
+
 export interface Db {
   sql: Sql;
+  /** Занять отдельное соединение на время сессионной блокировки. Только драйвер postgres. */
+  reserve?(): Promise<ReservedConn>;
   /**
    * Транзакция. Внутри колбэка любой вызов db.sql/db.tx тоже идёт в эту транзакцию.
    * Вложенный db.tx — SAVEPOINT: ошибка внутри откатывает только вложенную часть, и если её
