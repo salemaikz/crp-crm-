@@ -20,7 +20,7 @@ test('коды ошибок файла и импорта имеют текст',
 });
 
 test('блокеры, статусы, действия строк и фильтры имеют текст', () => {
-  const blockers: ApplyBlocker[] = ['unmapped_slots', 'rows_expired', 'config_changed', 'already_applied', 'failed'];
+  const blockers: ApplyBlocker[] = ['unmapped_slots', 'no_owner_slots', 'rows_expired', 'config_changed', 'already_applied', 'failed'];
   for (const b of blockers) assert.ok(keys(msg.blockers).includes(b), `blockers.${b}`);
   for (const s of ['preview', 'applied', 'failed']) assert.ok(keys(msg.status).includes(s), `status.${s}`);
   const rows = msg.rows as Record<string, Record<string, unknown>>;

@@ -23,6 +23,8 @@ const HIDDEN = dedup.HIDDEN_ORG_ID_PREFIX;
 export interface PriorLink {
   clientId: string;
   cardId: string;
+  /** Карточка без владельца и без задержки: повтор строки назначает ей владельца, как `create` (D-222). */
+  ownerless: boolean;
 }
 
 export interface Computation {
@@ -99,9 +101,18 @@ export async function computePreview(
   const priorRows = await repo.selectPrior(sql, ctx.spaceId, ctx.settings.sourceKey, rows.map((r) => r.rowKey));
   const prior = new Map<string, imports.PriorImportRow>();
   const priorLinks = new Map<string, PriorLink>();
+  // Первая строка файла с ключом — та, что дойдёт до решения о повторе (остальные — duplicate_in_file)
+  const firstByKey = new Map<string, imports.ParsedRow>();
+  for (const r of rows) if (!firstByKey.has(r.rowKey)) firstByKey.set(r.rowKey, r);
   for (const p of priorRows) {
-    prior.set(p.rowKey, { rowKey: p.rowKey, stateKey: p.stateKey, touchedInCrm: p.touchedInCrm });
-    priorLinks.set(p.rowKey, { clientId: p.clientId, cardId: p.cardId });
+    const ownerless = p.ownerUserId === null && p.holdReason === '';
+    const row = firstByKey.get(p.rowKey);
+    const slot = ownerless && row ? imports.resolveOwner(row.rowNo, row.operatorLabel, profile.ownerBy, ownerMap).kind : null;
+    // Отложенный итог применим, если карточку не задержали и владелец есть или найдётся. Несопоставленный ярлык
+    // тоже «найдётся»: строка станет update_state, а ярлык — блокером unmapped_slots (D-222).
+    const deferredResumable = p.deferred && p.holdReason === '' && (p.ownerUserId !== null || slot === 'assigned' || slot === 'unmapped');
+    prior.set(p.rowKey, { rowKey: p.rowKey, stateKey: p.stateKey, touchedInCrm: p.touchedInCrm, deferredResumable });
+    priorLinks.set(p.rowKey, { clientId: p.clientId, cardId: p.cardId, ownerless });
   }
   const preview = imports.buildPreview({
     rows,
@@ -114,6 +125,7 @@ export async function computePreview(
     prior,
     personalIdHmac: iinHmac,
   });
+  assignResumedOwners(preview, rows, profile, ownerMap, priorLinks);
   const fingerprint = previewFingerprint(
     {
       buildId: buildId(),
@@ -128,6 +140,36 @@ export async function computePreview(
     sha256,
   );
   return { profile, rows, rowByNo: new Map(rows.map((r) => [r.rowNo, r])), preview, fingerprint, known, stopHits, priorLinks, ownerMap };
+}
+
+/**
+ * Владелец для `update_state` по карточке без владельца и без задержки (D-222): тот же, что получила бы строка
+ * при `create` (слот или колонка «оператор»). Ядро решает владельца только для новых строк, поэтому
+ * дописываем здесь, до отпечатка: «каждому оператору N» и блокер несопоставленных ярлыков видят и эти строки.
+ */
+function assignResumedOwners(
+  preview: imports.ImportPreview,
+  rows: readonly imports.ParsedRow[],
+  profile: ImportProfileSetting,
+  ownerMap: Record<string, string>,
+  priorLinks: ReadonlyMap<string, PriorLink>,
+): void {
+  const byNo = new Map(rows.map((r) => [r.rowNo, r]));
+  const unmapped = new Set(preview.unmappedSlots);
+  for (const pr of preview.rows) {
+    if (pr.action !== 'update_state') continue;
+    const row = byNo.get(pr.rowNo);
+    if (!row || !priorLinks.get(row.rowKey)?.ownerless) continue;
+    const owner = imports.resolveOwner(row.rowNo, row.operatorLabel, profile.ownerBy, ownerMap);
+    pr.ownerKind = owner.kind;
+    if (owner.kind === 'assigned') {
+      pr.ownerUserId = owner.userId;
+      preview.perOperator[owner.userId] = (preview.perOperator[owner.userId] ?? 0) + 1;
+    } else if (owner.kind === 'unmapped') {
+      for (const l of owner.slots) unmapped.add(l);
+    }
+  }
+  preview.unmappedSlots = [...unmapped].sort();
 }
 
 /** Хэш ярлыка для `report.preview.ownerMapRef`: имена сотрудников-ярлыков в отчёт не пишутся. */
