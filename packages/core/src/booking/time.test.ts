@@ -79,3 +79,10 @@ test('день недели, понедельник недели и ближай
   assert.equal(addDays('2026-12-31', 1), '2027-01-01');
   assert.equal(addDays('2026-03-01', -1), '2026-02-28');
 });
+
+test('годы вне 2000–2100 допустимы, поясная арифметика — из общего календаря ядра', () => {
+  assert.equal(isLocalDate('1999-12-31'), true);
+  assert.equal(isLocalDate('2101-01-01'), true);
+  assert.equal(isLocalDate('2100-02-29'), false, '2100 не високосный');
+  assert.equal(addDays('2100-12-31', 1), '2101-01-01');
+});

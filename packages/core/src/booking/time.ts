@@ -9,39 +9,33 @@
  * второй — как полночь в поясе процесса. Календарная арифметика по строкам дат — только
  * через Date.UTC и UTC-геттеры.
  *
- * Модуль чистый: Date.now() не вызывается, время приходит параметром.
+ * Арифметика поясов и дат — не своя: всё делегируется `../time/zone` (один календарь на ядро).
+Здесь остаются имена и сигнатуры, которыми пользуется домен записи.
+
+Модуль чистый: Date.now() не вызывается, время приходит параметром.
  */
+
+import {
+  addLocalDays,
+  assertTimeZone,
+  formatHHMM,
+  fromLocalMsOfDay,
+  isoWeekday as zoneIsoWeekday,
+  isValidDay,
+  localDayOf,
+  toLocalTime,
+  utcOffsetMs,
+} from '../time';
 
 export type Tz = string;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const MS_MINUTE = 60_000;
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
-
-const formatters = new Map<string, Intl.DateTimeFormat>();
-
-function formatter(tz: Tz): Intl.DateTimeFormat {
-  let f = formatters.get(tz);
-  if (!f) {
-    f = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      hourCycle: 'h23',
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      second: 'numeric',
-    });
-    formatters.set(tz, f);
-  }
-  return f;
-}
 
 /** Известен ли пояс рантайму (для проверки настроек). */
 export function isValidTimezone(tz: string): boolean {
   try {
-    formatter(tz);
+    assertTimeZone(tz);
     return true;
   } catch {
     return false;
@@ -50,25 +44,12 @@ export function isValidTimezone(tz: string): boolean {
 
 /** Смещение пояса от UTC в миллисекундах в данный момент (восточнее UTC — положительное). */
 export function tzOffsetMs(tz: Tz, instantMs: number): number {
-  const base = Math.floor(instantMs / 1000) * 1000;
-  const get: Record<string, number> = {};
-  for (const p of formatter(tz).formatToParts(new Date(base))) {
-    if (p.type !== 'literal') get[p.type] = Number(p.value);
-  }
-  const asUtc = Date.UTC(get.year ?? 1970, (get.month ?? 1) - 1, get.day ?? 1, (get.hour ?? 0) % 24, get.minute ?? 0, get.second ?? 0);
-  return asUtc - base;
+  return utcOffsetMs(Math.floor(instantMs / 1000) * 1000, tz);
 }
 
-/** 'YYYY-MM-DD', существующая дата (30 февраля — нет). */
+/** 'YYYY-MM-DD', существующая дата (30 февраля — нет); годы без ограничения. */
 export function isLocalDate(value: string): boolean {
-  const m = DATE_RE.exec(value);
-  if (!m) return false;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  if (y < 2000 || y > 2100) return false;
-  const back = new Date(Date.UTC(y, mo - 1, d));
-  return back.getUTCFullYear() === y && back.getUTCMonth() === mo - 1 && back.getUTCDate() === d;
+  return isValidDay(value);
 }
 
 /** 'HH:MM' в 24-часовом формате. */
@@ -82,37 +63,29 @@ export function timeToMin(t: string): number {
 }
 
 export function minToTime(min: number): string {
-  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+  return formatHHMM(min);
 }
 
-function parts(date: string): [number, number, number] {
-  if (!isLocalDate(date)) throw new RangeError(`[booking] ожидалась дата YYYY-MM-DD: ${date}`);
-  const [y, m, d] = date.split('-').map(Number);
-  return [y ?? 0, m ?? 0, d ?? 0];
+/** Проверка даты с понятной ошибкой домена записи. */
+function checked(date: string): string {
+  if (!isValidDay(date)) throw new RangeError(`[booking] ожидалась дата YYYY-MM-DD: ${date}`);
+  return date;
 }
 
 /** Момент (epoch ms) для местных даты и времени в поясе `tz`. */
 export function localToEpoch(tz: Tz, date: string, time: string): number {
-  const [y, m, d] = parts(date);
-  const wall = Date.UTC(y, m - 1, d) + timeToMin(time) * 60_000;
-  // Два шага: смещение берётся в момент результата, а не «стенных» часов (важно у границы перехода).
-  const first = wall - tzOffsetMs(tz, wall);
-  return wall - tzOffsetMs(tz, first);
+  return fromLocalMsOfDay(checked(date), timeToMin(time) * MS_MINUTE, tz);
 }
 
 /** Местная дата момента. */
 export function epochToLocalDate(tz: Tz, ms: number): string {
-  const shifted = new Date(ms + tzOffsetMs(tz, ms));
-  const y = shifted.getUTCFullYear();
-  const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(shifted.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return localDayOf(ms, tz);
 }
 
 /** Местное время 'HH:MM' момента. */
 export function epochToLocalTime(tz: Tz, ms: number): string {
-  const shifted = new Date(ms + tzOffsetMs(tz, ms));
-  return minToTime(shifted.getUTCHours() * 60 + shifted.getUTCMinutes());
+  const p = toLocalTime(ms, tz);
+  return formatHHMM(p.hour * 60 + p.minute);
 }
 
 /** Начало местных суток даты (epoch ms). */
@@ -121,16 +94,12 @@ export function localDayStart(tz: Tz, date: string): number {
 }
 
 export function addDays(date: string, n: number): string {
-  const [y, m, d] = parts(date);
-  const next = new Date(Date.UTC(y, m - 1, d) + n * DAY_MS);
-  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+  return addLocalDays(checked(date), n);
 }
 
 /** ISO-день недели 1..7 (Пн..Вс). */
 export function isoWeekday(date: string): number {
-  const [y, m, d] = parts(date);
-  const js = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return js === 0 ? 7 : js;
+  return zoneIsoWeekday(checked(date));
 }
 
 /** Понедельник недели, в которую попадает дата. */

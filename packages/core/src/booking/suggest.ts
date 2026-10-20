@@ -6,8 +6,12 @@
  *
  * КТО КАНДИДАТ. Только то, что сервер потом и правда примет:
  *   • rankConsultants (новая запись к консультанту) — консультант с графиком, у которого в это
- *     время начинается слот и в слоте есть место (занятый слот с запасом — резерв);
+ *     время начинается слот и в слоте есть место (занятый слот с запасом — резерв); консультант
+ *     БЕЗ графика — если интервал внутри общих часов `booking.consult.hours` и свободен (резерва нет);
  *   • rankAssignCandidates («серая» запись) — кто свободен в её время для основной записи.
+ * ПРАВИЛО (PROCESS §5.2): у кого нет своего графика, работает общий график `booking.consult.hours`,
+ * и такой консультант — кандидат наравне с остальными; оба ранжировщика, `poolRoom` и
+ * `assignCandidates` считают это одинаково через `isFreeAt`.
  * В обоих случаях отбрасывается тот, кого запись отняла бы у других «серых» на это время
  * (`starvedGreyBooking`): сервер такую запись отверг бы (`pool_full`).
  *
@@ -17,7 +21,7 @@
  */
 
 import type { Consultant, SlotBooking } from './types';
-import { assignCandidates, planFor, starvedGreyBooking, type DaySnapshot } from './daySnapshot';
+import { assignCandidates, isFreeAt, planFor, starvedGreyBooking, type DaySnapshot } from './daySnapshot';
 import { countOverlapping, slotStarts } from './slots';
 import { timeToMin } from './time';
 
@@ -66,14 +70,32 @@ function finish(list: Candidate[]): RankedConsultant[] {
  */
 export function rankConsultants(
   snap: DaySnapshot,
-  at: { startTime: string },
+  at: { startTime: string; /** Длина записи для консультанта без графика; по умолчанию его `slotMin`. */ durationMin?: number },
   directionKey: string | null | undefined,
   opts: { bookingId?: string } = {},
 ): RankedConsultant[] {
   const start = timeToMin(at.startTime);
   const out: Candidate[] = [];
   for (const c of snap.consultants) {
-    if (!c.active || !c.usesSchedule) continue;
+    if (!c.active) continue;
+    if (!c.usesSchedule) {
+      // Без графика — общие часы: интервал внутри часов и ни с чем не пересекается (как в isFreeAt).
+      const durationMin = at.durationMin ?? c.slotMin;
+      if (!isFreeAt(snap, c, start, durationMin, opts.bookingId)) continue;
+      const placement = { id: opts.bookingId ?? null, consultantId: c.id, startTime: at.startTime, durationMin };
+      if (starvedGreyBooking(snap, placement)) continue;
+      out.push({
+        ranked: {
+          consultantId: c.id,
+          name: c.name,
+          directionMatch: matches(c, directionKey),
+          dayLoad: dayLoad(snap, c.id, opts.bookingId),
+          reserve: false,
+        },
+        sort: c.sort,
+      });
+      continue;
+    }
     if (!slotStarts(planFor(snap, c), c.slotMin).includes(start)) continue;
     const own: SlotBooking[] = snap.bookings.filter((b) => b.consultantId === c.id && b.id !== opts.bookingId);
     const taken = countOverlapping(start, c.slotMin, own);

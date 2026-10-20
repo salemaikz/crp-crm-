@@ -24,18 +24,18 @@ import type {
 export type HeldReason = 'twin_unavailable' | 'blocked';
 
 export interface AllocationPlan {
-  /** userId → id карточек в порядке выдачи. Есть ключ у каждого участника, даже с пустым списком. */
+  /** userId → id карточек в порядке выдачи. Ключ есть у каждого участника со статусом «Работает» (даже с пустым списком); на паузе и отсутствующих ключа нет. */
   byOperator: Record<UserId, string[]>;
-  /** Пара не делится: владелец двойника не может принять (пауза, нет в раздаче, лимит исчерпан). Ждут РОП («Пул: Дубли»). */
+  /** Пара не делится: владелец двойника не может принять всю группу (пауза, нет в раздаче, мало места). Ждут РОП («Пул: Дубли»). */
   heldBack: string[];
   /** Карточка заблокирована до решения РОП. */
   blocked: string[];
-  /** Ни у кого не осталось места (лимит или «держать K»). Остаются в пуле «Сверх лимита». */
+  /** Ни у кого нет места (лимит или «держать K»), в том числе под всю группу двойников. Остаются в пуле «Сверх лимита». */
   overCap: string[];
 }
 
 export interface AllocationOptions {
-  /** top_up: потолок по числу открытых на оператора; `undefined` — режим «поровну». */
+  /** top_up: потолок по числу НОВЫХ у оператора (`Participant.openNew`, иначе `open`); `undefined` — режим «поровну». */
   topUpKeep?: number;
   /** `queue.mobileFirst`; по умолчанию включено. */
   mobileFirst?: boolean;
@@ -77,9 +77,11 @@ function twinGroups(pool: readonly PoolLead[]): Map<string, string> {
 /**
  * Разложить пул по операторам. Правила:
  *  - карточка идёт тому, у кого меньше открытых; при равенстве — у кого меньше выдано сегодня, затем по id;
- *  - не больше остатка лимита (и, для top_up, не больше `topUpKeep − open`);
+ *  - не больше остатка лимита (и, для top_up, не больше `topUpKeep − новые`, CONFIG 7.1);
  *  - у пары один оператор: у кого уже есть двойник (БД) или кому выдан двойник раньше в этом плане;
- *    если ему нельзя — ждёт РОП (`heldBack`).
+ *    если ему нельзя — ждёт РОП (`heldBack`);
+ *  - группа двойников раздаётся целиком или не раздаётся: места должно хватать на всю группу
+ *    сразу (владельцу — `heldBack`, без владельца — `overCap`).
  * Порядок пула сохраняется; мобильные идут раньше городских (устойчивая перестановка).
  */
 export function planAllocation(
@@ -91,7 +93,7 @@ export function planAllocation(
   const keep = options.topUpKeep;
   const eligible = participants.filter((p) => p.status === 'working');
   const ops = eligible.map((p) => {
-    const room = Math.min(capRemaining(p, settings), keep === undefined ? Infinity : Math.max(0, keep - p.open));
+    const room = Math.min(capRemaining(p, settings), keep === undefined ? Infinity : Math.max(0, keep - (p.openNew ?? p.open)));
     return { userId: p.userId, open: p.open, issued: totalIssued(p), room };
   });
   const byUser = new Map(ops.map((o) => [o.userId, o]));
@@ -106,6 +108,13 @@ export function planAllocation(
     if (l.heldBy && g && !groupHolder.has(g)) groupHolder.set(g, l.heldBy);
   }
   const groupOwner = new Map<string, UserId>();
+  // Сколько карточек группы ещё предстоит раздать (заблокированные не считаются) и итог по группе.
+  const groupLeft = new Map<string, number>();
+  for (const l of pool) {
+    const g = groups.get(l.id);
+    if (g && !l.blocked) groupLeft.set(g, (groupLeft.get(g) ?? 0) + 1);
+  }
+  const groupFate = new Map<string, 'heldBack' | 'overCap'>();
 
   const ordered = options.mobileFirst === false ? [...pool] : [...pool.filter((l) => l.hasMobile !== false), ...pool.filter((l) => l.hasMobile === false)];
 
@@ -115,6 +124,7 @@ export function planAllocation(
     o.open++;
     o.issued++;
     o.room--;
+    if (group) groupLeft.set(group, (groupLeft.get(group) ?? 1) - 1);
   };
 
   for (const lead of ordered) {
@@ -123,16 +133,26 @@ export function planAllocation(
       continue;
     }
     const group = groups.get(lead.id);
+    const fate = group ? groupFate.get(group) : undefined;
+    if (fate) {
+      plan[fate].push(lead.id);
+      continue;
+    }
+    // Места нужно столько, сколько карточек группы осталось раздать: целиком или никак.
+    const need = (group ? groupLeft.get(group) : undefined) ?? 1;
     const affinity = lead.heldBy ?? (group ? (groupOwner.get(group) ?? groupHolder.get(group)) : undefined) ?? null;
     if (affinity) {
       const o = byUser.get(affinity);
-      if (o && o.room > 0) give(o, lead.id, group);
-      else plan.heldBack.push(lead.id);
+      if (o && o.room >= need) give(o, lead.id, group);
+      else {
+        plan.heldBack.push(lead.id);
+        if (group) groupFate.set(group, 'heldBack');
+      }
       continue;
     }
     let best: (typeof ops)[number] | null = null;
     for (const o of ops) {
-      if (o.room <= 0) continue;
+      if (o.room < need) continue;
       if (
         !best ||
         o.open < best.open ||
@@ -143,7 +163,10 @@ export function planAllocation(
       }
     }
     if (best) give(best, lead.id, group);
-    else plan.overCap.push(lead.id);
+    else {
+      plan.overCap.push(lead.id);
+      if (group) groupFate.set(group, 'overCap');
+    }
   }
   return plan;
 }

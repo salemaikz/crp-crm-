@@ -9,8 +9,8 @@
  * `stepMin` минут до `last` — только новые, и только на записи сегодняшнего дня:
  *   • день позже сегодняшнего — его прогон в `first`: first_run;
  *   • сегодня до `first` — тоже прогон в `first`: first_run;
- *   • сегодня с `first` до `last` — ближайший шаговый прогон: next_run;
- *   • сегодня с `last` (и прошедший день) — прогонов больше нет: too_late,
+ *   • сегодня с `first` до последнего прогона — ближайший шаговый прогон: next_run;
+ *   • сегодня с последнего прогона (и прошедший день) — прогонов больше нет: too_late,
  *     консультанта можно назначить только вручную.
  */
 
@@ -39,13 +39,26 @@ export function nextGreyRunAt(now: number, schedule: GreySchedule, tz: Tz): numb
   return null;
 }
 
-/** Когда подберут консультанта «серой» записи на дату `date`, если записать её сейчас. */
-export function greyTiming(date: string, now: number, schedule: GreySchedule, tz: Tz): GreyTiming {
+/**
+ * Когда подберут консультанта «серой» записи на дату `date`, если записать её сейчас.
+ * `isWorkday` — рабочий календарь: в праздник и выходной прогонов нет, поэтому first_run там
+ * не обещается — ответ too_late (консультанта назначат вручную). Без календаря дата считается рабочей.
+ * Последний прогон — последнее из `greyRunTimes` (если шаг не делит отрезок, это не `last`).
+ */
+export function greyTiming(
+  date: string,
+  now: number,
+  schedule: GreySchedule,
+  tz: Tz,
+  isWorkday?: (date: string) => boolean,
+): GreyTiming {
   const today = epochToLocalDate(tz, now);
-  if (date > today) return 'first_run';
   if (date < today) return 'too_late';
+  if (isWorkday && !isWorkday(date)) return 'too_late';
+  if (date > today) return 'first_run';
   const min = timeToMin(epochToLocalTime(tz, now));
-  if (min < timeToMin(schedule.first)) return 'first_run';
-  if (min < timeToMin(schedule.last)) return 'next_run';
+  const runs = greyRunTimes(schedule).map(timeToMin);
+  if (min < runs[0]!) return 'first_run';
+  if (min < runs[runs.length - 1]!) return 'next_run';
   return 'too_late';
 }

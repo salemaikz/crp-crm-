@@ -216,3 +216,30 @@ test('сетка тиков и конец раздачи', () => {
 test('workdaysAfter пропускает выходные и перенос', () => {
   assert.deepEqual(workdaysAfter('2026-10-23', 3, TEST_CALENDAR), ['2026-10-27', '2026-10-28', '2026-10-29']);
 });
+
+test('top_up ограничивает по новым, а не по всем открытым (CONFIG 7.1)', () => {
+  // 8 открытых, из них 2 новых и 6 перезвонов: до K=10 не хватает 8 новых
+  const p: Participant = { userId: 'a', status: 'working', open: 8, openNew: 2, issuedToday: {} };
+  const plan = planAllocation([p], leads(20), S, { topUpKeep: 10 });
+  assert.equal(plan.byOperator.a?.length, 8);
+  // без openNew — все открытые считаются новыми
+  assert.equal(planAllocation([{ ...p, openNew: undefined }], leads(20), S, { topUpKeep: 10 }).byOperator.a?.length, 2);
+});
+
+test('группа двойников раздаётся целиком или не раздаётся', () => {
+  const pool: PoolLead[] = [{ id: 'g1', twins: ['g2', 'g3'] }, { id: 'g2' }, { id: 'g3' }, { id: 'solo' }];
+  // у a места на 2 — группа из 3 не помещается ни к кому, одиночная уходит
+  const none = planAllocation([op('a', 0, { auto: 38 })], pool, S);
+  assert.deepEqual(none.byOperator, { a: ['solo'] });
+  assert.deepEqual(none.overCap, ['g1', 'g2', 'g3']);
+  // у b места хватает на всю группу — группа уходит к нему целиком
+  const fit = planAllocation([op('a', 0, { auto: 38 }), op('b', 5)], pool, S);
+  assert.deepEqual(fit.byOperator, { a: ['solo'], b: ['g1', 'g2', 'g3'] });
+});
+
+test('владелец двойника с местом не на всю группу: вся группа ждёт РОП, а не делится', () => {
+  const pool: PoolLead[] = [{ id: 'h1', heldBy: 'a', twins: ['h2'] }, { id: 'h2' }];
+  const plan = planAllocation([op('a', 0, { auto: 39 }), op('b')], pool, S);
+  assert.deepEqual(plan.heldBack, ['h1', 'h2']);
+  assert.deepEqual(plan.byOperator, { a: [], b: [] });
+});

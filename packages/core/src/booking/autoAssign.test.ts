@@ -70,3 +70,23 @@ test('перенос обработанной «серой» вторым пре
   const fresh = booking('fresh', null, '11:45', { createdAt: 260 });
   assert.deepEqual(pendingGreys([moved, fresh], 100, new Set(['moved'])).map((b) => b.id), ['fresh']);
 });
+
+test('assign: неразместившаяся в 09:00 заявка назначается в 10:30 после открытия окна', () => {
+  const stuck = booking('stuck', null, '11:00', { createdAt: 100 });
+  // 09:00: консультантов с окном нет — заявка неразмещаема
+  const early = snapshot([consultant('a', { usesSchedule: true })], [stuck], { a: { schedule: [], exceptions: [] } });
+  const run1 = planGreyProposals(early, pendingGreys(greyBookings(early), null, new Set(), 'assign'));
+  assert.deepEqual(run1.unassignable.map((b) => b.id), ['stuck']);
+  const boundary = nextBoundary(null, greyBookings(early));
+  // 10:00: РОП открыл окно; 10:30: граница прошлого прогона заявку не должна скрывать
+  const later = snapshot([consultant('a', { usesSchedule: true })], [stuck], { a: { schedule: MONDAY_11_13, exceptions: [] } });
+  const pending = pendingGreys(greyBookings(later), boundary, new Set(), 'assign');
+  assert.deepEqual(pending.map((b) => b.id), ['stuck']);
+  assert.deepEqual(planGreyProposals(later, pending).proposals.map((p) => p.consultantId), ['a']);
+});
+
+test('assign: заявка с createdAt раньше границы (закоммитилась после снимка) не теряется; suggest границу соблюдает', () => {
+  const late = booking('late', null, '11:00', { createdAt: 50 });
+  assert.deepEqual(pendingGreys([late], 100, new Set(), 'assign').map((b) => b.id), ['late']);
+  assert.deepEqual(pendingGreys([late], 100, new Set(), 'suggest').map((b) => b.id), []);
+});

@@ -12,7 +12,9 @@ import assert from 'node:assert/strict';
 
 import { rankAssignCandidates, rankConsultants } from './suggest';
 import type { ScheduleWindow } from './types';
-import { MONDAY_10_14, MONDAY_11_13, booking, consultant, snapshot } from './fixtures';
+import { describeDay, planFor, poolRoom } from './daySnapshot';
+import { timeToMin } from './time';
+import { MONDAY_10_14, MONDAY_11_13, booking, consultant, snapshot, testCalendar } from './fixtures';
 
 interface Spec {
   directions?: string[];
@@ -49,14 +51,14 @@ test('предлагается только тот, у кого в это вре
   assert.deepEqual(ids(rankConsultants(snap, at('12:30'), '')), [], 'слот 11:45 у A занимает до 12:30, следующего нет');
 });
 
-test('без графика, выключенный и выходной — не предлагаются для новой записи', () => {
+test('выключенный и выходной не предлагаются; без графика — по общим часам (PROCESS 5.2)', () => {
   const snap = build([
     ['noSchedule', { schedule: null, autoAssign: true }],
     ['off', { active: false }],
     ['friday', { schedule: [{ weekday: 5, start: '11:00', end: '13:00' }] }],
     ['a', {}],
   ]);
-  assert.deepEqual(ids(rankConsultants(snap, at('11:00'), '')), ['a']);
+  assert.deepEqual(ids(rankConsultants(snap, at('11:00'), '')), ['a', 'noSchedule']);
 });
 
 test('занятый слот вместимостью 1 не предлагается', () => {
@@ -146,4 +148,38 @@ test('назначение «серой»: свободные в её время
   const ranked = rankAssignCandidates(snap, grey, grey.directionKey);
   assert.deepEqual(ids(ranked), ['b', 'pool'], 'занятый (даже с запасом) и тот, у кого не слот, — не кандидаты');
   assert.deepEqual(ranked.map((c) => [c.directionMatch, c.dayLoad, c.reserve]), [[true, 0, false], [false, 1, false]]);
+});
+
+// --- праздник и консультанты без графика ---
+
+const HOLIDAY = '2026-10-26';
+const holidayCal = () => testCalendar([{ date: HOLIDAY, kind: 'holiday' }]).isWorkday;
+
+test('праздник гасит недельный график консультанта: на 26.10.2026 слотов нет', () => {
+  const base = snapshot([consultant('a', { usesSchedule: true })], [], { a: { schedule: MONDAY_11_13, exceptions: [] } }, HOLIDAY);
+  const snap = { ...base, isWorkday: holidayCal() };
+  assert.equal(planFor(snap, snap.consultants[0]!).working, false);
+  assert.deepEqual(rankConsultants(snap, { startTime: '11:00' }, null), []);
+  assert.equal(poolRoom(snap, timeToMin('11:00'), 45), 0);
+  assert.equal(describeDay(snap).consultants[0]!.working, false);
+});
+
+test('явное исключение custom на праздник открывает окно консультанта', () => {
+  const ex = [{ day: HOLIDAY, kind: 'custom' as const, windows: [{ start: '11:00', end: '12:00' }] }];
+  const base = snapshot([consultant('a', { usesSchedule: true })], [], { a: { schedule: [], exceptions: ex } }, HOLIDAY);
+  const snap = { ...base, isWorkday: holidayCal() };
+  assert.deepEqual(rankConsultants(snap, { startTime: '11:00' }, null).map((r) => r.consultantId), ['a']);
+});
+
+test('консультант без графика работает по общим часам и предлагается наравне с остальными (PROCESS 5.2)', () => {
+  const snap = build([['g', { schedule: MONDAY_11_13, autoAssign: true }]]);
+  const withHours = { ...snap, consultants: [...snap.consultants, consultant('h', { usesSchedule: false })] };
+  const ids = rankConsultants(withHours, { startTime: '11:00' }, null).map((r) => r.consultantId);
+  assert.deepEqual(ids.sort(), ['g', 'h']);
+  assert.equal(poolRoom(withHours, 11 * 60, 45), 2, 'poolRoom считает обоих');
+  // вне общих часов — не кандидат
+  assert.deepEqual(rankConsultants(withHours, { startTime: '19:00' }, null).map((r) => r.consultantId), []);
+  // занят в это время — не кандидат
+  const busy = { ...withHours, bookings: [booking('x', 'h', '11:00')] };
+  assert.deepEqual(rankConsultants(busy, { startTime: '11:00' }, null).map((r) => r.consultantId), ['g']);
 });
