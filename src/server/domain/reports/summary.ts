@@ -1,9 +1,10 @@
 // Сводка дня РОП (PROCESS §10.2): плитки и таблица операторов за сегодняшние местные сутки.
 // Читает отчёт, ничего не пишет. Директор (`report.view` с охватом пространства) получает то же, только чтение.
 import { calling, time } from '@crm/core';
-import { ForbiddenError, NotFoundError, scopeOf, type Viewer } from '@/server/access';
+import { scopeOf } from '@/server/access';
 import { getPool } from '@/server/domain/distribution';
 import { getDb } from '@/server/platform/db';
+import { requireSpaceReports } from './access';
 import { buildOperatorRows, roomToday } from './compose';
 import { reportsDeps } from './deps';
 import {
@@ -23,16 +24,8 @@ import type { BookingDayTile, GetSummary, Summary } from './types';
 const MIN_MS = 60_000;
 const NO_BOOKINGS: BookingDayTile = { total: 0, confirmed: 0 };
 
-/** Сводку видит охват пространства и шире: оператор и руководитель отдела с `report.view` — нет (403). */
-function requireSummaryAccess(v: Viewer): string {
-  const scope = scopeOf(v, 'report.view');
-  if (scope !== 'space' && scope !== 'all') throw new ForbiddenError();
-  if (v.spaceId === null) throw new NotFoundError();
-  return v.spaceId;
-}
-
 export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
-  const spaceId = requireSummaryAccess(viewer);
+  const spaceId = requireSpaceReports(viewer);
   const deps = reportsDeps();
   const now = deps.now();
   const cfg = await deps.config(spaceId, now);
