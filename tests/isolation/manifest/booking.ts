@@ -21,7 +21,17 @@ const entries: ManifestEntry[] = [
     touches: ['events', 'audit_log'],
   },
   { kind: 'route', path: '/api/events/offer', method: 'GET', perm: 'booking.create', target: 'section', mutation: false },
-  { kind: 'route', path: '/api/events/[id]', method: 'GET', perm: 'booking.read', target: 'object', idParam: { name: 'id', entity: 'event' }, mutation: false },
+  // Мероприятие — общее расписание пространства (D-136, D-161): видят все с booking.read, клиентов в ответе нет.
+  {
+    kind: 'route',
+    path: '/api/events/[id]',
+    method: 'GET',
+    perm: 'booking.read',
+    target: 'object',
+    idParam: { name: 'id', entity: 'event' },
+    mutation: false,
+    shared: { ownerSees: false },
+  },
   {
     kind: 'route',
     path: '/api/events/[id]',
@@ -55,7 +65,17 @@ const entries: ManifestEntry[] = [
     mutation: true,
     touches: ['event_duty', 'audit_log'],
   },
-  { kind: 'route', path: '/api/events/[id]/guests', method: 'GET', perm: 'booking.read', target: 'object', idParam: { name: 'id', entity: 'event' }, mutation: false },
+  // Гости — строки записей по охвату booking.read: оператор видит только своих, РОП — всех, дежурный — своё сегодня.
+  {
+    kind: 'route',
+    path: '/api/events/[id]/guests',
+    method: 'GET',
+    perm: 'booking.read',
+    target: 'object',
+    idParam: { name: 'id', entity: 'event' },
+    mutation: false,
+    shared: { ownerSees: true },
+  },
 
   // --- серии ---
   { kind: 'route', path: '/api/events/series', method: 'GET', perm: 'booking.manage', target: 'section', mutation: false },

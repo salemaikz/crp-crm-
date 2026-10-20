@@ -1,5 +1,6 @@
 // Самопроверка обвязки изоляции: на заведомо хороших маршрутах прогон зелёный, на заведомо плохих —
-// красный с понятной причиной (утечка в ответе и HTML, различимый 404, запись в чужую строку).
+// красный с понятной причиной (утечка в ответе и HTML, различимый 404, запись в чужую строку,
+// гости общего мероприятия без охвата записи).
 // Хорошие и плохие маршруты лежат в tests/isolation/fixtures/ и в боевой манифест не входят.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,7 +26,7 @@ after(async () => {
 });
 
 test('хорошие маршруты, страница и действие проходят прогон', async () => {
-  assert.equal(good.entries.length, 5);
+  assert.equal(good.entries.length, 6);
   for (const e of good.entries) assert.deepEqual(await good.check(e), [], `${e.kind} ${e.method} ${e.path}`);
 });
 
@@ -44,6 +45,8 @@ test('заведомо плохие маршруты и страница лов�
   assert.match(await byPath('/api/oracle/[id]'), /ждали 404, получили 403/);
   const write = await byPath('/api/leaky-write/[id]');
   assert.match(write, /таблица cards изменилась/);
+  // Общий объект (D-161): мероприятие видно, но гости без охвата выдают клиентов B
+  assert.match(await byPath('/api/leaky-guests/[id]'), /A → общий объект: в ответе найдены данные объекта оператора B/);
   const page = await byPath('/(op)/leaky/[id]');
   assert.match(page, /ждали 404, получили 200/);
   assert.match(page, /найдены данные объекта оператора B/);

@@ -15,3 +15,32 @@ export function rolesLayer(preset: string): unknown {
 export function configDoc(preset = 'clients/crp', rev = 1): unknown {
   return { rev, global: { org: { timezone: SEED_TZ }, roles: rolesLayer(preset) }, spaces: {} };
 }
+
+/** Слои пресета первого клиента в порядке сборки (CONFIG §5: base → kz → отрасль → накладка клиента). */
+export const SEED_LAYERS = ['base', 'kz', 'consulting-sales', join(ROOT, 'presets', 'clients', 'crp')] as const;
+
+/**
+ * Записать в БД прогона ревизии настроек собранного пресета ЦРП, как `crmctl config apply`: модули
+ * домена (клиенты, запись, сделки) читают активные настройки из БД, а не из подмены Viewer. Без этого
+ * каждый их маршрут отвечает 500 ConfigMissingError. Пояс — как у синтетики. Вызывать после seed.
+ */
+export async function applySeedConfig(): Promise<void> {
+  const { assembleLayers, validateConfigSet } = await import('../../../packages/core/src/config');
+  const { loadLayers } = await import('../../../src/server/platform/config/preset-files');
+  const { writeConfig } = await import('../../../src/server/platform/config/write');
+  const { resetConfigCache } = await import('../../../src/server/platform/config/active');
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string };
+  const layers = await loadLayers(SEED_LAYERS, join(ROOT, 'presets'));
+  const set = assembleLayers(
+    layers.map((l) => l.layer),
+    { productVersion: pkg.version },
+  );
+  const global = { ...(set.global as Record<string, unknown>) };
+  global.org = { ...(global.org as Record<string, unknown>), timezone: SEED_TZ };
+  const docs = { global: global as never, spaces: set.spaces };
+  const check = validateConfigSet(docs);
+  if (!check.ok) throw new Error(`пресет прогона не прошёл проверку: ${check.issues.map((i) => i.path).join(', ')}`);
+  resetConfigCache();
+  await writeConfig({ docs, presetDocs: docs, source: 'preset', authorId: null, project: true, note: 'прогон изоляции: пресет ЦРП' });
+  resetConfigCache();
+}
