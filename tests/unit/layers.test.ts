@@ -1,0 +1,114 @@
+// Слои кода (D-011, ARCHITECTURE §2.1–2.2): обход импортов. Дополняет ESLint no-restricted-imports:
+// понимает относительные пути и директиву 'use client'. Нарушение роняет CI.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { dirname, join, normalize } from 'node:path';
+import { read, walk } from '../helpers/sourceFiles';
+
+const CODE = ['.ts', '.tsx', '.mjs'] as const;
+const IMPORT_RE = /(?:^|\n)\s*(import|export)\s+(type\s+)?(?:[^'"\n;]*?\sfrom\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+type Imp = { spec: string; typeOnly: boolean };
+
+export function importsOf(source: string): Imp[] {
+  const out: Imp[] = [];
+  for (const m of source.matchAll(IMPORT_RE)) {
+    const spec = m[3] ?? m[4];
+    if (spec) out.push({ spec, typeOnly: m[2] !== undefined });
+  }
+  return out;
+}
+
+/** Спецификатор → путь от корня репозитория без расширения (для @/, @crm/core и относительных) или сам пакет. */
+function resolveSpec(file: string, spec: string): string {
+  if (spec.startsWith('@/')) return `src/${spec.slice(2)}`;
+  if (spec === '@crm/core' || spec.startsWith('@crm/core/')) return `packages/core/src${spec.slice('@crm/core'.length)}`;
+  if (spec.startsWith('.')) return normalize(join(dirname(file), spec)).split('\\').join('/');
+  return spec;
+}
+
+const under = (p: string, dir: string) => p === dir || p.startsWith(`${dir}/`);
+const isNext = (s: string) => /^next(-intl)?($|\/)/.test(s);
+
+type Violation = string;
+
+/** Правила слоёв для одного файла. */
+export function checkFile(file: string, source: string): Violation[] {
+  const v: Violation[] = [];
+  const imps = importsOf(source);
+  const client = /^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*['"]use client['"]/.test(source);
+  for (const { spec, typeOnly } of imps) {
+    const target = resolveSpec(file, spec);
+    const bad = (why: string) => v.push(`${file}: import '${spec}' — ${why}`);
+
+    if (under(file, 'packages/core')) {
+      if (isNext(spec) || /^react(-dom)?($|\/)/.test(spec) || spec === 'postgres' || /^(node:)?fs($|\/)/.test(spec)) bad('ядро без Next, React, БД и ФС');
+      if (under(target, 'src')) bad('ядро не импортирует src/**');
+    }
+    if (under(file, 'src/server/platform') && !under(file, 'src/server/platform/http')) {
+      if (isNext(spec)) bad('платформа без Next (кроме platform/http)');
+    }
+    if (under(file, 'src/server/platform')) {
+      if (under(target, 'src/server/domain') || under(target, 'src/integrations') || under(target, 'src/app') || under(target, 'src/ui')) {
+        bad('платформа не импортирует домен, интеграции и интерфейс');
+      }
+    }
+    if (under(file, 'src/server/domain')) {
+      if (isNext(spec)) bad('домен без Next');
+      if (under(target, 'src/app') || under(target, 'src/ui')) bad('домен не импортирует интерфейс');
+      if (under(target, 'src/integrations') && target !== 'src/integrations/contract') bad('домен видит только интеграционный contract');
+    }
+    if (under(file, 'src/server/access')) {
+      if (under(target, 'src/app') || under(target, 'src/ui') || under(target, 'src/integrations')) bad('доступ не импортирует интерфейс и интеграции');
+    }
+    if (under(file, 'src/integrations')) {
+      if (under(target, 'src/server/domain') || under(target, 'src/app') || under(target, 'src/ui')) bad('интеграции не импортируют домен и интерфейс');
+      const plugin = /^src\/integrations\/(telephony|messenger)\//.exec(file)?.[1];
+      const other = /^src\/integrations\/(telephony|messenger)(\/|$)/.exec(target)?.[1];
+      if (plugin && other && plugin !== other) bad('плагины не импортируют друг друга');
+    }
+    if (under(file, 'src/app') || under(file, 'src/ui')) {
+      if (spec === 'postgres' || under(target, 'src/server/platform/db')) bad('SQL и БД — только в репозиториях домена');
+      if (/^src\/server\/domain\/[^/]+\/repo(\.|$)/.test(target)) bad('репозитории домена недоступны интерфейсу');
+    }
+    // SystemActor — только в scripts/**, src/server/jobs/** (а в домене и доступе — как тип)
+    if (target === 'src/server/access/systemActor') {
+      const ok =
+        under(file, 'scripts') || under(file, 'src/server/jobs') || under(file, 'src/server/access') || (under(file, 'src/server/domain') && typeOnly) || under(file, 'tests');
+      if (!ok) bad('SystemActor разрешён только в scripts/** и src/server/jobs/**');
+    }
+    if (target === 'src/server/access/scope' && !(under(file, 'src/server/access') || under(file, 'src/server/domain') || under(file, 'tests'))) {
+      bad('scopeSql выдаёт только src/server/access, использует домен');
+    }
+    // Клиентский компонент не получает ядро и сервер
+    if (client && (under(target, 'packages/core') || under(target, 'src/server'))) bad("файл с 'use client' не импортирует ядро и src/server/**");
+  }
+  return v;
+}
+
+test('слои кода соблюдены', () => {
+  const files = [...walk('packages', CODE), ...walk('src', CODE), ...walk('scripts', CODE)].filter((f) => !f.endsWith('.test.ts'));
+  assert.ok(files.length > 0);
+  const violations = files.flatMap((f) => checkFile(f, read(f)));
+  assert.deepEqual(violations, []);
+});
+
+test('проверка слоёв ловит нарушения (самопроверка правил)', () => {
+  assert.equal(checkFile('packages/core/src/a.ts', "import postgres from 'postgres';").length, 1);
+  assert.equal(checkFile('packages/core/src/a.ts', "import { x } from '../../../src/server/platform/env';").length, 1);
+  assert.equal(checkFile('packages/core/src/a.ts', "import { z } from 'zod'; import { y } from './b';").length, 0);
+  assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { NextResponse } from 'next/server';").length, 1);
+  assert.equal(checkFile('src/server/domain/clients/repo.ts', "import type { SystemActor } from '@/server/access/systemActor';").length, 0);
+  assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { SystemActor } from '@/server/access/systemActor';").length, 1);
+  assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { scopeSql } from '@/server/access/scope';").length, 0);
+  assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { p } from '@/integrations/wazzup';").length, 1);
+  assert.equal(checkFile('src/server/domain/clients/repo.ts', "import type { C } from '@/integrations/contract';").length, 0);
+  assert.equal(checkFile('src/server/platform/x.ts', "import { d } from '@/server/domain/clients/repo';").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "import { getDb } from '@/server/platform/db';").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "import { SystemActor } from '@/server/access/systemActor';").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "import { scopeSql } from '@/server/access/scope';").length, 1);
+  assert.equal(checkFile('src/ui/Card.tsx', "'use client';\nimport { x } from '@crm/core';").length, 1);
+  assert.equal(checkFile('src/ui/Card.tsx', "import { x } from '@crm/core';").length, 0);
+  assert.equal(checkFile('src/integrations/telephony/zadarma/index.ts', "import { m } from '../../messenger/wazzup';").length, 1);
+  assert.equal(checkFile('scripts/worker.ts', "import { SystemActor } from '../src/server/access/systemActor';").length, 0);
+});
