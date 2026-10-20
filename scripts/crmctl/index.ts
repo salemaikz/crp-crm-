@@ -44,6 +44,7 @@ export const rawCommands: Record<string, (argv: string[]) => Promise<number>> = 
   'ingest-key': async (argv) => (await import('./ingest')).runIngestKey(argv),
   seed: async (argv) => (await import('./seed')).runSeedCommand(argv),
   job: async (argv) => (await import('./job')).runJob(argv),
+  secrets: async (argv) => (await import('./secretsRotate')).runSecrets(argv),
 };
 
 export const USAGE = `crmctl — сопровождение установки CRM
@@ -61,6 +62,7 @@ export const USAGE = `crmctl — сопровождение установки C
   seed …          синтетические данные для стенда (только стенд; crmctl seed --help)
   license …       лицензия: install <файл> | status
   job …           фоновые задачи: list | run <имя> [--space <ключ>] [--slot <ключ>]
+  secrets rotate  перешифровать секреты интеграций текущим ключом [--check — только проверка]
 
 Пакет — каталог или .tar.zst. Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;
 
