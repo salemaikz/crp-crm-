@@ -1,5 +1,6 @@
 // Вход по номеру и паролю, «выйти везде», смена пароля — логика без Next (D-091…D-093).
 // Маршруты src/app/api/auth/** только разбирают тело, зовут эти функции и ставят cookie.
+import { phone as corePhone } from '@crm/core';
 import { safeNext } from '../../../shared/safeNext';
 import { writeAudit } from '../audit';
 import type { Sql } from '../db';
@@ -25,18 +26,13 @@ function logThrottled(reason: string, nowMs: number): void {
 
 
 /**
- * Номер для входа → канон `7XXXXXXXXXX`; null — не номер.
- * Правила те же, что у parsePhone ядра (8 или 7 + 10 цифр, 10 цифр → 7 + они); признак «рабочий»
- * не важен: заглушка тоже канон, такой номер просто не найдётся.
- * TODO(K1a): после влития @crm/core/phone заменить на parsePhone(raw, { country: 'KZ', … })?.digits —
- * та же нормализация нужна R2a и `crmctl install` (иначе «8 701…» и «+7 701…» разойдутся).
+ * Номер для входа → канон `7XXXXXXXXXX`; null — не номер. Нормализация ядра (`parsePhone`) с правилами
+ * из настроек `global.phone` — та же, что у приёма лидов, импорта и `crmctl install`. Признак
+ * «рабочий» не важен: заглушка тоже канон, такой номер просто не найдётся.
  */
-export function loginPhoneDigits(raw: string): string | null {
+export function loginPhoneDigits(raw: string, rules: corePhone.PhoneRules = corePhone.DEFAULT_PHONE_RULES): string | null {
   if (typeof raw !== 'string' || raw.length > PHONE_INPUT_MAX_CHARS) return null;
-  const d = raw.replace(/\D+/g, '');
-  if (d.length === 11 && (d[0] === '8' || d[0] === '7')) return `7${d.slice(1)}`;
-  if (d.length === 10) return `7${d}`;
-  return null;
+  return corePhone.parsePhone(raw, rules)?.digits ?? null;
 }
 
 /** Маска для экрана приглашения: `+7 701 ••• •• 67`. */
@@ -57,12 +53,13 @@ export async function attemptLogin(
   input: { phone: string; password: string; next?: string | null; ip: string },
   policy: SecurityPolicy,
   nowMs: number,
+  phoneRules: corePhone.PhoneRules = corePhone.DEFAULT_PHONE_RULES,
 ): Promise<LoginResult> {
   const { password } = input;
   if (typeof password !== 'string' || !password || [...password].length > PASSWORD_INPUT_MAX_CHARS) {
     return { ok: false, error: 'validation' };
   }
-  const phoneDigits = loginPhoneDigits(input.phone);
+  const phoneDigits = loginPhoneDigits(input.phone, phoneRules);
   if (!phoneDigits) return { ok: false, error: 'validation' };
 
   const verdict = checkLogin({ phoneDigits, ip: input.ip }, policy.loginAttempts, nowMs);

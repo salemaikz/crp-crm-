@@ -32,8 +32,31 @@ async function loadSession(): Promise<SessionInfo | null> {
   if (!token || !SESSION_TOKEN_RE.test(token)) return null; // гость без запроса в БД
   const policy = await readSecurityPolicy();
   const db = await getDb();
-  const r = await resolveSession(db.sql, token, policy, Date.now());
-  return r ? { userId: r.userId, sessionId: r.sessionId, issuedAt: r.issuedAt } : null;
+  const now = Date.now();
+  const r = await resolveSession(db.sql, token, policy, now);
+  if (!r) return null;
+  if (r.touched) await reissueCookie(r, token, now, (await import('../http/sessionCookie')).setSessionCookie);
+  return { userId: r.userId, sessionId: r.sessionId, issuedAt: r.issuedAt };
+}
+
+/**
+ * Срок сессии продлён в БД — переставляем cookie тем же токеном с новым Max-Age, иначе cookie
+ * истечёт по первоначальному сроку (D-091). Это работает в route handler и server action; из
+ * серверного компонента Next не даёт менять cookie — тогда ничего не делаем: срок в БД уже
+ * продлён, cookie переставит первый же запрос обработчика. Сбой установки не роняет запрос.
+ */
+export async function reissueCookie(
+  r: Pick<ResolvedSession, 'expiresAt'>,
+  token: string,
+  nowMs: number,
+  set: (s: { token: string; maxAgeSec: number }) => Promise<void>,
+): Promise<boolean> {
+  try {
+    await set({ token, maxAgeSec: Math.max(1, Math.floor((r.expiresAt - nowMs) / 1000)) });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // cache() есть только в серверной сборке React (RSC / route handler); в unit-тестах — без кэша

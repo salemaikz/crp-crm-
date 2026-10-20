@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { checkOrigin, originCheckRequired } from '../../../src/server/platform/auth/csrf';
 import { sessionCookieSpec } from '../../../src/server/platform/auth/cookie';
 import { inviteLink } from '../../../src/server/platform/auth/invites';
+import { phone as corePhone } from '@crm/core';
 import { loginPhoneDigits, maskPhone } from '../../../src/server/platform/auth/login';
 
 const h = (o: Record<string, string>) => ({ get: (n: string) => o[n.toLowerCase()] ?? null });
@@ -59,6 +60,14 @@ test('inviteLink: токен во фрагменте, без query', () => {
   assert.equal(link, 'https://crm.example.test/invite#abc_DEF-123');
   assert.ok(link.includes('#') && !link.includes('?'));
   assert.throws(() => inviteLink('t', { NODE_ENV: 'production' }));
+});
+
+test('loginPhoneDigits: нормализация ядра с правилами из настроек', () => {
+  // та же функция, что у приёма лидов и импорта: вход и данные не разойдутся
+  assert.equal(loginPhoneDigits('8 701 555 01 23'), corePhone.parsePhone('+7 701 555 01 23', corePhone.DEFAULT_PHONE_RULES)?.digits);
+  assert.equal(loginPhoneDigits('8 701 555 01 23', { ...corePhone.DEFAULT_PHONE_RULES, mobilePrefixes: [] }), '77015550123');
+  assert.equal(loginPhoneDigits('7 777 777 77 77'), '77777777777', 'заглушка — канон, но такого сотрудника нет');
+  assert.equal(loginPhoneDigits('+7 701 555 01 23 доб. 12'), '77015550123');
 });
 
 test('loginPhoneDigits и maskPhone', () => {

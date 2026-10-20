@@ -1,12 +1,9 @@
-import { redirect } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
-import { getSession } from '@/server/platform/auth';
+import { page } from '@/server/access';
 import { AccountForms } from './AccountForms';
 
-// Только свои данные: гостя отправляем на вход. Обёртка page() P4a заменит эту проверку.
-export default async function AccountPage() {
-  const session = await getSession();
-  if (!session) redirect('/login?next=/account');
+// Только свои данные: гостя обёртка отправляет на вход, чужих прав не нужно.
+export default page({ perm: 'authenticated' }, async () => {
   const t = await getTranslations('auth.account');
   return (
     <>
@@ -14,4 +11,4 @@ export default async function AccountPage() {
       <AccountForms />
     </>
   );
-}
+});
