@@ -83,7 +83,7 @@ export interface ImportProfile {
   personalIdForms?: readonly string[];
 }
 
-/** Точка расширения K1a: нормализацию делает `core/phone` и `core/names`; сюда приходит интерфейс. */
+/** Нормализация для импорта; реализация — `createImportNormalizers` поверх `core/phone` и `core/names`. */
 export interface ImportNormalizers {
   /** Название → без формы собственности, кавычек, регистра. */
   normalizeName(raw: string): string;

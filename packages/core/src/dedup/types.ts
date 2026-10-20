@@ -1,10 +1,13 @@
 // Типы дедупа (PROCESS 2.3, 7.6; CONFIG global.dedup). Чистое ядро: нормализацию номеров, названий и
 // ФИО делает `core/phone` и `core/names` (K1a); сюда приходят уже нормализованные значения.
+import type { PhoneKind } from '../phone';
 
-/** Тип номера по префиксу (правило номеров задаёт `core/phone`). */
-export type PhoneKind = 'mobile' | 'landline' | 'unknown';
+export type { PhoneKind };
 
-/** Номер из ячейки или поля после нормализации (результат `core/phone`). */
+/**
+ * Номер из ячейки или поля после нормализации: проекция `ParsedPhone` из `core/phone`
+ * (`digits` заполнен только у рабочего номера, `review` = `needsReview`).
+ */
 export interface NormalizedPhone {
   /** Как было в источнике (для отчёта; в журнал и логи не пишется). */
   raw: string;
