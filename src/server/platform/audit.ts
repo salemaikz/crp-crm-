@@ -24,6 +24,11 @@ export const AUDIT_ACTIONS = [
   'user.password_reset_issue',
   'user.password_reset',
   'user.password_change',
+  // R2a: сотрудники (без ПДн в meta)
+  'user.invite_revoke',
+  'user.role_change',
+  'user.admin_change',
+  'user.disable',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
