@@ -1,67 +1,73 @@
-// Чтение загруженных таблиц для импорта — СИГНАТУРЫ (дизайн C4d, docs/import-design.md §3, D-111, D-112).
-// Тела пишет builder в задаче C4-files; сигнатуры и коды ошибок не меняет (правка — через architect).
-// Раскладка реализации: body.ts, sniff.ts, zip.ts и ooxml.ts (перенос с переделкой под буфер:
-// платформа LMS 2cd8a2b src/lib/storage/{zip,ooxml,sniff}.ts), xlsx/{workbook,sheet,styles,dates}.ts,
-// csv.ts (декодирование), csvExport.ts (выгрузка). Next здесь не импортируется: Request — веб-стандарт.
-import type { CsvCellValue, ReadSpreadsheetOptions, Sniffed, SpreadsheetLimits, SpreadsheetResult } from './types';
+// Чтение загруженных таблиц для импорта (дизайн C4d, docs/import-design.md §3, D-111, D-112).
+// Файл на диск не пишется и не хранится: всё читается из буфера в памяти; архив XLSX не
+// распаковывается целиком — только нужные части и с жёстким пределом на выход inflate.
+// Next здесь не импортируется: Request — веб-стандарт.
+import { createHash } from 'node:crypto';
+import { parseCsvGrid } from './csv';
+import { sniffSpreadsheet } from './sniff';
+import { FILE_LIMITS, SpreadsheetError, type ReadSpreadsheetOptions, type Sniffed, type SpreadsheetLimits, type SpreadsheetResult } from './types';
+import { listSheets, readXlsx } from './xlsx/read';
 
 export * from './types';
+export { readBodyLimited } from './body';
+export { csvCell, toExcelCsv } from './csvExport';
 
-const TODO = 'C4-files: не реализовано (docs/import-design.md §3)';
-
-/**
- * Тело запроса целиком в память, но не больше maxBytes: Content-Length больше предела — отказ до
- * чтения; при чтении потока счётчик байтов, превышение — reader.cancel() и SpreadsheetError('too_large').
- * Пустое тело — SpreadsheetError('empty'). multipart не поддерживается (D-112).
- */
-export async function readBodyLimited(req: Request, maxBytes: number): Promise<Uint8Array> {
-  void req;
-  void maxBytes;
-  throw new Error(TODO);
+/** Пределы одного чтения из жёстких пределов кода и настроек установки (их только сужают). */
+export function limitsFor(s: { maxFileMb: number; maxRows: number }): SpreadsheetLimits {
+  return {
+    maxBytes: Math.min(s.maxFileMb * 1024 * 1024, FILE_LIMITS.maxBytesHard),
+    maxRows: s.maxRows + FILE_LIMITS.rowsSlack,
+    maxCols: FILE_LIMITS.maxCols,
+    maxCellChars: FILE_LIMITS.maxCellChars,
+    zipMaxEntries: FILE_LIMITS.zipMaxEntries,
+    zipMaxCentralDirBytes: FILE_LIMITS.zipMaxCentralDirBytes,
+    zipSmallPartMaxBytes: FILE_LIMITS.zipSmallPartMaxBytes,
+    zipStylesMaxBytes: FILE_LIMITS.zipStylesMaxBytes,
+    zipSharedStringsMaxBytes: FILE_LIMITS.zipSharedStringsMaxBytes,
+    zipSheetMaxBytes: FILE_LIMITS.zipSheetMaxBytes,
+    zipTotalInflatedMaxBytes: FILE_LIMITS.zipTotalInflatedMaxBytes,
+    sharedStringsMaxCount: FILE_LIMITS.sharedStringsMaxCount,
+  };
 }
 
-/**
- * Тип по сигнатуре: PK\x03\x04 → центральный каталог (пределы, без ZIP64, безопасные имена) →
- * [Content_Types].xml → classifyOoxml (xlsx | macro | иное → bad_type); D0 CF 11 E0 → legacy_xls;
- * %PDF, PNG, JPEG, GIF, RIFF, NUL в голове → bad_type; BOM UTF-16/32 → unsupported_encoding;
- * иначе CSV: BOM UTF-8 или валидный UTF-8 (TextDecoder fatal) → 'utf-8', иначе 'windows-1251'.
- */
-export function sniffSpreadsheet(buf: Uint8Array, limits: SpreadsheetLimits): Sniffed {
-  void buf;
-  void limits;
-  throw new Error(TODO);
+/** Тип по сигнатуре (PK → xlsx, OLE2 → legacy_xls, PDF/картинки/NUL → bad_type, иначе CSV). */
+export function sniff(buf: Uint8Array, limits: SpreadsheetLimits): Sniffed {
+  return sniffSpreadsheet(buf, limits);
 }
+export { sniffSpreadsheet };
 
-/** Имена листов книги в порядке workbook.xml (скрытые тоже, с пометкой не нужны). */
+/** Имена листов книги в порядке workbook.xml. */
 export function listXlsxSheets(buf: Uint8Array, limits: SpreadsheetLimits): string[] {
-  void buf;
-  void limits;
-  throw new Error(TODO);
+  return listSheets(buf, limits);
 }
 
+let active = 0;
+const yieldLoop = () => new Promise<void>((r) => setImmediate(r));
+
 /**
- * Файл → сетка строк. Порядок: семафор разборов (FILE_LIMITS.concurrentParses, занято → 'busy') →
- * sniffSpreadsheet → CSV: декодирование и core imports.parseCsvRecords; XLSX: workbook.xml и rels →
- * выбранный лист, sharedStrings, styles (даты) через saxes, DOCTYPE → 'xml_doctype' → пределы
- * строк, колонок и длины ячейки → sha256. Бросает SpreadsheetError; другие ошибки — баг.
+ * Файл → сетка строк. Порядок: семафор разборов (занято → 'busy') → предел размера → сигнатура →
+ * CSV: декодирование и разбор ядра; XLSX: workbook, rels, выбранный лист, sharedStrings, styles →
+ * пределы строк, колонок и длины ячейки → sha256. Бросает SpreadsheetError; другие ошибки — баг.
  */
 export async function readSpreadsheet(buf: Uint8Array, opts: ReadSpreadsheetOptions): Promise<SpreadsheetResult> {
-  void buf;
-  void opts;
-  throw new Error(TODO);
-}
-
-/**
- * Ячейка CSV для Excel: строка, начинающаяся с = + - @ TAB CR (после пробелов тоже), получает ведущий
- * апостроф (защита от формул); «;», кавычка, перевод строки — в кавычках с удвоением кавычек.
- */
-export function csvCell(value: CsvCellValue): string {
-  void value;
-  throw new Error(TODO);
-}
-
-/** Сетка → CSV для Excel русской локали: BOM UTF-8, разделитель «;», CRLF, каждая ячейка через csvCell. */
-export function toExcelCsv(grid: readonly (readonly CsvCellValue[])[]): string {
-  void grid;
-  throw new Error(TODO);
+  if (active >= FILE_LIMITS.concurrentParses) throw new SpreadsheetError('busy');
+  active++;
+  try {
+    // уступаем цикл событий: параллельный вызов увидит занятый семафор, а не дождётся конца синхронного разбора
+    await yieldLoop();
+    const { limits } = opts;
+    if (buf.length === 0) throw new SpreadsheetError('empty');
+    if (buf.length > limits.maxBytes) throw new SpreadsheetError('too_large');
+    const kind = sniffSpreadsheet(buf, limits);
+    if (!kind.ok) throw new SpreadsheetError(kind.code);
+    const sha256 = createHash('sha256').update(buf).digest('hex');
+    if (kind.kind === 'csv') {
+      const { grid, stats } = parseCsvGrid(buf, kind.encoding, limits);
+      return { kind: 'csv', encoding: kind.encoding, sheets: [], sheetIndex: 0, grid, stats, sha256 };
+    }
+    const x = readXlsx(buf, opts.sheet, limits);
+    return { kind: 'xlsx', encoding: null, sheets: x.sheets, sheetIndex: x.sheetIndex, grid: x.grid, stats: x.stats, sha256 };
+  } finally {
+    active--;
+  }
 }
