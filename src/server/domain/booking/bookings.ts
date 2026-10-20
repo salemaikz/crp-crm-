@@ -117,7 +117,8 @@ async function placeInTx(deps: BookingDeps, actor: BookingActor, tx: Sql, now: n
   // 5. мероприятие
   const settings = await deps.settings(spaceId, now);
   const ev = await findEvent(actor, tx, { eventId: a.eventId, perm: 'booking.read', lock: true });
-  if (!ev) throw new BookingDomainError('event_not_found');
+  // Мероприятие другого пространства для записи не существует (и системному исполнителю тоже)
+  if (!ev || ev.spaceId !== spaceId) throw new BookingDomainError('event_not_found');
   if (!settings.groupTypes.some((t) => t.key === ev.eventTypeKey)) throw new BookingDomainError('invalid_settings');
 
   // 6. записи клиента: «новая или перенос» (D-042)

@@ -71,7 +71,7 @@ test('подписи событий: номера, контакты, неизв�
   assert.deepEqual(describeEvent({ kind: 'phone.added', data: { phoneId: 'p1' } }, ctx), { key: 'feed.kinds.phone_added', values: { phone: '+7 709 555 01 01' } });
   assert.deepEqual(describeEvent({ kind: 'phone.not_working', data: { phoneId: 'gone' } }, ctx).values, { phone: 'номер' });
   assert.deepEqual(describeEvent({ kind: 'contact.archived', data: { contactId: 'zz' } }, ctx), { key: 'feed.kinds.contact_archived', values: { contact: 'контакт' } });
-  assert.equal(describeEvent({ kind: 'deal.stage', data: {} }, ctx).key, 'feed.kinds.unknown');
+  assert.equal(describeEvent({ kind: 'x.unknown', data: {} }, ctx).key, 'feed.kinds.unknown');
   assert.equal(describeEvent({ kind: 'call', data: {} }, ctx).key, 'feed.kinds.call');
 });
 

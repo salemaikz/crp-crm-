@@ -26,6 +26,12 @@ export const DESCRIBED_KINDS = [
   'call',
   'call.voided',
   'note.created',
+  'booking.created',
+  'booking.moved',
+  'booking.status',
+  'deal.created',
+  'deal.stage',
+  'deal.lost',
 ] as const;
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -55,6 +61,12 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'call':
     case 'call.voided':
     case 'note.created':
+    case 'booking.created':
+    case 'booking.moved':
+    case 'booking.status':
+    case 'deal.created':
+    case 'deal.stage':
+    case 'deal.lost':
       return { key: `feed.kinds.${item.kind.replace('.', '_')}`, values: {} };
     default:
       return { key: 'feed.kinds.unknown', values: {} };

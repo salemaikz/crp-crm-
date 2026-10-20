@@ -1,6 +1,6 @@
 // Реестр видов событий ленты клиента (D-125, PROCESS 9.1). Вид не из реестра в ленту не попадает;
 // `data` отдаётся только с перечисленными ключами. Подписи строит интерфейс по `kind` и `data`.
-// Остальные виды (записи, сделки, задачи, сообщения) добавляют их модули строкой сюда.
+// Остальные виды (задачи, сообщения) добавляют их модули строкой сюда.
 
 export const FEED_GROUPS = ['calls', 'messages', 'bookings', 'deals', 'tasks', 'notes', 'system'] as const;
 export type FeedGroup = (typeof FEED_GROUPS)[number];
@@ -21,6 +21,14 @@ export const EVENT_KINDS = {
   'call.voided': { group: 'calls', dataKeys: ['callId'] },
   // Текст заметки берётся из notes при чтении (C8)
   'note.created': { group: 'notes', dataKeys: ['noteId'] },
+  // Записи (D-020): только коды и id, подписи строит интерфейс
+  'booking.created': { group: 'bookings', dataKeys: ['bookingId', 'eventId', 'eventTypeKey', 'eventDate', 'startTime', 'via'] },
+  'booking.moved': { group: 'bookings', dataKeys: ['fromId', 'toId', 'fromEventId', 'toEventId'] },
+  'booking.status': { group: 'bookings', dataKeys: ['bookingId', 'from', 'to', 'reason'] },
+  // Сделки
+  'deal.created': { group: 'deals', dataKeys: ['dealId', 'pipelineKey', 'stageKey'] },
+  'deal.stage': { group: 'deals', dataKeys: ['dealId', 'from', 'to', 'cause', 'bookingId'] },
+  'deal.lost': { group: 'deals', dataKeys: ['dealId', 'reasonCode'] },
 } as const satisfies Record<string, KindSpec>;
 
 export type EventKind = keyof typeof EVENT_KINDS;

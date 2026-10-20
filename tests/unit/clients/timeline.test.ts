@@ -30,9 +30,9 @@ test('виды выбранных групп; без групп — все', () 
 });
 
 test('вид не из реестра: нет группы, data пустая', () => {
-  assert.equal(isKnownKind('deal.stage'), false);
-  assert.equal(groupOf('deal.stage'), null);
-  assert.deepEqual(pickData('deal.stage', { secret: 1 }), {});
+  assert.equal(isKnownKind('x.unknown'), false);
+  assert.equal(groupOf('x.unknown'), null);
+  assert.deepEqual(pickData('x.unknown', { secret: 1 }), {});
   assert.equal(groupOf('phone.added'), 'system');
 });
 

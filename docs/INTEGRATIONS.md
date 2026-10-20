@@ -300,9 +300,15 @@ CREATE INDEX IF NOT EXISTS messenger_messages_chat_idx ON messenger_messages (ch
 ### 5.1. Доступ
 
 - Базовый путь: `/api/ingest/v1`. Снаружи закрыт, пока `INGEST_PUBLIC=0` (по
-  умолчанию), двумя рубежами: nginx и приложение (запрос с заголовком
-  `X-Via-Proxy`, который ставит nginx, получает 404; тест в
-  `tests/integration/intake/`). Внутренние источники ходят по внешней сети
+  умолчанию), двумя рубежами: nginx и приложение (D-155). Порт приложения
+  доступен и из сети `crm_ingest`, поэтому заголовкам nginx (`X-Real-IP`,
+  `X-Forwarded-For`, `X-Via-Proxy`) верят только вместе с `X-Proxy-Secret`,
+  равным `CRM_PROXY_SECRET`. Запрос через nginx (верный секрет) проходит
+  только при `INGEST_PUBLIC=1`, иначе получает 404. Запрос с меткой прокси,
+  но без верного секрета — подделка, 404 всегда. Запрос без меток (внутренний
+  источник по сети Docker) проходит; его адрес неизвестен, поэтому счётчик
+  неудачных попыток ведётся по префиксу ключа, а не по адресу. Тесты — в
+  `tests/integration/intake/`. Внутренние источники ходят по внешней сети
   Docker `crm_ingest` на псевдоним активного приложения
   `http://crm-app:3000/api/ingest/v1/…` (псевдоним переезжает на новый
   контейнер при обновлении, DEPLOY §5.2).
@@ -361,14 +367,14 @@ CREATE INDEX IF NOT EXISTS messenger_messages_chat_idx ON messenger_messages (ch
 | `kind` | `company\|person` | по умолчанию `company` |
 | `name` | строка 1–500 | обязательна |
 | `legalForm` | ключ из `org.legalForms` или пусто | неизвестный ключ → пусто |
-| `orgId` | строка | проверяется `org.idRule` (БИН — 12 цифр); не прошёл → поле отброшено, предупреждение `org_id_invalid`. У формы с `idIsPersonal` (ИП) 12 цифр — это ИИН: сразу HMAC в `iin_hmac`, открыто не хранится и не логируется (D-052) |
+| `orgId` | строка | проверяется `org.idRule` (БИН — 12 цифр); не прошёл → поле отброшено и посчитано в `droppedFields.orgId`. У формы с `idIsPersonal` (ИП) 12 цифр — это ИИН: сразу HMAC в `iin_hmac`, открыто не хранится и не логируется (D-052) |
 | `iin` | строка | только при `org.personIdRule = kz_iin_hmac`: сразу HMAC, открыто не хранится и не логируется; иначе отброшено |
 | `phones` | 1–10 строк ≤ 40 символов | разбиваются, нормализуются, тип по префиксам; заглушки — нерабочие |
 | `region`, `address` | строки ≤ 500 | обрезка пробелов, удаление управляющих символов |
-| `email` | строка ≤ 254 | только адрес; иначе отброшено с предупреждением (D-051) |
-| `website` | строка ≤ 500 | только `http:`/`https:`; `javascript:`, `data:`, `vbscript:` и прочее отброшено с предупреждением (D-051) |
+| `email` | строка ≤ 254 | только адрес; иначе отброшено и посчитано в `droppedFields` (D-051) |
+| `website` | строка ≤ 500 | только `http:`/`https:`; `javascript:`, `data:`, `vbscript:` и прочее отброшено и посчитано в `droppedFields` (D-051) |
 | `contactName` | строка | принимается, только если `sources.<key>.allowPersonNames = true`; иначе отброшено и посчитано в `droppedFields` |
-| `custom` | объект | только ключи полей с `ingest: true`; значения проверяет `buildFieldValidator`; при `allowPersonNames = false` поля с `pii: person` отброшены; лишние ключи отброшены и посчитаны |
+| `custom` | объект | только ключи полей с `ingest: true`; значения проверяет разбор по типу поля в `normalize.ts` (не годится — поле отброшено и посчитано); при `allowPersonNames = false` поля с `pii: person` отброшены; лишние ключи отброшены и посчитаны |
 
 При `allowPersonNames = false` запись `kind: person` отклоняется целиком
 (`invalid`, код `person_not_allowed`).

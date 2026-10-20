@@ -266,6 +266,17 @@ export async function lockCardsInOrder(actor: BookingActor, sql: Sql, ids: reado
        FOR UPDATE OF c`;
 }
 
+/** Карточки каскада отмены мероприятия: по id и пространству, без охвата (охват проверен на мероприятии). */
+export async function lockEventCardsInOrder(sql: Sql, spaceId: string, ids: readonly string[]): Promise<LockedCard[]> {
+  if (ids.length === 0) return [];
+  return sql<LockedCard>`
+    SELECT c.id, c.client_id, c.space_id, c.state, c.owner_user_id, c.acting_user_id, c.last_outcome_at, c.version
+      FROM cards c
+     WHERE c.id = ANY(${[...ids]}) AND c.space_id = ${spaceId}
+     ORDER BY c.id
+       FOR UPDATE OF c`;
+}
+
 // ---------------------------------------------------------------------------
 // Мероприятия
 // ---------------------------------------------------------------------------
@@ -667,17 +678,19 @@ export async function insertFeed(
 // Каскад отмены мероприятия
 // ---------------------------------------------------------------------------
 
-export async function activeCardIdsOfEvent(actor: BookingActor, sql: Sql, eventId: string): Promise<string[]> {
-  const rows = await scoped(sql)<{ cardId: string }>`
+// Каскад идёт без охвата отменяющего: право отменить мероприятие проверено, а записи остальных менеджеров
+// пространства не должны остаться активными на отменённом мероприятии.
+export async function activeCardIdsOfEvent(sql: Sql, eventId: string): Promise<string[]> {
+  const rows = await sql<{ cardId: string }>`
     SELECT DISTINCT b.card_id FROM bookings b
-     WHERE b.event_id = ${eventId} AND b.status = ANY(${ACTIVE}) AND ${scopeSql(actor, 'booking', 'booking.manage')}`;
+     WHERE b.event_id = ${eventId} AND b.status = ANY(${ACTIVE})`;
   return rows.map((r) => r.cardId);
 }
 
-export async function lockActiveBookingsOfEvent(actor: BookingActor, sql: Sql, eventId: string): Promise<BookingRow[]> {
-  return scoped(sql)<BookingRow>`
+export async function lockActiveBookingsOfEvent(sql: Sql, eventId: string): Promise<BookingRow[]> {
+  return sql<BookingRow>`
     SELECT b.* FROM bookings b
-     WHERE b.event_id = ${eventId} AND b.status = ANY(${ACTIVE}) AND ${scopeSql(actor, 'booking', 'booking.manage')}
+     WHERE b.event_id = ${eventId} AND b.status = ANY(${ACTIVE})
      ORDER BY b.id
        FOR UPDATE OF b`;
 }

@@ -27,7 +27,7 @@ import {
   listEventRows,
   listGuestRows,
   lockActiveBookingsOfEvent,
-  lockCardsInOrder,
+  lockEventCardsInOrder,
   replaceDuty,
   toBookingView,
   toEventLite,
@@ -231,8 +231,8 @@ export const cancelEvent: CancelEvent = async (deps, viewer, input) => {
     if (!probe) throw eventNotFound();
 
     // 1–2. кого затронем, и сразу блокируем их карточки (раньше мероприятия: порядок D-131)
-    const cardIds = await activeCardIdsOfEvent(viewer, tx, probe.id);
-    const locked = new Map((await lockCardsInOrder(viewer, tx, cardIds, 'booking.manage')).map((c) => [c.id, c]));
+    const cardIds = await activeCardIdsOfEvent(tx, probe.id);
+    const locked = new Map((await lockEventCardsInOrder(tx, probe.spaceId, cardIds)).map((c) => [c.id, c]));
 
     // 3. мероприятие
     const ev = await findEvent(viewer, tx, { eventId: input.eventId, perm: 'booking.manage', lock: true });
@@ -245,9 +245,9 @@ export const cancelEvent: CancelEvent = async (deps, viewer, input) => {
     if (!cancelled) throw eventNotFound();
 
     // 5. активные записи; запись, вставленная между шагами 1 и 3, приводит новую карточку — блокируем и её
-    const active = await lockActiveBookingsOfEvent(viewer, tx, ev.id);
+    const active = await lockActiveBookingsOfEvent(tx, ev.id);
     const extra = [...new Set(active.map((b) => b.cardId))].filter((id) => !locked.has(id)).sort();
-    for (const c of await lockCardsInOrder(viewer, tx, extra, 'booking.manage')) locked.set(c.id, c);
+    for (const c of await lockEventCardsInOrder(tx, ev.spaceId, extra)) locked.set(c.id, c);
 
     // 6. отмена записей
     await cancelBookingRows(tx, active.map((b) => b.id), 'event_cancelled', now);
