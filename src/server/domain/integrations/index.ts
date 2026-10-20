@@ -3,5 +3,20 @@
 export { FALLBACK_MODES, getChannelModes } from './modes';
 export { receiveWebhook, WEBHOOK_MAX_BODY_BYTES, WEBHOOK_MAX_ITEMS, WEBHOOK_RATE_LIMIT, LAST_EVENT_STEP_MS } from './webhook';
 export { buildCtx, IntegrationConfigError } from './ctx';
+export {
+  checkIntegration,
+  connectIntegration,
+  disableIntegration,
+  enableIntegration,
+  IntegrationAdminError,
+  listIntegrations,
+  patchIntegrationChannel,
+  rotateIntegrationWebhook,
+  setIntegrationCrossborder,
+  type ConnectionView,
+  type ConnectResult,
+  type PluginView,
+} from './admin';
+export { findUsableIntegration, loadIntegrationRow } from './lookup';
 export { gateFor, usabilityOf, loadInboxItem, purgeWebhookPayloads, defaultFlagOn, defaultLicensed } from './service';
 export type { IntegrationDeps, IntegrationRow, InboxRow } from './types';

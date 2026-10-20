@@ -3,6 +3,8 @@
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Button, Card, Chip, ChipGroup, EmptyState } from '@/ui/kit';
+import { FeedMessages } from '@/ui/messenger/FeedMessages';
+import { foldMessages } from '@/ui/messenger/fold';
 import { describeEvent, makeContext } from './feedLabels';
 import { formatDateTime } from './format';
 import type { FeedItemView, FeedLabels } from './types';
@@ -91,7 +93,15 @@ export function FeedPanel({ clientId, initialItems, initialNext, timeZone, label
         <EmptyState framed={false} headingLevel="h3" title={t('feed.emptyTitle')} description={t('feed.emptyText')} />
       ) : (
         <ol className="flex flex-col divide-y divide-[var(--border)]">
-          {visible.map((i) => {
+          {foldMessages(visible, timeZone).map((entry) => {
+            if (entry.kind === 'messages') {
+              return (
+                <li key={entry.key} className="py-2">
+                  <FeedMessages items={entry.items} formatTime={(at) => formatDateTime(at, timeZone)} />
+                </li>
+              );
+            }
+            const i = entry.item;
             const d = describeEvent(i, context);
             return (
               <li key={i.id} className="py-2">

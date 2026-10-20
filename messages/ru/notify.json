@@ -18,6 +18,10 @@
     "alarm_callbacks_overdue": "Просроченные перезвоны: {count} у {operators, plural, one {# оператора} few {# операторов} many {# операторов} other {# оператора}}",
     "alarm_handoff_unaccepted": "Передача отделу не принята за рабочий день: {count}",
     "alarm_grey_unassigned": "Консультации без консультанта: {count}",
+    "messenger_channel_down": "Канал WhatsApp не работает (состояние: {state}). Проверьте подключение",
+    "messenger_flood": "Слишком много входящих из WhatsApp: достигнут предел {limit} в сутки, новые задачи не создаются",
+    "messenger_dnc_unknown": "Новый номер из стоп-листа написал в WhatsApp: клиент не создан",
+    "integration_inbox_failed": "События интеграции не обработаны: {count}. Обратитесь к сопровождению",
     "unknown": "Новое уведомление"
   }
 }

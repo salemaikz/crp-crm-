@@ -207,6 +207,8 @@
       "dnc_cleared": "Снято «Не звонить»",
       "import_row": "Строка загрузки таблицы",
       "client_created": "Клиент создан",
+      "message": "Сообщение в WhatsApp",
+      "messenger_link_opened": "Открыт WhatsApp",
       "unknown": "Событие"
     }
   }

@@ -9,7 +9,7 @@ export type ShellKind = 'operator' | 'manager' | 'consultant' | 'duty';
 export type MenuId =
   | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive' | 'myDay'
   | 'summary' | 'distribution' | 'cards' | 'kanban' | 'reports' | 'settings' | 'pool' | 'import' | 'handoffs' | 'team'
-  | 'consultations' | 'duty';
+  | 'consultations' | 'duty' | 'integrations';
 
 export type MenuItem = { id: MenuId; href: string };
 
@@ -62,6 +62,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'import', href: '/import', keys: ['import'], perm: 'import.run', feature: 'IMPORT' },
       { id: 'team', href: '/team', adminOnly: true },
+      { id: 'integrations', href: '/integrations', adminOnly: true, feature: 'WAZZUP' },
     ],
   },
   // Консультант: свои консультации, задачи, день

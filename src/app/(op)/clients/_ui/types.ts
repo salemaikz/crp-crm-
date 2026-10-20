@@ -64,6 +64,8 @@ export type FeedItemView = {
   refType: string;
   refId: string;
   data: Record<string, unknown>;
+  /** Сообщение мессенджера (kind = 'message'): текст, удалено ли, статус доставки. */
+  message?: { text: string | null; deleted: boolean; status: string | null };
 };
 
 /**
