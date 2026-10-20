@@ -10,8 +10,11 @@ const CODE = ['.ts', '.tsx', '.mjs'] as const;
 type Imp = { spec: string; typeOnly: boolean };
 
 /** Все зависимости файла через TypeScript API: import/export from (в т.ч. многострочные), import(), require(). */
+// Вид разбора — по расширению: в .ts приведение <T>x разбирается как JSX и прячет хвост файла.
+const kindOf = (fileName: string) => (fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+
 export function importsOf(source: string, fileName = 'x.tsx'): Imp[] {
-  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kindOf(fileName));
   const out: Imp[] = [];
   const lit = (n: ts.Node | undefined) => (n && ts.isStringLiteralLike(n) ? n.text : undefined);
   const visit = (n: ts.Node): void => {
@@ -37,8 +40,8 @@ export function importsOf(source: string, fileName = 'x.tsx'): Imp[] {
 }
 
 /** Директива 'use client' среди начальных директив файла (после "use strict" и комментариев тоже). */
-export function isClientFile(source: string): boolean {
-  const sf = ts.createSourceFile('x.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+export function isClientFile(source: string, fileName = 'x.tsx'): boolean {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kindOf(fileName));
   for (const st of sf.statements) {
     if (!ts.isExpressionStatement(st) || !ts.isStringLiteral(st.expression)) break;
     if (st.expression.text === 'use client') return true;
@@ -63,7 +66,7 @@ type Violation = string;
 export function checkFile(file: string, source: string): Violation[] {
   const v: Violation[] = [];
   const imps = importsOf(source, file);
-  const client = isClientFile(source);
+  const client = isClientFile(source, file);
   for (const { spec, typeOnly } of imps) {
     const target = resolveSpec(file, spec);
     const bad = (why: string) => v.push(`${file}: import '${spec}' — ${why}`);
@@ -153,4 +156,7 @@ test('проверка слоёв ловит нарушения (самопро�
   assert.equal(checkFile('src/ui/C.tsx', "import { a } from '@/server/platform/env';").length, 0);
   assert.equal(checkFile('src/integrations/telephony/z/i.ts', "import {\n  x,\n} from '@/server/domain/calls';").length, 1);
   assert.equal(checkFile('src/integrations/telephony/z/i.ts', "import { S } from '@/server/access/systemActor';").length, 1);
+  // В .ts приведение <T>x не должно прятать импорты после себя
+  assert.equal(checkFile('src/app/x.ts', "const a = <any>foo;\nconst m = require('@/server/platform/db');").length, 1);
+  assert.equal(checkFile('src/app/x.ts', "function f<T>(x: T) { return <T>x; }\nexport { getDb } from '@/server/platform/db';").length, 1);
 });

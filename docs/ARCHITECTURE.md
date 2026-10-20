@@ -1044,7 +1044,7 @@ UI, лента (`timeline.ts` собирает из источников — у 
 
 | Что | Пути | Что меняем |
 |---|---|---|
-| БД | `src/lib/db/{core,index,locks,migrate,postgres,pglite,testing}.ts` | `getDb()` из контекста; без сида LMS |
+| БД | `src/lib/db/{core,index,locks,migrate,postgres,testing}.ts` | `getDb()` из контекста; без сида LMS |
 | Вход и сессии | `src/lib/auth/{session,password,rateLimit,clientIp,token,tokens,safeNext}.ts` | роли LMS убираем; вход по телефону; приглашения и «выйти везде» |
 | Аудит | `src/lib/audit.ts` | свой список действий |
 | Очередь | `src/lib/mail/outbox.ts`, `worker.ts` (принцип SKIP LOCKED, аренда, повторы) | для `push_outbox` и `webhook_inbox` |
