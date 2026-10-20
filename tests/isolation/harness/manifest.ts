@@ -28,6 +28,14 @@ export type ManifestEntry = {
   touches?: readonly string[];
   /** Мутация безопасности D-054: прогон проверяет, что лицензия «только чтение» её не блокирует. */
   securityMutation?: boolean;
+  /**
+   * Общий объект пространства без владельца (D-161): групповое мероприятие — расписание, его видят все,
+   * у кого есть разрешение записи; данные клиентов внутри (гости) — только по охвату записи. Прогон ждёт:
+   * A (с разрешением) → объект с гостем B — не 404 и без данных клиентов B; несуществующий id — 404;
+   * без сессии — отказ. `ownerSees` — контроль непустой проверки: в ответе B есть данные его клиента.
+   * Только для чтения объектной записи: мутации общего объекта — обычные объектные записи.
+   */
+  shared?: { ownerSees: boolean };
 };
 
 export type ModuleManifest = { module: string; entries: readonly ManifestEntry[] };
@@ -41,6 +49,7 @@ export function defineManifest(module: string, entries: readonly ManifestEntry[]
     seen.add(key);
     if (e.target === 'object' && !e.idParam) throw new Error(`манифест ${module}: ${key} — объектному входу нужен idParam`);
     if (e.mutation && e.method === 'GET') throw new Error(`манифест ${module}: ${key} — GET не может быть мутацией`);
+    if (e.shared && (e.target !== 'object' || e.mutation)) throw new Error(`манифест ${module}: ${key} — shared только у объектного чтения`);
   }
   return { module, entries };
 }
