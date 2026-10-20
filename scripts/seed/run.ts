@@ -1,7 +1,7 @@
 // Синтетический сид стенда и e2e (PLAN O8b). Порядок: пресет через тот же путь, что `crmctl config apply` →
 // сотрудники → серии мероприятий → клиенты, карточки, звонки, записи, сделки, задачи.
 // Идемпотентность: id выводятся из зерна, вставки — ON CONFLICT DO NOTHING; повтор на тех же данных добавляет 0 строк.
-// Только для не-production: при NODE_ENV=production нужен явный флаг, см. assertStand.
+// Только для стенда: при NODE_ENV=production нужны флаг и CRM_STAND=1, а база не должна содержать настоящих данных (assertStand, assertStandDb).
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fields, names, time } from '@crm/core';
@@ -22,6 +22,10 @@ import * as repo from './repo';
 export const STAND_FLAG = '--i-know-this-is-a-stand';
 export const DEFAULT_SEED = 'crm-stand-1';
 export const PASSWORD_ENV = 'CRM_SEED_PASSWORD';
+/** Положительный признак стенда в окружении: в production без него сид не стартует, даже с флагом. */
+export const STAND_ENV = 'CRM_STAND';
+/** Блок служебных номеров стенда (+7 709 …): всё, что вне него, считается настоящими данными. */
+export const SYNTHETIC_PHONE_PREFIX = '7709';
 
 /** Отказ запуска: production без явного подтверждения, неверные параметры, сбой применения пресета. */
 export class SeedRefusedError extends Error {
@@ -63,8 +67,26 @@ export interface SeedReport {
 }
 
 export function assertStand(env: Record<string, string | undefined>, flag: boolean): void {
-  if (env.NODE_ENV === 'production' && !flag) {
-    throw new SeedRefusedError(`NODE_ENV=production: сид с синтетикой запрещён. Если это учебный стенд, добавьте ${STAND_FLAG}.`);
+  if (env.NODE_ENV !== 'production') return;
+  if (!flag) throw new SeedRefusedError(`NODE_ENV=production: сид с синтетикой запрещён. Если это учебный стенд, добавьте ${STAND_FLAG} и задайте ${STAND_ENV}=1.`);
+  if (env[STAND_ENV] !== '1') throw new SeedRefusedError(`NODE_ENV=production: одного ${STAND_FLAG} мало — в окружении стенда должно быть ${STAND_ENV}=1.`);
+}
+
+/**
+ * Проверка самой базы (страховка от запуска на боевой установке): сид не пишет туда, где есть настоящие данные.
+ * Отказ, если есть номера клиентов вне блока 7709, настройки менялись не пресетом (ui/cli/rollback/migration)
+ * либо настройки уже применены, а в базе есть сотрудники с номерами вне блока 7709 (то есть применял не сид).
+ */
+export async function assertStandDb(sql: Sql): Promise<void> {
+  const like = `${SYNTHETIC_PHONE_PREFIX}%`;
+  const foreign = await sql<{ n: number }>`SELECT count(*)::int AS n FROM client_phones WHERE digits NOT LIKE ${like}`;
+  if ((foreign[0]?.n ?? 0) > 0) throw new SeedRefusedError('В базе есть клиенты с номерами вне синтетического блока 7709: это не стенд, сид отказывает.');
+  const manual = await sql<{ n: number }>`SELECT count(*)::int AS n FROM config_revisions WHERE source <> 'preset'`;
+  if ((manual[0]?.n ?? 0) > 0) throw new SeedRefusedError('Настройки в базе менялись не пресетом (ui/cli/rollback/migration): это не стенд, сид отказывает.');
+  const applied = await sql<{ n: number }>`SELECT count(*)::int AS n FROM config_revisions`;
+  if ((applied[0]?.n ?? 0) > 0) {
+    const real = await sql<{ n: number }>`SELECT count(*)::int AS n FROM users WHERE phone_digits NOT LIKE ${like}`;
+    if ((real[0]?.n ?? 0) > 0) throw new SeedRefusedError('Настройки уже применены, а в базе есть сотрудники вне блока 7709: применял не сид, сид отказывает.');
   }
 }
 
@@ -106,6 +128,7 @@ export async function runSeed(opts: SeedOptions = {}): Promise<SeedReport> {
     for (const s of staff) if (passwordProblem(envPassword, s.phone)) throw new SeedRefusedError(`${PASSWORD_ENV}: пароль не проходит политику (${passwordProblem(envPassword, s.phone)})`);
   }
 
+  await assertStandDb((await getDb()).sql);
   const layers = opts.layers ?? ['base', 'kz', 'consulting-sales', path.join(presetsRoot(env), 'clients', 'crp')];
   const configState = await applyPreset(layers, env);
   resetConfigCache();

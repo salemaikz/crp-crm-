@@ -122,6 +122,10 @@ export function checkFile(file: string, source: string): Violation[] {
         under(file, 'scripts') || under(file, 'src/server/jobs') || under(file, 'src/server/access') || (under(file, 'src/server/domain') && typeOnly) || under(file, 'tests');
       if (!ok) bad('SystemActor разрешён только в scripts/** и src/server/jobs/**');
     }
+    // Фабрика исполнителя для домена (D-231): домен, доступ и тесты; интерфейс, платформа и интеграции — нет
+    if (target === 'src/server/access/domainActor' && !(under(file, 'src/server/domain') || under(file, 'src/server/access') || under(file, 'tests'))) {
+      bad('systemActorFor (domainActor) разрешён только домену (D-231)');
+    }
     if (target === 'src/server/access/scope' && !(under(file, 'src/server/access') || under(file, 'src/server/domain') || under(file, 'tests'))) {
       bad('scopeSql выдаёт только src/server/access, использует домен');
     }
@@ -155,6 +159,8 @@ test('проверка слоёв ловит нарушения (самопро�
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { NextResponse } from 'next/server';").length, 1);
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import type { SystemActor } from '@/server/access/systemActor';").length, 0);
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { SystemActor } from '@/server/access/systemActor';").length, 1);
+  assert.equal(checkFile('src/server/domain/cards/bookingPort.ts', "import { systemActorFor } from '@/server/access/domainActor';").length, 0);
+  assert.equal(checkFile('src/app/page.tsx', "import { systemActorFor } from '@/server/access/domainActor';").length, 1);
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { scopeSql } from '@/server/access/scope';").length, 0);
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { p } from '@/integrations/wazzup';").length, 1);
   assert.equal(checkFile('src/server/domain/clients/repo.ts', "import type { C } from '@/integrations/contract';").length, 0);

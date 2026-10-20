@@ -586,6 +586,7 @@ DECISIONS): канбан, `messenger.wazzup` за флагом (D-003), обфу
 | `FEATURE_PUSH` | web-push | вкл | вкл после проверки на iPhone и Android |
 | `FEATURE_MERGE` | слияние клиентов (D-062) | вкл | вкл после приёмки |
 | `FEATURE_BULK_TRANSFER` | массовая передача и мастер отключения (D-062) | вкл | вкл после приёмки |
+| `FEATURE_IMPORT` | импорт таблиц (пункт меню и страница) | вкл | вкл после приёмки |
 | `FEATURE_WAZZUP` | плагин Wazzup | вкл (фикстуры) | выкл до решения ЦРП |
 | `FEATURE_TELEPHONY_ZADARMA` | плагин Zadarma | вкл (фикстуры) | выкл до решения ЦРП |
 | `FEATURE_TELEPHONY_BEELINE` | плагин Beeline | выкл | выкл до документации |

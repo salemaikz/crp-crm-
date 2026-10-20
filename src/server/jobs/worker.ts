@@ -84,6 +84,11 @@ export function createWorker(opts: WorkerOptions = {}): Worker {
     return p;
   };
 
+  // Файл живости обновляем после каждого экземпляра задачи: долгий цикл не должен делать контейнер unhealthy
+  const touchAlive = async (): Promise<void> => {
+    if (aliveFile) await writeFile(aliveFile, String(deps.clock())).catch(() => {});
+  };
+
   async function runCycle(): Promise<void> {
     const now = deps.clock();
     let cfg: ActiveConfig | null = null;
@@ -116,6 +121,7 @@ export function createWorker(opts: WorkerOptions = {}): Worker {
         } catch (e) {
           log.warn('instance_error', { job: inst.runName, code: (e as { name?: string } | null)?.name ?? 'error' });
         }
+        await touchAlive();
       }
       booted = true;
     }
@@ -124,7 +130,7 @@ export function createWorker(opts: WorkerOptions = {}): Worker {
     } catch (e) {
       log.warn('heartbeat_error', { code: (e as { name?: string } | null)?.name ?? 'error' });
     }
-    if (aliveFile) await writeFile(aliveFile, String(deps.clock())).catch(() => {});
+    await touchAlive();
   }
 
   async function runQueues(): Promise<void> {

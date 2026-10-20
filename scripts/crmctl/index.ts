@@ -58,7 +58,7 @@ export const USAGE = `crmctl — сопровождение установки C
   backup …        копии БД (crmctl backup --help)
   restore …       восстановление копии (crmctl restore --help)
   ingest-key …    ключи источников лидов: create | list | revoke
-  seed …          синтетические данные для стенда (crmctl seed --help)
+  seed …          синтетические данные для стенда (только стенд; crmctl seed --help)
   job …           фоновые задачи: list | run <имя> [--space <ключ>] [--slot <ключ>]
 
 Пакет — каталог или .tar.zst. Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;

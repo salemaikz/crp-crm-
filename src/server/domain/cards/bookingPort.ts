@@ -3,6 +3,7 @@
 // повторной блокировки, ни охвата. `rejected` не бросается: решает вызывающий.
 import { calling } from '@crm/core';
 import type { BookingActor, CardPort } from '@/server/domain/booking/types';
+import { systemActorFor } from '@/server/access/domainActor';
 import { toCoreActor } from './actor';
 import { persistTransition } from './persist';
 import { loadSnapshot } from './repo';
@@ -10,10 +11,10 @@ import { loadCallingContext } from './settings';
 import type { CreateCardBookingPort, LoadCallingContext } from './types';
 
 /**
- * Исполнитель-система для каскадов. Литерал, а не `systemActor()`: тот выдают только jobs/scripts (ARCHITECTURE §2.2),
- * а этот никуда не уходит дальше записи `actor_id = null` — в `scopeSql` его не передают (карточка уже заблокирована).
+ * Исполнитель-система для каскадов: выдаётся санкционированной фабрикой домена (D-231) и состоит в реестре
+ * assertIssued. В `scopeSql` его не передают: карточка уже заблокирована и проверена booking.
  */
-const cascadeActor = (now: number): BookingActor => Object.freeze({ kind: 'system' as const, job: 'booking:event_cancel', now });
+const cascadeActor = (now: number): BookingActor => systemActorFor('booking:event_cancel', now);
 
 export const createCardBookingPort: CreateCardBookingPort = (load: LoadCallingContext): CardPort => ({
   async applyBookingEvent(tx, requested, card, event, now, opts) {

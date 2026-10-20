@@ -1,5 +1,5 @@
 // SystemActor — фоновые задачи и CLI (ARCHITECTURE §2.2). Импорт этого файла разрешён только
-// scripts/** и src/server/jobs/** (ESLint, tests/unit/layers.test.ts); домен берёт только тип.
+// scripts/** и src/server/jobs/** (ESLint, tests/unit/layers.test.ts); домен берёт только тип или фабрику systemActorFor (domainActor.ts, D-231).
 import type { SystemActor } from './types';
 import { registerActor } from './registry';
 

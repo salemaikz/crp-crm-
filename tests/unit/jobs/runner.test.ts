@@ -115,15 +115,30 @@ test('таймаут: signal сработал, failed timeout', async () => {
   assert.equal(f.finished[0]?.status, 'failed');
   assert.ok(aborted);
   await new Promise((r) => setTimeout(r, 30));
+  assert.equal(f.released, 1, 'вернувшийся обработчик — блокировка снята');
   assert.deepEqual(f.exits, [], 'вернувшийся обработчик отменяет принудительный выход');
 });
 
-test('зависший обработчик: после паузы процесс завершается кодом 70', async () => {
+test('зависший обработчик: после паузы процесс завершается кодом 70, блокировка не снята', async () => {
   const f = fake({ grace: 10 });
   const i = inst({ timeoutMs: 10, handler: () => new Promise(() => {}) });
   await runInstance(f.deps, i, { now: NOW, calendar });
+  assert.equal(f.released, 0, 'сразу после таймаута блокировка остаётся');
   await new Promise((r) => setTimeout(r, 60));
   assert.deepEqual(f.exits, [70]);
+  assert.equal(f.released, 0, 'до выхода процесса блокировку держит Postgres');
+});
+
+test('таймаут: пока обработчик работает, блокировка не снимается; вернулся — снимается', async () => {
+  const f = fake({ grace: 1000 });
+  let finish: () => void = () => {};
+  const i = inst({ timeoutMs: 10, handler: () => new Promise((r) => (finish = () => r({ status: 'ok', stats: {} }))) });
+  const out = await runInstance(f.deps, i, { now: NOW, calendar });
+  assert.equal(out.kind === 'ran' && out.error, 'timeout');
+  assert.equal(f.released, 0);
+  finish();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(f.released, 1);
 });
 
 test('лицензия read_only: business пропускается, housekeeping работает', async () => {

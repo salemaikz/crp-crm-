@@ -1,7 +1,7 @@
 // Цикл воркера целиком: расписание, запуск при старте, пульс, файл живости, остановка.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ActiveConfig } from '@crm/core/config';
@@ -55,6 +55,28 @@ test('цикл: задача по пространствам и запуск п�
   assert.equal(hb.length, 1);
   assert.equal(hb[0]!.stats.jobs, 2);
   assert.ok(Date.now() - statSync(alive).mtimeMs < 5000);
+  await w.stop();
+});
+
+test('файл живости обновляется после каждого экземпляра задачи, а не только в конце цикла', async () => {
+  const alive = path.join(mkdtempSync(path.join(tmpdir(), 'crm-w-')), 'alive');
+  const seen: boolean[] = [];
+  const mk = (name: string, handler: JobDefinition['handler']): JobDefinition => ({
+    name,
+    perSpace: false,
+    schedule: () => ({ kind: 'interval', everyMin: 5 }),
+    writes: 'housekeeping',
+    handler,
+  });
+  const w = createWorker({
+    defs: () => [mk('first', async () => ({ status: 'ok', stats: {} })), mk('second', async () => (seen.push(existsSync(alive)), { status: 'ok', stats: {} }))],
+    queues: () => [],
+    loadConfig: async () => cfg,
+    log,
+    aliveFile: alive,
+  });
+  await w.runCycle();
+  assert.deepEqual(seen, [true], 'к началу второй задачи файл уже записан после первой');
   await w.stop();
 });
 

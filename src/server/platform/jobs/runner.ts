@@ -70,6 +70,8 @@ export async function runInstance(deps: RunnerDeps, inst: JobInstance, input: Ru
 
   const lock = await deps.lock(runName);
   if (!lock) return { kind: 'locked' };
+  // Обработчик, пережившей таймаут: блокировку держим, пока он работает (worker-design: снимает Postgres при выходе процесса)
+  const held: { work: Promise<unknown> | null } = { work: null };
   try {
     const maxAttempts = def.maxAttempts ?? JOB_DEFAULT_MAX_ATTEMPTS;
     const startedAt = deps.clock();
@@ -100,6 +102,7 @@ export async function runInstance(deps: RunnerDeps, inst: JobInstance, input: Ru
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           controller.abort();
+          held.work = work;
           // Обработчик не вернулся за отведённое — процесс завершаем: Postgres откатит транзакции и снимет блокировку
           killTimer = setTimeout(() => deps.exit(70), deps.hardKillGraceMs ?? JOB_HARD_KILL_GRACE_MS);
           killTimer.unref?.();
@@ -118,6 +121,12 @@ export async function runInstance(deps: RunnerDeps, inst: JobInstance, input: Ru
       input.signal?.removeEventListener('abort', onStop);
     }
   } finally {
-    await lock.release().catch(() => {});
+    if (held.work) {
+      // Таймаут: не отпускаем, пока обработчик не вернётся (зависший — до выхода процесса по exit(70))
+      const release = (): void => void lock.release().catch(() => {});
+      held.work.then(release, release);
+    } else {
+      await lock.release().catch(() => {});
+    }
   }
 }
