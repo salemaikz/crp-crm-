@@ -1,7 +1,9 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  checkLogin,
+  BUSY_RETRY_MS,
+  checkLogin as reserve,
+  inflightSizes,
   phoneDelayMs,
   recordLoginFailure,
   recordLoginSuccess,
@@ -15,6 +17,13 @@ const P = DEFAULT_SECURITY_POLICY.loginAttempts; // 5 / 20 / 15 мин
 const WIN = P.windowMin * 60_000;
 const T0 = 1_760_000_000_000;
 const who = (phone = '77015550123', ip = '203.0.113.1') => ({ phoneDigits: phone, ip });
+
+/** Проверка без удержания слота: как последовательные запросы, каждый из которых завершился. */
+function checkLogin(...a: Parameters<typeof reserve>): ReturnType<typeof reserve> {
+  const v = reserve(...a);
+  if (v.ok) v.release();
+  return v;
+}
 
 beforeEach(() => resetLoginThrottle());
 
@@ -85,4 +94,41 @@ test('вытеснение ключей не трогает номер под п
   for (let i = 0; i <= THROTTLE_MAX_KEYS; i++) recordLoginFailure({ phoneDigits: `9${i}`, ip: `ip${i}` }, P, T0 + 1);
   assert.ok(throttleSizes().phones <= THROTTLE_MAX_KEYS);
   assert.equal(checkLogin(who('77010000001', 'fresh'), P, T0 + 2).ok, false); // задержка по номеру жива
+});
+
+test('идущие попытки по номеру: не больше perPhone − неудачи одновременно, после perPhone — одна', () => {
+  const held = [];
+  for (let i = 0; i < 60; i++) held.push(reserve(who('77015557777', `198.51.100.${i}`), P, T0));
+  const ok = held.filter((v) => v.ok);
+  assert.equal(ok.length, P.perPhone);
+  const denied = held.find((v) => !v.ok);
+  assert.deepEqual(denied, { ok: false, reason: 'phone_delay', retryAfterMs: BUSY_RETRY_MS });
+  // все разрешённые завершились неудачей → задержка, новая попытка отклонена
+  for (const [i, v] of held.entries()) {
+    if (!v.ok) continue;
+    recordLoginFailure(who('77015557777', `198.51.100.${i}`), P, T0);
+    v.release();
+  }
+  assert.deepEqual(inflightSizes(), { phones: 0, ips: 0 });
+  assert.equal(reserve(who('77015557777', '198.51.100.200'), P, T0 + 10).ok, false);
+  // после задержки — ровно одна попытка за раз
+  const a = reserve(who('77015557777', '198.51.100.201'), P, T0 + 1000);
+  const b = reserve(who('77015557777', '198.51.100.202'), P, T0 + 1000);
+  assert.equal(a.ok, true);
+  assert.equal(b.ok, false);
+  if (a.ok) a.release();
+});
+
+test('идущие попытки по IP считаются вместе с неудачами; release повторно ничего не ломает', () => {
+  const held = [];
+  for (let i = 0; i < 25; i++) held.push(reserve(who(`7701666${1000 + i}`, 'busy-ip'), P, T0));
+  assert.equal(held.filter((v) => v.ok).length, P.perIp);
+  const denied = held.find((v) => !v.ok);
+  assert.equal(denied && !denied.ok && denied.reason, 'ip_blocked');
+  for (const v of held) if (v.ok) {
+    v.release();
+    v.release();
+  }
+  assert.deepEqual(inflightSizes(), { phones: 0, ips: 0 });
+  assert.equal(reserve(who('77016669999', 'busy-ip'), P, T0).ok, true);
 });

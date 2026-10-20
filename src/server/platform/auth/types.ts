@@ -49,9 +49,12 @@ export type SessionCookieSpec = {
   path: '/';
 };
 
-/** Ответ проверки частоты перед входом. */
+/**
+ * Ответ проверки частоты перед входом. `ok: true` — попытка уже засчитана как идущая (in-flight):
+ * вызывающий обязан вызвать `release()` после записи итога (в finally), иначе слот не освободится.
+ */
 export type ThrottleVerdict =
-  | { ok: true }
+  | { ok: true; release: () => void }
   | { ok: false; reason: 'ip_blocked' | 'phone_delay'; retryAfterMs: number };
 
 /** Итог попытки входа. Для «нет номера», «неверный пароль», «отключён», «нет пароля» — один `invalid`. */
