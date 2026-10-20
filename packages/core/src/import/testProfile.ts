@@ -14,6 +14,7 @@ export const TEST_PHONE_RULES: PhoneRules = {
   mobilePrefixes: ['700', '701', '702', '703', '704', '705', '706', '707', '708', '709', '747', '750', '751', '760', '761', '762', '763', '764', '771', '775', '776', '777', '778'],
   reviewPrefixes: ['770', '774'],
   landlinePrefixes: ['71x', '72x'],
+  stubs: ['7xxx0000000'],
 };
 
 export const testHash: KeyHashFn = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16);

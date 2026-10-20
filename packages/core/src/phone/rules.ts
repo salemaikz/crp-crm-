@@ -20,6 +20,8 @@ export const DEFAULT_PHONE_RULES: PhoneRules = {
   ],
   reviewPrefixes: ['770', '774'],
   landlinePrefixes: ['71x', '72x'],
+  // Абонентская часть из нулей (+7 701 000 00 00) — заглушка при любом коде (D-144).
+  stubs: ['7xxx0000000'],
 };
 
 /** Совпадение национальной части (10 цифр, без «7») с префиксом; `x` — любая цифра. */
@@ -31,6 +33,11 @@ export function matchesPrefix(national: string, prefix: string): boolean {
     if (national[i] !== p) return false;
   }
   return true;
+}
+
+/** Номер `7XXXXXXXXXX` подходит под шаблон заглушки той же длины; `x` — любая цифра. */
+export function matchesStub(digits11: string, pattern: string): boolean {
+  return pattern.length === digits11.length && matchesPrefix(digits11, pattern);
 }
 
 const matchesAny = (national: string, prefixes: readonly string[]): boolean =>

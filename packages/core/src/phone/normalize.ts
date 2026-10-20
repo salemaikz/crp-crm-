@@ -3,23 +3,31 @@
 // Источник: SalemAI 108fb70 src/lib/crm/coldImport.ts (splitPhones, phoneKind, isPlaceholderPhone),
 // src/lib/db/crm/phone.ts (8 → 7), services/lead-collector/scraper.py (phone_digits).
 
-import { classifyNational } from './rules.js';
+import { classifyNational, matchesStub } from './rules.js';
 import type { ParsedPhone, PhoneInvalidReason, PhoneRules } from './types.js';
 
-/** Разделители номеров в ячейке: `,` `;` `/`, перевод строки, два и более пробела. */
-const CELL_SPLIT = /[,;/\n\r]|\s{2,}/;
+/** Разделители номеров в ячейке: `,` `;` `/`, перевод строки, два и более пробела, слово «и». */
+const CELL_SPLIT = /[,;/\n\r]|\s{2,}|\s+и\s+/iu;
 
-/** Добавочный в конце фрагмента: «доб. 12», «вн 5», «ext 7», «x12», «#12». */
-const EXT_TAIL = /(?<![\p{L}\p{N}])(?:доб(?:авочный)?|вн|ext|x|#)\.?\s*:?\s*(\d{1,6})\s*$/iu;
+/**
+ * Добавочный в конце фрагмента: «доб. 12», «вн 5», «ext 7», «x12», «#12» — в том числе сразу после
+ * цифр («+77091234567x12»). После буквы не признаётся: «box12» — не добавочный.
+ */
+const EXT_TAIL = /(?<!\p{L})(?:доб(?:авочный)?|вн|ext|x|#)\.?\s*:?\s*(\d{1,6})\s*$/iu;
 
 /** Фрагмент из одного добавочного («доб. 12» после запятой) — относится к предыдущему номеру. */
 const EXT_ONLY = /^(?:доб(?:авочный)?|вн|ext|x|#)\.?\s*:?\s*(\d{1,6})$/iu;
 
+/**
+ * Заглушка: номер подходит под шаблон `rules.stubs` или у номера с неизвестным кодом абонентская часть
+ * из одной цифры (+7 799 999 99 99). «Красивый» номер с известным кодом (+7 709 777 77 77) рабочий:
+ * такие номера покупают компании (D-144).
+ */
 function isPlaceholder(digits11: string, rules: PhoneRules): boolean {
-  const rest = digits11.slice(1);
-  // Все цифры одинаковые (+7 777 777 77 77) или абонентская часть из одной цифры (+7 701 000 00 00).
-  if (new Set(rest).size === 1 || new Set(rest.slice(3)).size === 1) return true;
-  return rules.stubs?.includes(digits11) ?? false;
+  if ((rules.stubs ?? []).some((p) => matchesStub(digits11, p))) return true;
+  const national = digits11.slice(1);
+  if (classifyNational(national, rules).kind !== 'unknown') return false;
+  return new Set(national).size === 1 || new Set(national.slice(3)).size === 1;
 }
 
 function invalid(raw: string, reason: PhoneInvalidReason, ext: string): ParsedPhone {
@@ -82,7 +90,7 @@ export function splitPhones(cell: string | null | undefined, rules: PhoneRules):
   const out: ParsedPhone[] = [];
   const seen = new Set<string>();
   for (const chunk of (cell ?? '').split(CELL_SPLIT)) {
-    const text = chunk.trim();
+    const text = chunk?.trim();
     if (!text) continue;
     const extOnly = EXT_ONLY.exec(text);
     if (extOnly) {
@@ -90,12 +98,36 @@ export function splitPhones(cell: string | null | undefined, rules: PhoneRules):
       if (prev && !prev.ext) prev.ext = extOnly[1]!;
       continue;
     }
-    const p = parsePhone(text, rules);
-    if (!p) continue;
-    const key = p.digits ?? `raw:${p.raw}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(p);
+    for (const p of parseRun(text, rules)) {
+      const key = p.digits ?? `raw:${p.raw}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
   }
   return out;
+}
+
+/**
+ * Фрагмент, который целиком «слишком длинный», может быть двумя номерами через один пробел
+ * («+7 709 123 45 67 +7 709 765 43 21»). Режем по пробелам на куски, каждый из которых — номер
+ * формы 7XXXXXXXXXX; не режется без остатка — остаётся одним `too_long`.
+ */
+function parseRun(text: string, rules: PhoneRules): ParsedPhone[] {
+  const whole = parsePhone(text, rules);
+  if (!whole) return [];
+  if (whole.invalidReason !== 'too_long') return [whole];
+  const parts = cutNumbers(text.split(/\s+/), rules);
+  return parts ?? [whole];
+}
+
+function cutNumbers(tokens: readonly string[], rules: PhoneRules): ParsedPhone[] | null {
+  if (tokens.length === 0) return [];
+  for (let k = 1; k <= tokens.length; k++) {
+    const head = parsePhone(tokens.slice(0, k).join(' '), rules);
+    if (!head || head.digits === null) continue;
+    const rest = cutNumbers(tokens.slice(k), rules);
+    if (rest) return [head, ...rest];
+  }
+  return null;
 }
