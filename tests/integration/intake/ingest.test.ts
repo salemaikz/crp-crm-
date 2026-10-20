@@ -3,7 +3,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDb, type TestDb } from '../../../src/server/platform/db/testing';
-import { iinHmac, phoneHmac } from '../../../src/server/domain/intake/hmac';
+import { iinHmac, phoneHmac } from '../../../src/server/platform/hmac';
 import { systemActor } from '../../../src/server/access/systemActor';
 import { revokeKey, createKey } from '../../../src/server/domain/intake';
 import { newId } from '../../../src/server/platform/db';

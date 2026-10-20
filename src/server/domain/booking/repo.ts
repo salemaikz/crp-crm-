@@ -720,17 +720,17 @@ export async function contactBelongsToClient(sql: Sql, contactId: string, client
 }
 
 /**
- * Журнал действий с мероприятиями и сериями. Имена `event.*`/`series.*` ждут записи в реестре платформы
- * (docs/booking-design.md §12): до этого типы приводятся, значения в журнале — обычные строки.
+ * Журнал действий с мероприятиями и сериями. Имена `event.*`/`series.*` есть в реестре аудита платформы
+ * (docs/booking-design.md §12).
  */
 export async function auditEvent(
   sql: Sql,
-  a: { actor: BookingActor; action: 'event.create' | 'event.update' | 'event.cancel' | 'event.duty' | 'series.create' | 'series.update'; entity: 'event' | 'series'; entityId: string; spaceId: string; meta: Record<string, unknown> },
+  a: { actor: BookingActor; action: Extract<AuditAction, `event.${string}` | `series.${string}`>; entity: Extract<AuditEntity, 'event' | 'series'>; entityId: string; spaceId: string; meta: Record<string, unknown> },
 ): Promise<void> {
   await writeAudit(sql, {
     actorId: actorUserId(a.actor),
-    action: a.action as AuditAction,
-    entity: a.entity as AuditEntity,
+    action: a.action,
+    entity: a.entity,
     entityId: a.entityId,
     spaceId: a.spaceId,
     meta: a.meta,

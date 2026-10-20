@@ -4,7 +4,7 @@
 import { dedup, names } from '@crm/core';
 import { getDb, newId, type Sql } from '@/server/platform/db';
 import type { Batch } from './envelope';
-import { iinHmac, phoneHmac } from './hmac';
+import { iinHmac, phoneHmac } from '@/server/platform/hmac';
 import { isAccepting } from './gate';
 import {
   buildNormalizeCtx,

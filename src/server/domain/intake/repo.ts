@@ -4,6 +4,7 @@
 // ключ уже дал `IngestPrincipal`. Журналы и отчёты — без ПДн.
 import type { dedup } from '@crm/core';
 import { jsonParam, type Sql } from '@/server/platform/db/core';
+import { INTAKE_LOCK_KEY } from '@/server/platform/db/locks';
 import type { BatchReport, IngestScope } from './types';
 
 // ---------- Ключи ----------
@@ -57,10 +58,10 @@ export async function insertKey(
     VALUES (${k.id}, ${k.prefix}, ${k.keyHash}, ${k.spaceId}, ${k.sourceKey}, ${[...k.scopes]}::text[], ${k.managed}, ${k.now})`;
 }
 
-/** Отозвать ключ; уже отозванный не трогаем. Возвращает false, если активного ключа с таким prefix нет. */
-export async function revokeKeyRow(sql: Sql, prefix: string, now: number): Promise<boolean> {
+/** Отозвать ключ; уже отозванный не трогаем. Возвращает id ключа или null, если активного ключа с таким prefix нет. */
+export async function revokeKeyRow(sql: Sql, prefix: string, now: number): Promise<string | null> {
   const r = await sql<{ id: string }>`UPDATE ingest_keys SET revoked_at = ${now} WHERE prefix = ${prefix} AND revoked_at IS NULL RETURNING id`;
-  return r.length > 0;
+  return r[0]?.id ?? null;
 }
 
 /** `last_used_at` не чаще раза в минуту (INTEGRATIONS 5.1). */
@@ -70,9 +71,9 @@ export async function touchKey(sql: Sql, id: string, now: number): Promise<void>
 
 // ---------- Партии ----------
 
-/** Общая блокировка приёма: её берут все пути, создающие клиента (ARCHITECTURE: hash('intake')). */
+/** Общая блокировка приёма: её берут все пути, создающие клиента (одна константа INTAKE_LOCK_KEY). */
 export async function lockIntake(sql: Sql): Promise<void> {
-  await sql`SELECT pg_advisory_xact_lock(hashtext('intake'))`;
+  await sql`SELECT pg_advisory_xact_lock(${INTAKE_LOCK_KEY})`;
 }
 
 export async function findBatch(sql: Sql, sourceKey: string, batchId: string): Promise<{ requestHash: string; report: BatchReport } | null> {
