@@ -45,6 +45,10 @@ export const AUDIT_ACTIONS = [
   // C5: карточка обзвона (без ПДн в meta)
   'card.dnc_cleared',
   'card.merged',
+  // P10: лицензия (в meta — lid, kid, коды состояний и причин, часы в часах; без ПДн)
+  'license.install',
+  'license.state_change',
+  'license.clock_jump',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
