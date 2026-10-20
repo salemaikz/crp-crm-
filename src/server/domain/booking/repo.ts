@@ -8,6 +8,7 @@ import type { Permission } from '@/server/access/types';
 import { writeAudit, type AuditAction, type AuditEntity } from '@/server/platform/audit';
 import { newId, type Sql } from '@/server/platform/db';
 import { jsonParam } from '@/server/platform/db/core';
+import { INTAKE_LOCK_KEY } from '@/server/platform/db/locks';
 import type {
   BookingActor,
   BookingCancelReason,
@@ -415,20 +416,27 @@ export async function replaceDuty(sql: Sql, a: { eventId: string; userIds: reado
     SELECT ${a.eventId}, u, ${a.createdBy}, ${a.at} FROM unnest(${[...a.userIds]}::text[]) AS u`;
 }
 
-/** Гости мероприятия: строки — по охвату записей, имя/контакт/хвост номера — проекция без охвата клиента (D-072). */
+/**
+ * Гости мероприятия: строки — по охвату записей, имя/контакт/хвост номера — проекция без охвата клиента (D-072).
+ * У гостя без записи (`via = 'walk_in'`) имя, контакт, хвост номера и автор пусты прямо в SQL (D-241): иначе лист
+ * «Гость без записи» стал бы справочником «номер → название клиента». Такие гости идут в конце, чтобы порядок
+ * строк не выдавал названия.
+ */
 export async function listGuestRows(actor: BookingActor, sql: Sql, eventId: string): Promise<GuestRow[]> {
   return scoped(sql)<GuestRow>`
-    SELECT b.id AS booking_id, b.status, b.version, cl.name AS client_name, COALESCE(ct.name, '') AS contact_name,
-           COALESCE((SELECT right(cp.digits, 4) FROM client_phones cp WHERE cp.client_id = b.client_id
+    SELECT b.id AS booking_id, b.status, b.version,
+           CASE WHEN b.via = 'walk_in' THEN '' ELSE cl.name END AS client_name,
+           CASE WHEN b.via = 'walk_in' THEN '' ELSE COALESCE(ct.name, '') END AS contact_name,
+           CASE WHEN b.via = 'walk_in' THEN '' ELSE COALESCE((SELECT right(cp.digits, 4) FROM client_phones cp WHERE cp.client_id = b.client_id
                       ORDER BY (b.contact_id IS NOT NULL AND cp.contact_id = b.contact_id) DESC, cp.is_primary DESC, cp.created_at, cp.id
-                      LIMIT 1), '') AS phone_tail,
-           COALESCE(u.name, '') AS booked_by_name, b.via
+                      LIMIT 1), '') END AS phone_tail,
+           CASE WHEN b.via = 'walk_in' THEN '' ELSE COALESCE(u.name, '') END AS booked_by_name, b.via
       FROM bookings b
       JOIN clients cl ON cl.id = b.client_id
       LEFT JOIN contacts ct ON ct.id = b.contact_id
       LEFT JOIN users u ON u.id = b.booked_by_user_id
      WHERE b.event_id = ${eventId} AND b.status = ANY(${OCCUPYING}) AND ${scopeSql(actor, 'booking', 'booking.read')}
-     ORDER BY cl.name, b.id`;
+     ORDER BY (b.via = 'walk_in'), CASE WHEN b.via = 'walk_in' THEN '' ELSE cl.name END, b.id`;
 }
 
 // ---------------------------------------------------------------------------
@@ -824,4 +832,328 @@ export async function listBookingItemRows(
        AND ${scopeSql(actor, 'booking', 'booking.read')}
      ORDER BY b.starts_at, b.id
      LIMIT ${a.limit}`;
+}
+
+// ---------------------------------------------------------------------------
+// B4: дежурство, «Остальные не пришли», гость без записи
+// (docs/deals-handoffs-design.md §2.5–2.8, решения D-241, D-242)
+// ---------------------------------------------------------------------------
+
+export type DutyEventRow = EventRow & { taken: number; unmarked: number; attended: number; noShow: number; iAmDuty: boolean };
+
+/**
+ * Мероприятия сегодня для экрана «Дежурство» (§2.8): агрегаты по всем записям без охвата записей (D-136);
+ * `byRole` — у роли есть `booking.attend` (РОП видит все), иначе только где зритель назначен дежурным.
+ */
+export async function listDutyEventRows(
+  actor: BookingActor,
+  sql: Sql,
+  a: { spaceId: string; me: string; dayStart: number; dayEnd: number; byRole: boolean; eventId?: string },
+): Promise<DutyEventRow[]> {
+  return scoped(sql)<DutyEventRow>`
+    SELECT e.*, x.taken, x.unmarked, x.attended, x.no_show,
+           EXISTS (SELECT 1 FROM event_duty d WHERE d.event_id = e.id AND d.user_id = ${a.me}) AS i_am_duty
+      FROM events e
+      LEFT JOIN LATERAL (
+        SELECT count(*) FILTER (WHERE b.status IN ('registered','confirmed','attended','no_show'))::int AS taken,
+               count(*) FILTER (WHERE b.status IN ('registered','confirmed'))::int AS unmarked,
+               count(*) FILTER (WHERE b.status = 'attended')::int AS attended,
+               count(*) FILTER (WHERE b.status = 'no_show')::int AS no_show
+          FROM bookings b WHERE b.event_id = e.id) x ON TRUE
+     WHERE e.space_id = ${a.spaceId} AND e.starts_at >= ${a.dayStart} AND e.starts_at < ${a.dayEnd}
+       AND e.status = 'scheduled' AND ${scopeSql(actor, 'event', 'booking.read')}
+       AND (${a.byRole}::boolean OR EXISTS (SELECT 1 FROM event_duty d WHERE d.event_id = e.id AND d.user_id = ${a.me}))
+       AND (${a.eventId ?? null}::text IS NULL OR e.id = ${a.eventId ?? null}::text)
+     ORDER BY e.starts_at, e.id`;
+}
+
+/** Активные сотрудники пространства по имени: кого можно назначить дежурным (имена — не ПДн клиентов). */
+export async function listDutyCandidateRows(sql: Sql, spaceId: string): Promise<{ userId: string; name: string }[]> {
+  return sql<{ userId: string; name: string }>`
+    SELECT u.id AS user_id, u.name FROM users u JOIN memberships m ON m.user_id = u.id
+     WHERE m.space_id = ${spaceId} AND m.status = 'active' AND u.status = 'active'
+     ORDER BY u.name, u.id`;
+}
+
+/** Карточки записей, которые дежурный видел неотмеченными (шаг 1 §2.5, без блокировок). */
+export async function cardIdsOfRestBookings(actor: BookingActor, sql: Sql, a: { eventId: string; bookingIds: readonly string[] }): Promise<string[]> {
+  const rows = await scoped(sql)<{ cardId: string }>`
+    SELECT DISTINCT b.card_id FROM bookings b
+     WHERE b.event_id = ${a.eventId} AND b.id = ANY(${[...a.bookingIds]}) AND b.status = ANY(${ACTIVE})
+       AND ${scopeSql(actor, 'booking', 'booking.attend')}`;
+  return rows.map((r) => r.cardId);
+}
+
+/** Те же записи под блокировкой, в порядке id (шаг 4 §2.5): состояние читается уже после блокировок. */
+export async function lockRestBookings(actor: BookingActor, sql: Sql, a: { eventId: string; bookingIds: readonly string[] }): Promise<BookingRow[]> {
+  return scoped(sql)<BookingRow>`
+    SELECT b.* FROM bookings b
+     WHERE b.event_id = ${a.eventId} AND b.id = ANY(${[...a.bookingIds]}) AND b.status = ANY(${ACTIVE})
+       AND ${scopeSql(actor, 'booking', 'booking.attend')}
+     ORDER BY b.id
+       FOR UPDATE OF b`;
+}
+
+/** Статус записи мероприятия сменён вручную или массово: закрыть «Отметьте явку» (PROCESS 6.2, §3.4). */
+export const attendanceMarkKeys = (bookingId: string): string[] => [`attendance_mark:${bookingId}:marker`, `attendance_mark:${bookingId}:lead`];
+
+export interface WalkInCandidate {
+  cardId: string;
+  clientId: string;
+  state: string;
+  ownerUserId: string | null;
+  lastTouchAt: number | null;
+}
+
+/**
+ * D-241. Единственное место B4 без scopeSql: глобальный поиск номера гостя, наружу уходит только «найден /
+ * новый» (как D-126). Слитые клиенты не считаются; при нескольких — последний по активности.
+ */
+export async function findWalkInCandidates(sql: Sql, a: { spaceId: string; digits: string }): Promise<WalkInCandidate[]> {
+  return sql<WalkInCandidate>`
+    SELECT c.id AS card_id, c.client_id, c.state, c.owner_user_id, c.last_touch_at
+      FROM client_phones cp
+      JOIN clients cl ON cl.id = cp.client_id AND cl.merged_into_id IS NULL
+      JOIN cards c ON c.client_id = cl.id AND c.space_id = ${a.spaceId}
+     WHERE cp.digits = ${a.digits}
+     ORDER BY c.last_touch_at DESC NULLS LAST, c.id
+     LIMIT 5`;
+}
+
+/** Клиент с таким номером без карточки в пространстве (D-241: карточка в пул, клиент не дублируется). */
+export async function findClientWithoutCard(sql: Sql, a: { spaceId: string; digits: string }): Promise<string | null> {
+  const rows = await sql<{ id: string }>`
+    SELECT cl.id FROM client_phones cp JOIN clients cl ON cl.id = cp.client_id AND cl.merged_into_id IS NULL
+     WHERE cp.digits = ${a.digits}
+       AND NOT EXISTS (SELECT 1 FROM cards c WHERE c.client_id = cl.id AND c.space_id = ${a.spaceId})
+     ORDER BY cl.created_at, cl.id LIMIT 1`;
+  return rows[0]?.id ?? null;
+}
+
+export async function countProbesOfDay(sql: Sql, a: { userId: string; day: string }): Promise<number> {
+  const rows = await sql<{ n: number }>`SELECT count(*)::int AS n FROM phone_probes WHERE user_id = ${a.userId} AND day = ${a.day}`;
+  return rows[0]?.n ?? 0;
+}
+
+/** Проверка номера в общий счётчик D-040; id = ключ попытки: повтор не считается второй проверкой. */
+export async function insertWalkInProbe(sql: Sql, a: { id: string; userId: string; day: string; matched: boolean; at: number }): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
+    INSERT INTO phone_probes (id, user_id, day, path, matched, created_at)
+    VALUES (${a.id}, ${a.userId}, ${a.day}, 'walk_in', ${a.matched}, ${a.at})
+    ON CONFLICT (id) DO NOTHING RETURNING id`;
+  return rows.length > 0;
+}
+
+export async function findProbeOwner(sql: Sql, id: string): Promise<string | null> {
+  const rows = await sql<{ userId: string }>`SELECT p.user_id FROM phone_probes p WHERE p.id = ${id}`;
+  return rows[0]?.userId ?? null;
+}
+
+/** Запись истории по id (id = ключ попытки гостя): повтор отдаёт прежний ответ. */
+export async function findHistoryRow(sql: Sql, id: string): Promise<{ bookingId: string; meta: Record<string, unknown> } | null> {
+  const rows = await sql<{ bookingId: string; meta: Record<string, unknown> }>`SELECT h.booking_id, h.meta FROM booking_history h WHERE h.id = ${id}`;
+  return rows[0] ?? null;
+}
+
+export async function eventIdOfBooking(sql: Sql, bookingId: string): Promise<string | null> {
+  const rows = await sql<{ eventId: string | null }>`SELECT b.event_id FROM bookings b WHERE b.id = ${bookingId}`;
+  return rows[0]?.eventId ?? null;
+}
+
+/** Записи клиента на этом мероприятии, держащие место, под блокировкой (гость пришёл, хотя был записан). */
+export async function lockClientEventBookings(sql: Sql, a: { eventId: string; clientId: string }): Promise<BookingRow[]> {
+  return sql<BookingRow>`
+    SELECT b.* FROM bookings b
+     WHERE b.event_id = ${a.eventId} AND b.client_id = ${a.clientId} AND b.status = ANY(${OCCUPYING})
+     ORDER BY b.id
+       FOR UPDATE OF b`;
+}
+
+/** Открытая сделка клиента в воронке записи; сделку гостю не создаём (D-241). */
+export async function findOpenDealOfClient(sql: Sql, a: { spaceId: string; clientId: string; pipelineKey: string | null }): Promise<string | null> {
+  if (a.pipelineKey === null) return null;
+  const rows = await sql<{ id: string }>`
+    SELECT d.id FROM deals d
+     WHERE d.space_id = ${a.spaceId} AND d.client_id = ${a.clientId} AND d.pipeline_key = ${a.pipelineKey} AND d.status = 'open'
+     ORDER BY d.created_at, d.id LIMIT 1`;
+  return rows[0]?.id ?? null;
+}
+
+export async function isPhoneStopListed(sql: Sql, phoneHmac: string): Promise<boolean> {
+  const rows = await sql<{ hit: number }>`SELECT 1 AS hit FROM stop_list WHERE phone_hmac = ${phoneHmac}`;
+  return rows.length > 0;
+}
+
+/** Блокировка приёма (D-022): новый гость создаёт клиента так же, как приём лидов. */
+export async function lockIntakeForWalkIn(sql: Sql): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(${INTAKE_LOCK_KEY})`;
+}
+
+/** Первой командой транзакции, берущей advisory-блокировку (D-251): зависшая очередь не держит соединение вечно. */
+export async function setLockTimeout10s(sql: Sql): Promise<void> {
+  await sql`SET LOCAL lock_timeout = '10s'`;
+}
+
+export interface NewWalkInClient {
+  clientId: string;
+  cardId: string;
+  contactId: string;
+  kind: 'company' | 'person';
+  name: string;
+  nameNorm: string;
+  searchNorm: string;
+  contactName: string;
+  digits: string;
+  phoneKind: string;
+  sourceKey: string;
+  spaceId: string;
+  at: number;
+}
+
+/** Клиент, номер, контакт, источник и карточка в пул («Задержаны правилом») одним куском (§2.6 «Не найден»). */
+export async function insertWalkInClient(sql: Sql, c: NewWalkInClient): Promise<void> {
+  await sql`
+    INSERT INTO clients (id, kind, name, name_norm, search_norm, source_kind, source_key, created_at, updated_at)
+    VALUES (${c.clientId}, ${c.kind}, ${c.name}, ${c.nameNorm}, ${c.searchNorm}, 'walk_in', ${c.sourceKey}, ${c.at}, ${c.at})`;
+  await sql`INSERT INTO contacts (id, client_id, name, created_at) VALUES (${c.contactId}, ${c.clientId}, ${c.contactName}, ${c.at})`;
+  await sql`
+    INSERT INTO client_phones (id, client_id, contact_id, digits, kind, is_working, is_primary, created_at)
+    VALUES (${newId()}, ${c.clientId}, ${c.contactId}, ${c.digits}, ${c.phoneKind}, TRUE, TRUE, ${c.at})`;
+  await sql`
+    INSERT INTO client_sources (id, client_id, source_kind, source_key, first_seen_at)
+    VALUES (${newId()}, ${c.clientId}, 'walk_in', ${c.sourceKey}, ${c.at})`;
+  await insertWalkInCard(sql, { cardId: c.cardId, spaceId: c.spaceId, clientId: c.clientId, at: c.at });
+}
+
+/** Карточка в пуле с задержкой по правилу `walk_in`: автораздача её не берёт, РОП решает, кому отдать. */
+export async function insertWalkInCard(sql: Sql, c: { cardId: string; spaceId: string; clientId: string; at: number }): Promise<void> {
+  await sql`
+    INSERT INTO cards (id, space_id, client_id, state, hold_reason, hold_code, created_at, updated_at)
+    VALUES (${c.cardId}, ${c.spaceId}, ${c.clientId}, 'new', 'rule', 'walk_in', ${c.at}, ${c.at})`;
+}
+
+/** Событие ленты не из реестра записи (создание карточки гостя): только код источника. */
+export async function insertCardCreatedFeed(sql: Sql, e: { clientId: string; spaceId: string; actorId: string | null; cardId: string; sourceKey: string; at: number }): Promise<void> {
+  await sql`
+    INSERT INTO client_events (id, client_id, space_id, kind, actor_id, at, ref_type, ref_id, data)
+    VALUES (${newId()}, ${e.clientId}, ${e.spaceId}, 'card.created', ${e.actorId}, ${e.at}, 'card', ${e.cardId}, ${jsonParam({ sourceKey: e.sourceKey })})`;
+}
+
+export interface NewWalkInBooking {
+  id: string;
+  spaceId: string;
+  event: EventRow;
+  clientId: string;
+  cardId: string;
+  dealId: string | null;
+  contactId: string | null;
+  bookedByUserId: string | null;
+  responsibleUserId: string | null;
+  requestId: string;
+  at: number;
+}
+
+/** Гость без записи: запись сразу `attended`, `via 'walk_in'`. Вместимость не проверяется — гость уже в зале. */
+export async function insertWalkInBooking(sql: Sql, b: NewWalkInBooking): Promise<BookingRow | null> {
+  const e = b.event;
+  const rows = await sql<BookingRow>`
+    INSERT INTO bookings (id, space_id, kind, event_type_key, event_id, client_id, card_id, deal_id, contact_id, booking_date, start_time,
+                          starts_at, duration_min, status, via, booked_by_user_id, responsible_user_id, request_id, version, created_at, updated_at)
+    VALUES (${b.id}, ${b.spaceId}, 'group', ${e.eventTypeKey}, ${e.id}, ${b.clientId}, ${b.cardId}, ${b.dealId}, ${b.contactId},
+            ${e.eventDate}, ${e.startTime}, ${e.startsAt}, ${e.durationMin}, 'attended', 'walk_in', ${b.bookedByUserId},
+            ${b.responsibleUserId}, ${b.requestId}, 0, ${b.at}, ${b.at})
+    ON CONFLICT (request_id) WHERE request_id IS NOT NULL DO NOTHING
+    RETURNING *`;
+  return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// B5a: консультанты (ресурсы индивидуальной записи)
+// ---------------------------------------------------------------------------
+
+export interface ResourceRow {
+  id: string;
+  spaceId: string;
+  userId: string;
+  directions: string[];
+  slotMin: number;
+  capacity: number;
+  autoAssign: boolean;
+  active: boolean;
+  sort: number;
+  createdAt: number;
+  updatedAt: number;
+}
+export type ResourceListRow = ResourceRow & { name: string; usesSchedule: boolean };
+
+/** Консультанты пространства: выключенные нужны экрану РОП, чтобы включить обратно. Это не данные клиентов. */
+export async function listResourceRows(sql: Sql, a: { spaceId: string; includeInactive: boolean }): Promise<ResourceListRow[]> {
+  return sql<ResourceListRow>`
+    SELECT r.*, u.name, EXISTS (SELECT 1 FROM resource_schedule s WHERE s.resource_id = r.id) AS uses_schedule
+      FROM resources r JOIN users u ON u.id = r.user_id
+     WHERE r.space_id = ${a.spaceId} AND (${a.includeInactive}::boolean OR r.active)
+     ORDER BY r.sort, u.name, r.id`;
+}
+
+export async function findResourceListRow(sql: Sql, a: { id: string; spaceId: string; lock: boolean }): Promise<ResourceListRow | null> {
+  const rows = a.lock
+    ? await sql<ResourceListRow>`
+        SELECT r.*, u.name, EXISTS (SELECT 1 FROM resource_schedule s WHERE s.resource_id = r.id) AS uses_schedule
+          FROM resources r JOIN users u ON u.id = r.user_id
+         WHERE r.id = ${a.id} AND r.space_id = ${a.spaceId} FOR UPDATE OF r`
+    : await sql<ResourceListRow>`
+        SELECT r.*, u.name, EXISTS (SELECT 1 FROM resource_schedule s WHERE s.resource_id = r.id) AS uses_schedule
+          FROM resources r JOIN users u ON u.id = r.user_id
+         WHERE r.id = ${a.id} AND r.space_id = ${a.spaceId}`;
+  return rows[0] ?? null;
+}
+
+/** Ресурс сотрудника в пространстве (UNIQUE space_id, user_id): повтор создания и «этот сотрудник уже консультант». */
+export async function findResourceByUser(sql: Sql, a: { spaceId: string; userId: string }): Promise<ResourceRow | null> {
+  const rows = await sql<ResourceRow>`SELECT r.* FROM resources r WHERE r.space_id = ${a.spaceId} AND r.user_id = ${a.userId}`;
+  return rows[0] ?? null;
+}
+
+export async function insertResource(
+  sql: Sql,
+  r: { id: string; spaceId: string; userId: string; directions: readonly string[]; slotMin: number; capacity: number; autoAssign: boolean; sort: number; at: number },
+): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
+    INSERT INTO resources (id, space_id, user_id, directions, slot_min, capacity, auto_assign, active, sort, created_at, updated_at)
+    VALUES (${r.id}, ${r.spaceId}, ${r.userId}, ${[...r.directions]}::text[], ${r.slotMin}, ${r.capacity}, ${r.autoAssign}, TRUE, ${r.sort}, ${r.at}, ${r.at})
+    ON CONFLICT DO NOTHING
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+/** Правка по токену `updated_at`; не совпал — null (вызывающий: 409). */
+export async function updateResourceRow(
+  sql: Sql,
+  r: { id: string; seenUpdatedAt: number; directions: readonly string[]; slotMin: number; capacity: number; autoAssign: boolean; active: boolean; sort: number; updatedAt: number },
+): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
+    UPDATE resources r
+       SET directions = ${[...r.directions]}::text[], slot_min = ${r.slotMin}, capacity = ${r.capacity}, auto_assign = ${r.autoAssign},
+           active = ${r.active}, sort = ${r.sort}, updated_at = ${r.updatedAt}
+     WHERE r.id = ${r.id} AND r.updated_at = ${r.seenUpdatedAt}
+    RETURNING r.id`;
+  return rows.length > 0;
+}
+
+/** Дежурные нескольких мероприятий с именами сотрудников (страница мероприятий РОП). */
+export async function listDutyNameRows(sql: Sql, eventIds: readonly string[]): Promise<{ eventId: string; userId: string; name: string }[]> {
+  if (eventIds.length === 0) return [];
+  return sql<{ eventId: string; userId: string; name: string }>`
+    SELECT d.event_id, d.user_id, u.name FROM event_duty d JOIN users u ON u.id = d.user_id
+     WHERE d.event_id = ANY(${[...eventIds]})
+     ORDER BY d.event_id, u.name, u.id`;
+}
+
+/** Активные сотрудники пространства, которые ещё не консультанты (выбор при создании). */
+export async function listStaffWithoutResource(sql: Sql, spaceId: string): Promise<{ userId: string; name: string }[]> {
+  return sql<{ userId: string; name: string }>`
+    SELECT u.id AS user_id, u.name FROM users u JOIN memberships m ON m.user_id = u.id
+     WHERE m.space_id = ${spaceId} AND m.status = 'active' AND u.status = 'active'
+       AND NOT EXISTS (SELECT 1 FROM resources r WHERE r.space_id = ${spaceId} AND r.user_id = u.id)
+     ORDER BY u.name, u.id`;
 }

@@ -204,7 +204,7 @@ export interface ConsultResultInput {
   opId: string;
   note: string;
   nextStep: { dueAt: number; kind: 'call' | 'meeting' } | null;
-  /** Ключ открытого этапа воронки (ЦРП: `offer`); null — этап не меняем. */
+  /** Ключ открытого этапа воронки (например, `offer`); null — этап не меняем. */
   toStageKey: string | null;
   /** Версия сделки записи, если меняем этап. */
   dealVersion: number | null;

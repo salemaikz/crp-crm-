@@ -6,6 +6,8 @@ const OP_ID = '00000000-0000-4000-8000-0000000000a1';
 const REQ_ID = '00000000-0000-4000-8000-0000000000b1';
 
 const BOOKING_TABLES = ['bookings', 'booking_history', 'client_events', 'deals'] as const;
+/** Гость без записи может создать клиента, карточку, задачу и запись проверки номера. */
+const WALK_IN_TABLES = [...BOOKING_TABLES, 'clients', 'client_phones', 'contacts', 'client_sources', 'cards', 'tasks', 'phone_probes', 'audit_log'] as const;
 
 const entries: ManifestEntry[] = [
   // --- мероприятия ---
@@ -64,6 +66,39 @@ const entries: ManifestEntry[] = [
     sampleBody: { userIds: [] },
     mutation: true,
     touches: ['event_duty', 'audit_log'],
+  },
+  // Дежурство (B4): сегодняшние мероприятия, где зритель дежурит или отмечает явку по роли
+  { kind: 'route', path: '/api/events/duty', method: 'GET', perm: 'booking.read', target: 'section', mutation: false },
+  {
+    kind: 'route',
+    path: '/api/events/[id]/duty',
+    method: 'GET',
+    perm: 'booking.manage',
+    target: 'object',
+    idParam: { name: 'id', entity: 'event' },
+    mutation: false,
+  },
+  {
+    kind: 'route',
+    path: '/api/events/[id]/no-show-rest',
+    method: 'POST',
+    perm: 'booking.attend',
+    target: 'object',
+    idParam: { name: 'id', entity: 'event' },
+    sampleBody: { opId: OP_ID, bookingIds: [REQ_ID] },
+    mutation: true,
+    touches: [...BOOKING_TABLES, 'tasks'],
+  },
+  {
+    kind: 'route',
+    path: '/api/events/[id]/walk-in',
+    method: 'POST',
+    perm: 'booking.walk_in',
+    target: 'object',
+    idParam: { name: 'id', entity: 'event' },
+    sampleBody: { requestId: REQ_ID, phone: '+7 709 123 45 67', name: 'Гость Синтетик', company: '' },
+    mutation: true,
+    touches: WALK_IN_TABLES,
   },
   // Гости — строки записей по охвату booking.read: оператор видит только своих, РОП — всех, дежурный — своё сегодня.
   {
@@ -178,6 +213,44 @@ const entries: ManifestEntry[] = [
     mutation: true,
     touches: [...BOOKING_TABLES],
   },
+
+  // --- консультанты (B5a): пространство РОП, не данные клиентов ---
+  { kind: 'route', path: '/api/bookings/consultants', method: 'GET', perm: 'booking.manage', target: 'section', mutation: false },
+  {
+    kind: 'route',
+    path: '/api/bookings/consultants',
+    method: 'POST',
+    perm: 'booking.manage',
+    target: 'section',
+    sampleBody: { requestId: REQ_ID, userId: 'u-mkt', directions: [], slotMin: 45, capacity: 1, autoAssign: true, sort: 0 },
+    mutation: true,
+    touches: ['resources', 'audit_log'],
+  },
+  { kind: 'route', path: '/api/bookings/consultants/[id]', method: 'GET', perm: 'booking.manage', target: 'section', mutation: false },
+  {
+    kind: 'route',
+    path: '/api/bookings/consultants/[id]',
+    method: 'PATCH',
+    perm: 'booking.manage',
+    target: 'section',
+    sampleBody: { seenUpdatedAt: 0, patch: { active: false } },
+    mutation: true,
+    touches: ['resources', 'audit_log'],
+  },
+
+  // --- страницы B4/B5a ---
+  { kind: 'page', path: '/(duty)/duty', method: 'GET', perm: 'booking.attend', target: 'section', mutation: false },
+  {
+    kind: 'page',
+    path: '/(duty)/duty/[eventId]',
+    method: 'GET',
+    perm: 'booking.attend',
+    target: 'object',
+    idParam: { name: 'eventId', entity: 'event' },
+    mutation: false,
+  },
+  { kind: 'page', path: '/(mgr)/bookings/events', method: 'GET', perm: 'booking.manage', target: 'section', mutation: false },
+  { kind: 'page', path: '/(mgr)/consultants', method: 'GET', perm: 'booking.manage', target: 'section', mutation: false },
 ];
 
 export default defineManifest('booking', entries);

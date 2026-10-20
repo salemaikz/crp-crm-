@@ -11,6 +11,7 @@
 import type { booking as core, calling, time } from '@crm/core';
 import type { SystemActor, Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db';
+import type { ConsultDomainErrorCode } from './consultTypes';
 
 export type BookingActor = Viewer | SystemActor;
 
@@ -182,7 +183,7 @@ export const BOOKING_DOMAIN_ERRORS = [
   'capacity_below_taken',
   'card_port_unavailable',
 ] as const;
-export type BookingDomainErrorCode = core.BookingErrorCode | (typeof BOOKING_DOMAIN_ERRORS)[number];
+export type BookingDomainErrorCode = core.BookingErrorCode | (typeof BOOKING_DOMAIN_ERRORS)[number] | ConsultDomainErrorCode;
 
 /** Что несёт ошибка домена (класс — errors.ts). `alternatives` — только у `event_full`. */
 export interface BookingFailure {

@@ -2,6 +2,10 @@
 export { bookingDeps, overrideBookingDepsForTests } from './deps';
 export { BookingDomainError, httpFailure, isBookingDomainError, fromCore, BOOKING_HTTP_STATUS, type HttpFailure } from './errors';
 export { cancelBooking, createBooking, getBooking, listBookings, markAttendance, moveBooking, setConfirmation } from './bookings';
+export { getDutyCandidates, getDutyEvent, listDutyEvents, listEventsBoard, markRestNoShow, type EventBoardItem, type EventsBoard } from './duty';
+export { registerWalkIn } from './walkIn';
+export { createConsultant, getConsultant, listConsultantCandidates, listConsultants, updateConsultant } from './consultants';
+export { loadBookingOpsSettings } from './opsSettings';
 export { listBookingItems } from './list';
 export { getBookingWizard, pickLabel } from './wizard';
 export { checkConsultSlot, consultDays } from './consult';
@@ -11,3 +15,5 @@ export { createSeries, ensureAllSeries, listSeries, syncSeries, updateSeries } f
 export { loadBookingSettings, parseBookingSettings } from './settings';
 export { unavailableCardPort } from './cardPort';
 export * from './types';
+export type * from './dutyTypes';
+export type * from './consultTypes';

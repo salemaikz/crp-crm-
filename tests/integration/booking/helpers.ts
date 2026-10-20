@@ -8,6 +8,9 @@ import type { PipelineInfo } from '../../../src/server/domain/deals/pipelines';
 import type { Sql } from '../../../src/server/platform/db';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { SEED_NOW, SEED_TZ, SPACE } from '../../isolation/harness/seed';
+import { resetConfigCache } from '../../../src/server/platform/config/active';
+import { writeConfig } from '../../../src/server/platform/config/write';
+import { worldConfig } from '../clients/world';
 import { closeWorld, openWorld } from '../access/world';
 
 export { SEED_NOW, SEED_TZ, SPACE };
@@ -143,6 +146,33 @@ export async function openBookingWorld(): Promise<TestDb> {
   return db;
 }
 export { closeWorld };
+
+/**
+ * Мир дежурства и гостей без записи (B4): мир записи + настройки установки (роли ЦРП, правила номеров, источник
+ * `walk_in`, лимит проверок номера 20). Карточки A и B — «Договорились».
+ */
+export async function openDutyWorld(): Promise<TestDb> {
+  const db = await openBookingWorld();
+  resetConfigCache();
+  const docs = worldConfig();
+  (docs.global['sources'] as unknown[]).push({
+    key: 'walk_in',
+    label: { ru: 'Пришёл без записи' },
+    kind: 'walk_in',
+    allowPersonNames: true,
+    detailedReport: false,
+    rejectRules: [],
+    holdRules: [],
+  });
+  (docs.global['security'] as Record<string, unknown>)['phoneProbesPerDay'] = 20;
+  await writeConfig({ docs, source: 'cli', authorId: null, project: true, note: 'запись: мир дежурства' });
+  return db;
+}
+
+export async function closeDutyWorld(db: TestDb): Promise<void> {
+  resetConfigCache();
+  await closeWorld(db);
+}
 
 export async function setCardState(sql: Sql, cardId: string, state: calling.CardState): Promise<void> {
   await sql`UPDATE cards SET state = ${state} WHERE id = ${cardId}`;

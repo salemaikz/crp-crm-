@@ -12,6 +12,13 @@ export const BOOKING_HTTP_STATUS: Readonly<Record<BookingDomainErrorCode, number
   event_has_bookings: 409,
   capacity_below_taken: 409,
   card_port_unavailable: 503,
+  // B4/B5 (docs/deals-handoffs-design.md §6): отказы состояния — 409, плохой ввод расписания — 400
+  slot_taken: 409,
+  consultant_exists: 409,
+  schedule_overlap: 400,
+  not_attended: 409,
+  walk_in_closed: 409,
+  walk_in_source_missing: 409,
 };
 
 export class BookingDomainError extends Error implements BookingFailure {
@@ -43,7 +50,7 @@ export function isBookingDomainError(e: unknown): e is BookingDomainError {
 const NOT_FOUND_CODES: ReadonlySet<BookingDomainErrorCode> = new Set(['booking_not_found', 'event_not_found', 'series_not_found', 'consultant_not_found']);
 
 /** Коды плохого запроса. */
-const BAD_REQUEST_CODES: ReadonlySet<BookingDomainErrorCode> = new Set(['invalid_phone', 'move_target_required', 'invalid_availability']);
+const BAD_REQUEST_CODES: ReadonlySet<BookingDomainErrorCode> = new Set(['invalid_phone', 'move_target_required', 'invalid_availability', 'schedule_overlap']);
 
 export type HttpFailure =
   | { kind: 'not_found' }

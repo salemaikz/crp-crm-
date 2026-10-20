@@ -4,7 +4,7 @@
 import { booking } from '@crm/core';
 import { BadRequestError, ConflictError, NotFoundError, scopeOf, type Viewer } from '@/server/access';
 import { throwNotFoundOrConflict } from '@/server/access/scope';
-import { closeAutoTasks } from '@/server/domain/tasks/auto';
+import { closeAutoTaskByKey, closeAutoTasks } from '@/server/domain/tasks/auto';
 import { isUniqueViolation, newId, type Sql } from '@/server/platform/db';
 import { noteCardEvent } from './cardEvents';
 import { checkConsultSlot } from './consult';
@@ -13,6 +13,7 @@ import { nearestOptions } from './events';
 import { requireRole, requireSpace } from './guards';
 import {
   actorUserId,
+  attendanceMarkKeys,
   contactBelongsToClient,
   countTaken,
   findBooking,
@@ -39,6 +40,7 @@ import {
 } from './repo';
 import { inBookingTx } from './tx';
 import type {
+  AttendanceInput,
   BookingActionBase,
   BookingActor,
   BookingCancelReason,
@@ -379,11 +381,12 @@ interface StatusSpec extends BookingActionBase {
  * Общий путь трёх ручных действий (§5.3): запись → карточка `FOR UPDATE` → запись `FOR UPDATE` → повтор
  * `opId` → версия → автомат статусов → UPDATE → событие карточки (§7.1) → история и лента.
  */
-async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec): Promise<BookingView> {
+async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec, outer?: Sql): Promise<BookingView> {
   if (spec.perm === 'booking.create') requireRole(viewer, 'booking.create', 'object');
   requireSpace(viewer);
   const now = deps.now();
-  return inBookingTx({}, async (tx) => {
+  // `outer` — гость без записи отмечает уже существующую запись внутри своей транзакции (walkIn.ts)
+  return inBookingTx(outer ? { tx: outer } : {}, async (tx) => {
     const probe = await findBooking(viewer, tx, { id: spec.bookingId, perm: spec.perm, lock: false });
     if (!probe) throw bookingNotFound();
     const settings = await deps.settings(probe.spaceId, now);
@@ -441,6 +444,10 @@ async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec)
       at: now,
       data: { bookingId: b.id, from: b.status, to: spec.to, reason: spec.reason ?? '' },
     });
+    // Явка отмечена руками: задачи «Отметьте явку» отметчику и РОП закрываются (PROCESS 6.2, §3.4)
+    if (spec.to === 'attended' || spec.to === 'no_show') {
+      for (const sourceKey of attendanceMarkKeys(b.id)) await closeAutoTaskByKey(tx, viewer, { sourceKey, at: now });
+    }
     return toBookingView(row);
   });
 }
@@ -492,6 +499,10 @@ export const setConfirmation: SetConfirmation = (deps, viewer, input) =>
 
 export const markAttendance: MarkAttendance = (deps, viewer, input) =>
   changeStatus(deps, viewer, { perm: 'booking.attend', bookingId: input.bookingId, opId: input.opId, version: input.version, to: input.to, reason: null });
+
+/** Явка внутри чужой транзакции (гость без записи, у которого запись уже была): тот же путь, что и ручная отметка. */
+export const markAttendanceIn = (deps: BookingDeps, viewer: Viewer, tx: Sql, input: AttendanceInput): Promise<BookingView> =>
+  changeStatus(deps, viewer, { perm: 'booking.attend', bookingId: input.bookingId, opId: input.opId, version: input.version, to: input.to, reason: null }, tx);
 
 export const cancelBooking: CancelBooking = (deps, viewer, input) =>
   changeStatus(deps, viewer, { perm: 'booking.create', bookingId: input.bookingId, opId: input.opId, version: input.version, to: 'cancelled', reason: input.reason });

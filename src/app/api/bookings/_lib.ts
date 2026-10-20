@@ -113,6 +113,26 @@ export const EventPatchBody = z
   .strict();
 export const CancelEventBody = z.object({ opId }).strict();
 export const DutyBody = z.object({ userIds: z.array(id).max(10) }).strict();
+/** «Остальные не пришли» (D-242): id записей, показанных дежурному без отметки. */
+export const NoShowRestBody = z.object({ opId, bookingIds: z.array(z.string().uuid()).min(1).max(1000) }).strict();
+/** Гость без записи (D-241): номер вводится как есть, разбор и проверка — на сервере. */
+export const WalkInBody = z.object({ requestId: opId, phone: z.string().min(5).max(40), name: z.string().trim().min(1).max(120), company: z.string().max(200) }).strict();
+
+// --- консультанты (B5a) ---
+const directions = z.array(id).max(20);
+const slotMin = z.number().int().min(5).max(480);
+const consultCapacity = z.number().int().min(1).max(5);
+const sort = z.number().int().min(0).max(10_000);
+export const ConsultantBody = z
+  .object({ requestId: opId, userId: id, directions, slotMin, capacity: consultCapacity, autoAssign: z.boolean(), sort })
+  .strict();
+export const ConsultantPatchBody = z
+  .object({
+    seenUpdatedAt: version,
+    patch: z.object({ directions, slotMin, capacity: consultCapacity, autoAssign: z.boolean(), sort, active: z.boolean() }).partial().strict(),
+  })
+  .strict();
+export const ConsultantsQuery = z.object({ inactive: z.enum(['0', '1']).optional() }).strict();
 
 const seriesFields = {
   eventTypeKey: id,
