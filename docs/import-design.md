@@ -241,8 +241,13 @@ pairs (id+reason по порядку), outcomeKey, agreedWithoutBooking, stopped
 | `kept_in_crm` | карточка не меняется; `import.row` с `action: 'kept_in_crm'` (следующая загрузка того же — `skip_same`); строка в отчёте «на разбор РОП» |
 
 Событие `import.row`: `client_events.kind='import.row'`, `ref_type='import'`, `ref_id=importId`,
-`data = { importId, rowNo, rowKey, stateKey, action, outcomeKey, answerRaw }` (`answerRaw` — исходный
-текст ячейки итога, PROCESS 3.7; колонка в реестре ПДн, обезличивание его чистит).
+`data = { importId, rowNo, rowKey, stateKey, action, outcomeKey }` и, где есть, `deferred`, `flags`, `hold`
+(коды). Сырой текст ячеек — «Ответ», «Заметка» и прочих — в событие **не пишется** (D-221): оператор пишет
+туда «перезвонить жене, Айгуль +7…», а лента живёт бессрочно и переживает обезличивание. Итог в ленте —
+только код `outcomeKey`; исходный текст РОП видит в строках предпросмотра и отчёта (`ImportRowView.answerRaw`,
+выгрузка CSV с аудитом), пока `import_rows` не удалены по сроку (§11). Дольше срока текст ячейки живёт
+только в полях клиента и карточки, куда профиль его явно направил (`fieldTargets`, §4) — это данные профиля
+под реестром ПДн полей. `rowKey` и `stateKey` — sha256 опознающих полей и колонок состояния, не текст.
 
 Карточки, клиенты, номера, события — через функции C2 (`domain/clients`, `domain/cards`), если они
 уже есть с пакетным вариантом; иначе SQL в `domain/import/repo.ts` (схема v1 разрешает импорту писать

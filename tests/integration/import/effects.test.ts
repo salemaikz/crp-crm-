@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { imports } from '@crm/core';
-import { importService } from '../../../src/server/domain/import';
+import { importService, purgeExpiredImportRows } from '../../../src/server/domain/import';
 import { phoneHmac } from '../../../src/server/platform/hmac';
 import { createTestDb, type TestDb } from '../../../src/server/platform/db/testing';
 import { SYSTEM_COLUMNS, T0, makeWorld, upload, type World } from './helpers';
@@ -84,7 +84,7 @@ test('Полный отказ, общий номер, «Недоступен», 
   assert.equal((await db.sql<any>`SELECT 1 FROM calls WHERE client_id = ${ip.cid}`).length, 0);
   const [ev] = await db.sql<any>`SELECT data, actor_id, ref_type, ref_id FROM client_events WHERE client_id = ${ip.cid} AND kind = 'import.row'`;
   assert.equal(ev.data.outcomeKey, 'callback');
-  assert.equal(ev.data.answerRaw, 'Перезвонить');
+  assert.equal('answerRaw' in ev.data, false, 'сырой текст ячейки в ленту не пишется (D-221)');
   assert.equal(ev.data.deferred, true);
   assert.equal(ev.actorId, w.lead.userId);
   assert.equal(ev.refType, 'import');
@@ -98,4 +98,43 @@ test('Полный отказ, общий номер, «Недоступен», 
   const assigns = await db.sql<any>`SELECT actor_id, kind, counts_to_cap FROM assign_log`;
   assert.ok(assigns.length >= 5);
   assert.ok(assigns.every((a: any) => a.actorId === w.lead.userId && a.kind === 'import' && a.countsToCap === false));
+});
+
+test('сырой текст ячеек «Ответ» и «Заметка» не переживает срок import_rows (D-221)', async () => {
+  const MARK = 'Синтетик-Айгуль-Метка';
+  const rows = [
+    mk({ Тип: 'ТОО', Наименование: 'ТОО «Текст В Заметке»', Телефон: P(30), Ответ: 'Перезвонить', Заметка: `перезвонить жене ${MARK} +7 709 000 00 01` }),
+    mk({ Тип: 'ТОО', Наименование: 'ТОО «Текст В Ответе»', Телефон: P(31), Ответ: `Не интересует, ${MARK}` }),
+  ];
+  const body = Buffer.from(imports.toCsv([['Журнал'], HEAD, ...rows], ';'), 'utf-8');
+  const at = T0 + 100;
+  const up = await upload(w.lead, body, { now: at });
+  const s = await importService.preview(w.lead, up.importId, { ownerMap: w.ownerMap }, at);
+  assert.deepEqual(s.blockers, []);
+  const r = await importService.apply(w.lead, up.importId, { fingerprint: s.fingerprint, ownerMap: w.ownerMap }, at + 1);
+  assert.equal(r.written.clientsCreated, 2);
+
+  const like = `%${MARK}%`;
+  const where = async () =>
+    db.sql<{ t: string; n: number }>`
+      SELECT 'client_events' AS t, count(*)::int AS n FROM client_events x WHERE row_to_json(x)::text LIKE ${like}
+      UNION ALL SELECT 'calls', count(*)::int FROM calls x WHERE row_to_json(x)::text LIKE ${like}
+      UNION ALL SELECT 'tasks', count(*)::int FROM tasks x WHERE row_to_json(x)::text LIKE ${like}
+      UNION ALL SELECT 'clients', count(*)::int FROM clients x WHERE row_to_json(x)::text LIKE ${like}
+      UNION ALL SELECT 'cards', count(*)::int FROM cards x WHERE row_to_json(x)::text LIKE ${like}
+      UNION ALL SELECT 'imports', count(*)::int FROM imports x WHERE row_to_json(x)::text LIKE ${like}
+      UNION ALL SELECT 'audit_log', count(*)::int FROM audit_log x WHERE row_to_json(x)::text LIKE ${like}
+      UNION ALL SELECT 'import_rows', count(*)::int FROM import_rows x WHERE row_to_json(x)::text LIKE ${like}`;
+  const before = Object.fromEntries((await where()).map((x) => [x.t, x.n]));
+  // до срока текст есть только в строках загрузки — РОП разбирает их в отчёте
+  assert.deepEqual(before, { client_events: 0, calls: 0, tasks: 0, clients: 0, cards: 0, imports: 0, audit_log: 0, import_rows: 2 });
+  const ev = await db.sql<any>`SELECT data FROM client_events WHERE kind = 'import.row' AND data ->> 'importId' = ${up.importId}`;
+  assert.equal(ev.length, 2);
+  assert.ok(ev.every((e: any) => !('answerRaw' in e.data)));
+
+  // срок прошёл: строки удалены — текста ячеек больше нет нигде
+  await db.sql`UPDATE import_rows SET created_at = ${at - 15 * 86_400_000} WHERE import_id = ${up.importId}`;
+  await purgeExpiredImportRows({ kind: 'system' }, at);
+  const afterPurge = (await where()).filter((x) => x.n > 0);
+  assert.deepEqual(afterPurge, []);
 });

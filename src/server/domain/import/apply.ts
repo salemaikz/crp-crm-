@@ -108,7 +108,8 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
       at: now,
       refType: 'import',
       refId: imp.id,
-      data: { importId: imp.id, rowNo: r.rowNo, rowKey: r.rowKey, stateKey: r.stateKey, action, outcomeKey: r.outcomeKey, answerRaw: r.answer.raw, ...extra },
+      // Только коды и служебные ключи: сырой текст ячеек (ответ, заметка) живёт лишь в import_rows до чистки по сроку (D-221)
+      data: { importId: imp.id, rowNo: r.rowNo, rowKey: r.rowKey, stateKey: r.stateKey, action, outcomeKey: r.outcomeKey, ...extra },
     });
   const callEvent = (clientId: string, callId: string, p: NonNullable<CardPlan['call']>) =>
     events.push({ id: newId(), clientId, kind: 'call', actorId: null, at: p.occurredAt, refType: 'call', refId: callId, data: { outcome: p.outcomeCode, kind: p.outcomeKind, via: 'import' } });

@@ -39,8 +39,9 @@ export const EVENT_KINDS = {
   'card.merged': { group: 'system', dataKeys: ['otherCardId', 'stateFrom'] },
   'dnc.set': { group: 'system', dataKeys: ['phonesAdded', 'phonesToReview'] },
   'dnc.cleared': { group: 'system', dataKeys: ['phonesRemoved'] },
-  // Загрузка таблицы (C4). Сырой текст ячейки ответа (`answerRaw`) в data не хранится и в ленту не отдаётся:
-  // он может содержать ПДн. Ключ строки и ключ состояния — служебные (для сверки повторной загрузки), в ленту не идут.
+  // Загрузка таблицы (C4). Сырой текст ячеек (ответ, заметка) в data не пишется (D-221): он может содержать ПДн
+  // и живёт только в import_rows до чистки по сроку. Ключ строки и ключ состояния — служебные хэши (для сверки
+  // повторной загрузки), `deferred` — итог отложен; в ленту они не идут.
   'import.row': { group: 'system', dataKeys: ['importId', 'rowNo', 'action', 'outcomeKey'] },
   'client.created': { group: 'system', dataKeys: ['sourceKind', 'importId'] },
 } as const satisfies Record<string, KindSpec>;
