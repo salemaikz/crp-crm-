@@ -80,3 +80,15 @@ test('normalizeBin: ровно 12 цифр', () => {
   assert.equal(normalizeBin('1234567890123'), '');
   assert.equal(normalizeBin(undefined), '');
 });
+
+test('legalFormsFromConfig: однословный алиас до 6 букв — short, остальное — full', async () => {
+  const { legalFormsFromConfig, normalizeCompanyName } = await import('./index.js');
+  const forms = legalFormsFromConfig([
+    { key: 'llp', aliases: ['ТОО', 'Товарищество с ограниченной ответственностью', '  '] },
+    { key: 'sp', aliases: ['индивидуальный предприниматель', 'ИП'] },
+  ]);
+  assert.deepEqual(forms[0], { key: 'llp', full: ['Товарищество с ограниченной ответственностью'], short: ['ТОО'] });
+  assert.deepEqual(forms[1]?.short, ['ИП']);
+  assert.equal(normalizeCompanyName('ТОО «Пример»', forms), 'пример');
+  assert.equal(normalizeCompanyName('Индивидуальный предприниматель Пример', forms), 'пример');
+});
