@@ -194,7 +194,7 @@ test('production с флагом, но без CRM_STAND=1 — отказ (до �
 
 test('база с не-синтетическими номерами клиентов — отказ, ничего не меняется', async () => {
   const c = await one(db.sql<{ id: string }>`SELECT client_id AS id FROM client_phones LIMIT 1`);
-  await db.sql`INSERT INTO client_phones (id, client_id, digits, ext, kind, created_at) VALUES ('foreign-phone', ${c.id}, '77011234567', '', 'mobile', ${NOW})`;
+  await db.sql`INSERT INTO client_phones (id, client_id, digits, ext, kind, created_at) VALUES ('foreign-phone', ${c.id}, '77990000001', '', 'mobile', ${NOW})`;
   try {
     await assert.rejects(() => runSeed({ env: env({ NODE_ENV: 'production', CRM_STAND: '1' }), now: NOW, standFlag: true }), /вне синтетического блока 7709/);
     await assert.rejects(() => runSeed({ env: env(), now: NOW }), SeedRefusedError);
@@ -216,7 +216,7 @@ test('настройки изменены не пресетом или прим�
   } finally {
     await db.sql`DELETE FROM config_revisions WHERE id = 'manual-rev'`;
   }
-  await db.sql`INSERT INTO users (id, phone_digits, name, password_hash, is_admin, created_at) VALUES ('real-user', '77011112233', 'Синтетик', 'x', false, ${NOW})`;
+  await db.sql`INSERT INTO users (id, phone_digits, name, password_hash, is_admin, created_at) VALUES ('real-user', '77990000002', 'Синтетик', 'x', false, ${NOW})`;
   try {
     await assert.rejects(() => runSeed({ env: env(), now: NOW }), /применял не сид/);
   } finally {
