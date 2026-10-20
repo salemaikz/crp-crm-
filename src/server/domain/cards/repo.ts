@@ -342,3 +342,11 @@ export async function countOwnerlessWorking(sql: Sql): Promise<number> {
      WHERE c.owner_user_id IS NULL AND c.state IN ('retry','callback')`;
   return rows[0]?.n ?? 0;
 }
+
+/** Запись полей карточки с ростом версии (правка из карточки клиента, C8): устаревшие шторки итога увидят `stale`. */
+export async function writeCardCustomBumped(tx: Sql, viewer: Viewer, cardId: string, custom: Record<string, unknown>, at: number): Promise<boolean> {
+  const rows = await scoped(tx)<{ id: string }>`
+    UPDATE cards c SET custom = ${jsonParam(custom)}, version = c.version + 1, updated_at = ${at}
+     WHERE c.id = ${cardId} AND ${scopeSql(viewer, 'card', 'card.edit')} RETURNING c.id`;
+  return rows.length === 1;
+}

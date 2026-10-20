@@ -13,7 +13,7 @@ const t = (ru: string): JsonObject => ({ ru });
 
 type FieldSpec = {
   key: string;
-  object: 'client' | 'contact';
+  object: 'client' | 'contact' | 'card';
   type: string;
   access?: Record<string, string>;
   options?: Array<{ key: string; archived?: boolean }>;
@@ -38,6 +38,13 @@ function field(f: FieldSpec): JsonObject {
     showOn: { card: true, kanban: false, list: f.listed ?? false },
   };
 }
+
+/** Поля карточки обзвона (C8, раздел `fields` пространства): plan — правка, budget — только чтение оператору, hush — скрыто от оператора. */
+export const WORLD_CARD_FIELDS: JsonObject[] = [
+  field({ key: 'plan', object: 'card', type: 'text' }),
+  field({ key: 'budget', object: 'card', type: 'money', access: { '*': 'read', rop: 'edit' } }),
+  field({ key: 'hush', object: 'card', type: 'text', access: { operator: 'hidden', '*': 'read' } }),
+];
 
 /** Поля мира: segment — правка и поиск; industry — список с фильтром; credit — только чтение оператору; secret — скрыт от оператора. */
 export const WORLD_FIELDS: JsonObject[] = [
@@ -67,6 +74,7 @@ export function worldConfig(): { global: JsonObject; spaces: Record<string, Json
   (g.team as Record<string, unknown>).fallbackOwnerRole = 'rop';
   g.fields = WORLD_FIELDS;
   const sp = s.spaces.sales as Record<string, unknown>;
+  sp.fields = WORLD_CARD_FIELDS;
   (sp.distribution as Record<string, unknown>).participantRoles = ['operator'];
   ((sp.distribution as Record<string, unknown>).inbound as Record<string, unknown>).offHours = 'rop';
   (sp.export as Record<string, unknown>).allowedRoles = ['rop'];

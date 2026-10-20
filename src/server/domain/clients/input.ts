@@ -25,6 +25,29 @@ export const patchBody = z
   });
 export type PatchBody = z.infer<typeof patchBody>;
 
+/** PATCH полей карточки обзвона (C8): версия карточки, значения и то, что интерфейс видел до правки. */
+export const patchCardBody = z
+  .object({
+    version: z.number().int().min(0),
+    set: z.object({ custom: record }).strict(),
+    expect: z.object({ custom: record }).strict(),
+  })
+  .strict()
+  .superRefine((b, ctx) => {
+    const set = Object.keys(b.set.custom).sort();
+    const exp = Object.keys(b.expect.custom).sort();
+    if (set.length !== exp.length || set.some((k, i) => k !== exp[i])) {
+      ctx.addIssue({ code: 'custom', path: ['expect', 'custom'], message: 'expect должен содержать те же ключи, что set' });
+    }
+  });
+export type PatchCardBody = z.infer<typeof patchCardBody>;
+
+/** Заметка (C8): `opId` — id заметки, повтор безопасен. */
+export const createNoteBody = z
+  .object({ opId: uuid, body: z.string().min(1).max(4000), dealId: z.string().min(1).max(100).nullable().optional() })
+  .strict();
+export const pinNoteBody = z.object({ pinned: z.boolean() }).strict();
+
 export const addPhoneBody = z
   .object({ opId: uuid, phone: z.string().min(1).max(60), contactId: z.string().min(1).max(100).nullable().optional() })
   .strict();

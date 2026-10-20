@@ -1,11 +1,13 @@
 // Сервис клиентов: карточка, список, правка полей, выживший при слиянии, лента (PROCESS 8.3, 9).
 // Права и охват — в repo.ts (scopeSql); здесь — порядок действий и проверки значений.
 import { fields, names } from '@crm/core';
-import { BadRequestError, ConflictError, NotFoundError, type Viewer } from '@/server/access';
+import { BadRequestError, can, ConflictError, NotFoundError, type Viewer } from '@/server/access';
 import { getDb, isUniqueViolation, type Sql } from '@/server/platform/db';
 import { iinHmac } from '@/server/platform/hmac';
-import { listFeed, parseGroups, type FeedPage } from '../timeline';
-import { appendEvents, type NewEvent } from '../timeline/repo';
+import { getClientSummary, listClientDeals, listFeed, parseFilter, parseGroups, readPinnedNotes, PIN_LIMIT, type ClientSummaryDto, type DealRowDto, type FeedPage, type NoteDto } from '../timeline';
+import { appendEvents, dealOfClientVisible, type NewEvent } from '../timeline/repo';
+import { cardFieldViewer } from './cardFields';
+import { loadCatalogLabels, type CatalogLabels } from './labels';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
 import { pickDecisionMaker, pickPrimaryPhone, toCardHead, toContactDto, toPhoneDto } from './dto';
 import { FieldIssuesError } from './errors';
@@ -66,8 +68,20 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
     websiteHref: fields.safeHttpUrl(row.website),
     sourceKind: row.sourceKind,
     updatedAt: row.updatedAt,
-    can: { edit: row.canEdit, editIdentity: row.canIdentity },
-    card: head ? toCardHead(head) : null,
+    can: {
+      edit: row.canEdit,
+      editIdentity: row.canIdentity,
+      editCard: head?.canEditCard ?? false,
+      note: !viewer.readOnly && can(viewer, 'note.write'),
+      book: head ? head.canBook && (head.state === 'agreed' || head.state === 'client') : false,
+      // Подключаются вместе с B7, C9, B9a: до их влития сервер отдаёт false (docs/tasks-team-design.md §3.6)
+      task: false,
+      closeFromMenu: false,
+      reopen: false,
+      unblock: false,
+      transfer: false,
+    },
+    card: head ? toCardHead(head, fields.projectFor(cardFieldViewer(viewer, cfg), 'card', cfg.fields, head.custom as fields.CustomValues)) : null,
     phones,
     primaryPhone: pickPrimaryPhone(phones),
     decisionMaker: pickDecisionMaker(contacts),
@@ -78,7 +92,16 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
 }
 
 export type ClientPage =
-  | { kind: 'ok'; card: ClientCardDto; feed: FeedPage; legalForms: ClientsConfig['legalFormOptions'] }
+  | {
+      kind: 'ok';
+      card: ClientCardDto;
+      feed: FeedPage;
+      legalForms: ClientsConfig['legalFormOptions'];
+      summary: ClientSummaryDto;
+      pinnedNotes: NoteDto[];
+      deals: DealRowDto[];
+      catalog: CatalogLabels;
+    }
   | { kind: 'redirect'; to: string }
   | { kind: 'missing' };
 
@@ -94,8 +117,43 @@ export async function loadClientPage(viewer: Viewer, id: string): Promise<Client
     return survivor && survivor !== id ? { kind: 'redirect', to: `/clients/${survivor}` } : { kind: 'missing' };
   }
   const card = await getClientCard(viewer, id, cfg);
-  const feed = await listFeed(viewer, id, { cursor: null, groups: null, fields: cfg.fields, fieldViewer: fieldViewer(viewer, cfg) });
-  return { kind: 'ok', card, feed, legalForms: cfg.legalFormOptions };
+  const [feed, summary, pinnedNotes, deals, catalog] = await Promise.all([
+    listFeed(viewer, id, { cursor: null, groups: null, fields: cfg.fields, fieldViewer: fieldViewer(viewer, cfg) }),
+    getClientSummary(
+      viewer,
+      id,
+      card.card && {
+        state: card.card.state,
+        nextCallAt: card.card.nextCallAt,
+        callsTotal: card.card.counters.callsTotal,
+        connectsTotal: card.card.counters.connectsTotal,
+        noAnswerTotal: card.card.counters.noAnswerTotal,
+        ownerName: card.card.ownerName,
+        actingName: card.card.actingName,
+      },
+    ),
+    readPinnedNotes(db.sql, viewer, id, PIN_LIMIT),
+    listClientDeals(viewer, id),
+    loadCatalogLabels(viewer),
+  ]);
+  return { kind: 'ok', card, feed, legalForms: cfg.legalFormOptions, summary, pinnedNotes, deals, catalog };
+}
+
+/** Итоговый отчёт по клиенту; клиент не виден — 404. */
+export async function getClientSummaryFor(viewer: Viewer, id: string): Promise<ClientSummaryDto> {
+  const db = await getDb();
+  const row = await selectClient(db.sql, viewer, id);
+  if (!row || row.mergedIntoId !== null) throw new NotFoundError();
+  const head = await selectCardHead(db.sql, viewer, id);
+  return getClientSummary(viewer, id, head);
+}
+
+/** История сделок клиента; клиент не виден — 404. */
+export async function getClientDeals(viewer: Viewer, id: string): Promise<DealRowDto[]> {
+  const db = await getDb();
+  const row = await selectClient(db.sql, viewer, id);
+  if (!row || row.mergedIntoId !== null) throw new NotFoundError();
+  return listClientDeals(viewer, id);
 }
 
 export async function findSurvivor(viewer: Viewer, id: string): Promise<string | null> {
@@ -105,14 +163,23 @@ export async function findSurvivor(viewer: Viewer, id: string): Promise<string |
 }
 
 /** Страница ленты клиента: сначала видимость карточки (не виден — 404, а не пустая лента). */
-export async function getClientFeed(viewer: Viewer, id: string, raw: { cursor: string | null; groups: string | null }): Promise<FeedPage> {
+export async function getClientFeed(
+  viewer: Viewer,
+  id: string,
+  raw: { cursor: string | null; groups: string | null; group?: string | null; dealId?: string | null },
+): Promise<FeedPage> {
   const cfg = await loadClientsConfig(viewer);
   const db = await getDb();
   const row = await selectClient(db.sql, viewer, id);
   if (!row || row.mergedIntoId !== null) throw new NotFoundError();
+  // Лента сделки: сделку проверяем тем же охватом до чтения, чужая или несуществующая — 404
+  const dealId = raw.dealId ? raw.dealId : null;
+  if (dealId !== null && !(await dealOfClientVisible(db.sql, viewer, id, dealId))) throw new NotFoundError();
   return listFeed(viewer, id, {
     cursor: decodeCursor(raw.cursor),
     groups: parseGroups(raw.groups),
+    filter: parseFilter(raw.group ?? null),
+    dealId,
     fields: cfg.fields,
     fieldViewer: fieldViewer(viewer, cfg),
   });

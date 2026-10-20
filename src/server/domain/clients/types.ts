@@ -50,6 +50,14 @@ export type CardHeadDto = {
   lastOutcomeCode: string;
   ownerName: string | null;
   actingName: string | null;
+  version: number;
+  ownerUserId: string | null;
+  actingUntilDay: string | null;
+  closeReasonCode: string;
+  closedAt: number | null;
+  returnAt: number | null;
+  /** Проекция полей объекта `card`: только видимые зрителю (C8). */
+  fields: fields.Projection;
   counters: {
     callsTotal: number;
     noAnswerTotal: number;
@@ -58,6 +66,24 @@ export type CardHeadDto = {
     lastConnectAt: number | null;
     lastTouchAt: number | null;
   };
+};
+
+/**
+ * Действия карточки (C8 §3.6): сервер считает по правам и состоянию, интерфейс только показывает.
+ * `task`, `closeFromMenu`, `reopen`, `unblock`, `transfer` приходят `false`, пока не влиты B7, C9, B9a.
+ */
+export type ClientCan = {
+  edit: boolean;
+  editIdentity: boolean;
+  editCard: boolean;
+  /** Можно писать заметки (`note.write`). */
+  note: boolean;
+  book: boolean;
+  task: boolean;
+  closeFromMenu: boolean;
+  reopen: boolean;
+  unblock: boolean;
+  transfer: boolean;
 };
 
 export type ClientCardDto = {
@@ -74,7 +100,7 @@ export type ClientCardDto = {
   websiteHref: string | null;
   sourceKind: string;
   updatedAt: number;
-  can: { edit: boolean; editIdentity: boolean };
+  can: ClientCan;
   card: CardHeadDto | null;
   phones: PhoneDto[];
   primaryPhone: PhoneDto | null;

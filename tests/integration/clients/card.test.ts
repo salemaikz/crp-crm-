@@ -7,6 +7,9 @@ import { viewerOf } from '../../isolation/harness/actors';
 import { U, cardOf, clientOf, phoneOf } from '../../isolation/harness/seed';
 import { closeClientsWorld, openClientsWorld } from './world';
 
+/** Действия, которые подключат B7, C9, B9a: до их влития сервер отдаёт false. */
+const CAN_OFF = { edit: false, editIdentity: false, editCard: false, note: false, book: false, task: false, closeFromMenu: false, reopen: false, unblock: false, transfer: false };
+
 let db: TestDb;
 before(async () => {
   db = await openClientsWorld();
@@ -20,7 +23,7 @@ test('оператор видит карточку своего клиента: 
   assert.equal(c.kind, 'company');
   assert.equal(c.card?.state, 'retry');
   assert.equal(c.card?.ownerName, 'Оператор Синтетик А');
-  assert.deepEqual(c.can, { edit: true, editIdentity: false });
+  assert.deepEqual(c.can, { ...CAN_OFF, edit: true, editIdentity: false, editCard: true, note: true });
   assert.equal(c.phones.length, 1);
   assert.equal(c.primaryPhone?.e164, `+${phoneOf('a', 1)}`);
   assert.equal(c.decisionMaker, null);
@@ -30,7 +33,7 @@ test('оператор видит карточку своего клиента: 
 test('РОП видит право на изменение названия и БИН', async () => {
   const v = await viewerOf(U.rop);
   const c = await getClientCard(v, clientOf('a', 1));
-  assert.deepEqual(c.can, { edit: true, editIdentity: true });
+  assert.deepEqual(c.can, { ...CAN_OFF, edit: true, editIdentity: true, editCard: true, note: true });
 });
 
 test('счётчики берутся с карточки, без пересчёта', async () => {
@@ -95,4 +98,18 @@ test('слитый клиент: в API 404, страница ведёт к вы
 test('директор (только чтение) видит карточку без права правки', async () => {
   const c = await getClientCard(await viewerOf(U.director), clientOf('a', 1));
   assert.equal(c.can.edit, false);
+});
+
+test('«Записать» (can.book): только в состоянии «Договорились»/«Клиент» и при праве записи', async () => {
+  const a = await viewerOf(U.opA);
+  assert.equal((await getClientCard(a, clientOf('a', 3))).can.book, false, 'повторный звонок — рано');
+  await db.sql`UPDATE cards SET state = 'agreed' WHERE id = ${cardOf('a', 3)}`;
+  assert.equal((await getClientCard(a, clientOf('a', 3))).can.book, true);
+  await db.sql`UPDATE cards SET state = 'client' WHERE id = ${cardOf('a', 3)}`;
+  assert.equal((await getClientCard(a, clientOf('a', 3))).can.book, true);
+  await db.sql`UPDATE cards SET state = 'not_target' WHERE id = ${cardOf('a', 3)}`;
+  assert.equal((await getClientCard(a, clientOf('a', 3))).can.book, false);
+  await db.sql`UPDATE cards SET state = 'agreed' WHERE id = ${cardOf('a', 3)}`;
+  const dir = await viewerOf(U.director);
+  assert.equal((await getClientCard(dir, clientOf('a', 3))).can.book, false, 'директор только читает');
 });

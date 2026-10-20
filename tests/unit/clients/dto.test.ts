@@ -67,8 +67,19 @@ test('шапка карточки: счётчики с карточки, lpr и 
     lastTouchAt: 30,
     ownerName: 'Оператор',
     actingName: null,
+    version: 7,
+    ownerUserId: 'u1',
+    actingUntilDay: null,
+    closeReasonCode: '',
+    closedAt: null,
+    returnAt: null,
+    custom: {},
+    canBook: false,
+    canEditCard: false,
   };
-  const h = toCardHead(row);
+  const h = toCardHead(row, { fields: [], values: {} });
+  assert.equal(h.version, 7);
+  assert.equal(h.ownerUserId, 'u1');
   assert.equal(h.lpr, '');
   assert.equal(h.isTarget, 'yes');
   assert.deepEqual(h.counters, { callsTotal: 4, noAnswerTotal: 3, connectsTotal: 1, firstConnectAt: 10, lastConnectAt: 20, lastTouchAt: 30 });

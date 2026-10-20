@@ -5,9 +5,14 @@ import { page } from '@/server/access';
 import { loadClientPage } from '@/server/domain/clients';
 import { TextLink } from '@/ui/kit';
 import { CallButton } from '../_ui/CallButton';
+import { CardActions } from '../_ui/CardActions';
+import { CardFieldsPanel } from '../_ui/CardFieldsPanel';
 import { ClientHeader } from '../_ui/ClientHeader';
 import { ClientsProviders } from '../_ui/ClientsProviders';
 import { ContactsPanel } from '../_ui/ContactsPanel';
+import { DealsPanel } from '../_ui/DealsPanel';
+import { NotesPanel } from '../_ui/NotesPanel';
+import { SummaryBlock } from '../_ui/SummaryBlock';
 import { Counters } from '../_ui/Counters';
 import { FeedPanel } from '../_ui/FeedPanel';
 import { FieldsPanel } from '../_ui/FieldsPanel';
@@ -24,13 +29,14 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
   const r = await loadClientPage(viewer, id);
   if (r.kind === 'redirect') redirect(r.to);
   if (r.kind === 'missing') notFound();
-  const { card, feed, legalForms } = r;
+  const { card, feed, legalForms, summary, pinnedNotes, deals, catalog } = r;
   const t = await getTranslations('clients');
   const tz = viewer.timeZone;
 
   // Подписи ленты: только видимые поля, варианты, номера и контакты карточки
   const labels: FeedLabels = { fields: {}, options: {}, phones: {}, contacts: {} };
-  for (const [obj, list] of [['client', card.fields.fields], ['contact', card.contactFields.fields]] as const) {
+  const cardFieldList = card.card?.fields.fields ?? [];
+  for (const [obj, list] of [['client', card.fields.fields], ['contact', card.contactFields.fields], ['card', cardFieldList]] as const) {
     for (const f of list) {
       labels.fields[`${obj}:${f.key}`] = labelOf(f.label);
       for (const o of f.options) labels.options[`${obj}:${f.key}:${o.key}`] = labelOf(o.label);
@@ -50,12 +56,17 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
           <div className="flex min-w-0 flex-col gap-4">
             <ClientHeader card={card} legalForms={legalForms} timeZone={tz} />
             <CallButton phone={card.primaryPhone} />
+            <CardActions cardId={card.card?.id ?? null} can={card.can} />
+            <SummaryBlock summary={summary} catalog={catalog} timeZone={tz} />
             {card.card && <Counters head={card.card} timeZone={tz} />}
             <FieldsPanel client={card} legalForms={legalForms} />
+            {card.card && <CardFieldsPanel cardId={card.card.id} version={card.card.version} fields={cardFieldList} canEdit={card.can.editCard} />}
+            <NotesPanel key={pinnedNotes.map((n) => n.id).join(',')} clientId={card.id} pinned={pinnedNotes} canWrite={card.can.note} timeZone={tz} />
+            <DealsPanel deals={deals} catalog={catalog} timeZone={tz} />
             <PhonesPanel clientId={card.id} phones={card.phones} contacts={card.contacts} canEdit={card.can.edit} />
             <ContactsPanel clientId={card.id} contacts={card.contacts} contactFields={card.contactFields.fields} canEdit={card.can.edit} />
           </div>
-          <FeedPanel clientId={card.id} initialItems={feed.items} initialNext={feed.next} timeZone={tz} labels={labels} />
+          <FeedPanel clientId={card.id} canPin={card.can.note} initialItems={feed.items} initialNext={feed.next} timeZone={tz} labels={labels} />
         </div>
       </main>
     </ClientsProviders>

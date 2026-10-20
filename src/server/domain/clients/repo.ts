@@ -60,6 +60,15 @@ export type CardHeadDb = {
   lastTouchAt: number | null;
   ownerName: string | null;
   actingName: string | null;
+  version: number;
+  ownerUserId: string | null;
+  actingUntilDay: string | null;
+  closeReasonCode: string;
+  closedAt: number | null;
+  returnAt: number | null;
+  custom: Json;
+  canBook: boolean;
+  canEditCard: boolean;
 };
 
 /** 4.2. Карточка обзвона текущего пространства. */
@@ -68,7 +77,10 @@ export async function selectCardHead(sql: Sql, viewer: Viewer, clientId: string)
   const rows = await scoped(sql)<CardHeadDb>`
     SELECT c.id, c.state, c.hold_reason, c.next_call_at, c.attempts, c.lpr, c.is_target, c.last_outcome_code,
            c.calls_total, c.no_answer_total, c.connects_total, c.first_connect_at, c.last_connect_at, c.last_touch_at,
-           ou.name AS owner_name, au.name AS acting_name
+           ou.name AS owner_name, au.name AS acting_name,
+           c.version, c.owner_user_id, c.acting_until_day, c.close_reason_code, c.closed_at, c.return_at, c.custom,
+           (${scopeSql(viewer, 'card', 'booking.create')}) AS can_book,
+           (${scopeSql(viewer, 'card', 'card.edit')}) AS can_edit_card
       FROM cards c
       LEFT JOIN users ou ON ou.id = c.owner_user_id
       LEFT JOIN users au ON au.id = c.acting_user_id
@@ -519,7 +531,7 @@ export async function insertReviewTask(sql: Sql, viewer: Viewer, v: { clientId: 
 
 // ---------- Отказ 404 или 403 ----------
 
-export type DeniedEntity = 'client' | 'contact' | 'client_phone';
+export type DeniedEntity = 'client' | 'contact' | 'client_phone' | 'card';
 
 /**
  * Мутация не нашла строку с охватом правки: повторное чтение охватом `client.read`. Не видна —
@@ -530,6 +542,8 @@ export async function throwNotFoundOrForbidden(viewer: Viewer, sql: Sql, entity:
   let rows: Row[];
   if (entity === 'client') {
     rows = await q`SELECT 1 AS hit FROM clients cl WHERE cl.id = ${id} AND cl.merged_into_id IS NULL AND ${scopeSql(viewer, 'client', 'client.read')}`;
+  } else if (entity === 'card') {
+    rows = await q`SELECT 1 AS hit FROM cards c WHERE c.id = ${id} AND ${scopeSql(viewer, 'card', 'card.read')}`;
   } else if (entity === 'contact') {
     rows = await q`SELECT 1 AS hit FROM contacts ct WHERE ct.id = ${id} AND ct.archived_at IS NULL AND ${scopeSql(viewer, 'contact', 'client.read')}`;
   } else {

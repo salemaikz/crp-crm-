@@ -3,10 +3,16 @@ import { fields } from '@crm/core';
 import { BadRequestError, type Viewer } from '@/server/access';
 import { getDb } from '@/server/platform/db';
 import { encodeCursor, type Cursor } from '../clients/input';
-import { FEED_GROUPS, groupOf, kindsOfGroups, pickData, type FeedGroup } from './kinds';
-import { readFeed } from './repo';
+import { FEED_FILTERS, FEED_GROUPS, groupOf, isFeedFilter, kindsOfGroups, pickData, type FeedFilter, type FeedGroup } from './kinds';
+import { readFeed, selectNotesByIds } from './repo';
+import type { NoteDto } from './types';
 
-export { EVENT_KINDS, FEED_GROUPS, groupOf, isKnownKind, type EventKind, type FeedGroup } from './kinds';
+export { EVENT_KINDS, FEED_FILTERS, FEED_GROUPS, groupOf, isFeedFilter, isKnownKind, type EventKind, type FeedFilter, type FeedGroup } from './kinds';
+export { createNote, pinNote, type CreateNoteInput } from './notes';
+export { listClientDeals } from './deals';
+export { getClientSummary, pickNextStep, type SummaryCard } from './summary';
+export { NOTE_MAX, PIN_LIMIT, type ClientSummaryDto, type DealRowDto, type NoteDto, type NextStepKind } from './types';
+export { selectPinnedNotes as readPinnedNotes } from './repo';
 
 export const FEED_LIMIT = 50;
 
@@ -20,6 +26,8 @@ export type FeedItem = {
   refId: string;
   dealId: string | null;
   data: Record<string, unknown>;
+  /** Заметка события `note.created` (текст берётся из notes при чтении). */
+  note: NoteDto | null;
 };
 
 export type FeedPage = { items: FeedItem[]; next: string | null };
@@ -27,6 +35,10 @@ export type FeedPage = { items: FeedItem[]; next: string | null };
 export type FeedOptions = {
   cursor: Cursor | null;
   groups: readonly FeedGroup[] | null;
+  /** Фильтр «История правок» (вместо групп). */
+  filter?: FeedFilter | null;
+  /** Только события этой сделки; сделку вызывающий уже проверил. */
+  dealId?: string | null;
   /** Поля настроек и сотрудник для проверки видимости «было → стало». */
   fields: readonly fields.FieldDef[];
   fieldViewer: fields.FieldViewer;
@@ -40,13 +52,16 @@ export async function listFeed(viewer: Viewer, clientId: string, opts: FeedOptio
   const db = await getDb();
   const rows = await readFeed(db.sql, viewer, {
     clientId,
-    kinds: kindsOfGroups(opts.groups),
+    kinds: opts.filter ? [...FEED_FILTERS[opts.filter]] : kindsOfGroups(opts.groups),
+    dealId: opts.dealId ?? null,
     visibleRefs: fields.visibleFieldRefs(opts.fieldViewer, opts.fields),
     cursor: opts.cursor,
     limit: FEED_LIMIT,
   });
   const more = rows.length > FEED_LIMIT;
   const page = rows.slice(0, FEED_LIMIT);
+  const noteIds = page.filter((r) => r.kind === 'note.created' && r.refType === 'note').map((r) => r.refId);
+  const notes = new Map((await selectNotesByIds(db.sql, viewer, noteIds)).map((n) => [n.id, n]));
   const items: FeedItem[] = [];
   for (const r of page) {
     const group = groupOf(r.kind);
@@ -67,6 +82,7 @@ export async function listFeed(viewer: Viewer, clientId: string, opts: FeedOptio
       refId: r.refId,
       dealId: r.dealId,
       data,
+      note: r.kind === 'note.created' ? (notes.get(r.refId) ?? null) : null,
     });
   }
   const last = page[page.length - 1];
@@ -79,4 +95,11 @@ export function parseGroups(raw: string | null): FeedGroup[] | null {
   const ok = new Set<string>(FEED_GROUPS);
   if (parts.some((p) => !ok.has(p))) throw new BadRequestError('groups');
   return [...new Set(parts)] as FeedGroup[];
+}
+
+/** Разбор `group=edits` (единственный фильтр, не являющийся группой); мусор — 400. */
+export function parseFilter(raw: string | null): FeedFilter | null {
+  if (!raw) return null;
+  if (!isFeedFilter(raw)) throw new BadRequestError('group');
+  return raw;
 }

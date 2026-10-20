@@ -63,7 +63,42 @@ export type FeedItemView = {
   actor: { id: string; name: string } | null;
   refType: string;
   refId: string;
+  dealId: string | null;
   data: Record<string, unknown>;
+  /** Заметка события `note.created` (текст берётся из notes при чтении). */
+  note: NoteView | null;
+};
+
+export type NoteView = {
+  id: string;
+  body: string;
+  pinned: boolean;
+  dealId: string | null;
+  authorName: string | null;
+  createdAt: number;
+};
+
+export type DealView = {
+  id: string;
+  pipelineKey: string;
+  stageKey: string;
+  status: 'open' | 'won' | 'lost';
+  serviceTypeKey: string;
+  amountKzt: number;
+  createdAt: number;
+  wonAt: number | null;
+  lostAt: number | null;
+  lostReasonCode: string;
+  ownerName: string | null;
+};
+
+/** Подписи справочников настроек (этапы `воронка:этап`, услуги, виды мероприятий, отделы). */
+export type CatalogView = {
+  stages: Record<string, Label>;
+  pipelines: Record<string, Label>;
+  serviceTypes: Record<string, Label>;
+  eventTypes: Record<string, Label>;
+  teams: Record<string, Label>;
 };
 
 /**

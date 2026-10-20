@@ -56,6 +56,16 @@ export function groupOf(kind: string): FeedGroup | null {
   return isKnownKind(kind) ? EVENT_KINDS[kind].group : null;
 }
 
+/** Фильтры ленты, не совпадающие с группами: «История правок» (C8) — правки полей, номеров и контактов. */
+export const FEED_FILTERS = {
+  edits: ['field.changed', 'phone.added', 'phone.not_working', 'phone.primary', 'contact.added', 'contact.archived'],
+} as const satisfies Record<string, readonly EventKind[]>;
+export type FeedFilter = keyof typeof FEED_FILTERS;
+
+export function isFeedFilter(v: string): v is FeedFilter {
+  return Object.hasOwn(FEED_FILTERS, v);
+}
+
 /** Виды выбранных групп; без групп — все виды реестра. */
 export function kindsOfGroups(groups: readonly FeedGroup[] | null): string[] {
   const all = Object.keys(EVENT_KINDS);

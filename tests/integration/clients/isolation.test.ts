@@ -57,16 +57,17 @@ async function snapshot(): Promise<string> {
     await h(db.sql`SELECT md5(string_agg(x::text, '' ORDER BY x::text)) AS h FROM phone_probes x`),
     await h(db.sql`SELECT md5(string_agg(x::text, '' ORDER BY x::text)) AS h FROM tasks x`),
     await h(db.sql`SELECT md5(string_agg(x::text, '' ORDER BY x::text)) AS h FROM stop_list x`),
+    await h(db.sql`SELECT md5(string_agg(x::text, '' ORDER BY x::text)) AS h FROM notes x`),
   ].join('|');
 }
 
 /** Объект оператора B для каждой сущности манифеста. */
-const THEIRS: Record<string, string | undefined> = { client: clientOf('b', 1), client_phone: 'ph-b-1', contact: 'ct-b-iso' };
+const THEIRS: Record<string, string | undefined> = { client: clientOf('b', 1), client_phone: 'ph-b-1', contact: 'ct-b-iso', note: 'nt-b-1' };
 
 test('манифест и маршруты совпадают: у каждой записи есть обработчик', async () => {
   for (const e of manifest.entries.filter((x) => x.kind === 'route')) await handlerOf(e);
   const routes = manifest.entries.filter((x) => x.kind === 'route').length;
-  assert.equal(routes, 8);
+  assert.equal(routes, 12);
 });
 
 test('оператор A: объект оператора B отвечает байт в байт как несуществующий id, следов нет', async () => {
