@@ -1,11 +1,11 @@
 // Что запись делает со сделкой (B2, D-134): открыть при записи, сдвинуть вперёд при явке, и исполнитель
-// эффектов `calling.DealEffect` для C5. Операции покупки и передачи (`win`, `lose`, `lose_open`,
+// эффектов `calling.DealEffect` для C5. Операции покупки и передачи (`win`, `lose`,
 // `cancel_purchase`, `reassign_open`) — B6/B9a: пока их порождают другие пути, здесь они бросают.
 import type { calling } from '@crm/core';
 import type { BookingActor, DealLink, DealStages, LockedCard } from '@/server/domain/booking/types';
 import type { Sql } from '@/server/platform/db';
 import { bookingPipeline, configPipelineResolver, toDealStages, type PipelineResolver } from './pipelines';
-import { dealIdOfBooking, findDealById, findDealByRequestId, findOpenDealId, insertDeal, insertDealFeed, loseDeal, setDealStage, setNeedsRebook } from './repo';
+import { dealIdOfBooking, findDealById, findDealByRequestId, findOpenDealId, insertDeal, insertDealFeed, listOpenDealsOfClient, loseDeal, setDealStage, setNeedsRebook, type DealRow } from './repo';
 
 type CardRef = Pick<LockedCard, 'id' | 'clientId' | 'spaceId' | 'ownerUserId'>;
 
@@ -91,6 +91,23 @@ async function stagesOf(resolve: PipelineResolver, spaceId: string): Promise<Dea
   return p ? toDealStages(p) : null;
 }
 
+/** Закрыть открытую сделку проигрышем: этап «проигран» воронки (нет такого — прежний), событие ленты. */
+async function loseOne(sql: Sql, actor: BookingActor, resolve: PipelineResolver, deal: DealRow, reasonCode: string, at: number): Promise<void> {
+  if (deal.status !== 'open') return;
+  const pipeline = (await resolve(deal.spaceId)).find((p) => p.key === deal.pipelineKey);
+  const lostStage = pipeline?.stages.find((s) => s.kind === 'lost')?.key ?? deal.stageKey;
+  await loseDeal(sql, deal.id, { stageKey: lostStage, reasonCode, at });
+  await insertDealFeed(sql, {
+    clientId: deal.clientId,
+    spaceId: deal.spaceId,
+    dealId: deal.id,
+    kind: 'deal.lost',
+    actorId: actorId(actor),
+    at,
+    data: { dealId: deal.id, reasonCode },
+  });
+}
+
 /**
  * Исполнитель `effects.deals` машины карточки (C5). Карточка заблокирована вызывающим. Операции, которым
  * нужны покупки и передача, — B6/B9a.
@@ -119,19 +136,12 @@ export async function applyDealEffects(
         break;
       case 'lose_created_by': {
         const deal = await findDealByRequestId(sql, e.opId);
-        if (!deal || deal.status !== 'open') break;
-        const pipeline = (await resolve(deal.spaceId)).find((p) => p.key === deal.pipelineKey);
-        const lostStage = pipeline?.stages.find((s) => s.kind === 'lost')?.key ?? deal.stageKey;
-        await loseDeal(sql, deal.id, { stageKey: lostStage, reasonCode: e.reasonCode, at });
-        await insertDealFeed(sql, {
-          clientId: deal.clientId,
-          spaceId: deal.spaceId,
-          dealId: deal.id,
-          kind: 'deal.lost',
-          actorId: actorId(actor),
-          at,
-          data: { dealId: deal.id, reasonCode: e.reasonCode },
-        });
+        if (deal) await loseOne(sql, actor, resolve, deal, e.reasonCode, at);
+        break;
+      }
+      case 'lose_open': {
+        // PROCESS 4.1: отказ закрывает ВСЕ открытые сделки клиента проигрышем с той же причиной; нет открытых — ничего
+        for (const deal of await listOpenDealsOfClient(sql, card.spaceId, card.clientId)) await loseOne(sql, actor, resolve, deal, e.reasonCode, at);
         break;
       }
       default:

@@ -216,9 +216,19 @@ export type BookingCardEvent =
  * Применить событие записи к карточке в транзакции `tx`: снимок → `calling.applyOutcome` → запись карточки
  * и эффектов (задачи через tasks/auto.ts, лента, уведомления, сделки через deals/effects.ts, записи через
  * booking/effects.ts). Карточка уже заблокирована вызывающим. `rejected` не бросает: решает вызывающий.
+ *
+ * Контракт `actor`: порт охват не проверяет (его проверил вызывающий) и берёт сотрудника как есть. Каскад, где
+ * охват сотрудника на карточку не распространяется (отмена мероприятия: гости могут быть вне команды отменяющего),
+ * обязан передать `opts.system = true`: порт выполняет событие от системы (в ленте и журналах сотрудника нет),
+ * а не с охватом `actor`. Действие сотрудника над своей записью (запись, явка, отмена) идёт без флага.
  */
+export interface CardPortOptions {
+  /** Каскад: выполнить событие от системы, не от сотрудника `actor`. */
+  system?: boolean;
+}
+
 export interface CardPort {
-  applyBookingEvent(tx: Sql, actor: BookingActor, card: LockedCard, event: BookingCardEvent, now: number): Promise<calling.TransitionResult>;
+  applyBookingEvent(tx: Sql, actor: BookingActor, card: LockedCard, event: BookingCardEvent, now: number, opts?: CardPortOptions): Promise<calling.TransitionResult>;
 }
 
 /** Что запись делает со сделкой напрямую (без события карточки). Реализация — deals/effects.ts. */

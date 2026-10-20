@@ -30,6 +30,14 @@ export async function findDealById(sql: Sql, id: string): Promise<DealRow | null
   return rows[0] ?? null;
 }
 
+/** Все открытые сделки клиента в пространстве (старейшие первыми), с блокировкой строк. */
+export async function listOpenDealsOfClient(sql: Sql, spaceId: string, clientId: string): Promise<DealRow[]> {
+  return sql<DealRow>`
+    SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.request_id
+      FROM deals d WHERE d.client_id = ${clientId} AND d.space_id = ${spaceId} AND d.status = 'open'
+     ORDER BY d.created_at, d.id FOR UPDATE OF d`;
+}
+
 /** Открытая сделка карточки в воронке (старейшая). */
 export async function findOpenDealId(sql: Sql, cardId: string, pipelineKey: string): Promise<string | null> {
   const rows = await sql<{ id: string }>`

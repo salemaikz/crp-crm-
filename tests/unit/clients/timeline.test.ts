@@ -16,7 +16,7 @@ test('у каждого вида есть известная группа и п�
   }
   assert.deepEqual([...DESCRIBED_KINDS].sort(), Object.keys(EVENT_KINDS).sort());
   for (const g of FEED_GROUPS) assert.ok(messages.feed.group[g], `нет подписи группы ${g}`);
-  for (const key of ['fieldChanged', 'contactFieldChanged', 'phone_added', 'phone_not_working', 'phone_primary', 'contact_added', 'contact_archived', 'call', 'call_voided', 'note_created', 'unknown']) {
+  for (const key of ['fieldChanged', 'contactFieldChanged', 'phone_added', 'phone_not_working', 'phone_primary', 'contact_added', 'contact_archived', 'call', 'call_voided', 'note_created', 'unknown', 'card_created', 'card_state', 'card_assigned', 'card_released', 'card_transferred', 'card_acting', 'card_merged', 'dnc_set', 'dnc_cleared', 'import_row', 'client_created']) {
     assert.ok(messages.feed.kinds[key], `нет сообщения feed.kinds.${key}`);
   }
 });
@@ -47,4 +47,10 @@ test('data режется до ключей вида', () => {
   });
   assert.deepEqual(pickData('phone.added', null), {});
   assert.deepEqual(pickData('phone.added', ['x']), {});
+});
+
+test('import.row: сырой текст ячейки (answerRaw) и служебные ключи в ленту не отдаются', () => {
+  const data = { importId: 'i1', rowNo: 3, rowKey: 'ext-1', stateKey: 'abc', action: 'create', outcomeKey: 'callback', answerRaw: 'Иван просил набрать +7 709 000 00 00' };
+  assert.deepEqual(pickData('import.row', data), { importId: 'i1', rowNo: 3, action: 'create', outcomeKey: 'callback' });
+  assert.deepEqual(pickData('card.state', { fromState: 'new', toState: 'agreed', cause: 'x', phone: '7709' }), { fromState: 'new', toState: 'agreed', cause: 'x' });
 });

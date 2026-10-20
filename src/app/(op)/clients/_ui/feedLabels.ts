@@ -32,7 +32,21 @@ export const DESCRIBED_KINDS = [
   'deal.created',
   'deal.stage',
   'deal.lost',
+  'card.created',
+  'card.state',
+  'card.assigned',
+  'card.released',
+  'card.transferred',
+  'card.acting',
+  'card.merged',
+  'dnc.set',
+  'dnc.cleared',
+  'import.row',
+  'client.created',
 ] as const;
+
+/** Состояния карточки, для которых в локали есть отдельная подпись `feed.kinds.cardState.<состояние>`. */
+export const CARD_STATES = ['new', 'retry', 'callback', 'agreed', 'client', 'not_interested', 'not_target', 'do_not_call', 'written_off'] as const;
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
@@ -67,7 +81,22 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'deal.created':
     case 'deal.stage':
     case 'deal.lost':
+    case 'card.created':
+    case 'card.assigned':
+    case 'card.released':
+    case 'card.transferred':
+    case 'card.acting':
+    case 'card.merged':
+    case 'dnc.set':
+    case 'dnc.cleared':
+    case 'import.row':
+    case 'client.created':
       return { key: `feed.kinds.${item.kind.replace('.', '_')}`, values: {} };
+    case 'card.state': {
+      // Новое состояние в подписи; незнакомое (новая версия ядра) — общая строка
+      const to = str(d.toState);
+      return (CARD_STATES as readonly string[]).includes(to) ? { key: `feed.kinds.cardState.${to}`, values: {} } : { key: 'feed.kinds.card_state', values: {} };
+    }
     default:
       return { key: 'feed.kinds.unknown', values: {} };
   }

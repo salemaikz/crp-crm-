@@ -2,13 +2,10 @@
 // «Перезвонить», передача карточки (факт owner_changed), гонка итогов, архивный итог, поля шторки.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { calling } from '../../../packages/core/src';
 import type { Viewer } from '../../../src/server/access/types';
-import { overrideDealEffectsForTests } from '../../../src/server/domain/cards/effects';
 import { CallsDomainError } from '../../../src/server/domain/calls/errors';
 import { submitOutcome } from '../../../src/server/domain/calls/outcomes';
 import type { CallsDeps } from '../../../src/server/domain/calls';
-import { applyDealEffects } from '../../../src/server/domain/deals/effects';
 import { phoneHmac } from '../../../src/server/platform/hmac';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { U } from '../../isolation/harness/seed';
@@ -32,18 +29,8 @@ before(async () => {
   opA = await viewerOf(U.opA);
   opB = await viewerOf(U.opB);
   rop = await viewerOf(U.rop);
-  // «Потеряно» сделок (B6) ещё не реализовано в deals/effects: остальные операции — настоящие
-  overrideDealEffectsForTests(async (tx, actor, card, effects, at, opts) => {
-    const rest = effects.filter((e) => e.op !== 'lose_open');
-    for (const e of effects) {
-      if (e.op !== 'lose_open') continue;
-      await tx`UPDATE deals SET status = 'lost', stage_key = 'lost', lost_reason_code = ${e.reasonCode} WHERE card_id = ${card.id} AND status = 'open'`;
-    }
-    await applyDealEffects(tx, actor, card, rest as calling.DealEffect[], at, opts);
-  });
 });
 after(async () => {
-  overrideDealEffectsForTests(null);
   await closeCallsWorld(db);
 });
 
@@ -220,4 +207,30 @@ test('РОП (охват space) вносит итог по карточке оп
   await assert.rejects(submitOutcome(deps, opB, outcomeReq({ cardId: 'cd-a-62' })), fails('not_found'));
   void DAY;
   void uuid;
+});
+
+test('«Не интересно»: открытые сделки клиента проиграны с той же причиной, выигранная не тронута, лента пишется', async () => {
+  await fresh('cd-a-90', { state: 'retry', attempts: 1, nextCallAt: SEED_NOW - HOUR });
+  const t = SEED_NOW - DAY;
+  await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, stage_changed_at, created_at, updated_at)
+               VALUES ('dl-lo-1', 'sp-sales', 'sales', 'booked', 'open', 'cl-a-90', 'cd-a-90', ${U.opA}, ${t}, ${t}, ${t}),
+                      ('dl-lo-2', 'sp-sales', 'sales', 'negotiation', 'open', 'cl-a-90', 'cd-a-90', ${U.opA}, ${t}, ${t + 1}, ${t + 1})`;
+  await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, stage_changed_at, won_at, created_at, updated_at)
+               VALUES ('dl-lo-won', 'sp-sales', 'sales', 'won', 'won', 'cl-a-90', 'cd-a-90', ${U.opA}, ${t}, ${t}, ${t}, ${t})`;
+  const r = await submitOutcome(deps, opA, outcomeReq({ cardId: 'cd-a-90', outcomeKey: 'not_interested', reasonCode: 'expensive' }));
+  assert.equal(r.card?.state, 'not_interested');
+  const deals = await db.sql<{ id: string; status: string; reason: string; lostAt: number | null }>`SELECT id, status, lost_reason_code AS reason, lost_at FROM deals WHERE client_id = 'cl-a-90' ORDER BY id`;
+  assert.deepEqual(deals.map((d) => [d.id, d.status, d.reason]), [['dl-lo-1', 'lost', 'expensive'], ['dl-lo-2', 'lost', 'expensive'], ['dl-lo-won', 'won', '']]);
+  assert.ok(deals.filter((d) => d.status === 'lost').every((d) => d.lostAt === SEED_NOW));
+  const feed = await db.sql<{ dealId: string }>`SELECT deal_id FROM client_events WHERE client_id = 'cl-a-90' AND kind = 'deal.lost' ORDER BY deal_id`;
+  assert.deepEqual(feed.map((f) => f.dealId), ['dl-lo-1', 'dl-lo-2']);
+});
+
+test('«Не интересно» без открытых сделок: итог принят, сделок не появилось', async () => {
+  await fresh('cd-a-91', { state: 'retry', attempts: 1, nextCallAt: SEED_NOW - HOUR });
+  const r = await submitOutcome(deps, opA, outcomeReq({ cardId: 'cd-a-91', outcomeKey: 'not_interested', reasonCode: 'expensive' }));
+  assert.equal(r.status, 'applied');
+  assert.equal(r.card?.state, 'not_interested');
+  assert.equal(await cnt(db.sql<{ n: number }>`SELECT count(*)::int AS n FROM deals WHERE client_id = 'cl-a-91'`), 0);
+  assert.equal(await cnt(db.sql<{ n: number }>`SELECT count(*)::int AS n FROM client_events WHERE client_id = 'cl-a-91' AND kind = 'deal.lost'`), 0);
 });

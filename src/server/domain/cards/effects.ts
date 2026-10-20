@@ -8,7 +8,6 @@ import { applyBookingEffects } from '@/server/domain/booking/effects';
 import { applyDealEffects } from '@/server/domain/deals/effects';
 import { closeAutoTaskByKey, closeAutoTasks, ensureAutoTask, reassignOpenTasks } from '@/server/domain/tasks/auto';
 import { newId, type Sql } from '@/server/platform/db';
-import { isProduction } from '@/server/platform/env';
 import {
   actorUserId,
   addToStopList,
@@ -23,17 +22,6 @@ import {
 import type { ApplyCardEffects, ResolveLead } from './types';
 
 const { RolesSchema, roleGrants } = coreAccess;
-
-let dealExecutor: typeof applyDealEffects = applyDealEffects;
-
-/**
- * Только тесты: подменить исполнитель сделок. Нужен, пока `lose_open` в deals/effects.ts не реализован (B6, 23.10):
- * без него итоги «Не интересно», «Не целевой» и «Просил не звонить» падают. В production — ошибка.
- */
-export function overrideDealEffectsForTests(fn: typeof applyDealEffects | null): void {
-  if (isProduction()) throw new Error('cards: подмена исполнителя сделок запрещена в production');
-  dealExecutor = fn ?? applyDealEffects;
-}
 
 const leadRolesCache = new WeakMap<object, string[]>();
 
@@ -92,7 +80,7 @@ export const applyCardEffects: ApplyCardEffects = async (tx, actor, card, effect
   }
 
   // --- сделки и записи ---
-  if (effects.deals.length > 0) await dealExecutor(tx, actor, card, effects.deals, at);
+  if (effects.deals.length > 0) await applyDealEffects(tx, actor, card, effects.deals, at);
   if (effects.bookings.length > 0) await applyBookingEffects(tx, actor, card, effects.bookings, at);
 
   // --- стоп-лист ---
