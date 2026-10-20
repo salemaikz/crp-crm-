@@ -43,7 +43,17 @@ export function validateRetrySettings(r: RetrySettings): string[] {
 }
 
 /**
- * Время из шага. `+Nh/+Nm`: сдвиг от `from`; если результат вне окна звонков рабочего дня,
+ * Срок обычного шага (`noShow.callbackAt`, `nextStep.taskAt`): сдвиг от `from` без окна звонков
+ * или `nextWorkday@HH:MM`. Тот же разборщик, что у повторов; неверный формат — `RangeError`.
+ */
+export function resolveStepAt(step: string, from: Ms, calendar: WorkCalendar): Ms {
+  const parsed = parseRetryStep(step);
+  if (!parsed) throw new RangeError(`неверный шаг срока «${step}»`);
+  return parsed.kind === 'shift' ? from + parsed.ms : calendar.nextWorkdayAt(from, parsed.hhmm);
+}
+
+/**
+ * Время из шага повтора. `+Nh/+Nm`: сдвиг от `from`; если результат вне окна звонков рабочего дня,
  * срок = первое `hhmm` рабочего дня после него. `hhmm` берётся из первого шага
  * `nextWorkday@…` списка, а если его нет — из `calendar.callWindowStart` (PROCESS 3.4).
  * `nextWorkday@HH:MM`: HH:MM первого рабочего дня строго после местных суток `from`.
