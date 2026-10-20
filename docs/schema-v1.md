@@ -9,26 +9,41 @@
   местные дата и время — `TEXT 'YYYY-MM-DD'` / `'HH:MM'` (формат проверяет `CHECK`).
 - SQL — только в `src/server/domain/*/repo.ts`, охват `scopeSql` в каждом SELECT и UPDATE.
 - **FK на все ссылки** (D-067). Исключения: `audit_log`, полиморфные `ref_id`/`entity_id`/`row_id`/`run_id`,
-  `calls.telephony_call_id`. Автор-система — `NULL`. В тестах вставляйте родителей раньше детей.
+  `calls.telephony_call_id`. В тестах вставляйте родителей раньше детей.
+- **Автор-система — `NULL`** (D-067): колонки автора действия (`created_by`, `*_by`, `actor_id`, `author_id`,
+  `calls.user_id`, `bookings.booked_by_user_id`) допускают `NULL` для системы, CLI, импорта и воркера; выдуманного
+  автора не подставлять. Звонок без автора — только при `via` `import`/`telephony` (`calls_user_id_check`).
+  `NOT NULL` — у субъекта строки (сессия, членство, получатель уведомления) и у `skips`, `proposals`, `phone_probes`.
 - **Ничего не удаляется**: сотрудники — `status='disabled'`, клиенты — `merged_into_id`, ключи настроек —
-  архив. `DELETE` есть только у служебных строк (сессии, приглашения, очереди, purge).
+  архив. У `crm_app` `DELETE` есть **только** у служебных таблиц (явный список в `deploy/postgres/grants.sql`):
+  `sessions`, `invites`, `push_subscriptions`, `push_outbox`, `device_status`, `import_rows`, `ingest_batches`,
+  `change_snapshots` (purge), `client_phones` (удалить номер, дубль номера при слиянии), `stop_list` (снятие
+  «Не звонить», PROCESS 3.5 № 15), `resource_schedule`, `resource_exceptions`, `event_duty` (сменяемые окна и
+  дежурства), `integration_secrets`. На остальные таблицы `DELETE` отклоняет БД; новой таблице из будущей
+  миграции он тоже не выдаётся — нужен, значит architect добавляет её в список. Карточка слитого клиента не
+  удаляется: на неё ссылаются звонки.
 - **Только добавление** (права БД, D-068): `audit_log`, `client_events`, `booking_history`, `consents`,
-  `config_revisions`; у `clients` нет `DELETE`. Лента слитого клиента читается по цепочке `merged_into_id`.
+  `config_revisions` — без `UPDATE` и `DELETE`. Лента слитого клиента читается по цепочке `merged_into_id`.
+- **`audit_log.meta` — без значений ПДн**: только id, коды и числа. Журнал выгрузок пишет вид выгрузки, коды полей
+  фильтра и число строк, но не текст поиска, номер или имя (журнал не чистится обезличиванием).
 - **Идемпотентность — уникальными индексами**, повтор = `INSERT … ON CONFLICT DO NOTHING` и чтение прежнего:
   `calls.id`/`skips.id`/`proposals.id` = opId; `calls.import_key`, `bookings.import_key`; `deals.request_id`,
-  `bookings.request_id`; `tasks.source_key`; `handoffs.deal_id`; `ingest_batches (source_key, batch_id)`;
+  `bookings.request_id`; `tasks.source_key` (только среди открытых: `ON CONFLICT (source_key) WHERE source_key IS NOT
+  NULL AND status = 'open' DO NOTHING`; закрытая задача ключ не держит); `handoffs.deal_id`; `ingest_batches (source_key, batch_id)`;
   `client_sources (source_key, external_id)`; `webhook_inbox (integration_id, dedupe_key)`;
   `job_runs (job, slot_key)`; `notifications.dedupe_key`; `push_outbox (notification_id, subscription_id)`;
   `events.occurrence_key`; `bookings_group_uq` (одна активная запись клиента на мероприятие).
 - Закрытые списки — именованные `CHECK` `<таблица>_<колонка>_check`. Новое значение = новая миграция
   (architect), не правка v1 (D-059).
-- Колонки с ПДн помечены `-- pii` и стоят в реестре ARCHITECTURE §4.6. Новая колонка с ПДн — только через
-  architect и реестр. Строки реестра для таблиц телефонии (их ещё нет) статический тест пропускает.
+- Колонки с ПДн помечены `-- pii` и стоят в реестре ARCHITECTURE §4.6; `tests/unit/static-pii-registry.test.ts`
+  сверяет пометки и реестр в обе стороны. Новая колонка с ПДн — только через architect и реестр. Строки реестра
+  для таблиц телефонии (их ещё нет) статический тест пропускает.
 - HMAC и хэши — 64 hex-символа (`CHECK`): открытый номер или ИИН в `stop_list`/`iin_hmac` не запишется.
-- Нужен `pg_trgm` (ставит сама миграция в схему `public`). Для PGlite в тестах подключите расширение
-  `pg_trgm` до прогона миграций.
+- Нужен `pg_trgm` (ставит сама миграция в схему `public`; доверенное расширение — владелец БД ставит его без
+  суперпользователя). Тесты идут на Postgres 16 из `TEST_DATABASE_URL`, каждый файл — во временной схеме.
 - `schema_migrations (name TEXT PK, sha256 TEXT NOT NULL, applied_at BIGINT NOT NULL)` создаёт раннер
-  `migrate` (P1), не файл схемы. Права `crm_app` — `deploy/postgres/grants.sql` после каждого migrate.
+  `migrate` (P1), не файл схемы. Права `crm_app` — `deploy/postgres/grants.sql` после каждого migrate; схему
+  дважды, `grants.sql` дважды и права `crm_app` проверяет `tests/integration/schema/schema-v1.test.ts`.
 
 ## Таблицы
 
@@ -103,7 +118,7 @@
 |---|---|---|---|
 | `deals` | сделки и покупки | `pipeline_key`, `stage_key`, `status`, `amount_kzt` ≥ 0, `won_at`, `request_id` UNIQUE*, `version` | deals, calls (мастер), booking (явка двигает этап) |
 | `handoffs` | передачи в отдел | `deal_id` UNIQUE, `team_id`, `status`, `due_at` | handoffs (создаёт deals при покупке) |
-| `tasks` | задачи | `source` (закрытый список), `source_key` UNIQUE*, `assignee_user_id`, `status`, `due_at` | tasks; `tasks/auto.ts` (calling) и все модули через него; jobs |
+| `tasks` | задачи | `source` (закрытый список), `source_key` UNIQUE среди открытых, `assignee_user_id`, `status`, `due_at` | tasks; `tasks/auto.ts` (calling) и все модули через него; jobs |
 | `task_comments` | комментарии к задачам | `task_id`, `author_id`, `body` | tasks |
 | `notes` | заметки по клиенту | `client_id`, `space_id`, `deal_id`, `pinned` | timeline/clients |
 | `client_events` | лента клиента; только добавление | `client_id`, `space_id`, `deal_id`, `kind`, `at`, `data` | каждый модуль в своей транзакции |

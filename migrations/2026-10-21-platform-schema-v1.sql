@@ -11,6 +11,10 @@
 -- - Закрытые списки поведения — именованные CHECK (<таблица>_<колонка>_check): расширение списка —
 --   DROP/ADD того же имени в новом файле (добавляющая правка). Ключи из настроек — TEXT без CHECK.
 -- - Колонки с ПДн помечены «-- pii» и стоят в реестре ARCHITECTURE §4.6 (статический тест сверяет).
+-- - Автор действия (created_by, *_by, actor_id, author_id, calls.user_id, bookings.booked_by_user_id)
+--   допускает NULL: NULL = система, CLI, импорт или воркер (D-067), выдуманный автор запрещён.
+--   NOT NULL — только у субъекта строки (чья сессия, чьё членство, кому уведомление) и у действий,
+--   возможных лишь с устройства сотрудника (skips, proposals, phone_probes).
 -- - Схема не указывается явно: таблицы создаются в текущей схеме (тесты гоняют файл во временной).
 -- - Выполняет migrate под crm_owner в одной транзакции под advisory lock; учёт schema_migrations
 --   (имя + sha256) ведёт раннер, а не этот файл. Права crm_app — deploy/postgres/grants.sql.
@@ -84,7 +88,7 @@ CREATE TABLE IF NOT EXISTS invites (
   team_id      TEXT REFERENCES teams(id),
   expires_at   BIGINT NOT NULL,              -- security.inviteTtlHours
   used_at      BIGINT,
-  created_by   TEXT NOT NULL REFERENCES users(id),
+  created_by   TEXT REFERENCES users(id),     -- NULL: CLI (первый администратор, сброс пароля из crmctl)
   created_at   BIGINT NOT NULL,
   CHECK ((space_id IS NULL) = (role_key = '')),
   CHECK (expires_at > created_at)
@@ -116,7 +120,7 @@ CREATE TABLE IF NOT EXISTS absences (
   from_day           TEXT NOT NULL CHECK (from_day ~ '^\d{4}-\d{2}-\d{2}$'),
   to_day             TEXT NOT NULL CHECK (to_day ~ '^\d{4}-\d{2}-\d{2}$'),
   substitute_user_id TEXT REFERENCES users(id), -- NULL = поровну между работающими
-  created_by         TEXT NOT NULL REFERENCES users(id),
+  created_by         TEXT REFERENCES users(id), -- NULL: система или CLI
   created_at         BIGINT NOT NULL,
   cancelled_at       BIGINT,
   CHECK (from_day <= to_day)
@@ -227,7 +231,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
   action     TEXT NOT NULL,                  -- 'auth.login', 'export.report', 'client.merge', ...
   entity     TEXT NOT NULL,
   entity_id  TEXT NOT NULL,
-  meta       JSONB NOT NULL DEFAULT '{}',    -- коды, числа, id; журнал выгрузок — сюда (что, фильтр, строк)
+  meta       JSONB NOT NULL DEFAULT '{}',    -- коды, числа, id — без значений ПДн. Журнал выгрузок:
+                                             -- вид, коды полей фильтра (без значений: текст поиска,
+                                             -- номер, имя сюда не пишутся), число строк
   created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS audit_log_entity_idx  ON audit_log (entity, entity_id);
@@ -346,7 +352,7 @@ CREATE TABLE IF NOT EXISTS imports (
   status      TEXT NOT NULL DEFAULT 'preview' CONSTRAINT imports_status_check
                 CHECK (status IN ('preview','applied','failed')),
   report      JSONB NOT NULL DEFAULT '{}',   -- только счётчики
-  created_by  TEXT NOT NULL REFERENCES users(id),
+  created_by  TEXT REFERENCES users(id),     -- NULL: ночная дозагрузка (воркер) или CLI
   created_at  BIGINT NOT NULL,
   applied_at  BIGINT
 );
@@ -456,7 +462,7 @@ CREATE TABLE IF NOT EXISTS change_snapshots (
   row_id       TEXT NOT NULL,                -- полиморфная ссылка: без FK
   client_id    TEXT REFERENCES clients(id),  -- клиент строки: по нему чистит обезличивание
   before       JSONB NOT NULL,               -- pii: строка целиком до операции
-  created_by   TEXT NOT NULL REFERENCES users(id),
+  created_by   TEXT REFERENCES users(id),    -- NULL: система или CLI
   created_at   BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS change_snapshots_op_idx      ON change_snapshots (operation_id);
@@ -518,7 +524,7 @@ CREATE TABLE IF NOT EXISTS calls (
   space_id              TEXT NOT NULL REFERENCES spaces(id),
   card_id               TEXT NOT NULL REFERENCES cards(id),
   client_id             TEXT NOT NULL REFERENCES clients(id),
-  user_id               TEXT NOT NULL REFERENCES users(id),
+  user_id               TEXT REFERENCES users(id), -- кто звонил; NULL: импорт или телефония без оператора
   owner_user_id_at_call TEXT REFERENCES users(id),
   direction             TEXT NOT NULL DEFAULT 'out' CONSTRAINT calls_direction_check CHECK (direction IN ('out','in')),
   via                   TEXT NOT NULL CONSTRAINT calls_via_check
@@ -544,7 +550,9 @@ CREATE TABLE IF NOT EXISTS calls (
   telephony_call_id     TEXT,                -- ссылка на telephony_calls (таблица — с первым живым адаптером): без FK
   import_key            TEXT,                -- ключ строки + ключ состояния (D-048)
   config_rev            INTEGER NOT NULL,
-  CHECK ((applied = 'applied') = (fact_reason = ''))
+  CHECK ((applied = 'applied') = (fact_reason = '')),
+  -- Звонок из интерфейса или с устройства всегда с автором; без автора — только системные каналы
+  CONSTRAINT calls_user_id_check CHECK (user_id IS NOT NULL OR via IN ('import','telephony'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS calls_import_uq ON calls (import_key) WHERE import_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS calls_card_idx   ON calls (card_id, occurred_at DESC);
@@ -716,7 +724,7 @@ CREATE TABLE IF NOT EXISTS deals (
   custom           JSONB NOT NULL DEFAULT '{}', -- pii (поля с pii): значения полей объекта deal
   request_id       TEXT,                     -- идемпотентность покупки и создания
   version          INTEGER NOT NULL DEFAULT 0,
-  created_by       TEXT NOT NULL REFERENCES users(id),
+  created_by       TEXT REFERENCES users(id),  -- NULL: система (импорт «Договорились», воркер)
   created_at       BIGINT NOT NULL,
   updated_at       BIGINT NOT NULL,
   CHECK (status <> 'won'  OR won_at  IS NOT NULL),
@@ -752,7 +760,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   cancel_reason       TEXT NOT NULL DEFAULT '' CONSTRAINT bookings_cancel_reason_check
                         CHECK (cancel_reason IN ('','client','event_cancelled','operator_error','do_not_call')),
   via                 TEXT NOT NULL DEFAULT 'ui' CONSTRAINT bookings_via_check CHECK (via IN ('ui','import','walk_in')),
-  booked_by_user_id   TEXT NOT NULL REFERENCES users(id), -- заслуга (не меняется при передаче, D-042)
+  booked_by_user_id   TEXT REFERENCES users(id), -- заслуга (не меняется при передаче, D-042); NULL: импорт без оператора, система
   responsible_user_id TEXT REFERENCES users(id),          -- ответственный (меняется при передаче)
   moved_from_id       TEXT REFERENCES bookings(id),
   moved_to_id         TEXT REFERENCES bookings(id),
@@ -813,7 +821,9 @@ CREATE INDEX IF NOT EXISTS handoffs_inbox_idx    ON handoffs (team_id, status);
 CREATE INDEX IF NOT EXISTS handoffs_client_idx   ON handoffs (client_id);
 CREATE INDEX IF NOT EXISTS handoffs_assignee_idx ON handoffs (assignee_user_id) WHERE assignee_user_id IS NOT NULL;
 
--- Задачи (PROCESS §6). Автозадача не задваивается: UNIQUE(source_key).
+-- Задачи (PROCESS §6). Автозадача не задваивается: одна ОТКРЫТАЯ задача на source_key (повтор —
+-- ON CONFLICT DO NOTHING). Закрытая задача ключ не держит: второе сообщение после ответа, повторный
+-- пропущенный, новая неявка по той же записи создают новую задачу.
 CREATE TABLE IF NOT EXISTS tasks (
   id               TEXT PRIMARY KEY,
   space_id         TEXT NOT NULL REFERENCES spaces(id),
@@ -830,12 +840,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   assignee_user_id TEXT REFERENCES users(id),
   team_id          TEXT REFERENCES teams(id),
   status           TEXT NOT NULL DEFAULT 'open' CONSTRAINT tasks_status_check CHECK (status IN ('open','done','cancelled')),
-  source_key       TEXT,                     -- 'callback:<cardId>', 'missed:<externalCallId>', 'reply:<chatId>', ...
+  source_key       TEXT,                     -- 'reply:<chatId>', 'missed:<externalCallId>', 'no_show:<bookingId>', ...
   created_by       TEXT REFERENCES users(id),-- NULL: система
   done_at          BIGINT,
   created_at       BIGINT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS tasks_source_uq ON tasks (source_key) WHERE source_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_source_uq ON tasks (source_key) WHERE source_key IS NOT NULL AND status = 'open';
 CREATE INDEX IF NOT EXISTS tasks_assignee_idx ON tasks (assignee_user_id, status, due_at);
 CREATE INDEX IF NOT EXISTS tasks_client_idx   ON tasks (client_id) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS tasks_space_due_idx ON tasks (space_id, due_at) WHERE status = 'open';
@@ -844,7 +854,7 @@ CREATE INDEX IF NOT EXISTS tasks_deal_idx     ON tasks (deal_id) WHERE deal_id I
 CREATE TABLE IF NOT EXISTS task_comments (
   id         TEXT PRIMARY KEY,
   task_id    TEXT NOT NULL REFERENCES tasks(id),
-  author_id  TEXT NOT NULL REFERENCES users(id),
+  author_id  TEXT REFERENCES users(id),      -- NULL: система (например, передача дел, D-066)
   body       TEXT NOT NULL,                  -- pii
   created_at BIGINT NOT NULL
 );
@@ -855,7 +865,7 @@ CREATE TABLE IF NOT EXISTS notes (
   client_id  TEXT NOT NULL REFERENCES clients(id),
   space_id   TEXT NOT NULL REFERENCES spaces(id),
   deal_id    TEXT REFERENCES deals(id),
-  author_id  TEXT NOT NULL REFERENCES users(id),
+  author_id  TEXT REFERENCES users(id),      -- NULL: импорт или система
   body       TEXT NOT NULL,                  -- pii
   pinned     BOOLEAN NOT NULL DEFAULT FALSE,
   edited_at  BIGINT,
