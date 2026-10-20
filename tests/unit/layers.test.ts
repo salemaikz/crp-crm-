@@ -71,6 +71,9 @@ function resolveSpec(file: string, spec: string): string {
   return spec;
 }
 
+/** Файлы, которым интерфейс разрешает строить ссылки tel: и wa.me (без расширения). */
+const CHANNEL_LINK_FILES = ['src/ui/call/dial', 'src/ui/messenger/openChat'];
+
 const under = (p: string, dir: string) => p === dir || p.startsWith(`${dir}/`);
 const isNext = (s: string) => /^next(-intl)?($|\/)/.test(s);
 
@@ -114,7 +117,11 @@ export function checkFile(file: string, source: string): Violation[] {
     }
     if (under(file, 'src/app') || under(file, 'src/ui')) {
       if (spec === 'postgres' || under(target, 'src/server/platform/db')) bad('SQL и БД — только в репозиториях домена');
-      if (/^src\/server\/domain\/[^/]+\/repo(\.|$)/.test(target)) bad('репозитории домена недоступны интерфейсу');
+      if (/^src\/server\/domain\/[^/]+\/repo(\.|$)/.test(target)) bad('репозитории домена недоступны интерфейсу');      // tel: и wa.me строят только действия кнопок по режиму каналов (D-268)
+      const linkMaker = target === 'src/shared/tel' ? 'telHref' : target === 'src/shared/whatsapp' ? 'waHref' : null;
+      if (linkMaker && !CHANNEL_LINK_FILES.includes(file.replace(/\.tsx?$/, '')) && (names.includes(linkMaker) || names.includes('*'))) {
+        bad(`${linkMaker} — только в src/ui/call/dial.ts и src/ui/messenger/openChat.ts`);
+      }
     }
     // SystemActor — только в scripts/**, src/server/jobs/** (а в домене и доступе — как тип)
     if (target === 'src/server/access/systemActor') {
@@ -206,6 +213,14 @@ test('проверка слоёв ловит нарушения (самопро�
   assert.equal(checkFile('tests/unit/x.test.ts', "import { assembleViewer } from '../../src/server/access/viewer';").length, 0);
   assert.equal(checkFile('tests/integration/access/world.ts', "import { resetAccessForTests } from '../../../src/server/access/testing';").length, 0);
   assert.equal(checkFile('src/app/page.tsx', "import { page } from '@/server/access';").length, 0);
+  // Ссылки tel: и wa.me в интерфейсе — только через dialAction()/chatAction() (D-268)
+  assert.equal(checkFile('src/ui/call/CallCard.tsx', "import { formatKzPhone, telHref } from '@/shared/tel';").length, 1);
+  assert.equal(checkFile('src/app/(op)/x/X.tsx', "import { waHref as w } from '../../../shared/whatsapp';").length, 1);
+  assert.equal(checkFile('src/app/(op)/x/X.tsx', "import * as tel from '@/shared/tel';").length, 1);
+  assert.equal(checkFile('src/ui/call/CallCard.tsx', "import { formatKzPhone } from '@/shared/tel';").length, 0);
+  assert.equal(checkFile('src/ui/call/dial.ts', "import { telHref } from '@/shared/tel';").length, 0);
+  assert.equal(checkFile('src/ui/messenger/openChat.ts', "import { waHref } from '@/shared/whatsapp';").length, 0);
+  assert.equal(checkFile('src/integrations/telephony/manual/index.ts', "import { telHref } from '@/shared/tel';").length, 0);
   // В .ts приведение <T>x не должно прятать импорты после себя
   assert.equal(checkFile('src/app/x.ts', "const a = <any>foo;\nconst m = require('@/server/platform/db');").length, 1);
   assert.equal(checkFile('src/app/x.ts', "function f<T>(x: T) { return <T>x; }\nexport { getDb } from '@/server/platform/db';").length, 1);

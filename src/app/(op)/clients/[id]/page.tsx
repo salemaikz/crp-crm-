@@ -3,6 +3,7 @@ import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { page } from '@/server/access';
 import { loadClientPage } from '@/server/domain/clients';
+import { loadChannelModes } from '@/ui/channels/loadModes';
 import { TextLink } from '@/ui/kit';
 import { CallButton } from '../_ui/CallButton';
 import { ClientHeader } from '../_ui/ClientHeader';
@@ -25,7 +26,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
   if (r.kind === 'redirect') redirect(r.to);
   if (r.kind === 'missing') notFound();
   const { card, feed, legalForms } = r;
-  const t = await getTranslations('clients');
+  const [t, modes] = await Promise.all([getTranslations('clients'), loadChannelModes(viewer)]);
   const tz = viewer.timeZone;
 
   // Подписи ленты: только видимые поля, варианты, номера и контакты карточки
@@ -49,7 +50,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start">
           <div className="flex min-w-0 flex-col gap-4">
             <ClientHeader card={card} legalForms={legalForms} timeZone={tz} />
-            <CallButton phone={card.primaryPhone} />
+            <CallButton phone={card.primaryPhone} modes={modes} />
             {card.card && <Counters head={card.card} timeZone={tz} />}
             <FieldsPanel client={card} legalForms={legalForms} />
             <PhonesPanel clientId={card.id} phones={card.phones} contacts={card.contacts} canEdit={card.can.edit} />

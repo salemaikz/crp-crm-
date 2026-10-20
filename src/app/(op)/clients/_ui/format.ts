@@ -9,12 +9,6 @@ export function formatPhone(e164: string): string {
   return m ? `+7 ${m[1]} ${m[2]} ${m[3]} ${m[4]}` : e164;
 }
 
-/** `tel:`-ссылка из канонического номера и добавочного. */
-export function telHref(e164: string, ext: string): string {
-  const number = e164.replace(/[^\d+]/g, '');
-  return ext ? `tel:${number};ext=${ext.replace(/\D/g, '')}` : `tel:${number}`;
-}
-
 /** Дата и время в поясе установки: `28.10.2026 11:00`. */
 export function formatDateTime(ms: number, timeZone: string): string {
   const s = new Intl.DateTimeFormat(LOCALE, {

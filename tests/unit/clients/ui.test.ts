@@ -4,16 +4,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describeEvent, makeContext, SYSTEM_LABEL_KEYS } from '../../../src/app/(op)/clients/_ui/feedLabels';
-import { formatDateTime, formatDay, formatPhone, labelOf, telHref } from '../../../src/app/(op)/clients/_ui/format';
+import { formatDateTime, formatDay, formatPhone, labelOf } from '../../../src/app/(op)/clients/_ui/format';
+import { dialAction } from '../../../src/ui/call/dial';
+import { DEFAULT_CHANNEL_MODES as MODES } from '../../../src/ui/channels/ChannelModesContext';
 import { draftOf, payloadOf } from '../../../src/app/(op)/clients/_ui/FieldControl';
 import { walk, read, ROOT } from '../../helpers/sourceFiles';
 
 test('номер: красивый вид и tel-ссылка', () => {
   assert.equal(formatPhone('+77091234567'), '+7 709 123 45 67');
   assert.equal(formatPhone('+3312'), '+3312');
-  assert.equal(telHref('+77091234567', ''), 'tel:+77091234567');
-  assert.equal(telHref('+77091234567', '12'), 'tel:+77091234567;ext=12');
-  assert.equal(telHref('+7 (709) 123-45-67', ''), 'tel:+77091234567');
+  assert.deepEqual(dialAction('+77091234567', MODES), { kind: 'tel', href: 'tel:+77091234567' });
+  assert.deepEqual(dialAction('+77091234567', MODES, '12'), { kind: 'tel', href: 'tel:+77091234567;ext=12' });
+  assert.deepEqual(dialAction('+7 (709) 123-45-67', MODES), { kind: 'tel', href: 'tel:+77091234567' });
 });
 
 test('даты в поясе установки', () => {
@@ -103,7 +105,7 @@ test('ключи t(…) в интерфейсе клиентов есть в mes
 
 test('кнопка «Позвонить» — ссылка tel: и единственная primary на странице карточки', () => {
   const call = read('src/app/(op)/clients/_ui/CallButton.tsx');
-  assert.match(call, /telHref\(/);
+  assert.match(call, /dialAction\(/);
   const page = read('src/app/(op)/clients/[id]/page.tsx');
   assert.doesNotMatch(page, /variant="primary"/);
   // панели страницы (вне форм в диалогах) не вводят вторую primary-кнопку
