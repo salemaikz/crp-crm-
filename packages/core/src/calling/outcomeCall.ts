@@ -35,8 +35,8 @@ import {
   ownerRecipient,
   planDnc,
   reject,
-  retryStepAt,
 } from './transitionKit.js';
+import { planNoAnswer } from './retry.js';
 
 type Fields = Partial<CardSnapshot>;
 
@@ -140,15 +140,13 @@ function applyKind(e: OutcomeEvent, def: OutcomeDef, card: CardSnapshot, t: numb
 
   switch (def.kind) {
     case 'no_answer': {
-      const k = card.attempts + 1;
-      if (k >= settings.retry.maxAttempts) {
-        const f = { ...base, state: 'written_off' as const, attempts: k, ...closed('no_answer_limit') };
+      const plan = planNoAnswer(card.attempts, t, settings.retry, calendar);
+      if (plan.kind === 'write_off') {
+        const f = { ...base, state: 'written_off' as const, attempts: plan.attempts, ...closed('no_answer_limit') };
         effects.tasks.push(...leaveTasks(card.state, 'written_off'));
         return { fields: f, effects, warnings, extraTimeline };
       }
-      const steps = settings.retry.steps;
-      const step = steps[Math.min(k - 1, steps.length - 1)] ?? `nextWorkday@${calendar.callWindowStart}`;
-      const f = { ...base, state: 'retry' as const, attempts: k, nextCallAt: retryStepAt(step, t, settings, calendar) };
+      const f = { ...base, state: 'retry' as const, attempts: plan.attempts, nextCallAt: plan.nextCallAt };
       effects.tasks.push(...leaveTasks(card.state, 'retry'));
       return { fields: f, effects, warnings, extraTimeline };
     }

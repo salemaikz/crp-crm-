@@ -15,7 +15,9 @@
 
 import type { EventLite, EventSeries } from './types';
 import { addDays, epochToLocalDate, isoWeekday, localToEpoch, type Tz } from './time';
-import type { IsWorkday } from './calendar';
+
+/** Рабочий ли день ('YYYY-MM-DD'): `WorkCalendar.isWorkday` из `@crm/core/time` подходит как есть. */
+export type IsWorkday = (date: string) => boolean;
 
 export interface Occurrence {
   occurrenceKey: string;

@@ -1,7 +1,6 @@
 // @crm/core/booking: ядро записи на мероприятия (PROCESS §5, CONFIG §6.9). Чистое: без БД и Next.
 export * from './types';
 export * from './time';
-export * from './calendar';
 export * from './errors';
 export * from './csv';
 export * from './statusMachine';

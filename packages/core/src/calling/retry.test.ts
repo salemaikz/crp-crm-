@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRetryStep, planNoAnswer, resolveRetryStep, validateRetrySettings } from './retry.js';
+import { parseRetryStep, planNoAnswer, resolveRetryStep, resolveStepAt, validateRetrySettings } from './retry.js';
 import { TEST_CALENDAR as CAL, TEST_SETTINGS, at } from './spec/vectors.js';
 
 // Календарь тестов: пн–пт, окно [09:00, 18:00), 26.10.2026 — выходной (перенос), пояс UTC+5.
@@ -115,4 +115,11 @@ test('согласованность с настройками тест-вект
     attempts: 1,
     nextCallAt: at('2026-10-20 16:20'),
   });
+});
+
+test('resolveStepAt: сдвиг без окна звонков и следующий рабочий день', () => {
+  const from = Date.parse('2026-10-20T16:00:00+05:00');
+  assert.equal(resolveStepAt('+2h', from, CAL), from + 7_200_000);
+  assert.equal(resolveStepAt('nextWorkday@10:00', from, CAL), Date.parse('2026-10-21T10:00:00+05:00'));
+  assert.throws(() => resolveStepAt('+0h', from, CAL), RangeError);
 });

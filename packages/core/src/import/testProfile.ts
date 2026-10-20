@@ -3,19 +3,21 @@
 
 import { createHash } from 'node:crypto';
 import { DEFAULT_DEDUP_SETTINGS } from '../dedup/types';
-import { createTempNormalizers, type PhoneRules } from './tempNormalizers';
+import type { PhoneRules } from '../phone';
+import { createImportNormalizers } from './normalizers';
 import { compileProfile, parseSheet, type CompiledProfile } from './parse';
 import type { ImportProfile, KeyHashFn, OperatorSlot, ParsedRow } from './types';
 import { IMPORT_FIELDS as F } from './types';
 
 export const TEST_PHONE_RULES: PhoneRules = {
+  country: 'KZ',
   mobilePrefixes: ['700', '701', '702', '703', '704', '705', '706', '707', '708', '709', '747', '750', '751', '760', '761', '762', '763', '764', '771', '775', '776', '777', '778'],
   reviewPrefixes: ['770', '774'],
   landlinePrefixes: ['71x', '72x'],
 };
 
 export const testHash: KeyHashFn = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16);
-export const normalizers = createTempNormalizers(TEST_PHONE_RULES);
+export const normalizers = createImportNormalizers(TEST_PHONE_RULES);
 export { DEFAULT_DEDUP_SETTINGS };
 
 export function testProfile(slots: readonly OperatorSlot[], over: Partial<ImportProfile> = {}): ImportProfile {

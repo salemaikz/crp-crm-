@@ -4,12 +4,10 @@
 import type {
   AppliedResult,
   BookingEffect,
-  CallingSettings,
   CardSnapshot,
   CardState,
   DealEffect,
   Effects,
-  HHMM,
   Ms,
   PhoneSnapshot,
   Recipient,
@@ -19,7 +17,6 @@ import type {
   TaskEffect,
   TimelineEffect,
   UserId,
-  WorkCalendar,
 } from './spec/types.js';
 import { CALLBACK_TASK_SOURCES } from './spec/types.js';
 
@@ -72,28 +69,6 @@ export function commit(before: CardSnapshot, patch: Partial<CardSnapshot>): Card
   const keys = Object.keys(next) as (keyof CardSnapshot)[];
   const changed = keys.some((k) => !sameValue(before[k], next[k]));
   return changed ? { ...next, version: before.version + 1 } : before;
-}
-
-// ---------- Сроки ----------
-
-const SHIFT_RE = /^\+(\d+)([hm])$/;
-const WORKDAY_RE = /^nextWorkday@(\d{2}:\d{2})$/;
-
-/** Шаг срока: `+Nh`, `+Nm` (сдвиг) или `nextWorkday@HH:MM`. */
-export function stepAt(step: string, from: Ms, calendar: WorkCalendar): Ms {
-  const shift = SHIFT_RE.exec(step);
-  if (shift) return from + Number(shift[1]) * (shift[2] === 'h' ? HOUR_MS : MINUTE_MS);
-  const wd = WORKDAY_RE.exec(step);
-  if (wd && wd[1]) return calendar.nextWorkdayAt(from, wd[1]);
-  throw new Error(`unknown step: ${step}`);
-}
-
-/** Срок шага повтора: сдвиг вне окна звонков переносится на ближайшее рабочее время (PROCESS 3.4). */
-export function retryStepAt(step: string, from: Ms, settings: CallingSettings, calendar: WorkCalendar): Ms {
-  const t = stepAt(step, from, calendar);
-  if (!SHIFT_RE.test(step) || calendar.isInCallWindow(t)) return t;
-  const hhmm: HHMM = settings.retry.steps.map((s) => WORKDAY_RE.exec(s)?.[1]).find(Boolean) ?? calendar.callWindowStart;
-  return calendar.nextWorkdayTimeAfter(t, hhmm);
 }
 
 // ---------- Получатели и задачи ----------

@@ -31,14 +31,14 @@ import {
   MINUTE_MS,
   ownerRecipient,
   reject,
-  stepAt,
   tlState,
 } from './transitionKit.js';
+import { resolveStepAt } from './retry.js';
 
 /** Неявка: `callback` на шаг `noShowCallbackAt`, задача «перезаписать», значок сделки, уведомление (№ 16, 28). */
 function noShowToCallback(input: TransitionInput, card: CardSnapshot, bookingId: string, actorId: string | null): AppliedResult {
   const { now, settings, calendar } = input;
-  const at = stepAt(settings.noShowCallbackAt, now, calendar);
+  const at = resolveStepAt(settings.noShowCallbackAt, now, calendar);
   const effects = emptyEffects();
   effects.tasks.push({ op: 'create', source: 'no_show', kind: 'call', assignee: ownerRecipient(card), dueAt: at, sourceKey: `no_show:${bookingId}` });
   effects.deals.push({ op: 'set_needs_rebook', bookingId, value: true });
@@ -108,7 +108,7 @@ function nextStepTask(input: TransitionInput, card: CardSnapshot, bookingId: str
     source: 'next_step',
     kind: 'call',
     assignee: ownerRecipient(card),
-    dueAt: stepAt(input.settings.nextStepTaskAt, input.now, input.calendar),
+    dueAt: resolveStepAt(input.settings.nextStepTaskAt, input.now, input.calendar),
     sourceKey: `next_step:${bookingId}`,
   };
 }
@@ -225,7 +225,7 @@ export function applyAgreedSweep(input: TransitionInput, card: CardSnapshot, e: 
     source: 'next_step',
     kind: 'call',
     assignee: ownerRecipient(card),
-    dueAt: stepAt(settings.nextStepTaskAt, now, calendar),
+    dueAt: resolveStepAt(settings.nextStepTaskAt, now, calendar),
     sourceKey: `next_step:sweep:${card.id}:${calendar.localDay(now)}`,
   });
   return applied(card, effects);

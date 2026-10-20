@@ -6,11 +6,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { addWorkdays, makeIsWorkday, nextWorkday } from './calendar';
 import { allowedTargets, autoNoShowDue, checkTransition, isAttendanceCorrection, isMove } from './statusMachine';
 import { BOOKING_STATUSES, isActive, isOccupying, type BookingStatus } from './types';
 import { localToEpoch } from './time';
-import { HOUR, MIN, TZ } from './fixtures';
+import { HOUR, MIN, TZ, testCalendar } from './fixtures';
 
 const START = localToEpoch(TZ, '2026-10-22', '15:00');
 const ctx = (now: number, extra: { lateCorrection?: boolean } = {}) => ({ tz: TZ, now, startsAt: START, durationMin: 180, ...extra });
@@ -107,20 +106,15 @@ test('место держат registered/confirmed/attended/no_show; отмен�
 // ---------------------------------------------------------------------------
 
 // пн–пт; 26.10.2026 — праздничный выходной (перенос).
-const isWorkday = makeIsWorkday([1, 2, 3, 4, 5], [{ date: '2026-10-26', kind: 'holiday' }]);
+const calendar = testCalendar([{ date: '2026-10-26', kind: 'holiday' }]);
 
-test('календарь: праздник и перенесённый рабочий день', () => {
-  assert.equal(isWorkday('2026-10-26'), false);
-  assert.equal(isWorkday('2026-10-24'), false, 'суббота');
-  const withSat = makeIsWorkday([1, 2, 3, 4, 5], [{ date: '2026-10-24', kind: 'workday' }]);
-  assert.equal(withSat('2026-10-24'), true);
-  assert.equal(nextWorkday('2026-10-23', isWorkday), '2026-10-27', 'пятница → вторник: выходные и праздник');
-  assert.equal(addWorkdays('2026-10-22', 2, isWorkday), '2026-10-27', 'чт + 2 рабочих = вт: пт — первый, пн-праздник пропущен');
-  assert.equal(addWorkdays('2026-10-22', 0, isWorkday), '2026-10-22');
+test('автонеявка: нулевой срок — сама дата мероприятия', () => {
+  const b = { status: 'registered' as const, startsAt: START };
+  assert.equal(autoNoShowDue(b, localToEpoch(TZ, '2026-10-22', '00:00'), { tz: TZ, workdays: 0, calendar }), true);
 });
 
 test('автонеявка: срок — начало суток N-го рабочего дня после мероприятия', () => {
-  const opts = { tz: TZ, workdays: 2, isWorkday };
+  const opts = { tz: TZ, workdays: 2, calendar };
   const b = { status: 'registered' as const, startsAt: START };
   // чт 22.10 + 2 рабочих дня = вт 27.10 (пт 23.10 — раз, пн 26.10 — праздник, вт — два).
   const due = localToEpoch(TZ, '2026-10-27', '00:00');
@@ -130,9 +124,9 @@ test('автонеявка: срок — начало суток N-го рабо
 
 test('автонеявка: выключена (null), отмеченные и отменённые не трогаются', () => {
   const far = START + 30 * 24 * HOUR;
-  assert.equal(autoNoShowDue({ status: 'registered', startsAt: START }, far, { tz: TZ, workdays: null, isWorkday }), false);
+  assert.equal(autoNoShowDue({ status: 'registered', startsAt: START }, far, { tz: TZ, workdays: null, calendar }), false);
   for (const status of ['attended', 'no_show', 'cancelled', 'moved'] as const) {
-    assert.equal(autoNoShowDue({ status, startsAt: START }, far, { tz: TZ, workdays: 2, isWorkday }), false, status);
+    assert.equal(autoNoShowDue({ status, startsAt: START }, far, { tz: TZ, workdays: 2, calendar }), false, status);
   }
-  assert.equal(autoNoShowDue({ status: 'confirmed', startsAt: START }, far, { tz: TZ, workdays: 2, isWorkday }), true);
+  assert.equal(autoNoShowDue({ status: 'confirmed', startsAt: START }, far, { tz: TZ, workdays: 2, calendar }), true);
 });

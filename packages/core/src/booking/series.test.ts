@@ -5,11 +5,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { makeIsWorkday } from './calendar';
 import { occurrenceKey, planSeriesSync, seriesOccurrences, type ExistingEvent } from './series';
 import { localToEpoch } from './time';
 import type { EventSeries } from './types';
-import { TZ } from './fixtures';
+import { TZ, testCalendar } from './fixtures';
 
 // Серия «четверг 15:00, 180 минут, офлайн, 30 мест»; тип мероприятия — произвольный ключ из настроек.
 const SERIES: EventSeries = {
@@ -17,7 +16,7 @@ const SERIES: EventSeries = {
   capacity: 30, active: true,
 };
 const NOW = localToEpoch(TZ, '2026-10-20', '10:00'); // вторник
-const base = { tz: TZ, now: NOW, horizonDays: 28, isWorkday: makeIsWorkday([1, 2, 3, 4, 5]) };
+const base = { tz: TZ, now: NOW, horizonDays: 28, isWorkday: testCalendar().isWorkday };
 const dates = (xs: { eventDate: string }[]) => xs.map((x) => x.eventDate);
 
 test('28 дней вперёд: четыре четверга, время и ключи на месте', () => {
@@ -31,7 +30,7 @@ test('28 дней вперёд: четыре четверга, время и к�
 });
 
 test('праздник в день серии пропускается и попадает в список пропусков', () => {
-  const isWorkday = makeIsWorkday([1, 2, 3, 4, 5], [{ date: '2026-11-05', kind: 'holiday' }]);
+  const isWorkday = testCalendar([{ date: '2026-11-05', kind: 'holiday' }]).isWorkday;
   const { occurrences, skipped } = seriesOccurrences(SERIES, { ...base, isWorkday });
   assert.deepEqual(dates(occurrences), ['2026-10-22', '2026-10-29', '2026-11-12']);
   assert.deepEqual(skipped, [{ date: '2026-11-05', reason: 'non_workday' }]);
@@ -39,7 +38,7 @@ test('праздник в день серии пропускается и поп
 
 test('серия по субботе: перенесённый рабочий день не пропускается, обычная суббота — да', () => {
   const sat = { ...SERIES, weekday: 6 };
-  const isWorkday = makeIsWorkday([1, 2, 3, 4, 5], [{ date: '2026-10-31', kind: 'workday' }]);
+  const isWorkday = testCalendar([{ date: '2026-10-31', kind: 'workday' }]).isWorkday;
   const { occurrences, skipped } = seriesOccurrences(sat, { ...base, isWorkday });
   assert.deepEqual(dates(occurrences), ['2026-10-31']);
   assert.deepEqual(skipped.map((s) => s.date), ['2026-10-24', '2026-11-07', '2026-11-14']);
@@ -116,7 +115,7 @@ test('смена дня недели: нетронутые старые уход
 });
 
 test('новый праздник в день серии: пустое мероприятие убирается, с записями — остаётся (решает РОП)', () => {
-  const isWorkday = makeIsWorkday([1, 2, 3, 4, 5], [{ date: '2026-10-29', kind: 'holiday' }, { date: '2026-11-05', kind: 'holiday' }]);
+  const isWorkday = testCalendar([{ date: '2026-10-29', kind: 'holiday' }, { date: '2026-11-05', kind: 'holiday' }]).isWorkday;
   const have = ['2026-10-22', '2026-10-29', '2026-11-05', '2026-11-12'].map((d) => existing(d, d === '2026-11-05' ? { bookingCount: 1 } : {}));
   const plan = planSeriesSync(SERIES, have, { ...base, isWorkday });
   assert.deepEqual(plan.remove, ['e-2026-10-29']);

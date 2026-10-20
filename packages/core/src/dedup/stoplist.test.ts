@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyStopList } from './stoplist';
 import { evaluateRules } from './rules';
-import { normalizeOrgId } from './orgId';
 
 // Тестовый «HMAC»: префикс; настоящий ключ ядру неизвестен.
 const hash = (v: string) => `h:${v}`;
@@ -37,12 +36,4 @@ test('правила источника: legalFormIn и regionNotIn', () => {
   assert.equal(evaluateRules(rules, { legalForm: 'тоо', region: 'г. город-а, район "Север"' }), null);
   assert.equal(evaluateRules(rules, { legalForm: 'тоо', region: '' }), null, 'неизвестный регион правило не срабатывает');
   assert.equal(evaluateRules([], { legalForm: 'ип', region: 'x' }), null);
-});
-
-test('БИН: ровно 12 цифр, иначе null', () => {
-  assert.equal(normalizeOrgId('123456 789012'), '123456789012');
-  assert.equal(normalizeOrgId('12345678901'), null);
-  assert.equal(normalizeOrgId(''), null);
-  assert.equal(normalizeOrgId(undefined), null);
-  assert.equal(normalizeOrgId('1234567890', 10), '1234567890');
 });

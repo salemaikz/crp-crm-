@@ -1,29 +1,22 @@
-// Тестовый календарь раздачи: UTC+5 без перехода на летнее время, рабочие пн–пт, 26.10.2026 — выходной
-// (перенос). Нужен только тестам; боевой календарь — `core/time`.
+// Тестовый календарь раздачи: Asia/Almaty (UTC+5), пн–пт, 26.10.2026 — выходной (перенос).
+// Собран тем же `core/time`, что и боевой, через адаптер.
 
-import type { DistributionCalendar, LocalDay, Ms } from './types';
+import { createWorkCalendar } from '../time';
+import { toDistributionCalendar } from './calendar';
+import type { Ms } from './types';
 
 const OFFSET = 5 * 3600_000;
-const DAY = 86400_000;
-const HOLIDAYS = new Set<LocalDay>(['2026-10-26']);
+const hours = { start: '09:00', end: '18:00' };
 
-const dayOf = (at: Ms): LocalDay => new Date(at + OFFSET).toISOString().slice(0, 10);
-const dow = (day: LocalDay): number => new Date(`${day}T00:00:00Z`).getUTCDay();
-
-export const TEST_CALENDAR: DistributionCalendar = {
-  localDay: dayOf,
-  localMinutes: (at) => {
-    const d = new Date(at + OFFSET);
-    return d.getUTCHours() * 60 + d.getUTCMinutes();
-  },
-  isWorkday: (day) => dow(day) >= 1 && dow(day) <= 5 && !HOLIDAYS.has(day),
-  nextWorkday: (day) => {
-    let t = Date.parse(`${day}T00:00:00Z`);
-    do t += DAY;
-    while (!TEST_CALENDAR.isWorkday(new Date(t).toISOString().slice(0, 10)));
-    return new Date(t).toISOString().slice(0, 10);
-  },
-};
+export const TEST_CALENDAR = toDistributionCalendar(
+  createWorkCalendar({
+    timezone: 'Asia/Almaty',
+    workdays: [1, 2, 3, 4, 5],
+    workHours: hours,
+    callWindow: hours,
+    holidays: [{ date: '2026-10-26', kind: 'holiday' }],
+  }),
+);
 
 /** 'YYYY-MM-DD HH:MM' местного времени → epoch-мс. */
 export function at(local: string): Ms {

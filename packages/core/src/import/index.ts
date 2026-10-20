@@ -3,6 +3,7 @@ export * from './csv';
 export * from './answer';
 export * from './owner';
 export * from './keys';
+export * from './normalizers';
 export * from './parse';
 export * from './reimport';
 export * from './bookings';
