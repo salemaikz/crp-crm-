@@ -90,3 +90,16 @@ export type ReportQueryState = {
 };
 
 export type InitialReport = { data: ReportData | null; error: 'period_invalid' | 'invalid' | 'generic' | null };
+
+/** Что можно выгрузить с экрана (R3b): считает страница по правам и флагу, сервер проверяет ещё раз. */
+export type ExportActions = {
+  /** CSV и XLSX отчёта — `report.export`; XLSX — ещё и FEATURE_REPORTS_EXPORT. */
+  csv: boolean;
+  xlsx: boolean;
+  /** Полная выгрузка — `data.export_all`. */
+  full: boolean;
+  /** Журнал выгрузок — администратор или `export.journal`. */
+  journal: boolean;
+  /** Полных выгрузок в сутки на сотрудника. */
+  fullLimit: number;
+};

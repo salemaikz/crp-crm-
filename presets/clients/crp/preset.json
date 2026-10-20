@@ -407,6 +407,10 @@
           {
             "perm": "data.export_all",
             "scope": "space"
+          },
+          {
+            "perm": "export.journal",
+            "scope": "space"
           }
         ],
         "relations": [],

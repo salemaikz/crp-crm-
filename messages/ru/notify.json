@@ -18,6 +18,7 @@
     "alarm_callbacks_overdue": "Просроченные перезвоны: {count} у {operators, plural, one {# оператора} few {# операторов} many {# операторов} other {# оператора}}",
     "alarm_handoff_unaccepted": "Передача отделу не принята за рабочий день: {count}",
     "alarm_grey_unassigned": "Консультации без консультанта: {count}",
+    "export_full_done": "Выполнена полная выгрузка данных. Кто и когда — в журнале выгрузок",
     "unknown": "Новое уведомление"
   }
 }

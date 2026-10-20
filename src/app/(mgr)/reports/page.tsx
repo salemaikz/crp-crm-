@@ -2,10 +2,20 @@
 // 'report.view'; охват пространства проверяет сервис (оператору и руководителю отдела — 404). Директору — чтение.
 // Параметры в адресе: ?r=<отчёт>&from&to&users&source&group&by — ссылкой можно поделиться.
 import type { ReactNode } from 'react';
-import { BadRequestError, page } from '@/server/access';
-import { REPORT_KEYS, getDefaultPeriod, getReport, getReportMeta, parseReportQuery, type ReportKey } from '@/server/domain/reports';
+import { BadRequestError, can, page } from '@/server/access';
+import {
+  FULL_EXPORTS_PER_DAY,
+  REPORT_KEYS,
+  canSeeExportJournal,
+  getDefaultPeriod,
+  getReport,
+  getReportMeta,
+  parseReportQuery,
+  type ReportKey,
+} from '@/server/domain/reports';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { ReportsScreen } from './ReportsScreen';
-import type { InitialReport, ReportData, ReportMeta, ReportQueryState } from './types';
+import type { ExportActions, InitialReport, ReportData, ReportMeta, ReportQueryState } from './types';
 
 type Props = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
@@ -53,5 +63,14 @@ export default page<Props, ReactNode>({ perm: 'report.view' }, async ({ viewer, 
     else if ((e as { name?: unknown } | null)?.name === 'ZodError') initial = { data: null, error: 'invalid' };
     else throw e;
   }
-  return <ReportsScreen meta={meta} initialQuery={query} initial={initial} />;
+  // кнопки выгрузок — по правам и флагу; сервер проверяет то же при каждом запросе
+  const csv = can(viewer, 'report.export');
+  const actions: ExportActions = {
+    csv,
+    xlsx: csv && isFeatureEnabled('REPORTS_EXPORT'),
+    full: can(viewer, 'data.export_all'),
+    journal: canSeeExportJournal(viewer),
+    fullLimit: FULL_EXPORTS_PER_DAY,
+  };
+  return <ReportsScreen meta={meta} initialQuery={query} initial={initial} actions={actions} />;
 });

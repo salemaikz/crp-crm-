@@ -51,6 +51,7 @@ const MATRIX: Record<Permission, readonly [string, string, string, string, strin
   'report.view':          ['own',    S,   'own',     S,        'team',      '-'],
   'report.export':        ['-',      S,   '-',       S,        '-',         '-'],
   'data.export_all':      ['-',      S,   '-',       S,        '-',         '-'],
+  'export.journal':       ['-',      '-', '-',       S,        '-',         '-'],
   'settings.sales':       ['-',      S,   '-',       '-',      '-',         '-'],
   'settings.fields':      ['-',      '-', '-',       '-',      '-',         '-'],
 };

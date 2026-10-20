@@ -1,7 +1,8 @@
 // Прикладной слой входа: открывает БД и транзакции, читает политику. Маршруты src/app/api/auth/**
 // (в интерфейсе нет доступа к БД) только разбирают тело, зовут эти функции и ставят cookie.
-import { getDb } from '../db';
+import { getDb, type Sql } from '../db';
 import { rateLimit } from '../ratelimit';
+import { verifyPassword } from './password';
 import { acceptInvite, inspectInvite } from './invites';
 import { attemptLogin, changeOwnPassword, logoutEverywhere, type ChangePasswordResult } from './login';
 import { readPhoneRules, readSecurityPolicy } from './policy';
@@ -37,6 +38,21 @@ export async function logoutRequest(token: string | null): Promise<void> {
 export async function logoutAllRequest(userId: string): Promise<{ revoked: number }> {
   const db = await getDb();
   return db.tx((sql) => logoutEverywhere(sql, userId, Date.now()));
+}
+
+/** Хеш пароля активного сотрудника (повторный ввод пароля, R3b §2.5). Нет сотрудника или он отключён — null. */
+export async function readPasswordHash(sql: Sql, userId: string): Promise<string | null> {
+  const rows = await sql<{ passwordHash: string | null }>`SELECT password_hash FROM users WHERE id = ${userId} AND status = 'active'`;
+  return rows[0]?.passwordHash ?? null;
+}
+
+/**
+ * Повторная проверка пароля вошедшего сотрудника (полная выгрузка, D-055). Хеш не покидает платформу; нет хеша —
+ * bcrypt всё равно считается по фиктивному, время ответа одинаковое.
+ */
+export async function verifyUserPassword(userId: string, password: string): Promise<boolean> {
+  const db = await getDb();
+  return verifyPassword(password, await readPasswordHash(db.sql, userId));
 }
 
 export async function changePasswordRequest(input: { userId: string; current: string; next: string }): Promise<ChangePasswordResult> {

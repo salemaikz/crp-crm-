@@ -7,7 +7,13 @@ const HREF: Record<string, string> = {
   alarm_grey_unassigned: '/bookings',
 };
 
-const KNOWN = new Set(Object.keys(HREF));
+/**
+ * Известные виды без ссылки. Полная выгрузка (R3b, PROCESS 8.6): журнал видят не все получатели (РОП — нет), поэтому
+ * ссылки нет, текст отсылает к журналу.
+ */
+const TEXT_ONLY = ['export_full_done'];
+
+const KNOWN = new Set([...Object.keys(HREF), ...TEXT_ONLY]);
 
 export const isKnownKind = (kind: string): boolean => KNOWN.has(kind);
 export const hrefForKind = (kind: string): string | undefined => HREF[kind];
