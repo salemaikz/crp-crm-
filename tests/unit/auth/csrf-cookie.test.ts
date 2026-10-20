@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkOrigin, originCheckRequired } from '../../../src/server/platform/auth/csrf';
+import { appOrigin, checkOrigin, originCheckRequired } from '../../../src/server/platform/auth/csrf';
 import { sessionCookieSpec } from '../../../src/server/platform/auth/cookie';
 import { inviteLink } from '../../../src/server/platform/auth/invites';
 import { phone as corePhone } from '@crm/core';
@@ -31,6 +31,22 @@ test('checkOrigin: Sec-Fetch-Site', () => {
 test('checkOrigin: без APP_ORIGIN в production — отказ, вне production — по Host', () => {
   assert.equal(checkOrigin(h({ origin: 'http://localhost:3000', host: 'localhost:3000' }), { NODE_ENV: 'production' }), 'mismatch');
   assert.equal(checkOrigin(h({ origin: 'http://localhost:3000', host: 'localhost:3000' }), {}), 'ok');
+});
+
+test('checkOrigin: origin запроса — только вне production и только без APP_ORIGIN', () => {
+  const o = { origin: 'http://crm.test' };
+  assert.equal(checkOrigin(h(o), {}, { requestOrigin: 'http://crm.test' }), 'ok');
+  assert.equal(checkOrigin(h(o), { NODE_ENV: 'production' }, { requestOrigin: 'http://crm.test' }), 'mismatch');
+  assert.equal(checkOrigin(h(o), env, { requestOrigin: 'http://crm.test' }), 'mismatch');
+});
+
+test('appOrigin: нормализация, мусор и не-http — null', () => {
+  assert.equal(appOrigin({ APP_ORIGIN: ' https://crm.example.test/ ' }), 'https://crm.example.test');
+  assert.equal(appOrigin({ APP_ORIGIN: 'https://crm.example.test/path?q=1' }), 'https://crm.example.test');
+  assert.equal(appOrigin({ APP_ORIGIN: 'не адрес' }), null);
+  assert.equal(appOrigin({ APP_ORIGIN: 'ftp://crm.example.test' }), null);
+  assert.equal(appOrigin({}), null);
+  assert.equal(checkOrigin(h({ origin: 'https://crm.example.test' }), { APP_ORIGIN: 'не адрес', NODE_ENV: 'development' }), 'mismatch');
 });
 
 test('originCheckRequired: GET нет, POST да, машинные входы нет', () => {
