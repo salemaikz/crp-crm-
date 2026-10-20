@@ -9,7 +9,7 @@
 // - ответ без ПДн, кроме очереди (проекция полей по правам, номера своей карточки).
 import type { calling } from '@crm/core';
 import type { Viewer } from '@/server/access';
-import type { BookingDeps, GroupBookingRequest, IndividualBookingRequest } from '@/server/domain/booking/types';
+import type { BookingDeps, BookingView, GroupBookingRequest, IndividualBookingRequest } from '@/server/domain/booking/types';
 import type { LoadCallingContext, QueueGroup } from '@/server/domain/cards/types';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +80,9 @@ export interface OutcomeResponse {
   warnings: calling.Warning[];
   card: OutcomeCardView | null;
   bookingId: string | null;
+  /** Созданная в этом запросе запись целиком (мастер в шторке показывает дату и отменяет по `version`); повтор — null. */
+  booking: BookingView | null;
+  bookingAction: 'created' | 'moved' | null;
 }
 
 export interface CallsDeps {
@@ -129,6 +132,21 @@ export interface QueuePhone {
   isPrimary: boolean;
 }
 
+/** ЛПР клиента (контакт с признаком «принимает решения»); телефон — рабочий, не из стоп-листа. */
+export interface QueueLpr {
+  contactId: string;
+  name: string;
+  position: string;
+  /** Цифры полностью — для `tel:` своей карточки; null — у контакта нет подходящего номера. */
+  phone: string | null;
+}
+
+/** Последняя заметка по клиенту: из заметок клиента или из итога звонка, что позже. Текст усечён до 300 символов. */
+export interface QueueNote {
+  text: string;
+  at: number;
+}
+
 export interface QueueCard {
   cardId: string;
   clientId: string;
@@ -145,6 +163,9 @@ export interface QueueCard {
   lpr: calling.Lpr;
   isTarget: calling.Target;
   phones: QueuePhone[];
+  /** Первый ЛПР клиента; нет такого контакта — null. Его id уходит в `agreement.contactId` шторки итога. */
+  decisionMaker: QueueLpr | null;
+  lastNote: QueueNote | null;
   /** Поля клиента и карточки по правам (`projectFor`), как в карточке клиента C2. */
   fields: Record<string, unknown>;
 }
@@ -169,6 +190,25 @@ export interface QueueResponse {
 }
 
 export type GetQueue = (deps: CallsDeps, viewer: Viewer, q: QueueQuery) => Promise<QueueResponse>;
+
+// ---------------------------------------------------------------------------
+// Сводка «Сегодня» (строка на экране «Звонить»)
+// ---------------------------------------------------------------------------
+
+/** Итоги сотрудника за местные сутки пространства: по всем его устройствам, а не по одному телефону. */
+export interface TodaySummary {
+  /** Местные сутки, 'YYYY-MM-DD'. */
+  day: string;
+  outcomes: number;
+  /** Дозвоны: итоги видов `calling.CONNECTED_KINDS`. */
+  connected: number;
+  /** Записи, созданные сотрудником за сутки (не отменённые и не перенесённые). */
+  booked: number;
+  skips: number;
+  skipLimit: number;
+}
+
+export type GetToday = (deps: CallsDeps, viewer: Viewer) => Promise<TodaySummary>;
 
 // ---------------------------------------------------------------------------
 // Устройство (D-063, D-178)

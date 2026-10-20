@@ -3,13 +3,16 @@
 import { calling } from '@crm/core';
 import { NotFoundError } from '@/server/access';
 import { createBooking } from '@/server/domain/booking/bookings';
+import { findBookingByRequestId, toBookingView } from '@/server/domain/booking/repo';
 import { toCoreActor } from '@/server/domain/cards/actor';
 import { persistTransition } from '@/server/domain/cards/persist';
 import { findPriorCall, lockCardScoped, lockCardUnscoped, wasEverAssignedTo, wasOwnerAt, type PriorCallRow } from '@/server/domain/cards/repo';
 import type { CallExtras, LockedCardRow, OutcomeConfig } from '@/server/domain/cards/types';
 import { CallsDomainError } from './errors';
 import { assertFieldKeysAllowed, loadFieldsConfig, validateOutcomeFields, writeOutcomeFields, type FieldWrite } from './fields';
+import { getDb } from '@/server/platform/db';
 import { inCallsTx } from './tx';
+import type { BookingView } from '@/server/domain/booking/types';
 import type { OutcomeCardView, OutcomeRequest, OutcomeResponse, SubmitOutcome } from './types';
 
 const MIN_MS = 60_000;
@@ -55,6 +58,16 @@ function assertPhonesOnCard(req: OutcomeRequest, row: LockedCardRow): void {
   if (req.alsoDncPhoneIds.some((id) => !ids.has(id))) throw new CallsDomainError('phone_not_on_card', 'alsoDncPhoneIds');
 }
 
+/**
+ * Повтор итога «Договорились — записать» (ответ потерялся, мастер повторил тот же opId): запись уже есть, её ключ — opId.
+ * Отдаём её целиком, чтобы мастер закончил как после первого запроса. Чужую запись (другая карточка/автор) не показываем.
+ */
+async function withReplayedBooking(response: OutcomeResponse, req: OutcomeRequest, userId: string): Promise<OutcomeResponse> {
+  const row = await findBookingByRequestId((await getDb()).sql, req.opId);
+  if (!row || row.cardId !== req.cardId || row.bookedByUserId !== userId) return response;
+  return { ...response, bookingId: row.id, booking: toBookingView(row), bookingAction: row.movedFromId ? 'moved' : 'created' };
+}
+
 export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
   const spaceId = viewer.spaceId;
   if (spaceId === null) throw new NotFoundError();
@@ -78,6 +91,8 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
     warnings: [],
     card,
     bookingId: null,
+    booking: null,
+    bookingAction: null,
   });
   /** Свой прошлый звонок с этим opId (тот же сотрудник и та же карточка): повтор ответа, не новая запись. */
   const ownPrior = async (tx: Parameters<typeof findPriorCall>[0]): Promise<PriorCallRow | null> => {
@@ -139,6 +154,8 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
 
     // --- «Договорились — записать»: запись в той же транзакции, только если итог применён (§4.3) ---
     let bookingId: string | null = null;
+    let booking: BookingView | null = null;
+    let bookingAction: 'created' | 'moved' | null = null;
     if (wantsBooking && result.status === 'applied' && req.agreement?.booking) {
       const created = await createBooking(
         deps.booking(),
@@ -147,6 +164,8 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
         { tx, fromOutcome: { opId: req.opId } },
       );
       bookingId = created.booking.id;
+      booking = created.booking;
+      bookingAction = created.action;
       result = run(bookingId);
       if (result.status === 'rejected') reject(result);
       if (result.status === 'duplicate') throw new Error('calls: ядро ответило duplicate без sameOpId');
@@ -173,7 +192,9 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
       // Передана другому: карточка оператору больше не видна
       card: factReason === 'owner_changed' ? null : view(result.card),
       bookingId,
+      booking,
+      bookingAction,
     } satisfies OutcomeResponse;
   });
-  return response;
+  return response.status === 'duplicate' && req.agreement?.booking ? withReplayedBooking(response, req, viewer.userId) : response;
 };

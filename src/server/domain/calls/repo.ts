@@ -115,6 +115,7 @@ export async function countQueue(sql: Sql, viewer: Viewer, q: { spaceId: string;
 export interface QueuePhoneRow {
   id: string;
   clientId: string;
+  contactId: string | null;
   digits: string;
   kind: 'mobile' | 'landline' | 'unknown';
   isPrimary: boolean;
@@ -124,7 +125,7 @@ export interface QueuePhoneRow {
 export async function queuePhones(sql: Sql, clientIds: readonly string[]): Promise<QueuePhoneRow[]> {
   if (clientIds.length === 0) return [];
   const rows = await sql<QueuePhoneRow>`
-    SELECT p.id, p.client_id, p.digits, p.kind, p.is_primary FROM client_phones p
+    SELECT p.id, p.client_id, p.contact_id, p.digits, p.kind, p.is_primary FROM client_phones p
      WHERE p.client_id = ANY(${[...clientIds]}) AND p.is_working
      ORDER BY p.client_id, p.is_primary DESC, (p.kind = 'mobile') DESC, p.created_at, p.id`;
   if (rows.length === 0) return [];
@@ -164,4 +165,74 @@ export async function upsertDeviceStatus(sql: Sql, a: { userId: string; deviceId
 export async function deleteDeviceStatusBefore(sql: Sql, before: number): Promise<number> {
   const rows = await sql<{ userId: string }>`DELETE FROM device_status WHERE seen_at < ${before} RETURNING user_id`;
   return rows.length;
+}
+
+// ---------------------------------------------------------------------------
+// ЛПР и последняя заметка отобранных карточек: по одному запросу на все карточки страницы (без N+1)
+// ---------------------------------------------------------------------------
+
+export interface QueueLprRow {
+  id: string;
+  clientId: string;
+  name: string;
+  position: string;
+}
+
+/** Первый (по дате создания) не архивный ЛПР каждого клиента. */
+export async function queueLprs(sql: Sql, clientIds: readonly string[]): Promise<QueueLprRow[]> {
+  if (clientIds.length === 0) return [];
+  return sql<QueueLprRow>`
+    SELECT DISTINCT ON (ct.client_id) ct.id, ct.client_id, ct.name, ct.position
+      FROM contacts ct
+     WHERE ct.client_id = ANY(${[...clientIds]}) AND ct.is_decision_maker AND ct.archived_at IS NULL
+     ORDER BY ct.client_id, ct.created_at, ct.id`;
+}
+
+export interface QueueNoteRow {
+  clientId: string;
+  text: string;
+  at: number;
+}
+
+export const QUEUE_NOTE_MAX = 300;
+
+/** Свежайшая из заметок клиента и заметок итогов звонков (пустые не считаются). */
+export async function queueLastNotes(sql: Sql, spaceId: string, clientIds: readonly string[]): Promise<QueueNoteRow[]> {
+  if (clientIds.length === 0) return [];
+  return sql<QueueNoteRow>`
+    SELECT DISTINCT ON (x.client_id) x.client_id, left(x.text, ${QUEUE_NOTE_MAX}::int) AS text, x.at
+      FROM (
+        SELECT n.client_id, n.body AS text, n.created_at AS at
+          FROM notes n WHERE n.space_id = ${spaceId} AND n.client_id = ANY(${[...clientIds]}) AND btrim(n.body) <> ''
+        UNION ALL
+        SELECT c.client_id, c.note AS text, c.occurred_at AS at
+          FROM calls c WHERE c.space_id = ${spaceId} AND c.client_id = ANY(${[...clientIds]}) AND btrim(c.note) <> ''
+      ) x
+     ORDER BY x.client_id, x.at DESC`;
+}
+
+// ---------------------------------------------------------------------------
+// Сводка «Сегодня»
+// ---------------------------------------------------------------------------
+
+export interface TodayCounts {
+  outcomes: number;
+  connected: number;
+  booked: number;
+}
+
+/** Итоги (индекс calls_stats_idx) и созданные записи сотрудника за [from, to). */
+export async function selectTodayCounts(sql: Sql, a: { spaceId: string; userId: string; from: number; to: number; connectedKinds: readonly string[] }): Promise<TodayCounts> {
+  const calls = await sql<{ outcomes: number; connected: number }>`
+    SELECT count(*)::int AS outcomes,
+           (count(*) FILTER (WHERE outcome_kind = ANY(${[...a.connectedKinds]}::text[])))::int AS connected
+      FROM calls
+     WHERE space_id = ${a.spaceId} AND user_id = ${a.userId} AND via <> 'import'
+       AND occurred_at >= ${a.from}::bigint AND occurred_at < ${a.to}::bigint`;
+  const bookings = await sql<{ n: number }>`
+    SELECT count(*)::int AS n FROM bookings
+     WHERE space_id = ${a.spaceId} AND booked_by_user_id = ${a.userId}
+       AND created_at >= ${a.from}::bigint AND created_at < ${a.to}::bigint
+       AND status NOT IN ('cancelled','moved')`;
+  return { outcomes: calls[0]?.outcomes ?? 0, connected: calls[0]?.connected ?? 0, booked: bookings[0]?.n ?? 0 };
 }

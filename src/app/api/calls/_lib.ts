@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/server/access';
 import { CallsDomainError, httpFailure, isCallsDomainError, parseDeviceHeaders, recordDeviceStatus } from '@/server/domain/calls';
 import type { Viewer } from '@/server/access';
-import { respond as respondBooking } from '../bookings/_lib';
+import { AgreementBookingBody, respond as respondBooking } from '../bookings/_lib';
 
 const BODY_MAX_BYTES = 16 * 1024;
 
@@ -62,11 +62,8 @@ const short = z.string().max(200);
 
 const LprInfo = z.object({ name: short, phone: short, when: short }).strict();
 
-/** Запись в шторке: пока только групповая; индивидуальная — после B3a. */
-const AgreementBooking = z.object({ kind: z.literal('group'), eventId: id }).strict();
-
 const Agreement = z
-  .object({ contactId: id.nullable(), agreedDueAt: ms.nullable(), booking: AgreementBooking.nullable() })
+  .object({ contactId: id.nullable(), agreedDueAt: ms.nullable(), booking: AgreementBookingBody.nullable() })
   .strict();
 
 export const OutcomeBody = z

@@ -5,4 +5,5 @@ export { CallsDomainError, httpFailure, isCallsDomainError, type CallsHttpFailur
 export { submitOutcome } from './outcomes';
 export { getQueue } from './queue';
 export { submitSkip } from './skips';
+export { getToday } from './today';
 export * from './types';
