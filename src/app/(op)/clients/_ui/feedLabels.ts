@@ -75,6 +75,8 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'contact.archived':
       return { key: `feed.kinds.${item.kind.replace('.', '_')}`, values: { contact: ctx.contactLabel(str(d.contactId)) } };
     case 'call':
+      // Итог внёс РОП с доски «Обзвон» (D-266): отдельная подпись
+      return { key: d.via === 'manual_entry' ? 'feed.kinds.call_manual' : 'feed.kinds.call', values: {} };
     case 'call.voided':
     case 'note.created':
     case 'booking.created':

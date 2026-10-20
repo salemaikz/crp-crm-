@@ -75,7 +75,9 @@ function enrichCallEvents(result: calling.AppliedResult | calling.FactOnlyResult
   return {
     ...result.effects,
     timeline: result.effects.timeline.map((e) =>
-      e.kind === 'call' ? { ...e, data: { ...e.data, outcome: call.outcomeCode, phoneId: call.phoneId, durationSec: x?.durationSec ?? null } } : e,
+      e.kind === 'call'
+        ? { ...e, data: { ...e.data, outcome: call.outcomeCode, phoneId: call.phoneId, durationSec: x?.durationSec ?? null, ...(call.via === 'manual_entry' ? { via: call.via } : {}) } }
+        : e,
     ),
   };
 }

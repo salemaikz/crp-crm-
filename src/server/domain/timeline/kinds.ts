@@ -17,7 +17,7 @@ export const EVENT_KINDS = {
   'contact.added': { group: 'system', dataKeys: ['contactId'] },
   'contact.archived': { group: 'system', dataKeys: ['contactId'] },
   // Звонки (C5): код итога, вид, состояния «было → стало», номер разговора, длительность.
-  call: { group: 'calls', dataKeys: ['outcome', 'outcomeKind', 'kind', 'fromState', 'toState', 'factReason', 'phoneId', 'durationSec'] },
+  call: { group: 'calls', dataKeys: ['outcome', 'outcomeKind', 'kind', 'fromState', 'toState', 'factReason', 'phoneId', 'durationSec', 'via'] },
   'call.voided': { group: 'calls', dataKeys: ['callId'] },
   // Текст заметки берётся из notes при чтении (C8)
   'note.created': { group: 'notes', dataKeys: ['noteId'] },

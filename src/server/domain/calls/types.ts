@@ -16,8 +16,8 @@ import type { LoadCallingContext, QueueGroup } from '@/server/domain/cards/types
 // Итог
 // ---------------------------------------------------------------------------
 
-/** Каналы итога с устройства. `manual_entry` (РОП вносит за оператора) и `telephony` — позже. */
-export const OUTCOME_VIAS = ['ui', 'offline'] as const;
+/** Каналы итога: с устройства (`ui`, `offline`) и `manual_entry` — РОП вносит за оператора с доски «Обзвон» (D-266). `telephony` — позже. */
+export const OUTCOME_VIAS = ['ui', 'offline', 'manual_entry'] as const;
 export type OutcomeVia = (typeof OUTCOME_VIAS)[number];
 
 export interface LprInfo {

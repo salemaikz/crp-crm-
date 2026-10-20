@@ -2,7 +2,7 @@
 // (docs/calls-design.md §11). Проверки сессии, Origin, разрешений и охвата — обёртка route().
 import { z } from 'zod';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/server/access';
-import { CallsDomainError, httpFailure, isCallsDomainError, parseDeviceHeaders, recordDeviceStatus } from '@/server/domain/calls';
+import { CallsDomainError, OUTCOME_VIAS, httpFailure, isCallsDomainError, parseDeviceHeaders, recordDeviceStatus } from '@/server/domain/calls';
 import type { Viewer } from '@/server/access';
 import { AgreementBookingBody, respond as respondBooking } from '../bookings/_lib';
 
@@ -71,7 +71,7 @@ export const OutcomeBody = z
     opId,
     cardId: id,
     outcomeKey: id,
-    via: z.enum(['ui', 'offline']),
+    via: z.enum(OUTCOME_VIAS),
     occurredAt: ms,
     tappedAt: ms.nullable(),
     phoneId: id.nullable(),

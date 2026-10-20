@@ -177,6 +177,7 @@
       "contact_added": "Добавлен контакт {contact}",
       "contact_archived": "Контакт {contact} убран в архив",
       "call": "Звонок",
+      "call_manual": "Звонок (внесено вручную)",
       "call_voided": "Звонок отменён",
       "note_created": "Добавлена заметка",
       "booking_created": "Запись на мероприятие",
