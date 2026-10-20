@@ -40,3 +40,7 @@ test('определение задачи: по пространству, пиш
   assert.equal(distributeJob.perSpace, true);
   assert.equal(distributeJob.writes, 'business');
 });
+
+test('тик раздачи ограничен 2 минутами, а не общими 5', () => {
+  assert.equal(distributeJob.timeoutMs, 120_000);
+});

@@ -1,10 +1,10 @@
 // crmctl seed: синтетические данные для учебного стенда и e2e (PLAN O8b). Коды выхода: 0 — успех; 1 — ошибка или отказ.
-// Не для боевой установки: при NODE_ENV=production нужен флаг --i-know-this-is-a-stand.
+// Не для боевой установки: при NODE_ENV=production нужны флаг --i-know-this-is-a-stand и CRM_STAND=1, а база без настоящих данных.
 // Пароли созданных сотрудников печатаются один раз; задать общий пароль можно переменной CRM_SEED_PASSWORD.
 // Запуск: crmctl seed [флаги] или tsx scripts/crmctl/seed.ts [флаги]
 import { pathToFileURL } from 'node:url';
 import { openScriptDb } from '../../src/server/platform/db';
-import { PASSWORD_ENV, runSeed, SeedRefusedError, STAND_FLAG, type SeedOptions } from '../seed';
+import { assertStand, PASSWORD_ENV, runSeed, STAND_ENV, STAND_FLAG, type SeedOptions } from '../seed';
 
 export type SeedIo = { out: (line: string) => void; err: (line: string) => void };
 
@@ -18,7 +18,8 @@ export type SeedCtx = {
 
 const USAGE = `Использование: crmctl seed [--seed <зерно>] [--clients 500] [--operators 5] [--layers a,b,…] [${STAND_FLAG}]
   Загружает пресет и синтетику: сотрудники, 500 клиентов с карточками, мероприятия, сделки, задачи.
-  Повторный запуск ничего не дублирует. При NODE_ENV=production без ${STAND_FLAG} отказывает.
+  Повторный запуск ничего не дублирует. При NODE_ENV=production нужны ${STAND_FLAG} и ${STAND_ENV}=1.
+  Отказывает, если в базе есть клиенты с номерами вне блока 7709 или настройки применены не сидом.
   ${PASSWORD_ENV} — общий пароль всех учёток стенда; без него пароли генерируются и печатаются один раз.`;
 
 class UsageError extends Error {
@@ -75,9 +76,7 @@ export async function runSeedCommand(argv: string[], ctx: SeedCtx = defaultCtx()
       return 0;
     }
     // Отказ для production — до открытия БД
-    if (ctx.env.NODE_ENV === 'production' && opts.standFlag !== true) {
-      throw new SeedRefusedError(`NODE_ENV=production: сид с синтетикой запрещён. Если это учебный стенд, добавьте ${STAND_FLAG}.`);
-    }
+    assertStand(ctx.env, opts.standFlag === true);
     close = await ctx.openDb();
     const r = await runSeed({ ...opts, env: ctx.env, now: ctx.now() });
     io.out(`Пресет: ${r.config === 'applied' ? 'записан' : 'без изменений'}`);

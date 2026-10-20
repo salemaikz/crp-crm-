@@ -15,7 +15,7 @@ function rolesOf(preset: string): RoleConfig[] {
   return doc.global.roles.filter((r) => !r.archived);
 }
 
-const ALL = new Set(['KANBAN']);
+const ALL = new Set(['KANBAN', 'IMPORT']);
 
 function menuOf(role: RoleConfig, opts: { isAdmin?: boolean; features?: ReadonlySet<string>; force?: ShellKind } = {}) {
   const viewer = testViewer({ userId: `u-${role.key}`, role, isAdmin: opts.isAdmin });
@@ -104,6 +104,12 @@ test('выключенный флаг скрывает модуль: Канба�
   const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
   assert.ok(menuOf(rop).items.some((i) => i.id === 'kanban'));
   assert.ok(!menuOf(rop, { features: new Set() }).items.some((i) => i.id === 'kanban'));
+});
+
+test('выключенный флаг скрывает модуль: Импорт без FEATURE_IMPORT', () => {
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  assert.ok(menuOf(rop).items.some((i) => i.id === 'import'));
+  assert.ok(!menuOf(rop, { features: new Set(['KANBAN']) }).items.some((i) => i.id === 'import'));
 });
 
 test('пункт скрыт, если роль его не включила в menu, даже при праве', () => {

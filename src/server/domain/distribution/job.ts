@@ -4,6 +4,9 @@ import { z } from 'zod';
 import type { JobDefinition, JobResult, ScheduleInput, ScheduleSpec } from '@/server/platform/jobs/types';
 import { runTick } from './tick';
 
+/** Время на один тик раздачи — 2 минуты (worker-design §3), а не общие 5 минут по умолчанию. */
+export const DISTRIBUTE_TIMEOUT_MS = 2 * 60_000;
+
 /** Пропущенный тик не догоняется позже чем через столько минут (D-171). */
 export const DISTRIBUTE_GRACE_MIN = 15;
 
@@ -40,6 +43,7 @@ export const distributeJob: JobDefinition = {
   perSpace: true,
   schedule: distributeSchedule,
   writes: 'business',
+  timeoutMs: DISTRIBUTE_TIMEOUT_MS,
   async handler(ctx): Promise<JobResult> {
     if (!ctx.space) throw new Error('distribute: нужен контекст пространства');
     const report = await runTick(ctx.actor, { spaceId: ctx.space.id, runId: ctx.runId, slotAt: ctx.slot.at, now: ctx.now });

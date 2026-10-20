@@ -60,7 +60,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'settings', href: '/settings', keys: ['settings'], perm: 'settings.sales' },
       { id: 'pool', href: '/pool', keys: ['pool'], perm: 'pool.read' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
-      { id: 'import', href: '/import', keys: ['import'], perm: 'import.run' },
+      { id: 'import', href: '/import', keys: ['import'], perm: 'import.run', feature: 'IMPORT' },
       { id: 'team', href: '/team', adminOnly: true },
     ],
   },

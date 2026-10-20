@@ -182,8 +182,48 @@ test('повторный сид: 0 изменений, ничего не дуб�
 test('отказ в production без флага; с флагом стенда — работает (на тех же данных ничего не меняет)', async () => {
   await assert.rejects(() => runSeed({ env: env({ NODE_ENV: 'production' }), now: NOW }), SeedRefusedError);
   assert.deepEqual(await counts(), snapshot);
-  const r = await runSeed({ env: env({ NODE_ENV: 'production' }), now: NOW, standFlag: true });
+  const r = await runSeed({ env: env({ NODE_ENV: 'production', CRM_STAND: '1' }), now: NOW, standFlag: true });
   assert.equal(r.changes, 0);
+});
+
+test('production с флагом, но без CRM_STAND=1 — отказ (до записи)', async () => {
+  await assert.rejects(() => runSeed({ env: env({ NODE_ENV: 'production', CRM_STAND: undefined }), now: NOW, standFlag: true }), /CRM_STAND=1/);
+  await assert.rejects(() => runSeed({ env: env({ NODE_ENV: 'production', CRM_STAND: 'yes' }), now: NOW, standFlag: true }), SeedRefusedError);
+  assert.deepEqual(await counts(), snapshot);
+});
+
+test('база с не-синтетическими номерами клиентов — отказ, ничего не меняется', async () => {
+  const c = await one(db.sql<{ id: string }>`SELECT client_id AS id FROM client_phones LIMIT 1`);
+  await db.sql`INSERT INTO client_phones (id, client_id, digits, ext, kind, created_at) VALUES ('foreign-phone', ${c.id}, '77011234567', '', 'mobile', ${NOW})`;
+  try {
+    await assert.rejects(() => runSeed({ env: env({ NODE_ENV: 'production', CRM_STAND: '1' }), now: NOW, standFlag: true }), /вне синтетического блока 7709/);
+    await assert.rejects(() => runSeed({ env: env(), now: NOW }), SeedRefusedError);
+  } finally {
+    await db.sql`DELETE FROM client_phones WHERE id = 'foreign-phone'`;
+  }
+  assert.deepEqual(await counts(), { ...snapshot });
+});
+
+test('настройки изменены не пресетом или применял не сид — отказ', async () => {
+  const copy = async (source: string): Promise<void> => {
+    await db.sql`INSERT INTO config_revisions (id, scope, rev, schema_version, doc, hash, source, note, author_id, created_at)
+      SELECT 'manual-rev', scope, rev + 1, schema_version, doc, hash, ${source}, 'вручную', NULL, ${NOW}
+        FROM config_revisions WHERE scope = 'global' ORDER BY rev DESC LIMIT 1`;
+  };
+  await copy('cli');
+  try {
+    await assert.rejects(() => runSeed({ env: env(), now: NOW }), /менялись не пресетом/);
+  } finally {
+    await db.sql`DELETE FROM config_revisions WHERE id = 'manual-rev'`;
+  }
+  await db.sql`INSERT INTO users (id, phone_digits, name, password_hash, is_admin, created_at) VALUES ('real-user', '77011112233', 'Синтетик', 'x', false, ${NOW})`;
+  try {
+    await assert.rejects(() => runSeed({ env: env(), now: NOW }), /применял не сид/);
+  } finally {
+    await db.sql`DELETE FROM users WHERE id = 'real-user'`;
+  }
+  assert.deepEqual(await counts(), snapshot);
+  assert.equal((await runSeed({ env: env(), now: NOW })).changes, 0, 'после уборки сид снова работает');
 });
 
 test('пароль из окружения: проверяется политикой, в отчёте не возвращается', async () => {
@@ -209,6 +249,8 @@ test('crmctl seed: аргументы, отказ до открытия БД, в
   assert.equal(await runSeedCommand(['--clients', 'много'], ctx(env())), 1);
   assert.equal(await runSeedCommand([], ctx(env({ NODE_ENV: 'production' }))), 1);
   assert.match(err.join('\n'), /--i-know-this-is-a-stand/);
+  assert.equal(await runSeedCommand([STAND_FLAG], ctx(env({ NODE_ENV: 'production', CRM_STAND: undefined }))), 1);
+  assert.match(err.join('\n'), /CRM_STAND=1/);
   assert.equal(opened, 0, 'отказ раньше открытия БД');
   out.length = 0;
   assert.equal(await runSeedCommand([], ctx(env())), 0);
