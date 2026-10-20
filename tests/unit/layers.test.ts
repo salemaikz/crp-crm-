@@ -7,7 +7,8 @@ import ts from 'typescript';
 import { read, walk } from '../helpers/sourceFiles';
 
 const CODE = ['.ts', '.tsx', '.mjs'] as const;
-type Imp = { spec: string; typeOnly: boolean };
+/** names — импортируемые имена; '*' — все (namespace, export *, import(), require()). */
+type Imp = { spec: string; typeOnly: boolean; names: string[] };
 
 /** Все зависимости файла через TypeScript API: import/export from (в т.ч. многострочные), import(), require(). */
 // Вид разбора — по расширению: в .ts приведение <T>x разбирается как JSX и прячет хвост файла.
@@ -20,23 +21,36 @@ export function importsOf(source: string, fileName = 'x.tsx'): Imp[] {
   const visit = (n: ts.Node): void => {
     if (ts.isImportDeclaration(n)) {
       const spec = lit(n.moduleSpecifier);
-      if (spec) out.push({ spec, typeOnly: n.importClause?.isTypeOnly === true });
+      if (spec) out.push({ spec, typeOnly: n.importClause?.isTypeOnly === true, names: importNames(n.importClause) });
     } else if (ts.isExportDeclaration(n)) {
       const spec = lit(n.moduleSpecifier);
-      if (spec) out.push({ spec, typeOnly: n.isTypeOnly });
+      const names =
+        n.exportClause && ts.isNamedExports(n.exportClause) ? n.exportClause.elements.map((e) => (e.propertyName ?? e.name).text) : ['*'];
+      if (spec) out.push({ spec, typeOnly: n.isTypeOnly, names });
     } else if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference)) {
       const spec = lit(n.moduleReference.expression);
-      if (spec) out.push({ spec, typeOnly: n.isTypeOnly });
+      if (spec) out.push({ spec, typeOnly: n.isTypeOnly, names: ['*'] });
     } else if (ts.isCallExpression(n)) {
       const isDyn = n.expression.kind === ts.SyntaxKind.ImportKeyword;
       const isReq = ts.isIdentifier(n.expression) && n.expression.text === 'require';
       const spec = (isDyn || isReq) && n.arguments.length > 0 ? lit(n.arguments[0]) : undefined;
-      if (spec) out.push({ spec, typeOnly: false });
+      if (spec) out.push({ spec, typeOnly: false, names: ['*'] });
     }
     ts.forEachChild(n, visit);
   };
   visit(sf);
   return out;
+}
+
+/** Имена из import-клаузы: default, именованные (исходное имя, не алиас), '*' для namespace. */
+function importNames(clause: ts.ImportClause | undefined): string[] {
+  if (!clause) return [];
+  const names: string[] = [];
+  if (clause.name) names.push('default');
+  const b = clause.namedBindings;
+  if (b && ts.isNamespaceImport(b)) names.push('*');
+  if (b && ts.isNamedImports(b)) for (const e of b.elements) names.push((e.propertyName ?? e.name).text);
+  return names;
 }
 
 /** Директива 'use client' среди начальных директив файла (после "use strict" и комментариев тоже). */
@@ -67,7 +81,7 @@ export function checkFile(file: string, source: string): Violation[] {
   const v: Violation[] = [];
   const imps = importsOf(source, file);
   const client = isClientFile(source, file);
-  for (const { spec, typeOnly } of imps) {
+  for (const { spec, typeOnly, names } of imps) {
     const target = resolveSpec(file, spec);
     const bad = (why: string) => v.push(`${file}: import '${spec}' — ${why}`);
 
@@ -112,8 +126,13 @@ export function checkFile(file: string, source: string): Violation[] {
       bad('scopeSql выдаёт только src/server/access, использует домен');
     }
     // Внутренности доступа (подмена сессии/часов, сырой SQL охвата, реестр исполнителей) — только тесты и сам доступ
-    if (/^src\/server\/access\/(testing|sqlFrag|registry)$/.test(target) && under(file, 'src') && !under(file, 'src/server/access')) {
-      bad('access/testing, access/sqlFrag и access/registry недоступны из src/** (кроме src/server/access)');
+    const outsideAccess = !under(file, 'src/server/access') && !under(file, 'tests');
+    if (/^src\/server\/access\/(testing|sqlFrag|registry)$/.test(target) && outsideAccess) {
+      bad('access/testing, access/sqlFrag и access/registry недоступны вне src/server/access и тестов');
+    }
+    // assembleViewer регистрирует исполнителя любой формы (в обход buildViewer/systemActor) — тоже внутренность
+    if (target === 'src/server/access/viewer' && outsideAccess && (names.includes('assembleViewer') || names.includes('*'))) {
+      bad('assembleViewer недоступен вне src/server/access и тестов');
     }
     // Клиентский компонент не получает ядро и сервер
     if (client && (under(target, 'packages/core') || under(target, 'src/server'))) bad("файл с 'use client' не импортирует ядро и src/server/**");
@@ -168,6 +187,17 @@ test('проверка слоёв ловит нарушения (самопро�
   assert.equal(checkFile('src/server/platform/x.ts', "import type { T } from '@/server/access/testing';").length, 1);
   assert.equal(checkFile('src/server/access/scope.ts', "import { x } from './sqlFrag';").length, 0);
   assert.equal(checkFile('src/server/access/viewer.ts', "import { registerActor } from './registry';").length, 0);
+  // Регистрация исполнителя в обход buildViewer/systemActor: registerActor и assembleViewer
+  assert.equal(checkFile('src/server/domain/x/service.ts', "import { registerActor } from '@/server/access/registry';").length, 1);
+  assert.equal(checkFile('scripts/crmctl/x.ts', "import { registerActor } from '../../src/server/access/registry';").length, 1);
+  assert.equal(checkFile('src/server/domain/x/service.ts', "import { assembleViewer } from '@/server/access/viewer';").length, 1);
+  assert.equal(checkFile('src/server/domain/x/service.ts', "import { assembleViewer as a } from '../../access/viewer';").length, 1);
+  assert.equal(checkFile('src/server/domain/x/service.ts', "import * as v from '@/server/access/viewer';").length, 1);
+  assert.equal(checkFile('src/server/domain/x/service.ts', "export { assembleViewer } from '@/server/access/viewer';").length, 1);
+  assert.equal(checkFile('scripts/x.ts', "const v = await import('../src/server/access/viewer');").length, 1);
+  assert.equal(checkFile('src/server/domain/x/service.ts', "import { parseAccessConfig, assertNotSelf } from '@/server/access/viewer';").length, 0);
+  assert.equal(checkFile('src/server/access/testing.ts', "import { assembleViewer } from './viewer';").length, 0);
+  assert.equal(checkFile('tests/unit/x.test.ts', "import { assembleViewer } from '../../src/server/access/viewer';").length, 0);
   assert.equal(checkFile('tests/integration/access/world.ts', "import { resetAccessForTests } from '../../../src/server/access/testing';").length, 0);
   assert.equal(checkFile('src/app/page.tsx', "import { page } from '@/server/access';").length, 0);
   // В .ts приведение <T>x не должно прятать импорты после себя

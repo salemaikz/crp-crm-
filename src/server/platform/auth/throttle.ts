@@ -2,6 +2,10 @@
 // числу НЕУДАЧ (офис за одним NAT утром не упирается в лимит). Состояние в памяти процесса
 // (один процесс, ARCHITECTURE §8.1), своё хранилище в globalThis, ratelimit.ts не меняется.
 // Чистые функции от nowMs — тестируются без таймеров. Дизайн: docs/auth-design.md §4.
+//
+// Параллельные попытки (D-151): checkLogin синхронно, до первого await вызывающего, занимает слот
+// «идёт проверка» по номеру и по IP. Идущие попытки считаются как будущие неудачи: пачка из 60
+// одновременных запросов на один номер даёт не больше perPhone проверок пароля, остальные — отказ.
 import { UNKNOWN_IP } from '../http/clientIp';
 import type { SecurityPolicy, ThrottleVerdict } from './types';
 
@@ -12,12 +16,26 @@ export const PHONE_DELAY_MAX_MS = 30_000;
 export const UNKNOWN_IP_MULTIPLIER = 5;
 /** Предел ключей в памяти; вытеснение — как в ratelimit.ts (истёкшие, затем с меньшим числом неудач). */
 export const THROTTLE_MAX_KEYS = 50_000;
+/** Отказ из-за идущих попыток: через сколько повторить (проверка пароля занимает доли секунды). */
+export const BUSY_RETRY_MS = PHONE_DELAY_BASE_MS;
 
 type Policy = SecurityPolicy['loginAttempts'];
 type Entry = { fails: number[]; windowMs: number; nextAt: number };
-type Store = { phones: Map<string, Entry>; ips: Map<string, Entry> };
-const g = globalThis as typeof globalThis & { __crmLoginThrottle?: Store };
-const store: Store = (g.__crmLoginThrottle ??= { phones: new Map(), ips: new Map() });
+type Store = {
+  phones: Map<string, Entry>;
+  ips: Map<string, Entry>;
+  /** Идущие сейчас проверки пароля: ключ → число. Размер ограничен числом одновременных запросов. */
+  busyPhones: Map<string, number>;
+  busyIps: Map<string, number>;
+};
+const g = globalThis as typeof globalThis & { __crmLoginThrottle?: Partial<Store> };
+const raw = (g.__crmLoginThrottle ??= {});
+// ??= по полям: хранилище прежней версии модуля (перезагрузка в разработке) дополняется, а не теряется
+raw.phones ??= new Map();
+raw.ips ??= new Map();
+raw.busyPhones ??= new Map();
+raw.busyIps ??= new Map();
+const store = raw as Store;
 
 const inWindow = (e: Entry, nowMs: number): number[] => e.fails.filter((t) => t > nowMs - e.windowMs);
 
@@ -32,24 +50,53 @@ function limitForIp(ip: string, policy: Policy): number {
   return ip === UNKNOWN_IP ? policy.perIp * UNKNOWN_IP_MULTIPLIER : policy.perIp;
 }
 
+const busy = (map: Map<string, number>, key: string): number => map.get(key) ?? 0;
+
+function addBusy(map: Map<string, number>, key: string, delta: number): void {
+  const n = busy(map, key) + delta;
+  if (n > 0) map.set(key, n);
+  else map.delete(key);
+}
+
 /**
- * Можно ли проверять пароль. Не засчитывает попытку. Отказ — без bcrypt и без изменения счётчиков.
- * Порядок: IP (блок до конца окна), затем номер (до nextAt).
+ * Можно ли проверять пароль; если да — попытка СРАЗУ занимает слот по номеру и IP (синхронно, до
+ * первого await вызывающего). Вызывающий записывает итог (recordLoginFailure/recordLoginSuccess) и
+ * затем вызывает `release()` — в finally. Отказ — без bcrypt и без изменения счётчиков.
+ * Порядок: IP (неудачи + идущие против предела), затем номер (nextAt, затем идущие).
+ * Номер: пока неудач меньше perPhone, одновременно идут не больше perPhone − неудачи попыток; после —
+ * одна (каждая неудача и так продлевает задержку).
  */
 export function checkLogin(input: { phoneDigits: string; ip: string }, policy: Policy, nowMs: number): ThrottleVerdict {
   const windowMs = policy.windowMin * 60_000;
+  const ipLimit = limitForIp(input.ip, policy);
   const ip = store.ips.get(input.ip);
-  if (ip) {
-    const fails = ip.fails.filter((t) => t > nowMs - windowMs);
-    if (fails.length >= limitForIp(input.ip, policy)) {
-      return { ok: false, reason: 'ip_blocked', retryAfterMs: (fails[0] as number) + windowMs - nowMs };
-    }
+  const ipFails = ip ? ip.fails.filter((t) => t > nowMs - windowMs) : [];
+  if (ipFails.length >= ipLimit) {
+    return { ok: false, reason: 'ip_blocked', retryAfterMs: (ipFails[0] as number) + windowMs - nowMs };
+  }
+  if (ipFails.length + busy(store.busyIps, input.ip) >= ipLimit) {
+    return { ok: false, reason: 'ip_blocked', retryAfterMs: BUSY_RETRY_MS };
   }
   const phone = store.phones.get(input.phoneDigits);
   if (phone && nowMs < phone.nextAt) {
     return { ok: false, reason: 'phone_delay', retryAfterMs: phone.nextAt - nowMs };
   }
-  return { ok: true };
+  const phoneFails = phone ? inWindow(phone, nowMs).length : 0;
+  if (busy(store.busyPhones, input.phoneDigits) >= Math.max(1, policy.perPhone - phoneFails)) {
+    return { ok: false, reason: 'phone_delay', retryAfterMs: BUSY_RETRY_MS };
+  }
+  addBusy(store.busyIps, input.ip, 1);
+  addBusy(store.busyPhones, input.phoneDigits, 1);
+  let released = false;
+  return {
+    ok: true,
+    release: () => {
+      if (released) return;
+      released = true;
+      addBusy(store.busyIps, input.ip, -1);
+      addBusy(store.busyPhones, input.phoneDigits, -1);
+    },
+  };
 }
 
 function touch(map: Map<string, Entry>, key: string, windowMs: number): Entry {
@@ -108,8 +155,15 @@ export function throttleSizes(): { phones: number; ips: number } {
   return { phones: store.phones.size, ips: store.ips.size };
 }
 
+/** Только для тестов: сколько ключей с идущими попытками (после завершения всех — 0, утечки нет). */
+export function inflightSizes(): { phones: number; ips: number } {
+  return { phones: store.busyPhones.size, ips: store.busyIps.size };
+}
+
 /** Только для тестов: очистить хранилище. */
 export function resetLoginThrottle(): void {
   store.phones.clear();
   store.ips.clear();
+  store.busyPhones.clear();
+  store.busyIps.clear();
 }

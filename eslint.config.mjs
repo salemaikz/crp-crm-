@@ -19,8 +19,14 @@ const ACCESS_INTERNALS = msg(
   ['@/server/access/testing', '@/server/access/sqlFrag', '@/server/access/registry', '**/access/testing', '**/access/sqlFrag', '**/access/registry'],
   'access/testing, access/sqlFrag и access/registry — внутренности доступа: тесты и сам src/server/access.',
 );
+// Сборка Viewer в обход buildViewer(): регистрирует исполнителя любой формы (в т.ч. поддельный system).
+const ASSEMBLE_VIEWER = {
+  group: ['@/server/access/viewer', '**/access/viewer'],
+  importNames: ['assembleViewer'],
+  message: 'assembleViewer — только src/server/access и тесты: исполнитель выдаётся buildViewer()/systemActor().',
+};
 // restrict для файлов src/** вне src/server/access: общие запреты блока + запрет внутренностей доступа
-const restrictSrc = (paths, patterns) => restrict(paths, [...patterns, ACCESS_INTERNALS]);
+const restrictSrc = (paths, patterns) => restrict(paths, [...patterns, ACCESS_INTERNALS, ASSEMBLE_VIEWER]);
 
 const INTEGRATION_PATTERNS = [
   msg(['@/server/domain', '@/server/domain/*', '@/app/*', '@/ui', '@/ui/*'], 'Интеграции не импортируют домен и интерфейс.'),
@@ -106,7 +112,10 @@ const config = [
   // Только src/server/access выдаёт запросы с охватом: scopeSql не импортируют ни скрипты, ни воркер
   {
     files: ['scripts/**/*.ts'],
-    rules: restrict([], [msg(['@/server/access/scope', '@/server/domain/*/repo'], 'Скрипты ходят в данные через домен и SystemActor.')]),
+    rules: restrict(
+      [],
+      [msg(['@/server/access/scope', '@/server/domain/*/repo'], 'Скрипты ходят в данные через домен и SystemActor.'), ACCESS_INTERNALS, ASSEMBLE_VIEWER],
+    ),
   },
 ];
 

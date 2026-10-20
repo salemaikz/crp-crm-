@@ -3,10 +3,10 @@
 import { phone as corePhone } from '@crm/core';
 import { safeNext } from '../../../shared/safeNext';
 import { writeAudit } from '../audit';
-import type { Sql } from '../db';
+import type { Db, Sql } from '../db';
 import { rateLimit } from '../ratelimit';
 import { hashPassword, needsRehash, passwordProblem, PASSWORD_INPUT_MAX_CHARS, verifyPassword } from './password';
-import { createSession, revokeAllSessions } from './session';
+import { createSession, revokeAllSessions, revokeSessionByToken } from './session';
 import { checkLogin, recordLoginFailure, recordLoginSuccess } from './throttle';
 import type { IssuedSession, LoginResult, PasswordProblem, SecurityPolicy } from './types';
 
@@ -41,16 +41,27 @@ export function maskPhone(phoneDigits: string): string {
   return `•••• ${phoneDigits.slice(-2)}`;
 }
 
+/** Что нужно входу от БД: чтение вне транзакции и короткая транзакция на выдачу сессии. */
+export type LoginDb = Pick<Db, 'sql' | 'tx'>;
+
+/** Sql — соединение уже открытой транзакции вызывающего (тесты, старые вызовы): всё идёт в неё. */
+function asLoginDb(d: LoginDb | Sql): LoginDb {
+  if (typeof d !== 'function') return d;
+  return { sql: d, tx: <T>(fn: (sql: Sql) => Promise<T>) => fn(d) };
+}
+
 /**
- * Попытка входа. Порядок: разбор → checkLogin → SELECT по phone_digits → verifyPassword всегда
- * (фиктивный хеш, если строки нет) → неудача: recordLoginFailure, `invalid` с retryAfterMs;
- * успех (status active, пароль совпал): recordLoginSuccess, createSession.
- * `sql` — соединение транзакции вызывающего (createSession пишет несколько строк).
- * `next` — safeNext(input.next) ?? '/'.
+ * Попытка входа. Порядок: разбор → checkLogin (синхронно занимает слот попытки по номеру и IP, D-151)
+ * → SELECT по phone_digits → verifyPassword всегда (фиктивный хеш, если строки нет) → неудача:
+ * recordLoginFailure, `invalid` с retryAfterMs; успех: recordLoginSuccess → слот освобождается →
+ * короткая транзакция: перепроверка сотрудника (FOR UPDATE: не отключён, хеш тот же), новый хеш при
+ * перехешировании, отзыв прежней сессии этого браузера (`previousToken`), createSession.
+ * bcrypt идёт ВНЕ транзакции: пачка входов не держит соединения пула (D-151).
+ * `db` — getDb() (рекомендуется) или Sql уже открытой транзакции. `next` — safeNext(input.next) ?? '/'.
  */
 export async function attemptLogin(
-  sql: Sql,
-  input: { phone: string; password: string; next?: string | null; ip: string },
+  dbOrSql: LoginDb | Sql,
+  input: { phone: string; password: string; next?: string | null; ip: string; previousToken?: string | null },
   policy: SecurityPolicy,
   nowMs: number,
   phoneRules: corePhone.PhoneRules = corePhone.DEFAULT_PHONE_RULES,
@@ -62,27 +73,45 @@ export async function attemptLogin(
   const phoneDigits = loginPhoneDigits(input.phone, phoneRules);
   if (!phoneDigits) return { ok: false, error: 'validation' };
 
+  // Синхронно, до первого await: параллельные запросы видят занятый слот (D-151)
   const verdict = checkLogin({ phoneDigits, ip: input.ip }, policy.loginAttempts, nowMs);
   if (!verdict.ok) {
     logThrottled(verdict.reason, nowMs);
     return { ok: false, error: 'rate_limited', retryAfterMs: verdict.retryAfterMs };
   }
 
-  const [user] = await sql<{ id: string; passwordHash: string | null; status: string }>`
-    SELECT id, password_hash, status FROM users WHERE phone_digits = ${phoneDigits}`;
-  // bcrypt считается всегда: время ответа не выдаёт, есть ли номер
-  const passwordOk = await verifyPassword(password, user?.passwordHash);
-  if (!user || !user.passwordHash || !passwordOk || user.status !== 'active') {
-    const delay = recordLoginFailure({ phoneDigits, ip: input.ip }, policy.loginAttempts, nowMs);
-    return { ok: false, error: 'invalid', retryAfterMs: delay > 0 ? delay : null };
+  const db = asLoginDb(dbOrSql);
+  let user: { id: string; passwordHash: string } | undefined;
+  try {
+    const [row] = await db.sql<{ id: string; passwordHash: string | null; status: string }>`
+      SELECT id, password_hash, status FROM users WHERE phone_digits = ${phoneDigits}`;
+    // bcrypt считается всегда: время ответа не выдаёт, есть ли номер
+    const passwordOk = await verifyPassword(password, row?.passwordHash);
+    if (!row || !row.passwordHash || !passwordOk || row.status !== 'active') {
+      const delay = recordLoginFailure({ phoneDigits, ip: input.ip }, policy.loginAttempts, nowMs);
+      return { ok: false, error: 'invalid', retryAfterMs: delay > 0 ? delay : null };
+    }
+    recordLoginSuccess(phoneDigits);
+    user = { id: row.id, passwordHash: row.passwordHash };
+  } finally {
+    verdict.release();
   }
 
-  recordLoginSuccess(phoneDigits);
-  const session = await createSession(sql, { userId: user.id, policy, nowMs });
-  if (needsRehash(user.passwordHash)) {
-    await sql`UPDATE users SET password_hash = ${await hashPassword(password)} WHERE id = ${user.id}`;
-  }
-  return { ok: true, userId: user.id, session, next: safeNext(input.next) ?? '/' };
+  const verified = user;
+  // Перехеширование — тоже bcrypt, тоже до транзакции
+  const newHash = needsRehash(verified.passwordHash) ? await hashPassword(password) : null;
+  const session = await db.tx(async (sql) => {
+    const [cur] = await sql<{ status: string; passwordHash: string | null }>`
+      SELECT status, password_hash FROM users WHERE id = ${verified.id} FOR UPDATE`;
+    // Между проверкой пароля и транзакцией сотрудника отключили или сменили пароль — входа нет
+    if (!cur || cur.status !== 'active' || cur.passwordHash !== verified.passwordHash) return null;
+    if (newHash) await sql`UPDATE users SET password_hash = ${newHash} WHERE id = ${verified.id}`;
+    // Повторный вход в том же браузере гасит прежнюю сессию (auth-design §3)
+    await revokeSessionByToken(sql, input.previousToken);
+    return createSession(sql, { userId: verified.id, policy, nowMs });
+  });
+  if (!session) return { ok: false, error: 'invalid', retryAfterMs: null };
+  return { ok: true, userId: verified.id, session, next: safeNext(input.next) ?? '/' };
 }
 
 /** «Выйти на всех устройствах»: удалить все сессии сотрудника, включая текущую; аудит `session.logout_all`. */

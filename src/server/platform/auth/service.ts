@@ -1,6 +1,5 @@
 // Прикладной слой входа: открывает БД и транзакции, читает политику. Маршруты src/app/api/auth/**
 // (в интерфейсе нет доступа к БД) только разбирают тело, зовут эти функции и ставят cookie.
-// Когда обёртки P4a (route/publicRoute) появятся, маршруты перейдут на них, а логика останется здесь.
 import { getDb } from '../db';
 import { rateLimit } from '../ratelimit';
 import { acceptInvite, inspectInvite } from './invites';
@@ -13,11 +12,21 @@ import type { InvitePreview, LoginResult } from './types';
 const INVITE_LIMIT = 30;
 const INVITE_WINDOW_MS = 15 * 60_000;
 
-export async function loginRequest(input: { phone: string; password: string; next?: string | null; ip: string }): Promise<LoginResult> {
+/**
+ * Вход. Транзакцию открывает attemptLogin и только на выдачу сессии: bcrypt идёт вне неё (D-151).
+ * `previousToken` — токен cookie этого браузера: прежняя сессия гасится при новом входе.
+ */
+export async function loginRequest(input: {
+  phone: string;
+  password: string;
+  next?: string | null;
+  ip: string;
+  previousToken?: string | null;
+}): Promise<LoginResult> {
   const policy = await readSecurityPolicy();
   const rules = await readPhoneRules();
   const db = await getDb();
-  return db.tx((sql) => attemptLogin(sql, input, policy, Date.now(), rules));
+  return attemptLogin(db, input, policy, Date.now(), rules);
 }
 
 export async function logoutRequest(token: string | null): Promise<void> {

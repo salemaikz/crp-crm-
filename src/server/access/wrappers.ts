@@ -1,14 +1,14 @@
 // Обёртки route(), publicRoute(), page(), action() (ARCHITECTURE §5.2 п. 1–3, D-017, D-074).
 // Каждый route handler, server action и страница с данными обёрнуты и описаны в манифесте изоляции.
-// Порядок: Origin (мутирующий метод) → сессия → Viewer (перечитывается из БД) → блокировка
-// мутаций (роль «только чтение», лицензия; кроме D-054) → разрешение → обработчик → аудит.
-// Ошибки доступа — единые ответы без текста (errors.ts).
+// Порядок: Origin (мутирующий метод и любой server action) → сессия (продление срока перевыпускает
+// cookie, D-154) → Viewer (перечитывается из БД) → блокировка мутаций (роль «только чтение»,
+// лицензия; кроме D-054) → разрешение → обработчик → аудит. Ошибки доступа — единые ответы без текста.
 import { notFound, redirect } from 'next/navigation';
 import { access as coreAccess } from '@crm/core';
 import type { Permission, SecurityMutation } from '@crm/core/access';
 import { writeAudit, type AuditAction, type AuditEntity } from '@/server/platform/audit';
+import { checkOrigin as checkOriginHeaders } from '@/server/platform/auth/csrf';
 import { getDb } from '@/server/platform/db';
-import { readEnv } from '@/server/platform/env';
 import { AccessError, ForbiddenError, HTTP_STATUS, NotFoundError, ReadOnlyError, UnauthorizedError, errorBody, type AccessErrorCode } from './errors';
 import { resolveViewer } from './current';
 import { requireAccess } from './viewer';
@@ -92,11 +92,34 @@ export function checkGuard(viewer: Viewer, opts: GuardOptions, mutation: boolean
   requireAccess(viewer, opts.perm, target);
 }
 
-/** CSRF поверх SameSite=Lax: Origin мутирующего запроса = APP_ORIGIN (или origin самого запроса). */
+/**
+ * CSRF поверх SameSite=Lax (второй рубеж D-095, D-153): та же проверка, что в src/proxy.ts — auth/csrf.ts
+ * (Origin = нормализованный APP_ORIGIN, Sec-Fetch-Site; в production без APP_ORIGIN — отказ).
+ * Origin из req.url — только вне production и без APP_ORIGIN (разработка, тесты без заголовка Host).
+ */
 export function checkOrigin(req: Request): void {
-  const origin = req.headers.get('origin');
-  const expected = readEnv(process.env, 'APP_ORIGIN') ?? new URL(req.url).origin;
-  if (!origin || origin !== expected) throw new ForbiddenError();
+  let requestOrigin: string | undefined;
+  try {
+    requestOrigin = new URL(req.url).origin;
+  } catch {
+    requestOrigin = undefined;
+  }
+  if (checkOriginHeaders(req.headers, process.env, { requestOrigin }) !== 'ok') throw new ForbiddenError();
+}
+
+/**
+ * Origin server action. Next сам сверяет Origin с Host, но пропускает запрос вообще без Origin —
+ * поэтому проверка обязательна здесь. Нет области запроса (вызов вне Next) — отказ (fail closed).
+ */
+async function checkActionOrigin(): Promise<void> {
+  let h: Headers;
+  try {
+    const { headers } = await import('next/headers');
+    h = await headers();
+  } catch {
+    throw new ForbiddenError();
+  }
+  if (checkOriginHeaders(h, process.env) !== 'ok') throw new ForbiddenError();
 }
 
 /** Управляющие исключения Next (notFound, redirect и т. п.) пробрасываются как есть. */
@@ -236,8 +259,8 @@ export type ActionOptions<A extends unknown[], R> = GuardOptions & {
 };
 
 /**
- * Server action. Мутация — если разрешение пишущее (или 'authenticated'/'admin'). Origin для server
- * actions проверяет сам Next (сравнение с Host); сессия и права — здесь.
+ * Server action. Мутация — если разрешение пишущее (или 'authenticated'/'admin'). Origin проверяется
+ * всегда и до чтения сессии (D-095, D-153): action — это POST, а Next пропускает его без Origin.
  */
 export function action<A extends unknown[], R>(
   opts: ActionOptions<A, R>,
@@ -245,6 +268,7 @@ export function action<A extends unknown[], R>(
 ): (...args: A) => Promise<ActionResult<R>> {
   return async (...args: A): Promise<ActionResult<R>> => {
     try {
+      await checkActionOrigin();
       const viewer = await resolveViewer();
       checkGuard(viewer, opts, isMutation(opts.perm, true));
       const data = await fn({ viewer }, ...args);
