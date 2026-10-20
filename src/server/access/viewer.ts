@@ -2,24 +2,16 @@
 // членство → раздел ролей текущей ревизии настроек (getActiveConfig, парсится своей схемой Zod).
 // Кэша прав нет: отключение, смена роли и передача клиента действуют со следующего запроса.
 import { z } from 'zod';
-import {
-  RolesSchema,
-  hasAccess,
-  isValidTimeZone,
-  localDay,
-  roleGrants,
-  roleRelations,
-  type ActiveRelation,
-  type Permission,
-  type RoleConfig,
-  type Scope,
-} from '@crm/core/access';
+import { access as coreAccess } from '@crm/core';
+import type { ActiveRelation, Permission, RoleConfig, Scope } from '@crm/core/access';
 import { getDb } from '@/server/platform/db';
 import { resolvers } from './context';
 import { ForbiddenError, NotFoundError, UnauthorizedError } from './errors';
 import { registerActor } from './registry';
 import { loadMemberships, loadUser } from './repo';
 import type { LicenseState, Viewer } from './types';
+
+const { RolesSchema, hasAccess, isValidTimeZone, localDay, roleGrants, roleRelations } = coreAccess;
 
 export type BuildViewerOptions = {
   /** Пространство запроса; по умолчанию — пространство по умолчанию или первое с членством. */

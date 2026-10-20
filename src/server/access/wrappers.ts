@@ -4,7 +4,8 @@
 // мутаций (роль «только чтение», лицензия; кроме D-054) → разрешение → обработчик → аудит.
 // Ошибки доступа — единые ответы без текста (errors.ts).
 import { notFound, redirect } from 'next/navigation';
-import { PERMISSION_INFO, type Permission, type SecurityMutation } from '@crm/core/access';
+import { access as coreAccess } from '@crm/core';
+import type { Permission, SecurityMutation } from '@crm/core/access';
 import { writeAudit, type AuditAction, type AuditEntity } from '@/server/platform/audit';
 import { getDb } from '@/server/platform/db';
 import { readEnv } from '@/server/platform/env';
@@ -12,6 +13,8 @@ import { AccessError, ForbiddenError, HTTP_STATUS, NotFoundError, ReadOnlyError,
 import { resolveViewer } from './current';
 import { requireAccess } from './viewer';
 import { LOCKING_LICENSE_STATES, type Viewer } from './types';
+
+const { PERMISSION_INFO } = coreAccess;
 
 /** Что нужно для входа: разрешение каталога, просто вход или признак администратора. */
 export type Requirement = Permission | 'authenticated' | 'admin';

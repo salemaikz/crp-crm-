@@ -1,18 +1,12 @@
 // Геттер настроек (контракт между документом настроек и потребителями: доступ, раздача и др.).
 // Нормативно: docs/CONFIG.md §2, D-060. Алгоритм — packages/core/src/config/README.md §2.2.
 // Потребитель сам проверяет нужный ему раздел своей схемой Zod; здесь набор уже проверен целиком.
-import {
-  CONFIG_SCHEMA_VERSION,
-  ConfigInvalidError,
-  migrateDoc,
-  validateConfigSet,
-  type ActiveConfig,
-  type ConfigRevision,
-  type ConfigMigration,
-  type JsonObject,
-} from '@crm/core/config';
+import { config as coreConfig } from '@crm/core';
+import type { ActiveConfig, ConfigRevision, ConfigMigration, JsonObject } from '@crm/core/config';
 import { getDb, type Sql } from '../db';
 import { listHeads, listSpaces, loadCompatible } from './repo';
+
+const { CONFIG_SCHEMA_VERSION, ConfigInvalidError, migrateDoc, validateConfigSet } = coreConfig;
 
 /** Не чаще раза в 5 с проверяем головы ревизий (CONFIG §2). */
 export const CONFIG_CHECK_INTERVAL_MS = 5000;
@@ -87,7 +81,8 @@ async function loadAll(sql: Sql): Promise<ActiveConfig> {
     throw new ConfigInvalidError(check.issues);
   }
   return {
-    global: { rev: gl.rev, hash: gl.hash, doc: check.value.global },
+    rev: gl.rev,
+    global: { ...check.value.global, rev: gl.rev, hash: gl.hash, doc: check.value.global },
     spaces: Object.fromEntries(revs.map((r) => [r.key, { spaceId: r.id, rev: r.rev.rev, hash: r.rev.hash, doc: check.value.spaces[r.key]! }])),
     schemaVersion: CONFIG_SCHEMA_VERSION,
   };
@@ -126,6 +121,19 @@ export async function getActiveConfig(opts: { now?: number } = {}): Promise<Acti
   })();
   c.inflight = p;
   return p;
+}
+
+/**
+ * Активные настройки или null, если установка ещё не настроена (нет ни одной ревизии). Недействительный
+ * набор по-прежнему бросает ConfigInvalidError: оболочка и пояс не подменяются тихими умолчаниями.
+ */
+export async function getActiveConfigOrNull(opts: { now?: number } = {}): Promise<ActiveConfig | null> {
+  try {
+    return await getActiveConfig(opts);
+  } catch (e) {
+    if (e instanceof ConfigMissingError) return null;
+    throw e;
+  }
 }
 
 /** Чтение без кэша в переданной транзакции (запись, CLI export). */

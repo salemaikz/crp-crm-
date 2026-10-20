@@ -1,7 +1,10 @@
 // Шаг `crmctl update`: миграции настроек vN → vN+1 над живой ревизией каждой области (CONFIG §4).
 // Результат проверяется схемой набора целиком и пишется НОВОЙ ревизией source=migration; старая
 // остаётся для отката (D-060). Ошибка — исключение: выкладка не переключается.
-import { CONFIG_SCHEMA_VERSION, GLOBAL_SCOPE, migrateDoc, type ConfigMigration, type Json } from '@crm/core/config';
+import { config as coreConfig } from '@crm/core';
+import type { ConfigMigration, Json } from '@crm/core/config';
+
+const { CONFIG_SCHEMA_VERSION, GLOBAL_SCOPE, migrateDoc } = coreConfig;
 import { getDb } from '../db';
 import { listSpaces, loadCompatible } from './repo';
 import { writeConfig, type WriteResult } from './write';
