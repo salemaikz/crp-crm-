@@ -119,6 +119,8 @@ export interface EffectCard {
   ownerUserId: string | null;
   actingUserId: string | null;
   phoneDigits: ReadonlyMap<string, string>;
+  /** opId события: `assign_log.run_id`; нет — новый id. */
+  opId?: string;
 }
 
 /**

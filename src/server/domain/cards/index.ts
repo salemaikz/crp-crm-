@@ -1,0 +1,8 @@
+// Карточка обзвона на сервере: настройки, исполнитель эффектов, запись перехода, порт для записи.
+export { toCoreActor } from './actor';
+export { applyCardEffects, resolveLead } from './effects';
+export { countOwnerlessWorkingCards } from './invariants';
+export { cardBookingPort, createCardBookingPort } from './bookingPort';
+export { persistTransition } from './persist';
+export { loadCallingContext, parseCallingContext } from './settings';
+export * from './types';

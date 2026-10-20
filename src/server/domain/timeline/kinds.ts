@@ -16,8 +16,9 @@ export const EVENT_KINDS = {
   'phone.primary': { group: 'system', dataKeys: ['phoneId'] },
   'contact.added': { group: 'system', dataKeys: ['contactId'] },
   'contact.archived': { group: 'system', dataKeys: ['contactId'] },
-  // Звонки: данные задаёт C5
-  call: { group: 'calls', dataKeys: ['outcome', 'kind', 'durationSec', 'phoneId'] },
+  // Звонки (C5): код итога, вид, состояния «было → стало», номер разговора, длительность.
+  // Виды card.*, dnc.* пишутся в client_events, но в ленту не попадают, пока их не зарегистрирует поток clients вместе с подписями интерфейса.
+  call: { group: 'calls', dataKeys: ['outcome', 'outcomeKind', 'kind', 'fromState', 'toState', 'factReason', 'phoneId', 'durationSec'] },
   'call.voided': { group: 'calls', dataKeys: ['callId'] },
   // Текст заметки берётся из notes при чтении (C8)
   'note.created': { group: 'notes', dataKeys: ['noteId'] },
