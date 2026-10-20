@@ -1,7 +1,7 @@
 // crmctl seed: синтетические данные для учебного стенда и e2e (PLAN O8b). Коды выхода: 0 — успех; 1 — ошибка или отказ.
 // Не для боевой установки: при NODE_ENV=production нужен флаг --i-know-this-is-a-stand.
 // Пароли созданных сотрудников печатаются один раз; задать общий пароль можно переменной CRM_SEED_PASSWORD.
-// Запуск до реестра crmctl: tsx scripts/crmctl/seed.ts [флаги]
+// Запуск: crmctl seed [флаги] или tsx scripts/crmctl/seed.ts [флаги]
 import { pathToFileURL } from 'node:url';
 import { openScriptDb } from '../../src/server/platform/db';
 import { PASSWORD_ENV, runSeed, SeedRefusedError, STAND_FLAG, type SeedOptions } from '../seed';

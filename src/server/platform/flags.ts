@@ -13,6 +13,7 @@ export const FEATURES = [
   'PUSH',
   'MERGE',
   'BULK_TRANSFER',
+  'IMPORT',
   'WAZZUP',
   'TELEPHONY_ZADARMA',
   'TELEPHONY_BEELINE',

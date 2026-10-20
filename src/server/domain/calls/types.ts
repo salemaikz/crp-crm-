@@ -108,8 +108,6 @@ export interface SkipResponse {
 /** Пропуск: под блокировкой пропусков сотрудника (SKIP_LOCK_CLASS) — 12 одновременных дают ровно лимит. */
 export type SubmitSkip = (deps: CallsDeps, viewer: Viewer, req: SkipRequest) => Promise<SkipResponse>;
 
-/** Класс (первое int4) блокировки пропусков сотрудника: pg_advisory_xact_lock(SKIP_LOCK_CLASS, hashtext(userId)). */
-export const SKIP_LOCK_CLASS = 72_026_105;
 
 // ---------------------------------------------------------------------------
 // Очередь «Звонить» (PROCESS 2.5, 7.4; D-177)

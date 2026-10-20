@@ -60,7 +60,7 @@ export function tickInput(clock: Clock, runId: string = uuid(), slotAt: number =
   return { spaceId: SPACE, runId, slotAt, now: clock.now };
 }
 
-export const system = (now: number = SEED_NOW) => systemActor('distribute:sales', now);
+export const system = (now: number = SEED_NOW) => systemActor('distribute@sales', now);
 
 export async function openDistributionWorld(): Promise<TestDb> {
   return openWorld();

@@ -6,7 +6,7 @@ import type { Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db';
 import { phoneHmac } from '@/server/platform/hmac';
 import type { QueueGroup } from '@/server/domain/cards/types';
-import { SKIP_LOCK_CLASS } from './types';
+import { SKIP_LOCK_CLASS } from '@/server/platform/db/locks';
 
 // ---------------------------------------------------------------------------
 // Пропуски

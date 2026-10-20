@@ -187,8 +187,8 @@ compose), `/var/lib/crm/compose/` (текущий compose), `compose.prev/` (п�
 `+7 709 …`, служебные номера сотрудников — `+7 709 100 00 NN`. **На боевой установке не запускать.**
 
 ```
-npx tsx scripts/crmctl/seed.ts [--seed <зерно>] [--clients 500] [--operators 5] [--layers a,b,…] [--i-know-this-is-a-stand]
-# после регистрации в реестре crmctl: crmctl seed …
+crmctl seed [--seed <зерно>] [--clients 500] [--operators 5] [--layers a,b,…] [--i-know-this-is-a-stand]
+# из исходников: npx tsx scripts/crmctl/seed.ts …
 ```
 
 Нужны накатанные миграции и `DATABASE_URL` (как у остальных команд). Что происходит по порядку:
@@ -226,4 +226,6 @@ production-режиме задайте `CRM_PHONE_HMAC_KEY` (иначе стоп
 - Переключение — пересоздание `app` (секунды простоя, страница обслуживания), не бесшовная замена:
   два `app` с публикацией порта и псевдонимом `crm-app` одновременно не живут. Новая версия до
   этого проверяется отдельным контейнером.
-- `worker` не стартует, пока нет `dist/worker.mjs` (задача воркера); `app` от этого не зависит.
+- Живость `worker` проверяет `node dist/worker.mjs --health`: свежий файл пульса (healthcheck в compose).
+  Ручной запуск фоновых задач и просмотр журнала: `crmctl job list`, `crmctl job run <имя> [--space <ключ>]`;
+  прогон идёт под той же блокировкой, что у воркера, параллельный запуск пропускается.

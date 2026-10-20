@@ -63,3 +63,11 @@ test('run: update без установки — понятная ошибка', 
   assert.equal(await run(['update', '/nowhere'], f.deps), 1);
   assert.match(f.err.join('\n'), /сначала crmctl install/);
 });
+
+test('seed и job зарегистрированы в реестре и описаны в USAGE', async () => {
+  const { rawCommands, USAGE } = await import('../../../scripts/crmctl/index');
+  for (const name of ['seed', 'job']) {
+    assert.equal(typeof rawCommands[name], 'function', name);
+    assert.match(USAGE, new RegExp(`\\n  ${name} `));
+  }
+});

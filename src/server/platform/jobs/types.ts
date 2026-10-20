@@ -163,8 +163,8 @@ export const JOB_DEFAULT_MAX_ATTEMPTS = 3;
 /** После таймаута задаче даётся столько на выход; дальше процесс завершается (контейнер перезапустится). */
 export const JOB_HARD_KILL_GRACE_MS = 30_000;
 
-/** Класс (первое int4) сессионных advisory-блокировок задач: pg_try_advisory_lock(JOB_LOCK_CLASS, hashtext(runName)). */
-export const JOB_LOCK_CLASS = 72_026_106;
+// Класс блокировок задач живёт со всеми остальными ключами (db/locks.ts)
+export { JOB_LOCK_CLASS } from '../db/locks';
 
 // ---------------------------------------------------------------------------
 // Циклы очередей (inbox/outbox) — каждые 5 с, FOR UPDATE SKIP LOCKED
