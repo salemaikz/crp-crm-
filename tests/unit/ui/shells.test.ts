@@ -86,11 +86,11 @@ test('«Сотрудники» — только администратору, д
   assert.ok(hrefs(menuOf(rop, { isAdmin: true })).includes('/team'));
 });
 
-test('администратор без роли: только «Сотрудники», главная — она же', () => {
+test('администратор без роли: «Настройки» и «Сотрудники», главная — «Сотрудники»', () => {
   const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
   const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
-  assert.deepEqual(hrefs(m), ['/team']);
-  assert.equal(m.home, '/team');
+  assert.deepEqual(hrefs(m), ['/settings', '/team']); // «Настройки» открыты администратору (orAdmin, R2b)
+  assert.equal(m.home, '/team', 'главная — не пункт orAdmin');
 });
 
 test('нет ни ролей, ни прав: пунктов нет, главная — личный кабинет', () => {
@@ -141,4 +141,10 @@ test('isCurrentPath: точное совпадение и вложенные а�
   assert.ok(isCurrentPath('/clients/abc', '/clients'));
   assert.ok(!isCurrentPath('/clients-old', '/clients'));
   assert.ok(!isCurrentPath(null, '/clients'));
+});
+
+test('администратор без роли видит «Настройки» (orAdmin), оператор — нет (R2b)', () => {
+  const noRole = (isAdmin: boolean) => buildMenu({ shell: 'manager', menu: [], can: () => false, isAdmin, features: ALL });
+  assert.ok(hrefs(noRole(true)).includes('/settings'));
+  assert.ok(!hrefs(noRole(false)).includes('/settings'));
 });

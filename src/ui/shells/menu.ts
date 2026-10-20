@@ -23,6 +23,8 @@ type CatalogItem = {
   feature?: string;
   /** Только администратор установки (раздел сам проверяет это же право). */
   adminOnly?: boolean;
+  /** Пункт виден и администратору установки независимо от меню роли и прав (раздел сам проверяет доступ). */
+  orAdmin?: boolean;
 };
 
 type ShellSpec = {
@@ -57,7 +59,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'bookings', href: '/bookings', keys: ['bookings'], perm: 'booking.read' },
       { id: 'kanban', href: '/deals', keys: ['deals'], perm: 'deal.read', feature: 'KANBAN' },
       { id: 'reports', href: '/reports', keys: ['reports'], perm: 'report.view' },
-      { id: 'settings', href: '/settings', keys: ['settings'], perm: 'settings.sales' },
+      { id: 'settings', href: '/settings', keys: ['settings'], perm: 'settings.sales', orAdmin: true },
       { id: 'pool', href: '/pool', keys: ['pool'], perm: 'pool.read' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'import', href: '/import', keys: ['import'], perm: 'import.run', feature: 'IMPORT' },
@@ -114,16 +116,20 @@ export function buildMenu(input: MenuInput): BuiltMenu {
   const spec = SHELLS[input.shell];
   const seen = new Set<string>();
   const items: MenuItem[] = [];
+  const byRoleHrefs: string[] = [];
   for (const it of spec.items) {
     if (it.adminOnly && !input.isAdmin) continue;
-    if (it.keys && !it.keys.some((k) => input.menu.includes(k))) continue;
-    if (it.perm && !input.can(it.perm)) continue;
+    const adminPass = it.orAdmin === true && input.isAdmin;
+    const byRole = (!it.keys || it.keys.some((k) => input.menu.includes(k))) && (!it.perm || input.can(it.perm));
+    if (!byRole && !adminPass) continue;
     if (it.feature && !input.features?.has(it.feature)) continue;
     if (seen.has(it.href)) continue;
     seen.add(it.href);
     items.push({ id: it.id, href: it.href });
+    // пункт, открытый администратору только исключением orAdmin, главной не становится
+    if (byRole || it.adminOnly) byRoleHrefs.push(it.href);
   }
-  return { shell: input.shell, items, bottomSlots: spec.bottomSlots, home: items[0]?.href ?? '/account' };
+  return { shell: input.shell, items, bottomSlots: spec.bottomSlots, home: byRoleHrefs[0] ?? items[0]?.href ?? '/account' };
 }
 
 /** Пункт текущий, если адрес совпал или лежит внутри раздела (`/clients` и `/clients/x`). */
