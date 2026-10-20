@@ -129,3 +129,14 @@ test('legalFormsFromConfig: однословный алиас до 6 букв �
   assert.equal(normalizeCompanyName('ТОО «Пример»', forms), 'пример');
   assert.equal(normalizeCompanyName('Индивидуальный предприниматель Пример', forms), 'пример');
 });
+
+test('legalFormsFromConfig: признак idIsPersonal переносится из настроек (D-141)', async () => {
+  const { legalFormsFromConfig } = await import('./index.js');
+  const forms = legalFormsFromConfig([
+    { key: 'too', aliases: ['ТОО'], idIsPersonal: false },
+    { key: 'ip', aliases: ['ИП'], idIsPersonal: true },
+  ]);
+  assert.equal(forms[0]?.idIsPersonal, false);
+  assert.equal(forms[1]?.idIsPersonal, true);
+  assert.deepEqual(forms[1], { key: 'ip', full: [], short: ['ИП'], idIsPersonal: true });
+});

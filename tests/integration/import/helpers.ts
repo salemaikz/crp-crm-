@@ -1,11 +1,10 @@
 // Помощники интеграционных тестов импорта: синтетические настройки, сотрудники, загрузка файлов.
-// Только синтетика (+7 709 …). Профиль «диапазон строк → оператор» в схему настроек пока не ложится,
-// поэтому слоты и fieldTargets подставляются через overrideImportContextForTests.
+// Только синтетика (+7 709 …). Слоты «диапазон строк → оператор» и fieldTargets пишутся в настоящую ревизию
+// настроек, как это делает установка через `crmctl config set` (D-191).
 import { imports } from '@crm/core';
 import type { Json } from '@crm/core/config';
 import { minimalSet } from '@crm/core/config/testing/minimal';
 import { generateSyntheticSheets } from '../../../packages/core/src/import/syntheticSheets';
-import { overrideImportContextForTests, loadImportContextFromConfig } from '../../../src/server/domain/import/settings';
 import { importService, type ImportActor } from '../../../src/server/domain/import';
 import { resetConfigCache } from '../../../src/server/platform/config/active';
 import { writeConfig } from '../../../src/server/platform/config/write';
@@ -47,8 +46,30 @@ export const SYSTEM_COLUMNS = {
   Заметка: 'note',
 };
 
-/** Настройки установки для импорта: две формы, источник import с правилом «ИП на разбор юриста», профиль. */
-export function importDocs(): { global: Json; spaces: Record<string, Json> } {
+/** Куда пишутся поля таблицы: руководитель и ОКЭД — клиенту, ниша — карточке. */
+export const FIELD_TARGETS = { head: { object: 'client', fieldKey: 'head_name' }, activity: { object: 'client', fieldKey: 'okved' }, niche: { object: 'card', fieldKey: 'niche' } } as const;
+
+/** Слот профиля в настройках: только ярлык и диапазоны (имя и цвет генератора в настройки не идут). */
+export type SlotSetting = { label: string; ranges: [number, number][] };
+
+/**
+ * Генератор при rows < 200 даёт диапазоны вне таблицы (`[203, 52]`, `[-47, 52]`), а схема настроек их не
+ * принимает. Приводим к допустимым с тем же покрытием реальных строк: начало ≥ 1, пустой диапазон — одна
+ * строка за концом таблицы.
+ */
+function validRange([a, b]: readonly [number, number]): [number, number] {
+  const from = Math.max(1, a);
+  return [from, Math.max(from, b)];
+}
+
+/**
+ * Настройки установки для импорта: две формы, источник import с правилом «ИП на разбор юриста», профиль.
+ * Слоты и fieldTargets — как их задаёт установка; по умолчанию пусто (как в пресете).
+ */
+export function importDocs(opts: { slots?: readonly SlotSetting[]; fieldTargets?: Record<string, { object: 'client' | 'card'; fieldKey: string }> } = {}): {
+  global: Json;
+  spaces: Record<string, Json>;
+} {
   const s = minimalSet();
   const g = s.global as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- документ собирается по путям
   g.org.legalForms = [
@@ -88,6 +109,8 @@ export function importDocs(): { global: Json; spaces: Record<string, Json> } {
       columns: SYSTEM_COLUMNS,
       valueMaps: { outcome: {}, lpr: { да: true, нет: false }, target: { целевой: true, 'не целевой': false } },
       ownerBy: 'row_ranges',
+      ...(opts.slots ? { ownerSlots: opts.slots.map((x) => ({ label: x.label, ranges: x.ranges.map(validRange) })) } : {}),
+      ...(opts.fieldTargets ? { fieldTargets: opts.fieldTargets } : {}),
       outcomePriority: ['do_not_call', 'not_target', 'agreed', 'not_interested', 'bad_number', 'callback', 'no_answer'],
       snapshotDate: null,
     },
@@ -95,9 +118,9 @@ export function importDocs(): { global: Json; spaces: Record<string, Json> } {
   return { global: g as Json, spaces: { sales: sp as Json } };
 }
 
-export async function installImportConfig(): Promise<void> {
+export async function installImportConfig(opts: Parameters<typeof importDocs>[0] = {}): Promise<void> {
   resetConfigCache();
-  await writeConfig({ docs: importDocs(), source: 'cli', authorId: null, project: true, note: 'import test' });
+  await writeConfig({ docs: importDocs(opts), source: 'cli', authorId: null, project: true, note: 'import test' });
 }
 
 export async function spaceIdOf(db: DbHandle, key = 'sales'): Promise<string> {
@@ -126,13 +149,13 @@ export interface World {
   sheets: ReturnType<typeof generateSyntheticSheets>;
 }
 
-/** Синтетический мир: настройки, РОП, операторы под слоты генератора, подмена профиля со слотами. */
+/** Синтетический мир: РОП, операторы под слоты генератора, настройки со слотами и fieldTargets. */
 export async function makeWorld(db: DbHandle, rows = 2200, seed = 7, slotsOverride?: imports.OperatorSlot[]): Promise<World> {
   process.env.FEATURE_IMPORT = '1';
-  await installImportConfig();
-  const spaceId = await spaceIdOf(db);
   const generated = generateSyntheticSheets({ rows, seed });
   const sheets = slotsOverride ? { ...generated, slots: slotsOverride } : generated;
+  await installImportConfig({ slots: sheets.slots, fieldTargets: { ...FIELD_TARGETS } });
+  const spaceId = await spaceIdOf(db);
   const leadId = await mkUser(db, 0, 'Руководитель Синтетик');
   await mkMember(db, leadId, spaceId, 'lead');
   const ownerMap: Record<string, string> = {};
@@ -143,20 +166,6 @@ export async function makeWorld(db: DbHandle, rows = 2200, seed = 7, slotsOverri
     ownerMap[slot.label] = id;
     n++;
   }
-  overrideImportContextForTests(async (sid) => {
-    const base = await loadImportContextFromConfig(sid);
-    return {
-      ...base,
-      settings: {
-        ...base.settings,
-        profiles: base.settings.profiles.map((p) => ({
-          ...p,
-          ownerBy: { kind: 'row_ranges', slots: sheets.slots },
-          fieldTargets: { head: { object: 'client', fieldKey: 'head_name' }, activity: { object: 'client', fieldKey: 'okved' }, niche: { object: 'card', fieldKey: 'niche' } },
-        })),
-      },
-    };
-  });
   return { spaceId, lead: { userId: leadId, spaceId }, ownerMap, sheets };
 }
 

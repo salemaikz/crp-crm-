@@ -3,7 +3,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { ImportError, importService } from '../../../src/server/domain/import';
-import { overrideImportContextForTests } from '../../../src/server/domain/import/settings';
 import { createTestDb, type TestDb } from '../../../src/server/platform/db/testing';
 import { SpreadsheetError } from '../../../src/server/platform/files';
 import { xlsx } from '../../unit/import/xlsxBuilder';
@@ -16,7 +15,6 @@ before(async () => {
   w = await makeWorld(db, 50, 3);
 });
 after(async () => {
-  overrideImportContextForTests(null);
   await db.close();
 });
 
