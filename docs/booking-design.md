@@ -294,8 +294,10 @@ type)`; `current` — активная будущая запись клиент�
 - `advanceOnAttended`: этап `onAttendedStageKey`, если его `order` больше текущего (только вперёд); лента `deal.stage`.
 - `applyDealEffects` для C5: `ensure_open`, `advance`, `set_needs_rebook` (по `bookings.deal_id`),
   `lose_created_by` (сделка с `request_id = opId`, `status → lost`, `lost_reason_code = 'input_error'`).
-  Остальные операции (`lose_open`, `lose`, `win`, `cancel_purchase`, `reassign_open`) — бросают
-  «B6/B9a» до своих задач; вызывающий их пока не порождает в путях B2.
+  `lose_open` (C5, сведение дня 3): все открытые сделки клиента в пространстве → `lost` с причиной итога
+  (PROCESS 4.1), лента `deal.lost` на каждую; открытых нет — ничего, не бросает. Остальные операции
+  (`lose`, `win`, `cancel_purchase`, `reassign_open`) — бросают «B6/B9a» до своих задач; вызывающий их
+  пока не порождает в путях B2.
 
 ## 8. Автонеявка, гость без записи, консультации
 
