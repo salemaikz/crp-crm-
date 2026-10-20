@@ -4,6 +4,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDb, type TestDb } from '../../../src/server/platform/db/testing';
 import { overrideAccessForTests, resetAccessForTests } from '../../../src/server/access/testing';
+import { resetRateLimit } from '../../../src/server/platform/ratelimit';
 import { systemActor } from '../../../src/server/access/systemActor';
 import { revokeKey, uiKeys, createKey, listKeys } from '../../../src/server/domain/intake';
 import { MAX_BODY_BYTES } from '../../../src/server/domain/intake';
@@ -26,6 +27,8 @@ after(async () => {
 beforeEach(() => {
   for (const k of ENV) delete process.env[k];
   resetAccessForTests();
+  // Счётчик неудачных ключей живёт в памяти процесса; без доверенного IP все запросы теста — один «unknown»
+  resetRateLimit('ingest:fail:unknown');
 });
 
 const code = async (r: Response) => ((await r.json()) as any).error?.code;
@@ -149,23 +152,37 @@ test('ошибки конверта: 400 с путями и кодами, без
   assert.deepEqual(await counts(db), before);
 });
 
-test('закрыто снаружи: INGEST_PUBLIC≠1 и заголовок X-Via-Proxy → 404 на обоих маршрутах, даже с верным ключом', async () => {
-  const before = await counts(db);
-  for (const value of [undefined, '0', '', 'true']) {
-    if (value === undefined) delete process.env.INGEST_PUBLIC;
-    else process.env.INGEST_PUBLIC = value;
-    const w = await post(key, ok(), { headers: { 'x-via-proxy': '1' } });
-    assert.equal(w.status, 404, `INGEST_PUBLIC=${String(value)}`);
-    assert.equal(await code(w), 'not_found');
-    assert.equal((await getDemand(key, { 'x-via-proxy': '1' })).status, 404);
+test('закрыто снаружи (D-155): через прокси с верным секретом — только при INGEST_PUBLIC=1; метка без секрета — подделка, закрыта всегда', async () => {
+  const SECRET = 'synthetic-proxy-secret-0123456789abcdef';
+  const prevSecret = process.env.CRM_PROXY_SECRET;
+  process.env.CRM_PROXY_SECRET = SECRET;
+  const viaProxy = { 'x-via-proxy': '1', 'x-proxy-secret': SECRET };
+  const forged = { 'x-via-proxy': '1' };
+  try {
+    const before = await counts(db);
+    for (const value of [undefined, '0', '', 'true']) {
+      if (value === undefined) delete process.env.INGEST_PUBLIC;
+      else process.env.INGEST_PUBLIC = value;
+      const w = await post(key, ok(), { headers: viaProxy });
+      assert.equal(w.status, 404, `INGEST_PUBLIC=${String(value)}`);
+      assert.equal(await code(w), 'not_found');
+      assert.equal((await getDemand(key, viaProxy)).status, 404);
+    }
+    assert.deepEqual(await counts(db), before);
+    // из сети Docker (без меток прокси) работает
+    assert.equal((await post(key, ok())).status, 200);
+    // открытый приём (INGEST_PUBLIC=1) через настоящий прокси работает, ключ по-прежнему обязателен
+    process.env.INGEST_PUBLIC = '1';
+    assert.equal((await post(key, ok(), { headers: viaProxy })).status, 200);
+    assert.equal((await post(null, ok(), { headers: viaProxy })).status, 401);
+    // метка прокси без верного секрета — подделка: закрыто даже при INGEST_PUBLIC=1
+    assert.equal((await post(key, ok(), { headers: forged })).status, 404);
+    assert.equal((await post(key, ok(), { headers: { ...forged, 'x-proxy-secret': 'wrong' } })).status, 404);
+  } finally {
+    if (prevSecret === undefined) delete process.env.CRM_PROXY_SECRET;
+    else process.env.CRM_PROXY_SECRET = prevSecret;
+    delete process.env.INGEST_PUBLIC;
   }
-  assert.deepEqual(await counts(db), before);
-  // из сети Docker (без заголовка) работает
-  assert.equal((await post(key, ok())).status, 200);
-  // открытый приём (INGEST_PUBLIC=1) через прокси работает, ключ по-прежнему обязателен
-  process.env.INGEST_PUBLIC = '1';
-  assert.equal((await post(key, ok(), { headers: { 'x-via-proxy': '1' } })).status, 200);
-  assert.equal((await post(null, ok(), { headers: { 'x-via-proxy': '1' } })).status, 401);
 });
 
 test('маршруты обёрнуты publicRoute: те же ответы через route.ts', async () => {
