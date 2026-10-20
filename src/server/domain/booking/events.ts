@@ -254,13 +254,15 @@ export const cancelEvent: CancelEvent = async (deps, viewer, input) => {
 
     // 7. события карточек: «Договорились» с этой записью → `booking_cancelled` (причина `client`, 12.26);
     // отказ ядра (`stale`) запись не откатывает, а попадает в историю
+    // Событие идёт системно (`system: true`), а не с охватом отменяющего: team/own на чужие карточки гостей не
+    // распространяется, а переход «Договорились → Перезвонить» — следствие отмены, не действие сотрудника (контракт CardPort).
     const cardResult = new Map<string, string>();
     for (const b of active) {
       const card = locked.get(b.cardId);
       if (!card) throw new Error('booking: карточка записи не заблокирована при отмене мероприятия');
       if (card.state !== 'agreed') continue;
       const facts = { hasOtherFutureBooking: await hasOtherFutureBooking(tx, { spaceId: b.spaceId, clientId: b.clientId, excludeId: b.id, now }) };
-      const rejected = await noteCardEvent(deps, tx, viewer, card, { type: 'booking_cancelled', opId: input.opId, bookingId: b.id, reason: 'client', createdByOpId: null, facts }, now);
+      const rejected = await noteCardEvent(deps, tx, viewer, card, { type: 'booking_cancelled', opId: input.opId, bookingId: b.id, reason: 'client', createdByOpId: null, facts }, now, { system: true });
       if (rejected) cardResult.set(b.id, rejected);
     }
 

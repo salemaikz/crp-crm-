@@ -112,3 +112,9 @@ test('кнопка «Позвонить» — ссылка tel: и единст�
     assert.doesNotMatch(src, /variant="primary"/, f);
   }
 });
+
+test('card.state: подпись по новому состоянию, незнакомое — общая строка', () => {
+  assert.equal(describeEvent({ kind: 'card.state', data: { fromState: 'new', toState: 'agreed' } }, ctx).key, 'feed.kinds.cardState.agreed');
+  assert.equal(describeEvent({ kind: 'card.state', data: { toState: 'future_state' } }, ctx).key, 'feed.kinds.card_state');
+  assert.equal(describeEvent({ kind: 'dnc.set', data: {} }, ctx).key, 'feed.kinds.dnc_set');
+});

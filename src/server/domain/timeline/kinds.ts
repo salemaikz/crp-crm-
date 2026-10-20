@@ -17,7 +17,6 @@ export const EVENT_KINDS = {
   'contact.added': { group: 'system', dataKeys: ['contactId'] },
   'contact.archived': { group: 'system', dataKeys: ['contactId'] },
   // Звонки (C5): код итога, вид, состояния «было → стало», номер разговора, длительность.
-  // Виды card.*, dnc.* пишутся в client_events, но в ленту не попадают, пока их не зарегистрирует поток clients вместе с подписями интерфейса.
   call: { group: 'calls', dataKeys: ['outcome', 'outcomeKind', 'kind', 'fromState', 'toState', 'factReason', 'phoneId', 'durationSec'] },
   'call.voided': { group: 'calls', dataKeys: ['callId'] },
   // Текст заметки берётся из notes при чтении (C8)
@@ -30,6 +29,20 @@ export const EVENT_KINDS = {
   'deal.created': { group: 'deals', dataKeys: ['dealId', 'pipelineKey', 'stageKey'] },
   'deal.stage': { group: 'deals', dataKeys: ['dealId', 'from', 'to', 'cause', 'bookingId'] },
   'deal.lost': { group: 'deals', dataKeys: ['dealId', 'reasonCode'] },
+  // Карточка обзвона (C5): только коды, id сотрудников и счётчики; номера и тексты в данные не пишутся
+  'card.created': { group: 'system', dataKeys: ['sourceKey'] },
+  'card.state': { group: 'system', dataKeys: ['fromState', 'toState', 'cause'] },
+  'card.assigned': { group: 'system', dataKeys: ['toUserId', 'mode'] },
+  'card.released': { group: 'system', dataKeys: ['fromUserId'] },
+  'card.transferred': { group: 'system', dataKeys: ['fromUserId', 'toUserId'] },
+  'card.acting': { group: 'system', dataKeys: ['actingUserId', 'untilDay'] },
+  'card.merged': { group: 'system', dataKeys: ['otherCardId', 'stateFrom'] },
+  'dnc.set': { group: 'system', dataKeys: ['phonesAdded', 'phonesToReview'] },
+  'dnc.cleared': { group: 'system', dataKeys: ['phonesRemoved'] },
+  // Загрузка таблицы (C4). Сырой текст ячейки ответа (`answerRaw`) в data не хранится и в ленту не отдаётся:
+  // он может содержать ПДн. Ключ строки и ключ состояния — служебные (для сверки повторной загрузки), в ленту не идут.
+  'import.row': { group: 'system', dataKeys: ['importId', 'rowNo', 'action', 'outcomeKey'] },
+  'client.created': { group: 'system', dataKeys: ['sourceKind', 'importId'] },
 } as const satisfies Record<string, KindSpec>;
 
 export type EventKind = keyof typeof EVENT_KINDS;
