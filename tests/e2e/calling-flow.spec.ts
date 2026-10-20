@@ -3,6 +3,7 @@
 // Синтетика: номера +7 709 …, названия «ТОО Синтетика …».
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { dumpDevice, expectNoClientTraces } from './support/device';
 import { DB_URL, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, prepareDb, seedGroupEvents, sql } from './support/calling';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -281,42 +282,14 @@ test('после выхода на телефоне нет названий и �
   // Шторка открыта и черновик записан в localStorage; итог ушёл — после выхода от них не должно остаться следов
   await page.getByTestId('call-button').click();
   await expect(page.getByTestId('outcome-sheet')).toBeVisible();
+  // Проверка не пустая: до выхода название компании на устройстве есть
+  await expect.poll(async () => (await dumpDevice(page)).includes(op.names[0]!)).toBe(true);
   await page.getByTestId('outcome-no_answer').click();
   await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 40_000 }).toBe(1);
   await page.getByRole('button', { name: 'Ещё' }).click();
   await page.getByTestId('logout').click();
   await page.waitForURL(/\/login/);
 
-  const dump = await page.evaluate(async () => {
-    const out: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) out.push(`ls:${localStorage.key(i)}=${localStorage.getItem(localStorage.key(i)!)}`);
-    const dbs = (await indexedDB.databases?.()) ?? [];
-    for (const info of dbs) {
-      if (!info.name) continue;
-      const db = await new Promise<IDBDatabase>((res, rej) => {
-        const r = indexedDB.open(info.name!);
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      });
-      for (const name of Array.from(db.objectStoreNames)) {
-        const rows = await new Promise<unknown[]>((res, rej) => {
-          const g = db.transaction(name).objectStore(name).getAll();
-          g.onsuccess = () => res(g.result);
-          g.onerror = () => rej(g.error);
-        });
-        out.push(`${info.name}/${name}=${JSON.stringify(rows)}`);
-      }
-      db.close();
-    }
-    for (const cn of await caches.keys()) {
-      const c = await caches.open(cn);
-      for (const r of await c.keys()) out.push(`cache:${cn}:${r.url}=${await (await c.match(r))!.text()}`);
-    }
-    return out.join('\n');
-  });
-  for (const name of op.names) expect(dump).not.toContain(name);
-  expect(dump).not.toContain('Синтетик');
-  // Ключи черновика и счётчика: проверяем только localStorage (в статике сборки это имя встречается в коде)
-  expect(dump).not.toMatch(/^ls:crm\.call\.(pending|tally)\./m);
-  expect(dump).not.toMatch(/\+7 ?\(?7\d\d/);
+  // Всё хранилище устройства (localStorage, все базы IndexedDB, Cache Storage): номера как в БД (7709…), названия, ЛПР
+  await expectNoClientTraces(page, op);
 });
