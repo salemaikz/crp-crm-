@@ -5,7 +5,8 @@ import type { ActiveRelation, Permission, Scope } from '@crm/core/access';
 export type { ActiveRelation, Permission, Scope };
 
 /**
- * Состояние лицензии (ARCHITECTURE §8.4). Считает P10; до него — заглушка `valid` (license.ts).
+ * Состояние лицензии (ARCHITECTURE §8.4, D-211): свёртка подробного состояния ядра (`@crm/core` license),
+ * считает license.ts. `grace` — истёк срок или лицензия перестала сходиться, идёт льгота: всё работает.
  * `read_only`, `invalid`, `missing` запрещают мутации (423), кроме мутаций безопасности (D-054).
  */
 export type LicenseState = 'valid' | 'grace' | 'read_only' | 'invalid' | 'missing';
