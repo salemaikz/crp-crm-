@@ -5,6 +5,7 @@ import { time } from '@crm/core';
 import type { ActiveConfig } from '@crm/core/config';
 import { systemActor } from '../../../src/server/access/systemActor';
 import { instancesFor, invariantParts, jobDefinitions, purgeParts, queueSpecs } from '../../../src/server/jobs/registry';
+import { licenseJobHandler } from '../../../src/server/platform/license/job';
 import { slotFor } from '../../../src/server/platform/jobs/slot';
 import type { JobDefinition } from '../../../src/server/platform/jobs/types';
 
@@ -40,9 +41,12 @@ test('perSpace раскладывается по пространствам, о�
   assert.deepEqual(out[0]!.space, { id: 's1', key: 'sales' });
 });
 
-test('в реестре есть events-ensure, purge, invariants; license — заглушка с запуском при старте', () => {
+test('в реестре есть events-ensure, purge, invariants, digest, alarms; license — настоящий обработчик с запуском при старте', () => {
   const byName = new Map(jobDefinitions().map((d) => [d.name, d]));
-  for (const n of ['events-ensure', 'distribute', 'purge', 'invariants', 'license', 'config-integrity']) assert.ok(byName.has(n), n);
+  for (const n of ['events-ensure', 'distribute', 'purge', 'invariants', 'license', 'config-integrity', 'digest', 'alarms']) assert.ok(byName.has(n), n);
+  assert.equal(byName.get('license')!.handler, licenseJobHandler);
+  assert.equal(byName.get('digest')!.perSpace, true);
+  assert.equal(byName.get('alarms')!.perSpace, true);
   assert.equal(byName.get('license')!.runOnStart, true);
   assert.equal(byName.get('events-ensure')!.schedule({ global: {}, space: null })!.kind, 'daily');
   assert.deepEqual(queueSpecs().map((q) => q.name), ['webhook_inbox', 'push_outbox']);
