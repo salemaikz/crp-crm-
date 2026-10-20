@@ -79,7 +79,13 @@ export interface ImportProfile {
   /** Поля, входящие в ключ состояния (по умолчанию `DEFAULT_STATE_FIELDS`). */
   stateFields?: readonly string[];
   noteMarkers?: readonly NoteMarker[];
-  /** Формы собственности с «личным» номером (ИП): 12 цифр — ИИН, хранится только HMAC. */
+  /**
+   * Дополнительные формы с «личным» номером: 12 цифр — ИИН, хранится только HMAC. Объединяются с формами
+   * словаря, у которых `idIsPersonal` (ИП, КХ): профиль может добавить форму, но не снять признак со
+   * словарной. Любое написание («ип», «ИП», «Индивидуальный предприниматель») приводится к коду формы.
+   * Если «личные» формы есть (в словаре или профиле), строка с 12 цифрами и неизвестной формой тоже
+   * считается «личной» (D-141).
+   */
   personalIdForms?: readonly string[];
 }
 
@@ -91,10 +97,15 @@ export interface ImportNormalizers {
   normalizePerson(raw: string): string;
   /** Ячейка с номерами → номера (несколько в ячейке, заглушки остаются с `digits: null`). */
   splitPhones(cell: string): NormalizedPhone[];
-  /** Форма собственности по колонке «Тип» и названию → нормализованный код (`тоо`, `ип`…) или пусто. */
-  legalFormOf(typeCell: string, name: string): string;
+  /**
+   * Форма собственности по колонке «Тип» и названию → код (`тоо`, `ип`…) или пусто.
+   * `typeUnknown` — колонка «Тип» непустая, но значение не распознано (строка идёт на разбор).
+   */
+  legalFormOf(typeCell: string, name: string): { code: string; typeUnknown: boolean };
   /** БИН/ИИН: ровно 12 цифр или `null`. */
   normalizeOrgId(raw: string): string | null;
+  /** Коды форм словаря с `idIsPersonal` (`ип`, `кх`): номер у них — ИИН при любом профиле (D-141). */
+  readonly personalFormCodes: readonly string[];
 }
 
 /** Хэш для ключей строки и состояния (синхронный; сервер подставляет sha256). Не HMAC: ПДн наружу не уходят. */
@@ -130,9 +141,18 @@ export interface ParsedRow {
   head: string;
   headNorm: string;
   region: string;
+  /**
+   * БИН или ИИН — 12 цифр; после `redactPersonalId` у «личных» — ключ `iin:<HMAC>` (D-052).
+   */
   orgId: string | null;
-  /** Форма с «личным» номером: ИИН хранить только HMAC. */
+  /** Форма с «личным» номером (или форма не известна, D-141): ИИН хранить и сравнивать только по HMAC. */
   orgIdPersonal: boolean;
+  /**
+   * `orgIdPersonal` только потому, что форма не определена (пусто или «Тип» не распознан), а не по
+   * «личной» форме: 12 цифр могут быть и БИН. Предпросмотр сверяет их с открытыми БИН (D-141).
+   * Необязательно: строки, записанные в `import_rows.parsed` до признака, считаются уверенными.
+   */
+  orgIdUncertain?: boolean;
   phones: NormalizedPhone[];
   /** Рабочие номера (канон), без повторов. */
   workingPhones: string[];

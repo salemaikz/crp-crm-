@@ -169,7 +169,9 @@ export function generateSyntheticSheets(opts: SyntheticOptions = {}): SyntheticS
   const wrong = take(scale(9));
   wrong.forEach((i) => set(i, C.phone, fmtPhone(`799${digits(7)}`)));
   meta.wrongPrefixRows = wrong.map(rowNo);
-  const stubs = ['+7 777 777 77 77', '+7 709 000 00 00', '+7 709 111 11 11', '+7 701 222 22 22', '+7 702 333 33 33', '+7 705 555 55 55', '+7 700 000 00 00'];
+  // Заглушки (D-144): абонентская часть из нулей или одинаковые цифры при неизвестном коде (799, 798…).
+  // «Красивые» номера с известным кодом — рабочие, их здесь нет.
+  const stubs = ['+7 799 999 99 99', '+7 709 000 00 00', '+7 798 111 11 11', '+7 797 222 22 22', '+7 796 333 33 33', '+7 795 555 55 55', '+7 700 000 00 00'];
   take(7).forEach((i, k) => {
     set(i, C.phone, stubs[k % stubs.length] as string);
     meta.stubPhoneRows.push(rowNo(i));

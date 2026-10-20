@@ -89,7 +89,9 @@ export function applyAssign(input: TransitionInput, card: CardSnapshot, e: Assig
     ref: null,
     data: { toUserId: e.toUserId, mode: e.mode },
   });
-  return applied(commit(card, { ownerUserId: e.toUserId, assignedAt: input.now, touchedInCrm: true }), effects);
+  // Раздача меняет только владельца: `touchedInCrm` не ставится (D-145), ночная дозагрузка таблиц
+  // по-прежнему обновляет состояние, пока оператор не сделал итог.
+  return applied(commit(card, { ownerUserId: e.toUserId, assignedAt: input.now }), effects);
 }
 
 /** Нетронутая новая карточка с владельцем: можно вернуть в пул. */
@@ -101,7 +103,7 @@ function releaseToPool(input: TransitionInput, card: CardSnapshot): AppliedResul
   const effects = emptyEffects();
   effects.assignLog.push({ kind: 'release', fromUserId: card.ownerUserId, toUserId: null, countsToCap: false });
   effects.timeline.push({ kind: 'card.released', at: input.now, actorId: input.actor.userId, ref: null, data: { fromUserId: card.ownerUserId } });
-  return applied(commit(card, { ownerUserId: null, assignedAt: null, touchedInCrm: true }), effects);
+  return applied(commit(card, { ownerUserId: null, assignedAt: null }), effects);
 }
 
 /** № 3. */
@@ -228,7 +230,7 @@ export function applyTransfer(input: TransitionInput, card: CardSnapshot, e: Tra
     ref: null,
     data: { fromUserId: card.ownerUserId, toUserId: e.toUserId },
   });
-  const next = commit(card, { ownerUserId: e.toUserId, actingUserId: null, actingUntilDay: '', touchedInCrm: true });
+  const next = commit(card, { ownerUserId: e.toUserId, actingUserId: null, actingUntilDay: '' });
   return applied(next, effects);
 }
 
@@ -247,7 +249,7 @@ export function applyAbsence(input: TransitionInput, card: CardSnapshot, e: Abse
     ref: null,
     data: { actingUserId: e.actingUserId, untilDay: e.untilDay },
   });
-  return applied(commit(card, { actingUserId: e.actingUserId, actingUntilDay: e.untilDay, touchedInCrm: true }), effects);
+  return applied(commit(card, { actingUserId: e.actingUserId, actingUntilDay: e.untilDay }), effects);
 }
 
 /** № 25. Карточка не меняется, пропуск записывается за местные сутки. */

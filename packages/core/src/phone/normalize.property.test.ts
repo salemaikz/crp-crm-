@@ -42,7 +42,8 @@ function genPhone(r: Rng): string {
 
 const RULES = [
   DEFAULT_PHONE_RULES,
-  { ...DEFAULT_PHONE_RULES, stubs: ['77001234567', '77771112233'] },
+  { ...DEFAULT_PHONE_RULES, stubs: ['77090001234', '7709xxx0000'] },
+  { ...DEFAULT_PHONE_RULES, stubs: [] },
 ];
 
 test(`свойство: normalizePhone идемпотентен (${CASES} случаев)`, () => {

@@ -4,25 +4,32 @@
 // без имён и номеров телефонов (ПДн в отчёт `imports.report` не пишутся).
 
 import { createCompanyIndex } from '../dedup/match';
-import type { DedupSettings, DupPair, KnownCompany } from '../dedup/types';
+import type { CompanyKeys, DedupSettings, DupPair, KnownCompany } from '../dedup/types';
 import { evaluateRules, type SourceRule } from '../dedup/rules';
 import { applyStopList, type HashFn, type StopListLookup } from '../dedup/stoplist';
 import { EMPTY_BOOKING_INDEX, hasBooking, type BookingIndex } from './bookings';
 import { resolveOwner, type RowOwner } from './owner';
+import { orgKeyOf, PERSONAL_ID_PREFIX, type PersonalIdHmac } from './personalId';
 import { decideReimport, type PriorImportRow } from './reimport';
 import type { ImportProfile, ParsedRow } from './types';
 
 export type RowAction =
   /** Нет названия: строка не импортируется. */
   | 'invalid'
-  /** Та же строка (ключ строки) уже встретилась выше в этом файле. */
+  /**
+   * Та же строка (ключ строки) уже встретилась выше в этом файле. Другое состояние (итог, ЛПР, статус,
+   * ниша, заметка) — замечание `duplicate_state_differs` и строка на разбор: просьба не теряется.
+   */
   | 'duplicate_in_file'
   | 'skip_same'
   | 'update_state'
   | 'kept_in_crm'
   | 'rejected_rule'
   | 'stop_list'
-  /** Точный дубль существующего клиента: дописать пустые поля и номера, состояние не менять. */
+  /**
+   * Точный дубль существующего клиента: дописать пустые поля и номера, состояние не менять. Итог
+   * «не звонить» или другое состояние, чем у строки выше, — замечание и строка на разбор.
+   */
   | 'merge'
   /** Новый клиент (см. `hold`). */
   | 'create';
@@ -38,11 +45,14 @@ export interface PreviewRow {
   holds: HoldReason[];
   ownerUserId: string | null;
   ownerKind: RowOwner['kind'] | null;
-  /** Для `merge`: id существующего клиента (или `row:N` — строка выше в этом файле). */
+  /** Для `merge`: id существующего клиента (или `row:N` — строка выше); для `duplicate_in_file` — `row:N`. */
   matchId: string | null;
   pairs: DupPair[];
   outcomeKey: string | null;
-  /** «Подтвержден» без записи: «Перезвон: сейчас» и задача «Уточнить договорённость» (PROCESS 3.5 № 30). */
+  /**
+   * «Подтвержден» без записи: «Перезвон: сейчас» и задача «Уточнить договорённость» (PROCESS 3.5 № 30).
+   * Считается для `create`, `update_state` и `merge`.
+   */
   agreedWithoutBooking: boolean;
   /** Номера из стоп-листа, отброшенные из записи (сколько, без значений). */
   stoppedPhones: number;
@@ -56,6 +66,11 @@ export interface PreviewCounts {
   held: Record<HoldReason, number>;
   /** Строки с замечаниями уровня review/error — «на разбор» РОП. */
   needReview: number;
+  /**
+   * Дубли (`duplicate_in_file`, `merge`), которые несут то, что потерялось бы: другое состояние или
+   * итог «не звонить». Входят и в `needReview`.
+   */
+  duplicateConflicts: number;
   agreedWithoutBooking: number;
   /** Сколько строк отмечено по каждому коду заметки (просьбы «не звонить», особые категории). */
   noteFlags: Record<string, number>;
@@ -84,6 +99,28 @@ export interface PreviewInput {
   /** Ранее применённые строки по ключу строки. */
   prior?: ReadonlyMap<string, PriorImportRow>;
   bookings?: BookingIndex;
+  /**
+   * HMAC ИИН (D-052): у строк с `orgIdPersonal` сравнение с базой и между строками идёт только по
+   * `iin:<HMAC>` — так же, как ИП лежит в `known`. Открытый ИИН в индекс не попадает. У открытого БИН
+   * строки тот же HMAC — псевдоним (`orgIdAliases`): по нему находится строка, скрытая по неуверенности.
+   */
+  personalIdHmac: PersonalIdHmac;
+}
+
+/** Замечания дублей, которые РОП должен увидеть (PROCESS 2.3 п. 3: состояние дубль не меняет). */
+export const DUPLICATE_ISSUES = {
+  stateDiffers: 'duplicate_state_differs',
+  doNotCall: 'duplicate_do_not_call',
+  orgIdDiffers: 'duplicate_org_id_differs',
+} as const;
+
+/** Ключи номера строки для индекса (D-141). */
+type OrgKeys = Required<Pick<CompanyKeys, 'orgId' | 'orgIdAliases' | 'orgIdUncertain'>>;
+
+/** Разные номера: ни один `orgId` не совпал с ключами другой стороны. */
+function differentOrg(a: Pick<CompanyKeys, 'orgId' | 'orgIdAliases'>, b: Pick<CompanyKeys, 'orgId' | 'orgIdAliases'>): boolean {
+  if (!a.orgId || !b.orgId || a.orgId === b.orgId) return false;
+  return !(a.orgIdAliases ?? []).includes(b.orgId) && !(b.orgIdAliases ?? []).includes(a.orgId);
 }
 
 const ACTIONS: RowAction[] = ['invalid', 'duplicate_in_file', 'skip_same', 'update_state', 'kept_in_crm', 'rejected_rule', 'stop_list', 'merge', 'create'];
@@ -93,7 +130,6 @@ export function buildPreview(input: PreviewInput): ImportPreview {
   const index = createCompanyIndex(input.known, input.dedup);
   const baseAge = input.known.reduce((m, c) => Math.max(m, c.createdAt), 0);
   const bookings = input.bookings ?? EMPTY_BOOKING_INDEX;
-  const seenKeys = new Set<string>();
   const unmapped = new Set<string>();
 
   const byAction = Object.fromEntries(ACTIONS.map((a) => [a, 0])) as Record<RowAction, number>;
@@ -103,6 +139,45 @@ export function buildPreview(input: PreviewInput): ImportPreview {
   let unowned = 0;
   let needReview = 0;
   let agreedWithoutBookingN = 0;
+  let duplicateConflicts = 0;
+  /** Первая строка файла с данным ключом строки. */
+  const firstByKey = new Map<string, ParsedRow>();
+  /** Строки файла, добавленные в индекс (`row:N`), — чтобы сравнить состояние при склейке. */
+  const addedRows = new Map<string, ParsedRow>();
+
+  const hidden = (digits: string) => `${PERSONAL_ID_PREFIX}${input.personalIdHmac(digits)}`;
+  /** Открытые БИН базы по их `iin:<HMAC>`: строится при первой неуверенной строке. */
+  let knownBins: Map<string, string> | null = null;
+  const knownBinOf = (key: string): string | undefined => {
+    if (!knownBins) {
+      knownBins = new Map();
+      for (const c of input.known) if (c.orgId && !c.orgId.startsWith(PERSONAL_ID_PREFIX)) knownBins.set(hidden(c.orgId), c.orgId);
+    }
+    return knownBins.get(key);
+  };
+  let knownById: Map<string, KnownCompany> | null = null;
+  const knownOf = (id: string) => (knownById ??= new Map(input.known.map((c) => [c.id, c]))).get(id);
+  const orgMemo = new Map<ParsedRow, OrgKeys>();
+  /**
+   * Ключи номера (D-141). Открытый БИН — с псевдонимом `iin:<HMAC>`. Неуверенно скрытый номер, который
+   * открыт у клиента базы, — это БИН: дальше он сравнивается открыто. Иначе остаётся скрытым и
+   * помечается `orgIdUncertain`; совпадение с открытым БИН строки файла найдёт её псевдоним.
+   */
+  const orgOf = (row: ParsedRow): OrgKeys => {
+    const memo = orgMemo.get(row);
+    if (memo) return memo;
+    const key = orgKeyOf(row, input.personalIdHmac);
+    let keys: OrgKeys;
+    if (!key) keys = { orgId: null, orgIdAliases: [], orgIdUncertain: false };
+    else if (!row.orgIdPersonal) keys = { orgId: key, orgIdAliases: [hidden(key)], orgIdUncertain: false };
+    else if (!row.orgIdUncertain) keys = { orgId: key, orgIdAliases: [], orgIdUncertain: false };
+    else {
+      const bin = knownBinOf(key);
+      keys = bin ? { orgId: bin, orgIdAliases: [key], orgIdUncertain: false } : { orgId: key, orgIdAliases: [], orgIdUncertain: true };
+    }
+    orgMemo.set(row, keys);
+    return keys;
+  };
 
   const out: PreviewRow[] = input.rows.map((row) => {
     const pr: PreviewRow = {
@@ -120,22 +195,53 @@ export function buildPreview(input: PreviewInput): ImportPreview {
       issues: row.issues.map((i) => i.code),
       noteFlags: row.noteFlags,
     };
+    const extra: string[] = [];
     const finish = (action: RowAction): PreviewRow => {
       pr.action = action;
       byAction[action]++;
-      if (row.issues.some((i) => i.severity !== 'info')) needReview++;
+      if (extra.length > 0) {
+        pr.issues.push(...extra);
+        duplicateConflicts++;
+      }
+      if (extra.length > 0 || row.issues.some((i) => i.severity !== 'info')) needReview++;
       for (const f of row.noteFlags) noteFlags[f] = (noteFlags[f] ?? 0) + 1;
       return pr;
     };
+    /**
+     * Дубль несёт другое состояние или «не звонить» — не теряем молча (PROCESS 2.3 п. 3). `other` —
+     * ключи номера той стороны (строки выше или клиента базы).
+     */
+    const flagDuplicate = (earlier: ParsedRow | undefined, other: Pick<CompanyKeys, 'orgId' | 'orgIdAliases'> | undefined) => {
+      if (earlier && earlier.stateKey !== row.stateKey) extra.push(DUPLICATE_ISSUES.stateDiffers);
+      // Разные БИН/ИИН (тот же ключ строки или склейка неуверенного номера по номеру и названию):
+      // возможно, разные лица — РОП разводит вручную.
+      if (other && differentOrg(org, other)) extra.push(DUPLICATE_ISSUES.orgIdDiffers);
+      if (row.outcomeKind === 'do_not_call' && earlier?.outcomeKind !== 'do_not_call') extra.push(DUPLICATE_ISSUES.doNotCall);
+    };
+    const org = orgOf(row);
+    const markAgreed = () => {
+      if (row.outcomeKind === 'agreed' && !hasBooking({ orgId: org.orgId, workingPhones: row.workingPhones }, bookings)) {
+        pr.agreedWithoutBooking = true;
+        agreedWithoutBookingN++;
+      }
+    };
 
     if (row.issues.some((i) => i.code === 'no_name')) return finish('invalid');
-    if (seenKeys.has(row.rowKey)) return finish('duplicate_in_file');
-    seenKeys.add(row.rowKey);
+    const first = firstByKey.get(row.rowKey);
+    if (first) {
+      pr.matchId = `row:${first.rowNo}`;
+      flagDuplicate(first, orgOf(first));
+      return finish('duplicate_in_file');
+    }
+    firstByKey.set(row.rowKey, row);
 
     // Повтор импорта (D-048): та же пара ключей — пропуск; состояние изменилось — звонок или «оставлено как в CRM».
     const decision = decideReimport(row, input.prior?.get(row.rowKey));
     if (decision === 'skip') return finish('skip_same');
-    if (decision === 'update_state') return finish('update_state');
+    if (decision === 'update_state') {
+      markAgreed();
+      return finish('update_state');
+    }
     if (decision === 'kept_in_crm') return finish('kept_in_crm');
 
     const rule = { legalForm: row.legalForm, region: row.region };
@@ -147,7 +253,8 @@ export function buildPreview(input: PreviewInput): ImportPreview {
     if (stop.verdict === 'stop_list') return finish('stop_list');
 
     const result = index.match({
-      orgId: row.orgId,
+      ...org,
+      legalForm: row.legalForm,
       phones: stop.allowed,
       stubPhones: row.stubPhones,
       nameNorm: row.nameNorm,
@@ -155,6 +262,10 @@ export function buildPreview(input: PreviewInput): ImportPreview {
     });
     if (result.kind === 'duplicate') {
       pr.matchId = result.matchId;
+      // С клиентом из базы состояние не сравнить: на разбор идут «не звонить» и другой номер.
+      const earlier = addedRows.get(result.matchId);
+      flagDuplicate(earlier, earlier ? orgOf(earlier) : knownOf(result.matchId));
+      markAgreed();
       return finish('merge');
     }
 
@@ -178,10 +289,7 @@ export function buildPreview(input: PreviewInput): ImportPreview {
     pr.hold = pr.holds[0] ?? '';
     for (const h of pr.holds) held[h]++;
 
-    if (row.outcomeKind === 'agreed' && !hasBooking(row, bookings)) {
-      pr.agreedWithoutBooking = true;
-      agreedWithoutBookingN++;
-    }
+    markAgreed();
 
     if (!pr.hold) {
       if (pr.ownerUserId) perOperator[pr.ownerUserId] = (perOperator[pr.ownerUserId] ?? 0) + 1;
@@ -189,10 +297,13 @@ export function buildPreview(input: PreviewInput): ImportPreview {
     }
 
     // Новая строка видна следующим строкам файла: дубль внутри файла не создаст второго клиента.
+    const id = `row:${row.rowNo}`;
+    addedRows.set(id, row);
     index.add({
-      id: `row:${row.rowNo}`,
+      id,
       createdAt: baseAge + row.rowNo,
-      orgId: row.orgId,
+      ...org,
+      legalForm: row.legalForm,
       phones: stop.allowed,
       stubPhones: row.stubPhones,
       nameNorm: row.nameNorm,
@@ -203,7 +314,7 @@ export function buildPreview(input: PreviewInput): ImportPreview {
 
   return {
     rows: out,
-    counts: { total: out.length, byAction, held, needReview, agreedWithoutBooking: agreedWithoutBookingN, noteFlags },
+    counts: { total: out.length, byAction, held, needReview, duplicateConflicts, agreedWithoutBooking: agreedWithoutBookingN, noteFlags },
     perOperator,
     unowned,
     unmappedSlots: [...unmapped].sort(),

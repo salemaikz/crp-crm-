@@ -1,6 +1,16 @@
 // Нормализаторы импорта поверх `core/phone` и `core/names`: интерфейс `ImportNormalizers`
 // не знает о конкретных правилах, они приходят настройками (`global.phone`, формы собственности).
-import { DEFAULT_LEGAL_FORMS, detectLegalForm, normalizeBin, normalizeCompanyName, normalizePersonName, type LegalForm } from '../names';
+import {
+  DEFAULT_LEGAL_FORMS,
+  detectLegalForm,
+  legalFormCode,
+  legalFormOfTypeCell,
+  normalizeBin,
+  normalizeCompanyName,
+  normalizePersonName,
+  personalFormCodes,
+  type LegalForm,
+} from '../names';
 import { splitPhones, type PhoneRules } from '../phone';
 import type { ImportNormalizers } from './types';
 
@@ -17,12 +27,15 @@ export function createImportNormalizers(rules: PhoneRules, forms: readonly Legal
         review: p.needsReview,
       })),
     legalFormOf(typeCell, name) {
-      const typed = typeCell.trim().toLowerCase();
-      if (typed) return typed;
-      // Форма из названия — короткий код (`тоо`, `ип`, `ао`): так её ждут правила и профиль.
-      const key = detectLegalForm(name, forms);
-      return forms.find((f) => f.key === key)?.short[0] ?? '';
+      // Колонка «Тип» главнее названия, но её значение тоже приводится к коду формы: «ИП.»,
+      // «Индивидуальный предприниматель», «ЖК», «Жеке кәсіпкер» → `ип` (иначе правила для ИП и
+      // признак «номер — личный» не срабатывают, D-052). Не распознали — форма из названия.
+      const typed = typeCell.trim();
+      const fromType = typed ? legalFormOfTypeCell(typed, forms) : null;
+      const key = fromType ?? detectLegalForm(name, forms);
+      return { code: legalFormCode(key, forms), typeUnknown: typed !== '' && fromType === null };
     },
     normalizeOrgId: (raw) => normalizeBin(raw) || null,
+    personalFormCodes: personalFormCodes(forms),
   };
 }

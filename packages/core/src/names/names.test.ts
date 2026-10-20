@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_LEGAL_FORMS,
   detectLegalForm,
+  legalFormCode,
+  legalFormOfTypeCell,
   normalizeBin,
   normalizeCompanyName,
   normalizePersonName,
@@ -11,9 +13,9 @@ import {
 const N = (s: string) => normalizeCompanyName(s);
 
 test('полная и короткая форма, кавычки и дефисы дают один ключ', () => {
-  const a = N('Товарищество с ограниченной ответственностью "Концерн "Найза-Қурылыс"');
-  assert.equal(a, N('ТОО «Концерн Найза Қурылыс»'));
-  assert.equal(a, 'концерн найза курылыс');
+  const a = N('Товарищество с ограниченной ответственностью "Пример "Гамма-Құрылыс"');
+  assert.equal(a, N('ТОО «Пример Гамма Құрылыс»'));
+  assert.equal(a, 'пример гамма курылыс');
 });
 
 test('ИП, АО, ЖШС, ЖК и латиница', () => {
@@ -58,13 +60,48 @@ test('формы собственности — параметр: пустой �
 });
 
 test('detectLegalForm: полная, короткая, нет формы', () => {
-  assert.equal(detectLegalForm('ИП Иванов'), 'sole_proprietor');
-  assert.equal(detectLegalForm('Индивидуальный предприниматель Иванов'), 'sole_proprietor');
-  assert.equal(detectLegalForm('ТОО «Пример»'), 'llp');
-  assert.equal(detectLegalForm('Пример АО'), 'jsc');
+  assert.equal(detectLegalForm('ИП Иванов'), 'ip');
+  assert.equal(detectLegalForm('Индивидуальный предприниматель Иванов'), 'ip');
+  assert.equal(detectLegalForm('ТОО «Пример»'), 'too');
+  assert.equal(detectLegalForm('Пример АО'), 'ao');
   assert.equal(detectLegalForm('Пример'), null);
   assert.equal(detectLegalForm('ТОО Пример', []), null);
   assert.ok(DEFAULT_LEGAL_FORMS.length >= 3);
+});
+
+test('«ЖК» в названии — не ИП (жилой комплекс); ИП по-казахски — только полной формой', () => {
+  assert.equal(detectLegalForm('ЖК «Альфа Парк»'), null);
+  assert.equal(detectLegalForm('Альфа Парк ЖК'), null);
+  assert.equal(N('ЖК «Альфа Парк»'), 'жк альфа парк', '«ЖК» из названия не вырезается');
+  assert.equal(detectLegalForm('Жеке кәсіпкер Гамма'), 'ip');
+  assert.equal(detectLegalForm('ЖК Жеке кәсіпкер Гамма'), 'ip');
+});
+
+test('колонка «Тип»: полные, короткие и казахские формы, точки и регистр', () => {
+  const T = (s: string) => legalFormOfTypeCell(s);
+  for (const v of ['ИП', 'ип', 'ИП.', ' ИП ', 'Индивидуальный предприниматель', 'ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ', 'ЖК', 'Жеке кәсіпкер', 'жеке касипкер']) {
+    assert.equal(T(v), 'ip', v);
+  }
+  assert.equal(T('ТОО'), 'too');
+  assert.equal(T('Товарищество с ограниченной ответственностью'), 'too');
+  assert.equal(T('ЖШС'), 'too');
+  assert.equal(T('АО'), 'ao');
+  assert.equal(T('IP'), 'ip');
+  assert.equal(T('Т.О.О.'), 'too');
+  assert.equal(T('Крестьянское хозяйство'), 'kh');
+  assert.equal(T('ГКП'), 'gkp');
+  assert.equal(T('ГУ'), 'gu');
+  assert.equal(T('ОО'), 'oo');
+  assert.equal(T('ПК'), 'pk');
+  assert.equal(T('Форма-Икс'), null);
+  assert.equal(T(''), null);
+  // «ПК» и «IP» — только в «Тип»: в названии это не форма.
+  assert.equal(detectLegalForm('Сервис ПК'), null);
+  assert.equal(detectLegalForm('IP Телеком'), null);
+  assert.equal(legalFormCode('pk'), 'пк');
+  assert.equal(legalFormCode('ip'), 'ип');
+  assert.equal(legalFormCode('too'), 'тоо');
+  assert.equal(legalFormCode(null), '');
 });
 
 test('normalizePersonName: регистр, ё, казахские буквы, знаки', () => {

@@ -70,7 +70,9 @@ test('снимок ЦРП: компания, язык, пояс, номера, �
   assert.equal(g.org.idRule, 'kz_bin');
   assert.equal(g.org.personIdRule, 'kz_iin_hmac');
   assert.equal(byKey(g.org.legalForms, 'ip').idIsPersonal, true);
-  assert.deepEqual(g.org.legalForms.map((f: Doc) => f.key), ['too', 'ip', 'ao']);
+  assert.deepEqual(g.org.legalForms.map((f: Doc) => f.key), ['too', 'ip', 'ao', 'gkp', 'kh', 'gu', 'oo', 'pk']);
+  // КХ — форма ИП: номер — ИИН главы (D-141).
+  assert.deepEqual(g.org.legalForms.filter((f: Doc) => f.idIsPersonal).map((f: Doc) => f.key), ['ip', 'kh']);
   assert.ok(g.org.legalForms[0].aliases.includes('ЖШС') && g.org.legalForms[0].aliases.includes('LLP'));
   assert.deepEqual(g.phone.reviewPrefixes, ['770', '774']);
   assert.equal(g.phone.mobilePrefixes.length, 23);

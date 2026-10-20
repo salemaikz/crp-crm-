@@ -1,6 +1,7 @@
 // Ключ строки и ключ состояния импорта (D-048, PROCESS 12.14).
-//  - ключ строки = профиль + хэш опознающих полей (нормализованное название, номера, руководитель),
-//    без имени и хэша файла: тот же человек в другом файле — та же строка;
+//  - ключ строки = профиль + хэш опознающих полей (нормализованное название, номера, руководитель,
+//    код формы собственности, если известна — D-143), без имени и хэша файла: тот же человек в другом
+//    файле — та же строка, а «ТОО Альфа» и «ИП Альфа» с общим номером — разные строки;
 //  - ключ состояния = хэш колонок итога, ЛПР, статуса, ниши, заметки;
 //  - `import_key` звонка = ключ строки + ключ состояния.
 // Номер один как ключ не годится: в таблицах 45 номеров общие у разных компаний.
@@ -20,11 +21,15 @@ export interface RowIdentity {
   /** Рабочие номера (канон) и цифры заглушек: порядок в ячейке значения не имеет. */
   workingPhones: readonly string[];
   stubPhones: readonly string[];
+  /** Код формы собственности (`тоо`, `ип`); пусто — не входит в ключ (ключи строк без формы не меняются). */
+  legalForm?: string;
 }
 
 export function rowKeyOf(profileKey: string, id: RowIdentity, hash: KeyHashFn): string {
   const phones = [...new Set([...id.workingPhones, ...id.stubPhones.map((p) => `~${p}`)])].sort();
-  return `${profileKey}:${hash([id.nameNorm, phones.join(','), id.headNorm].join(SEP))}`;
+  const parts = [id.nameNorm, phones.join(','), id.headNorm];
+  if (id.legalForm) parts.push(id.legalForm);
+  return `${profileKey}:${hash(parts.join(SEP))}`;
 }
 
 export function stateKeyOf(fields: Readonly<Record<string, string>>, stateFields: readonly string[], hash: KeyHashFn): string {

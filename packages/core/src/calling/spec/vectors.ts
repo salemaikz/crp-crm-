@@ -629,7 +629,7 @@ export const VECTORS: TransitionVector[] = [
       at('2026-10-28 08:00'),
     ),
     expected: ok(
-      { ...POOL, ownerUserId: A, assignedAt: at('2026-10-28 08:00'), touchedInCrm: true, version: 1 },
+      { ...POOL, ownerUserId: A, assignedAt: at('2026-10-28 08:00'), version: 1 },
       fx({
         assignLog: [{ kind: 'auto', fromUserId: null, toUserId: A, countsToCap: true }],
         notifications: [{ kind: 'cards_assigned', to: { user: A }, dedupeKey: 'assign:run-1028-0800:u-op-a' }],
@@ -677,6 +677,19 @@ export const VECTORS: TransitionVector[] = [
     title: 'Ручное действие с устаревшей версией — «карточка изменилась»',
     input: inp(NEW_A, { type: 'release', opId: 'op-r03c', seenVersion: 0 }, LEAD, at('2026-10-28 11:00')),
     expected: reject('version_conflict'),
+  },
+  {
+    id: 'r03d',
+    refs: ['3.5 №3', '12.14'],
+    title: 'Раздача и возврат в пул не делают карточку «тронутой в CRM»: дозагрузка таблицы обновит её состояние (D-145)',
+    input: inp({ ...NEW_A, touchedInCrm: false }, { type: 'release', opId: 'op-r03d', seenVersion: 1 }, LEAD, at('2026-10-28 11:00')),
+    expected: ok(
+      { ...NEW_A, touchedInCrm: false, ownerUserId: null, assignedAt: null, version: 2 },
+      fx({
+        assignLog: [{ kind: 'release', fromUserId: A, toUserId: null, countsToCap: false }],
+        timeline: [{ kind: 'card.released', at: at('2026-10-28 11:00'), actorId: 'u-lead', ref: null, data: { fromUserId: A } }],
+      }),
+    ),
   },
 
   // ===== № 4. Не берёт, попытка < N =====

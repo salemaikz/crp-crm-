@@ -18,8 +18,8 @@ export interface PhoneRules {
   /** `phone.landlinePrefixes`. */
   landlinePrefixes: readonly string[];
   /**
-   * Дополнительные заглушки: точные номера в каноне `7XXXXXXXXXX`. Ключа в CONFIG пока нет
-   * (правила заглушек — код), поле необязательное.
+   * Заглушки: шаблоны в каноне `7XXXXXXXXXX` (11 знаков), `x` — любая цифра; точный номер — тоже
+   * шаблон. Ключа в CONFIG пока нет (значение по умолчанию — в `DEFAULT_PHONE_RULES`, D-144).
    */
   stubs?: readonly string[];
 }
@@ -30,7 +30,7 @@ export type PhoneInvalidReason =
   | 'too_long' // больше 11 цифр
   | 'foreign' // 11 цифр, но не с 7 и не с 8
   | 'bad_code' // код региона начинается с 0, 1 или 2
-  | 'placeholder'; // заглушка: одинаковые цифры, пустой абонентский номер, список `stubs`
+  | 'placeholder'; // заглушка: шаблон `stubs` или одинаковые цифры при неизвестном коде
 
 export interface ParsedPhone {
   /** Исходный фрагмент ячейки (обрезанный по краям), для отчёта импорта. */

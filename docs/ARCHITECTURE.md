@@ -396,7 +396,7 @@ CREATE TABLE IF NOT EXISTS cards (
   last_outcome_at BIGINT,                       -- occurred_at последнего применённого итога
   close_reason_code TEXT NOT NULL DEFAULT '', closed_at BIGINT,
   assigned_at BIGINT,
-  touched_in_crm BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE после любого итога, правки или раздачи в CRM (не импорта)
+  touched_in_crm BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE после итога или ручного действия с состоянием в CRM; раздача, передача и импорт не ставят (D-145)
   calls_total INTEGER NOT NULL DEFAULT 0, connects_total INTEGER NOT NULL DEFAULT 0,
   no_answer_total INTEGER NOT NULL DEFAULT 0,
   first_connect_at BIGINT, last_connect_at BIGINT, last_touch_at BIGINT,
