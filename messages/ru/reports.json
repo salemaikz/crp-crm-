@@ -1,0 +1,80 @@
+{
+  "summary": {
+    "title": "Сводка дня",
+    "lead": "Что происходит в отделе сегодня",
+    "refresh": "Обновить",
+    "updatedAt": "Обновлено в {time}",
+    "errors": {
+      "forbidden": "Сводка доступна руководителю отдела и директору.",
+      "unauthorized": "Войдите заново.",
+      "network": "Нет связи. Показаны данные на {time}.",
+      "generic": "Не удалось обновить. Показаны данные на {time}."
+    },
+    "tiles": {
+      "label": "Показатели дня",
+      "pool": {
+        "title": "Пул",
+        "ready": "готово к раздаче",
+        "hint": "сверх лимита: {overCap} · дубли: {duplicates} · спорные из импорта: {disputed}"
+      },
+      "issued": {
+        "title": "Роздано сегодня",
+        "value": "{issued} из {cap}",
+        "hint": "лимит × операторов: {operators}"
+      },
+      "grey": {
+        "title": "Заявки на консультацию",
+        "hint": "ждут консультанта"
+      },
+      "bookings": {
+        "title": "Записи",
+        "today": "Сегодня: {total}, подтвердили {confirmed}",
+        "tomorrow": "Завтра: {total}, подтвердили {confirmed}"
+      },
+      "overdue": {
+        "title": "Просроченные перезвоны",
+        "hint": "у операторов: {operators}",
+        "none": "просрочки нет"
+      },
+      "unsent": {
+        "title": "Не отправлено с устройств",
+        "hint": "у операторов: {operators}",
+        "none": "всё отправлено"
+      }
+    },
+    "operators": {
+      "title": "Операторы",
+      "caption": "Операторы за сегодня",
+      "empty": {
+        "title": "Операторов нет",
+        "description": "Добавьте сотрудников с ролью оператора и включите их в раздачу."
+      },
+      "columns": {
+        "name": "Оператор",
+        "status": "Сегодня",
+        "issued": "Выдано",
+        "outcomes": "Итогов",
+        "connects": "Дозвонов",
+        "lpr": "ЛПР",
+        "groups": "Группы",
+        "consults": "Консультации",
+        "skips": "Пропуски",
+        "overdue": "Просрочено",
+        "rate": "Звонков в час",
+        "unsent": "Не отправлено"
+      },
+      "status": {
+        "working": "Работает",
+        "paused": "Пауза",
+        "absent": "Отсутствует"
+      },
+      "absentUntil": "до {day}",
+      "issuedValue": "{issued} из {cap}",
+      "rateValue": "{rate}",
+      "rateNone": "—",
+      "belowTarget": "ниже нормы {target}",
+      "lastSeen": "связь {time}",
+      "neverSeen": "связи не было"
+    }
+  }
+}
