@@ -18,7 +18,7 @@ const INSTALL = '11111111-2222-3333-4444-555555555555';
 const { publicKey, privateKey } = generateKeyPairSync('ed25519');
 const KEYS = { 'prod-1': core.rawPublicKeyBase64(publicKey) };
 
-async function setup(watermark: Watermark | ((image: string) => Watermark) = { customer: 'crp', buildId: 'b-1' }) {
+async function setup(watermark: Watermark | ((image: string) => Watermark) = { customer: 'crp', buildId: 'b-1', builtAt: NOW - DAY }) {
   const runs: string[][] = [];
   const f: Fake = await makeFake(async (cmd, args) => {
     if (cmd !== 'docker' || args[0] !== 'run' || !args.includes('license')) return undefined;
@@ -102,7 +102,7 @@ test('install отказывает: подделка, чужой installId, чу
 });
 
 test('install отказывает на образе без водяного знака клиента или с чужим знаком', async () => {
-  for (const wm of [{ customer: null, buildId: null }, { customer: 'other-co', buildId: 'b-1' }]) {
+  for (const wm of [{ customer: null, buildId: null, builtAt: null }, { customer: 'other-co', buildId: 'b-1', builtAt: null }]) {
     const { f } = await setup(wm);
     await assert.rejects(run(f, 'install', await fileWith(f, lic())), /водяного знака|для клиента other-co/);
     await assert.rejects(stat(target(f)), { code: 'ENOENT' });
@@ -138,14 +138,14 @@ test('verify (внутри образа): JSON и код выхода; без ф
   const file = await fileWith(f, lic());
   // В процессе тестов ядро — общая сборка с тестовым ключом: лицензия на одноразовом ключе не принимается
   assert.equal(await run(f, 'verify', file, INSTALL), 3);
-  assert.deepEqual(JSON.parse(f.out.at(-1)!), { ok: false, reason: 'unknown_kid', watermark: { customer: null, buildId: null } });
+  assert.deepEqual(JSON.parse(f.out.at(-1)!), { ok: false, reason: 'unknown_kid', watermark: { customer: null, buildId: null, builtAt: null } });
   assert.equal(await run(f, 'verify', path.join(f.dirs.lib, 'нет.crm'), INSTALL), 3);
   assert.equal(JSON.parse(f.out.at(-1)!).reason, 'missing');
-  assert.deepEqual(verifyText(lic(), INSTALL, { keys: KEYS, watermark: { customer: 'crp', buildId: null } }).ok, true);
+  assert.deepEqual(verifyText(lic(), INSTALL, { keys: KEYS, watermark: { customer: 'crp', buildId: null, builtAt: null } }).ok, true);
 });
 
 test('проверка новым образом для update: нет файла — можно; битая или чужой образ — нельзя', async () => {
-  const { f, runs } = await setup((image) => (image === 'crm-app:0.9.1' ? { customer: 'crp', buildId: 'b-2' } : { customer: null, buildId: null }));
+  const { f, runs } = await setup((image) => (image === 'crm-app:0.9.1' ? { customer: 'crp', buildId: 'b-2', builtAt: NOW - DAY } : { customer: null, buildId: null, builtAt: null }));
   const v = imageLicenseVerifier(f.deps);
   const dir = path.join(f.dirs.lib, 'license');
   await mkdir(dir, { recursive: true });
@@ -159,4 +159,59 @@ test('проверка новым образом для update: нет файл�
   const general = await v.verifyLicense({ image: 'crm-app:0.9.2', licenseDir: dir, installId: INSTALL });
   assert.equal(general.ok, false);
   assert.match(!general.ok ? general.reason : '', /без водяного знака/);
+});
+
+test('update: лицензия прежней сборки — можно с предупреждением, пока идут 7 суток от сборки нового образа (D-290)', async () => {
+  const at = (builtAt: number | null) => (image: string) =>
+    image === 'crm-app:0.9.1' ? { customer: 'crp', buildId: 'b-2', builtAt } : { customer: 'crp', buildId: 'b-1', builtAt: NOW - 30 * DAY };
+  const prev = lic({ buildId: 'b-1' });
+  for (const [builtAt, ok] of [[NOW - DAY, true], [NOW - 7 * DAY + 1, true], [NOW - 7 * DAY, false], [null, false]] as const) {
+    const { f } = await setup(at(builtAt));
+    const dir = path.join(f.dirs.lib, 'license');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, LICENSE_FILE), prev);
+    const v = await imageLicenseVerifier(f.deps).verifyLicense({ image: 'crm-app:0.9.1', licenseDir: dir, installId: INSTALL });
+    assert.equal(v.ok, ok, String(builtAt));
+    if (v.ok) assert.match(v.warning ?? '', /прежней сборки.*b-2.*crmctl license install/);
+    else assert.match(v.reason, builtAt === null ? /без времени сборки/ : /истекли/);
+  }
+  // Чужая подпись при том же образе — отказ, льгота её не касается
+  const { f } = await setup(at(NOW - DAY));
+  const dir = path.join(f.dirs.lib, 'license');
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, LICENSE_FILE), lic({ buildId: 'b-1' }, generateKeyPairSync('ed25519').privateKey));
+  assert.equal((await imageLicenseVerifier(f.deps).verifyLicense({ image: 'crm-app:0.9.1', licenseDir: dir, installId: INSTALL })).ok, false);
+});
+
+test('status: сборка образа и конец льготы для лицензии прежней сборки; образ без времени сборки — без льготы', async () => {
+  for (const builtAt of [NOW - 2 * DAY, undefined]) {
+    const { f } = await setup({ customer: 'crp', buildId: 'b-2', builtAt: builtAt ?? null });
+    // Образ до D-290 не сообщает builtAt вовсе: crmctl считает его null
+    if (builtAt === undefined) {
+      const orig = f.deps.exec.run.bind(f.deps.exec);
+      f.deps.exec.run = async (cmd, args, opts) => {
+        const r = await orig(cmd, args, opts);
+        if (cmd !== 'docker' || !args.includes('verify')) return r;
+        const j = JSON.parse(r.stdout) as { watermark: Record<string, unknown> };
+        delete j.watermark.builtAt;
+        return { ...r, stdout: `${JSON.stringify(j)}\n` };
+      };
+    }
+    await mkdir(path.dirname(target(f)), { recursive: true });
+    await writeFile(target(f), `${lic({ buildId: 'b-1' })}\n`);
+    const orig = f.deps.exec.run.bind(f.deps.exec);
+    f.deps.exec.run = async (cmd, args, opts) =>
+      opts?.input?.includes('row_to_json')
+        ? { code: 0, stdout: `${JSON.stringify({ state: 'invalid', reason: 'wrong_build', invalid_since: NOW - DAY })}\n`, stderr: '' }
+        : orig(cmd, args, opts);
+    assert.equal(await run(f, 'status'), 0);
+    const out = f.out.join('\n');
+    assert.match(out, /выдана для другой сборки/);
+    assert.match(out, /не сходится с:/);
+    if (builtAt === undefined) assert.match(out, /льгота: +нет \(образ без времени сборки\)/);
+    else {
+      assert.match(out, /сборка образа: b-2, собрана/);
+      assert.match(out, new RegExp(`льгота до: +${new Date(builtAt + 7 * DAY).toISOString()}`));
+    }
+  }
 });

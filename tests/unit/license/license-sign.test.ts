@@ -38,7 +38,7 @@ test('keygen → sign → проверка ядром: поля, срок по �
     const argv = ['sign', '--key', keyFile, '--kid', 'prod-1', '--customer', 'demo-co', '--install-id', INSTALL, '--expires', '2026-11-30'];
     assert.equal(main([...argv, '--grace-days', '30', '--features', 'telephony.zadarma, spaces.multi', '--seats', '25', '--out', outFile], s.io, NOW), 0);
     const raw = (await readFile(outFile, 'utf8')).trim();
-    const v = core.verifyLicense(raw, { installId: INSTALL, keys: { 'prod-1': pub }, watermark: { customer: 'demo-co', buildId: null } });
+    const v = core.verifyLicense(raw, { installId: INSTALL, keys: { 'prod-1': pub }, watermark: { customer: 'demo-co', buildId: null, builtAt: null } });
     assert.equal(v.ok, true);
     if (!v.ok) return;
     assert.equal(v.license.expiresAt, Date.parse('2026-11-30T23:59:59.999+05:00'));
@@ -49,7 +49,7 @@ test('keygen → sign → проверка ядром: поля, срок по �
     assert.equal(v.license.seats, 25);
     assert.match(s.err.join('\n'), /installId 11111111/);
     // Чужой установке не подходит
-    assert.equal(core.verifyLicense(raw, { installId: '99999999-0000-4000-8000-000000000000', keys: { 'prod-1': pub }, watermark: { customer: null, buildId: null } }).ok, false);
+    assert.equal(core.verifyLicense(raw, { installId: '99999999-0000-4000-8000-000000000000', keys: { 'prod-1': pub }, watermark: { customer: null, buildId: null, builtAt: null } }).ok, false);
     // Без --out — печать в stdout
     const s2 = io();
     assert.equal(main([...argv, '--build-id', 'b-7'], s2.io, NOW), 0);

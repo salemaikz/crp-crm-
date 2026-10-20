@@ -43,8 +43,8 @@ export interface HttpResponse {
   body: string;
 }
 
-/** Результат проверки подписи пакета или лицензии. reason показывается оператору. */
-export type Verdict = { ok: true } | { ok: false; reason: string };
+/** Результат проверки подписи пакета или лицензии. reason и warning показываются оператору. */
+export type Verdict = { ok: true; warning?: string } | { ok: false; reason: string };
 
 export interface PackageManifest {
   customer: string;

@@ -1,7 +1,8 @@
 // Лицензия на Postgres 16 (P10, ARCHITECTURE §5.3, §8.4, D-029, D-054, D-211): состояние считается из файла
 // и license_state ядром с одноразовыми ключами; мутации в read_only/invalid/missing → 423, кроме D-054;
 // выгрузка и чтение работают всегда; правило часов; правка строки license_state в обход crmctl ничего не даёт
-// (D-211, D-290): льгота invalid опирается только на подписанную копию license_raw.
+// (D-211, D-290): негодный файл — вердикт по подписанной копии license_raw; льгота invalid — только лицензии
+// прежней сборки, до времени сборки (builtAt) + 7 сут и не дальше срока копии.
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
@@ -24,7 +25,7 @@ import { actAs, enterSeedWorld } from '../../isolation/harness/actors';
 const DAY = 86_400_000;
 const H = 3_600_000;
 const ORIGIN = 'http://localhost:3000';
-const CLIENT: Watermark = { customer: 'demo-co', buildId: 'b-1' };
+const CLIENT: Watermark = { customer: 'demo-co', buildId: 'b-1', builtAt: SEED_NOW - DAY };
 const { publicKey, privateKey } = generateKeyPairSync('ed25519');
 const KEYS = { 'prod-1': core.rawPublicKeyBase64(publicKey) };
 
@@ -128,7 +129,7 @@ test('нет файла и копии: missing — мутации 423, мута�
 });
 
 test('общая сборка без водяного знака: без лицензии работает (dev, тесты, e2e)', async () => {
-  overrideLicenseEnvForTests({ watermark: { customer: null, buildId: null } });
+  overrideLicenseEnvForTests({ watermark: { customer: null, buildId: null, builtAt: null } });
   await put(null);
   assert.equal(await state(), 'valid');
   assert.equal((await writeRoute(req(), ctx)).status, 200);
@@ -148,37 +149,43 @@ test('подпись и установка: valid; запись копии в Б
   // Подделка: поле state в БД при битой копии не делает лицензию рабочей и льготы не даёт — опоры нет (D-290)
   await db.sql`UPDATE license_state SET license_raw = ${'CRM1.e30.' + 'A'.repeat(86)}, state = 'valid'`;
   assert.equal(await state(), 'invalid');
-  assert.equal((await row()).invalidSince, null);
+  assert.equal((await row()).reason, 'malformed');
   await put(signed());
   assert.equal(await state(), 'valid');
   assert.equal((await row()).invalidSince, null);
 });
 
-test('подделка и чужой installId после рабочей лицензии: льгота 7 дней, затем invalid → 423; льгота не продлевается', async () => {
+test('битый, подменённый или чужой файл при рабочей копии в БД: вердикт по копии, как без файла (D-290)', async () => {
   const t = SEED_NOW + H;
   await put(signed());
   assert.equal(await state(t), 'valid');
   const [pre, body] = signed().split('.') as [string, string];
   const forged = JSON.parse(Buffer.from(body, 'base64url').toString()) as LicensePayload;
   forged.expiresAt += 365 * DAY;
-  await put(`${pre}.${Buffer.from(JSON.stringify(forged)).toString('base64url')}.${signed().split('.')[2]}`);
-  assert.equal(await state(t + H), 'grace');
+  const bad: [string, string][] = [
+    [`${pre}.${Buffer.from(JSON.stringify(forged)).toString('base64url')}.${signed().split('.')[2]}`, 'bad_signature'],
+    [signed({ installId: '99999999-0000-4000-8000-000000000000' }), 'wrong_install'],
+    [signed({}, generateKeyPairSync('ed25519').privateKey), 'bad_signature'],
+    [signed({ customer: 'other-co' }), 'wrong_customer'],
+    [signed({ lid: 'lic-later', notBefore: t + 30 * DAY, issuedAt: t, expiresAt: t + 400 * DAY }), 'not_yet_valid'],
+    ['x', 'malformed'],
+  ];
+  for (const [i, [text, reason]] of bad.entries()) {
+    await put(text);
+    assert.equal(await state(t + (i + 1) * H), 'valid', reason);
+    const r = await row();
+    assert.deepEqual([r.state, r.reason, r.licenseRaw], ['valid', '', signed()], reason);
+    assert.equal((await writeRoute(req(), ctx)).status, 200);
+  }
+  // Без рабочей копии тот же файл — сразу invalid: прошлая проверка valid льготы не даёт
+  await db.sql`UPDATE license_state SET license_raw = ''`;
+  await put(bad[0]![0]);
+  assert.equal(await state(t + 10 * H), 'invalid');
   assert.equal((await row()).reason, 'bad_signature');
-  assert.equal((await row()).invalidSince, t + H);
-  assert.equal((await writeRoute(req(), ctx)).status, 200);
-  await put(signed({ installId: '99999999-0000-4000-8000-000000000000' }));
-  assert.equal(await state(t + 2 * H), 'grace');
-  assert.equal((await row()).reason, 'wrong_install');
-  // Через 7 дней от начала — invalid, хотя проверки шли всё время
-  for (let d = 1; d <= 6; d++) assert.equal(await state(t + H + d * DAY), 'grace');
-  assert.equal(await state(t + H + 7 * DAY), 'invalid');
   assert.equal((await writeRoute(req(), ctx)).status, 423);
-  // Чужой ключ подписи — тоже invalid
-  await put(signed({}, generateKeyPairSync('ed25519').privateKey));
-  assert.equal(await state(), 'invalid');
-  assert.equal((await row()).reason, 'bad_signature');
   const changes = await audit('license.state_change');
-  assert.ok(changes.some((m) => m.from === 'valid' && m.to === 'invalid' && m.access === 'grace'));
+  assert.ok(changes.some((m) => m.from === 'valid' && m.to === 'invalid' && m.access === 'invalid'));
+  assert.ok(!changes.some((m) => m.to === 'invalid' && m.access === 'grace'));
 });
 
 test('первая установка с чужой лицензией — сразу invalid, без льготы', async () => {
@@ -281,7 +288,8 @@ test('сборка клиента без лицензии: license_raw = x и in
   await forge({ licenseRaw: 'x', invalidSince: 9_000_000_000_000_000 });
   assert.equal(await state(t + 60_000), 'invalid');
   assert.equal((await writeRoute(req(), ctx)).status, 423);
-  assert.equal((await row()).invalidSince, null);
+  // invalid_since — только для показа: подделанное «будущее» не сохраняется
+  assert.equal((await row()).invalidSince, t + 60_000);
   // То же с подделанным state = valid и «свежим» invalid_since
   await forge({ licenseRaw: 'x', state: 'valid', invalidSince: t });
   assert.equal(await state(t + 2 * 60_000), 'invalid');
@@ -307,61 +315,143 @@ test('просроченная лицензия: правка state, invalid_sin
   await forge({ lastSeenAt: exp - 30 * DAY });
   assert.equal(await state(t + 3 * 60_000), 'read_only');
   assert.equal((await writeRoute(req(), ctx)).status, 423);
-  // Битый файл + все колонки сразу: опора (копия) просрочена — льготы нет
+  // Битый файл + все колонки сразу: вердикт по копии, а она просрочена — «только чтение»
   await put('x');
   await forge({ state: 'valid', invalidSince: t, lastSeenAt: t });
-  assert.equal(await state(t + 4 * 60_000), 'invalid');
+  assert.equal(await state(t + 4 * 60_000), 'read_only');
   await forge({ state: 'invalid', invalidSince: t - DAY, lastSeenAt: t - DAY });
-  assert.equal(await state(t + 5 * 60_000), 'invalid');
+  assert.equal(await state(t + 5 * 60_000), 'read_only');
   assert.equal((await writeRoute(req(), ctx)).status, 423);
   // Копия в БД не затёрта битым файлом
   assert.equal((await row()).licenseRaw, old);
 });
 
-test('рабочая копия + битый файл: invalid_since в будущем или давний не продлевает; льгота — не дальше срока копии', async () => {
+test('рабочая копия + битый файл: valid по копии при любой правке строки; срок — копии, а не строки', async () => {
   const t = (await row()).lastSeenAt + H;
   await put('x');
   await fresh(signed({ lid: 'lic-anchor', expiresAt: t + 365 * DAY }), t);
-  await forge({ state: 'invalid' });
-  // invalid_since в будущем при прошлом invalid — не начало льготы
-  await forge({ invalidSince: t + 30 * DAY });
-  assert.equal(await state(t + 60_000), 'invalid');
-  assert.equal((await row()).invalidSince, null);
-  // Давний invalid_since (раньше last_seen_at − 7 сут) — льгота давно кончилась
-  await forge({ state: 'invalid', invalidSince: t - 8 * DAY });
-  assert.equal(await state(t + 2 * 60_000), 'invalid');
-  // Подделка state = valid при каждой проверке не уводит льготу дальше expiresAt + graceDays копии
+  for (const f of [{ state: 'invalid', invalidSince: t + 30 * DAY }, { state: 'invalid', invalidSince: t - 8 * DAY }, { state: 'read_only' }]) {
+    await forge(f);
+    assert.equal(await state(clock + 60_000), 'valid', JSON.stringify(f));
+  }
+  // Короткая копия: её expiresAt + graceDays — и всё; правка state = valid на каждой проверке не продлевает
   const end = t + 3 * DAY;
   await fresh(signed({ lid: 'lic-short', expiresAt: t + 2 * DAY, graceDays: 1 }), t);
   for (let at = t; at < end; at += 12 * H) {
     await forge({ state: 'valid', invalidSince: null });
-    assert.equal(await state(at), 'grace', new Date(at).toISOString());
+    assert.equal(await state(at), at < t + 2 * DAY ? 'valid' : 'grace', new Date(at).toISOString());
   }
   await forge({ state: 'valid', invalidSince: null });
-  assert.equal(await state(end), 'invalid');
+  assert.equal(await state(end), 'read_only');
   assert.equal((await writeRoute(req(), ctx)).status, 423);
+  assert.equal((await row()).reason, 'expired');
 });
 
-test('законная льгота: лицензия прежней сборки после обновления — grace 7 дней; лицензия «на будущее» не затирает копию', async () => {
-  const t = (await row()).lastSeenAt + H;
+// ── Лицензия прежней сборки (wrong_build): льгота от времени сборки, D-290 ────────────────────────────────
+
+const B0: Watermark = { customer: 'demo-co', buildId: 'b-0', builtAt: null };
+
+/** Рабочая лицензия под сборку b-0 стоит и записана копией; затем «обновили» сборку до b-1 от builtAt. */
+async function upgraded(t: number, builtAt: number | null, p: Partial<LicensePayload> = {}): Promise<string> {
   await fresh('', t);
-  const prevBuild = signed({ lid: 'lic-b0', buildId: 'b-0', expiresAt: t + 365 * DAY });
-  overrideLicenseEnvForTests({ watermark: { customer: 'demo-co', buildId: 'b-0' } });
+  const prevBuild = signed({ lid: 'lic-b0', buildId: 'b-0', expiresAt: t + 365 * DAY, ...p });
+  overrideLicenseEnvForTests({ watermark: B0 });
   await put(prevBuild);
   assert.equal(await state(t), 'valid');
-  // Обновили сборку: лицензия привязана к b-0 — льгота 7 дней от первой несходящейся проверки
-  overrideLicenseEnvForTests({ watermark: CLIENT });
-  assert.equal(await state(t + H), 'grace');
-  assert.deepEqual([(await row()).reason, (await row()).invalidSince], ['wrong_build', t + H]);
-  assert.equal(await state(t + H + 7 * DAY - 1), 'grace');
-  assert.equal(await state(t + H + 7 * DAY), 'invalid');
-  // Лицензия «на будущее» (notBefore впереди) не становится опорой и не затирает копию
-  await fresh(prevBuild, t + 8 * DAY);
-  overrideLicenseEnvForTests({ watermark: { customer: 'demo-co', buildId: 'b-0' } });
-  assert.equal(await state(t + 8 * DAY), 'valid');
-  await put(signed({ lid: 'lic-next', notBefore: t + 30 * DAY, issuedAt: t, expiresAt: t + 400 * DAY }));
-  assert.equal(await state(t + 8 * DAY + H), 'grace');
-  assert.equal((await row()).reason, 'not_yet_valid');
   assert.equal((await row()).licenseRaw, prevBuild);
+  overrideLicenseEnvForTests({ watermark: { ...CLIENT, builtAt } });
+  return prevBuild;
+}
+
+test('законная льгота: лицензия прежней сборки — grace до builtAt + 7 сут, затем invalid → 423', async () => {
+  const t = (await row()).lastSeenAt + H;
+  await upgraded(t, t - DAY);
+  assert.equal(await state(t + H), 'grace');
+  assert.deepEqual([(await row()).reason, (await row()).state], ['wrong_build', 'invalid']);
+  assert.equal((await writeRoute(req(), ctx)).status, 200);
+  // Шагами по 24 ч, как работающий сервер; конец — builtAt + 7 сут, а не 7 сут от первой проверки
+  for (let at = t + DAY; at < t + 6 * DAY; at += DAY) assert.equal(await state(at), 'grace');
+  assert.equal(await state(t + 6 * DAY - 1), 'grace');
+  assert.equal(await state(t + 6 * DAY), 'invalid');
+  assert.equal((await writeRoute(req(), ctx)).status, 423);
+  // Лицензия под новую сборку снимает «только чтение»
+  await put(signed({ lid: 'lic-b1', buildId: 'b-1', expiresAt: t + 365 * DAY }));
+  assert.equal(await state(t + 6 * DAY + H), 'valid');
+  assert.equal((await writeRoute(req(), ctx)).status, 200);
   overrideLicenseEnvForTests({ watermark: CLIENT });
+});
+
+test('льгота wrong_build: без builtAt, без копии в БД или после срока копии — сразу invalid', async () => {
+  const t = (await row()).lastSeenAt + H;
+  // Сборка без времени (образ до D-290)
+  await upgraded(t, null);
+  assert.equal(await state(t + H), 'invalid');
+  // Копии нет (подменили на мусор): опоры нет
+  await upgraded(t + DAY, t + DAY);
+  await forge({ licenseRaw: 'x' });
+  assert.equal(await state(t + DAY + H), 'invalid');
+  // Копия кончается раньше builtAt + 7 сут: льгота — до её expiresAt + graceDays
+  const t2 = t + 2 * DAY;
+  await upgraded(t2, t2, { expiresAt: t2 + 2 * DAY, graceDays: 1 });
+  assert.equal(await state(t2 + 2 * DAY + 23 * H), 'grace');
+  assert.equal(await state(t2 + 3 * DAY), 'invalid');
+  overrideLicenseEnvForTests({ watermark: CLIENT });
+});
+
+test('подделка строки раз в 6 суток (state = valid, invalid_since = NULL) не продлевает льготу wrong_build', async () => {
+  const t = (await row()).lastSeenAt + H;
+  const builtAt = t;
+  await upgraded(t, builtAt);
+  const seen: Record<number, string> = {};
+  for (let d = 0; d <= 100; d++) {
+    if (d % 6 === 0) await forge({ state: 'valid', invalidSince: null });
+    seen[d] = await state(builtAt + d * DAY + H);
+  }
+  for (let d = 0; d < 7; d++) assert.equal(seen[d], 'grace', `сутки ${d}`);
+  for (const d of [7, 8, 30, 100]) assert.equal(seen[d], 'invalid', `сутки ${d}`);
+  assert.equal((await writeRoute(req(), ctx)).status, 423);
+  // То же вместе с last_seen_at назад и invalid_since «сейчас»: конец по-прежнему builtAt + 7 сут
+  await forge({ state: 'valid', invalidSince: builtAt + 100 * DAY, lastSeenAt: builtAt });
+  assert.equal(await state(builtAt + 100 * DAY + 2 * H), 'invalid');
+  // Подмена файла мусором вдобавок: вердикт по копии — та же лицензия прежней сборки, льготы нет
+  await put('x');
+  assert.equal(await state(builtAt + 100 * DAY + 3 * H), 'invalid');
+  assert.equal((await row()).reason, 'wrong_build');
+  overrideLicenseEnvForTests({ watermark: CLIENT });
+});
+
+test('правило часов в льготе wrong_build: назад — не продлевает; вперёд и починка — снова по часам', async () => {
+  const t = (await row()).lastSeenAt + H;
+  await upgraded(t, t);
+  for (let at = t + DAY; at <= t + 5 * DAY; at += DAY) assert.equal(await state(at), 'grace');
+  // Часы назад на 30 суток: «сейчас» = максимум виденного, льгота идёт своим ходом
+  assert.equal(await state(t - 30 * DAY), 'grace');
+  assert.equal((await row()).lastSeenAt, t + 5 * DAY);
+  await state(t + 6 * DAY);
+  await state(t + 7 * DAY);
+  assert.equal(await state(t - 30 * DAY), 'invalid');
+  // Скачок вперёд на год посреди льготы: invalid по часам; починили часы — снова grace до builtAt + 7 сут
+  const t2 = t + 8 * DAY;
+  await upgraded(t2, t2);
+  assert.equal(await state(t2 + H), 'grace');
+  assert.equal(await state(t2 + 365 * DAY), 'invalid');
+  assert.equal((await row()).lastSeenAt, t2 + H + 48 * H);
+  assert.equal(await state(t2 + 2 * H), 'grace');
+  overrideLicenseEnvForTests({ watermark: CLIENT });
+});
+
+test('лицензия «на будущее» не затирает рабочую копию: работа по копии до начала новой', async () => {
+  const t = (await row()).lastSeenAt + H;
+  const prev = signed({ lid: 'lic-now', expiresAt: t + 365 * DAY });
+  await fresh(prev, t);
+  await put(prev);
+  assert.equal(await state(t), 'valid');
+  const next = signed({ lid: 'lic-next', notBefore: t + 30 * DAY, issuedAt: t, expiresAt: t + 400 * DAY });
+  await put(next);
+  assert.equal(await state(t + H), 'valid');
+  assert.equal((await row()).licenseRaw, prev);
+  // Новая начала действовать — она становится копией
+  for (let at = t + DAY; at <= t + 30 * DAY; at += DAY) await state(at);
+  assert.equal(await state(t + 30 * DAY + H), 'valid');
+  assert.equal((await row()).licenseRaw, next);
 });

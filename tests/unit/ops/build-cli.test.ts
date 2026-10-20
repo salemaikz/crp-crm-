@@ -67,3 +67,23 @@ test('build.mjs: ключи клиента проверяются — тесто
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('build.mjs: --built-at клиента — только epoch-мс и не в будущем (D-290)', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'keys-'));
+  try {
+    const f = path.join(dir, 'k.json');
+    await writeFile(f, JSON.stringify({ 'prod-1': KEY }));
+    const cases: Array<[string, RegExp]> = [
+      ['2026-10-20', /epoch-мс, 13 цифр/],
+      ['179200000000', /epoch-мс, 13 цифр/],
+      [String(Date.now() + 3 * 86_400_000), /в будущем/],
+    ];
+    for (const [v, re] of cases) {
+      const r = run('packages/core/build.mjs', ['--customer', 'demo-co', '--build-id', 'b-1', '--license-keys', f, '--built-at', v]);
+      assert.equal(r.status, 1, v);
+      assert.match(r.stderr, re, v);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

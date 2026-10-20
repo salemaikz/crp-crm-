@@ -24,6 +24,8 @@ export const LICENSE_FILE = 'license.crm';
 const CHECK_MOUNT = '/tmp/license-check.crm';
 const MAX_BYTES = 16 * 1024;
 const DAY = 86_400_000;
+/** Как INVALID_GRACE_DAYS ядра: хостовая копия crmctl ядро не вшивает (build-cli.mjs). */
+const BUILD_GRACE_DAYS = 7;
 
 export const licenseDir = (deps: Deps) => path.join(deps.paths.libDir, 'license');
 
@@ -104,10 +106,17 @@ export async function verifyInImage(deps: Deps, image: string, hostFile: string 
   } catch {
     throw new CrmctlError(`Проверка лицензии в образе ${image} не ответила: ${describe(r)}`);
   }
-  if (typeof parsed?.ok !== 'boolean' || typeof parsed.watermark !== 'object') {
+  if (typeof parsed?.ok !== 'boolean' || typeof parsed.watermark !== 'object' || parsed.watermark === null) {
     throw new CrmctlError(`Проверка лицензии в образе ${image}: непонятный ответ`);
   }
-  return parsed;
+  // Образ до D-290 времени сборки не сообщает: льготы для лицензии прежней сборки у него нет
+  const builtAt = typeof parsed.watermark.builtAt === 'number' && Number.isSafeInteger(parsed.watermark.builtAt) ? parsed.watermark.builtAt : null;
+  return { ...parsed, watermark: { ...parsed.watermark, builtAt } };
+}
+
+/** Конец льготы лицензии прежней сборки в этом образе: время сборки + 7 сут (D-290); null — без льготы. */
+export function buildGraceEnd(wm: Watermark): number | null {
+  return wm.builtAt === null ? null : wm.builtAt + BUILD_GRACE_DAYS * DAY;
 }
 
 /** Ядро образа должно быть собрано для клиента этой установки (водяной знак, D-028). */
@@ -208,7 +217,18 @@ async function status(deps: Deps): Promise<number> {
     io.out(`проверка:      ${v.ok ? 'подпись и установка сходятся' : `не принята — ${reasonText(v.reason)}`}`);
     const wm = watermarkProblem(v, st.customer);
     if (wm) io.out(`водяной знак:  ${wm}`);
+    if (v.watermark.buildId) {
+      io.out(`сборка образа: ${v.watermark.buildId}${v.watermark.builtAt !== null ? `, собрана ${new Date(v.watermark.builtAt).toISOString()}` : ''}`);
+    }
     if (v.license) describeLicense(io, v.license);
+    const end = buildGraceEnd(v.watermark);
+    if (v.reason === 'wrong_build') {
+      io.out(
+        end === null
+          ? 'льгота:        нет (образ без времени сборки) — нужна лицензия под эту сборку'
+          : `льгота до:     ${new Date(end).toISOString()} (7 суток от сборки) — к этому сроку поставьте лицензию под эту сборку`,
+      );
+    }
   }
   const r = await psql(deps, st.current.version, 'SELECT row_to_json(l) FROM license_state l WHERE id = 1;');
   if (r.code !== 0) {
@@ -223,7 +243,7 @@ async function status(deps: Deps): Promise<number> {
   const row = JSON.parse(line) as DbRow;
   io.out(`состояние:     ${row.state ?? '?'}${row.reason ? ` (${reasonText(row.reason)})` : ''}`);
   if (row.last_seen_at) io.out(`часы лицензии: ${new Date(row.last_seen_at).toISOString()}`);
-  if (row.invalid_since) io.out(`льгота с:      ${new Date(row.invalid_since).toISOString()} (7 дней)`);
+  if (row.invalid_since) io.out(`не сходится с: ${new Date(row.invalid_since).toISOString()}`);
   return 0;
 }
 
@@ -254,7 +274,8 @@ export async function license(deps: Deps, args: ParsedArgs): Promise<number> {
 /**
  * Проверка лицензии НОВЫМ образом до переключения (`crmctl update`, DEPLOY §5.2 п. 2). Нет файла — не
  * помеха (установка остаётся в missing). Отказ: подпись/установка не сходятся или ядро образа собрано
- * не для этого клиента.
+ * не для этого клиента. Лицензия прежней сборки (`wrong_build`) — не помеха, пока идут 7 суток от сборки
+ * нового образа (D-290): лицензию под новую сборку `license install` примет только после переключения.
  */
 export function imageLicenseVerifier(deps: Deps): { verifyLicense(input: { image: string; licenseDir: string; installId: string }): Promise<Verdict> } {
   return {
@@ -267,6 +288,19 @@ export function imageLicenseVerifier(deps: Deps): { verifyLicense(input: { image
       const wm = watermarkProblem(v, st.customer);
       if (wm) return { ok: false, reason: wm };
       if (!exists || v.ok) return { ok: true };
+      if (v.reason === 'wrong_build') {
+        const end = buildGraceEnd(v.watermark);
+        if (end !== null && deps.now() < end) {
+          return {
+            ok: true,
+            warning:
+              `лицензия выдана для прежней сборки; сборка ${v.watermark.buildId ?? '?'} работает в льготе до ${new Date(end).toISOString()} ` +
+              '(7 суток от сборки). До этого срока поставьте лицензию под новую сборку: crmctl license install',
+          };
+        }
+        const why = end === null ? 'образ без времени сборки' : `7 суток от сборки истекли ${day(end)}`;
+        return { ok: false, reason: `${reasonText('wrong_build')}, льготы нет (${why}); нужна лицензия без привязки к сборке` };
+      }
       return { ok: false, reason: reasonText(v.reason) };
     },
   };

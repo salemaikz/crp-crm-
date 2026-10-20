@@ -82,6 +82,7 @@ export async function update(deps: Deps, args: ParsedArgs): Promise<number> {
     installId: original.installId,
   });
   if (!lic.ok) throw new CrmctlError(`Лицензия не принята новым образом: ${lic.reason}. Прежняя версия работает`);
+  if (lic.warning) io.out(`Внимание: ${lic.warning}`);
 
   io.out('[3/7] Миграции: копия и накатка');
   const pending = await pendingMigrations(deps, version);
