@@ -13,19 +13,23 @@ export const NAMESPACES = ['common', 'auth'] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 
 /**
- * Запасной пояс, пока настроек установки нет. Не рабочий пояс клиента: он берётся из настроек (CONFIG).
- * TODO: заменить на значение из активной конфигурации, когда появится getActiveConfig.
+ * Запасной пояс только для установки без настроек (до `crmctl config apply`). Рабочий пояс клиента
+ * берётся из `global.org.timezone` активных настроек (src/i18n/request.ts).
  */
 export const DEFAULT_TIME_ZONE = 'UTC';
 
-/** Пояс установки: из настроек, если заданы и валидны, иначе запасной. */
+/**
+ * Пояс установки: из настроек. Нет настроек (пусто) — запасной. Неверный пояс — ошибка, а не тихий
+ * UTC: часы расписания и отчёты сдвинулись бы без видимой причины. Схема настроек не пропускает
+ * такой пояс при записи (TimeZone в ConfigV1), эта проверка — страховка на пути чтения.
+ */
 export function resolveTimeZone(configured?: string | null): string {
   const tz = configured?.trim();
   if (!tz) return DEFAULT_TIME_ZONE;
   try {
     new Intl.DateTimeFormat('en', { timeZone: tz });
-    return tz;
   } catch {
-    return DEFAULT_TIME_ZONE;
+    throw new Error(`настройки: неизвестный часовой пояс IANA «${tz}»`);
   }
+  return tz;
 }

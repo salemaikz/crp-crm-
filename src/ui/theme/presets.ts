@@ -36,16 +36,20 @@ const SYSTEM = "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 
  * Пресеты шрифтов. Все с кириллицей (в т.ч. cyrillic-ext); веб-шрифты подключает оболочка через
  * next/font и отдаёт CSS-переменные --font-geologica, --font-onest и т.п. Нет переменной — работает запасной стек.
  */
+const GEOLOGICA_ONEST: FontPreset = {
+  body: `var(--font-onest, ${SYSTEM})`,
+  display: `var(--font-geologica, var(--font-onest, ${SYSTEM}))`,
+};
+
 export const FONT_PRESETS: Record<string, FontPreset> = {
   system: { body: SYSTEM, display: SYSTEM },
   humanist: {
     body: `var(--font-humanist, ${SYSTEM})`,
     display: `var(--font-humanist, ${SYSTEM})`,
   },
-  'geologica-onest': {
-    body: `var(--font-onest, ${SYSTEM})`,
-    display: `var(--font-geologica, var(--font-onest, ${SYSTEM}))`,
-  },
+  'geologica-onest': GEOLOGICA_ONEST,
+  // Ключ в настройках — `[a-z][a-z0-9_]*` (дефис в нём недопустим), пресет клиента пишет `geologica_onest`
+  geologica_onest: GEOLOGICA_ONEST,
 };
 
 export const DEFAULT_FONT_PRESET = 'system';
