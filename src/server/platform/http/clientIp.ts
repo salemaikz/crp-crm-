@@ -1,17 +1,17 @@
 // IP клиента для лимитов частоты — только из заголовков, которым можно доверять.
 // Источник: платформа LMS 2cd8a2b src/lib/auth/clientIp.ts. Чистая функция от заголовков и env — удобно тестировать.
 //
-// TRUSTED_PROXY_HOPS=N (целое, по умолчанию 0) — сколько своих прокси стоит перед приложением.
-//   N > 0: берём N-е значение X-Forwarded-For справа (его дописал наш ближайший доверенный
-//          прокси; всё левее мог прислать сам клиент). Значений меньше N — IP неизвестен.
-//   N = 0: X-Forwarded-For не читаем вовсе; X-Real-IP — только при TRUST_X_REAL_IP=1
-//          (прокси сам ставит его и перезаписывает клиентский; nginx установки это делает).
-// Неизвестный IP → 'unknown': лимит «на IP» становится общим ведром, а учётную запись
-// защищает отдельный лимит «на аккаунт».
-// В production источник IP обязан быть настроен (установка за nginx: TRUST_X_REAL_IP=1, CONFIG §7).
-// Не настроен — громкое предупреждение в лог не чаще раза в час (D-152): иначе одно ведро на всех,
-// и 100 неверных входов за окно запирают вход всей компании.
+// Заголовки прокси читаются только у запроса, пришедшего через nginx установки: X-Proxy-Secret совпал с
+// CRM_PROXY_SECRET (D-155, trustedProxy.ts). Иначе — 'unknown': источник лидов из сети crm_ingest ходит
+// к приложению напрямую и подделать IP не может.
+//   TRUSTED_PROXY_HOPS=N > 0: N-е значение X-Forwarded-For справа (цепочка своих прокси перед nginx).
+//   N = 0 (по умолчанию): X-Real-IP, который nginx ставит из $remote_addr.
+// Неизвестный IP → 'unknown': лимит «на IP» становится общим ведром, а учётную запись защищает
+// отдельный лимит «на аккаунт». Поэтому в production без CRM_PROXY_SECRET приложение не стартует
+// (startupConfigProblems из platform/env.ts, src/instrumentation.ts), а TRUST_X_REAL_IP (D-152) больше
+// ничего не включает.
 import { isIP } from 'node:net';
+import { classifyRequest, proxySecret } from './trustedProxy';
 
 export const UNKNOWN_IP = 'unknown';
 
@@ -35,33 +35,51 @@ export function trustedProxyHops(env: Env = process.env): number {
   return n <= 20 ? n : 0;
 }
 
-/** Источник IP не настроен в production — текст для лога; иначе null. Вне production не проверяется. */
+/** Источник IP не настроен в production — текст для оператора (отказ запуска, лог); иначе null. Вне production — null. */
 export function clientIpConfigProblem(env: Env = process.env): string | null {
   if (env.NODE_ENV !== 'production') return null;
-  if (trustedProxyHops(env) > 0 || env.TRUST_X_REAL_IP?.trim() === '1') return null;
-  return 'в production не задан источник IP клиента (TRUST_X_REAL_IP=1 за nginx установки или TRUSTED_PROXY_HOPS, docs/CONFIG.md §7): лимиты входа и приглашений общие для всех — один злоумышленник запирает вход всей компании';
+  if (proxySecret(env)) return null;
+  const why = env.CRM_PROXY_SECRET?.trim()
+    ? 'CRM_PROXY_SECRET задан, но не того формата (base64url, от 32 символов)'
+    : env.TRUST_X_REAL_IP?.trim() === '1'
+      ? 'не задан CRM_PROXY_SECRET (TRUST_X_REAL_IP=1 больше не действует, D-155)'
+      : 'не задан CRM_PROXY_SECRET';
+  return `${why}: без него приложение не отличает запросы nginx от прямых, IP клиента неизвестен, лимиты входа общие для всех — один злоумышленник запирает вход всей компании. Исправление: sudo crmctl update допишет секрет в /etc/crm/app.env и в nginx; без нового пакета — docs/ops/RUNBOOK.md «Обновление»`;
 }
 
 const WARN_INTERVAL_MS = 60 * 60_000;
-let lastWarnAt: number | null = null;
+const lastWarnAt = new Map<string, number>();
+
+function warnHourly(kind: string, text: string, nowMs: number): boolean {
+  const last = lastWarnAt.get(kind);
+  if (last !== undefined && nowMs - last < WARN_INTERVAL_MS) return false;
+  lastWarnAt.set(kind, nowMs);
+  console.error(`[security] ВНИМАНИЕ: ${text}`);
+  return true;
+}
 
 /** Предупреждение о ненастроенном источнике IP: не чаще раза в час. true — записано сейчас. */
 export function warnClientIpConfig(env: Env = process.env, nowMs: number = Date.now()): boolean {
   const problem = clientIpConfigProblem(env);
-  if (!problem) return false;
-  if (lastWarnAt !== null && nowMs - lastWarnAt < WARN_INTERVAL_MS) return false;
-  lastWarnAt = nowMs;
-  console.error(`[security] ВНИМАНИЕ: ${problem}`);
-  return true;
+  return problem ? warnHourly('config', problem, nowMs) : false;
 }
 
-/** Только для тестов: снова разрешить предупреждение. */
+const FORGED_TEXT =
+  'запрос с меткой прокси (X-Via-Proxy/X-Proxy-Secret) без верного секрета: nginx не передаёт CRM_PROXY_SECRET (sudo crmctl update) или заголовки подделаны в сети crm_ingest. IP такого запроса не используется';
+
+/** Только для тестов: снова разрешить предупреждения. */
 export function resetClientIpWarning(): void {
-  lastWarnAt = null;
+  lastWarnAt.clear();
 }
 
 /** IP клиента по доверенной схеме (см. шапку файла) или UNKNOWN_IP. */
-export function deriveClientIp(headers: HeaderGetter, env: Env = process.env): string {
+export function deriveClientIp(headers: HeaderGetter, env: Env = process.env, nowMs: number = Date.now()): string {
+  const path = classifyRequest(headers, env);
+  if (path !== 'proxy') {
+    const warned = warnClientIpConfig(env, nowMs);
+    if (!warned && path === 'forged' && proxySecret(env)) warnHourly('forged', FORGED_TEXT, nowMs);
+    return UNKNOWN_IP;
+  }
   const hops = trustedProxyHops(env);
   if (hops > 0) {
     const chain = (headers.get('x-forwarded-for') ?? '')
@@ -71,7 +89,5 @@ export function deriveClientIp(headers: HeaderGetter, env: Env = process.env): s
     if (chain.length < hops) return UNKNOWN_IP;
     return normalizeIp(chain[chain.length - hops]) ?? UNKNOWN_IP;
   }
-  if (env.TRUST_X_REAL_IP?.trim() === '1') return normalizeIp(headers.get('x-real-ip')) ?? UNKNOWN_IP;
-  warnClientIpConfig(env);
-  return UNKNOWN_IP;
+  return normalizeIp(headers.get('x-real-ip')) ?? UNKNOWN_IP;
 }

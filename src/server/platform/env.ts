@@ -1,6 +1,8 @@
 // Окружение установки: чтение переменных и проверки конфигурации (fail closed).
 // Нормативно: docs/CONFIG.md §7. Секреты читаются только здесь и в secrets/ (позже).
 // Источник: платформа LMS 2cd8a2b src/lib/env.ts (без режима демо: встроенной БД в продукте нет).
+import { appOrigin } from './auth/csrf';
+import { clientIpConfigProblem } from './http/clientIp';
 
 /** Окружение как словарь: совместимо с process.env, тестам можно передать любой объект. */
 export type Env = Record<string, string | undefined>;
@@ -45,4 +47,19 @@ export function assertDbConfigured(e: Env = process.env): void {
  */
 export function migrateDatabaseUrl(e: Env = process.env): string {
   return readEnv(e, 'MIGRATE_DATABASE_URL') ?? databaseUrl(e);
+}
+
+/**
+ * Что в окружении не даёт запустить веб-приложение (пусто — можно). Проверяет src/instrumentation.ts при
+ * старте сервера Next; в production нужны APP_ORIGIN (иначе 403 на любую мутацию, D-153) и
+ * CRM_PROXY_SECRET (иначе IP клиентов неизвестен и лимиты входа общие, D-155). Обе строки пишет crmctl.
+ */
+export function startupConfigProblems(e: Env = process.env): string[] {
+  const problems: string[] = [];
+  if (isProduction(e) && !appOrigin(e)) {
+    problems.push('APP_ORIGIN не задан или не адрес http(s): без него любая мутация получает 403 (docs/CONFIG.md §7)');
+  }
+  const ip = clientIpConfigProblem(e);
+  if (ip) problems.push(ip);
+  return problems;
 }
