@@ -4,7 +4,7 @@
 import { newId, now, type Sql } from './db';
 import { jsonParam } from './db/core';
 
-export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system';
+export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'card';
 
 /**
  * Реестр имён действий. Имя — «<сущность>.<глагол_snake>» в два сегмента, первый совпадает с
@@ -29,6 +29,9 @@ export const AUDIT_ACTIONS = [
   'user.role_change',
   'user.admin_change',
   'user.disable',
+  // C5: карточка обзвона (без ПДн в meta)
+  'card.dnc_cleared',
+  'card.merged',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
