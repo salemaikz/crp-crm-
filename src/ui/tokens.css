@@ -1,0 +1,87 @@
+/*
+ * Токены интерфейса CRM. Три слоя: бренд, нейтральные, состояния (+ форма, плотность, шрифты).
+ * Значения ниже — нейтральные умолчания; в работе их перекрывает <ThemeStyle> из настроек (theme.*),
+ * которые считает src/ui/theme/compute.ts. Тест tests/unit/ui/tokens-sync.test.ts следит, чтобы
+ * умолчания здесь совпадали с computeTheme({}). Значения бренда клиента — только в его пресете.
+ */
+
+:root {
+  color-scheme: light;
+  --brand: #2457c5;
+  --brand-hover: #1f4ba9;
+  --brand-ink: #2457c5;
+  --brand-tint: #e9eef9;
+  --on-brand: #ffffff;
+  --accent: #2457c5;
+  --accent-hover: #1f4ba9;
+  --accent-ink: #2457c5;
+  --accent-tint: #e9eef9;
+  --on-accent: #ffffff;
+  --ring: #2457c5;
+  --canvas: #f5f6f8;
+  --surface: #ffffff;
+  --text: #14161b;
+  --text-2: #4a4f59;
+  --text-3: #5f646e;
+  --border: #dcdfe4;
+  --border-strong: #8c919a;
+  --overlay: rgb(20 22 27 / 48%);
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-sheet: 22px;
+  --control-h: 48px;
+  --tap-min: 44px;
+  --space-row: 12px;
+  --space-gap: 12px;
+  --space-card: 16px;
+  --text-base: 16px;
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --status-icon-display: inline-flex;
+  --success: #15753a;
+  --success-tint: #e6f4ec;
+  --warning: #8f4c00;
+  --warning-tint: #fdf0dc;
+  --info: #1f5fbf;
+  --info-tint: #e7effb;
+  --danger: #b3151b;
+  --danger-tint: #fdeceb;
+
+  /* Не из настроек: тень только у всплывающих слоёв (шторка, диалог, тост). */
+  --shadow-float: 0 12px 40px rgb(20 22 27 / 22%);
+  --z-sheet: 50;
+  --z-toast: 60;
+}
+
+/* Tailwind 4: утилиты bg-surface, text-text-2, border-line, text-brand-ink … */
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-tint: var(--brand-tint);
+  --color-on-brand: var(--on-brand);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-on-accent: var(--on-accent);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-ink: var(--text);
+  --color-ink-2: var(--text-2);
+  --color-ink-3: var(--text-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-success: var(--success);
+  --color-success-tint: var(--success-tint);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+  --color-info: var(--info);
+  --color-info-tint: var(--info-tint);
+  --color-danger: var(--danger);
+  --color-danger-tint: var(--danger-tint);
+  --font-body: var(--font-body);
+  --font-display: var(--font-display);
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-sheet: var(--radius-sheet);
+}
