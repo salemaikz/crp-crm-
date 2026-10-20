@@ -14,8 +14,17 @@ export {
   type SessionInfo,
 } from './session';
 export { passwordProblem, hashPassword, verifyPassword, BCRYPT_COST, PASSWORD_MIN_LENGTH } from './password';
+export { checkLogin, recordLoginFailure, recordLoginSuccess } from './throttle';
 export { attemptLogin, logoutEverywhere, changeOwnPassword, loginPhoneDigits, maskPhone, type ChangePasswordResult } from './login';
 export { issueInvite, issuePasswordReset, inspectInvite, acceptInvite, revokePendingInvites, inviteLink } from './invites';
 export { checkOrigin, originCheckRequired, SAFE_METHODS, ORIGIN_EXEMPT_PREFIXES } from './csrf';
 export { sessionCookieSpec, sessionCookieNames } from './cookie';
 export { readSecurityPolicy } from './policy';
+export {
+  loginRequest,
+  logoutRequest,
+  logoutAllRequest,
+  changePasswordRequest,
+  inspectInviteRequest,
+  acceptInviteRequest,
+} from './service';
