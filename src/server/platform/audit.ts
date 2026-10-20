@@ -19,6 +19,11 @@ export const AUDIT_ACTIONS = [
   'config.preset',
   'config.rollback',
   'config.migrate',
+  'user.invite',
+  'user.invite_accept',
+  'user.password_reset_issue',
+  'user.password_reset',
+  'user.password_change',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
