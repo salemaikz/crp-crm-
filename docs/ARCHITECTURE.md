@@ -918,9 +918,13 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
   даже по ошибке. К `crm_internal` и БД CRM доступа нет. Предел защиты от
   root — DEPLOY §8.3.
 - `/api/ingest/` закрыт снаружи двумя рубежами: nginx (пока `INGEST_PUBLIC=0`)
-  и само приложение — при `INGEST_PUBLIC=0` маршрут отвечает 404 на запрос с
-  заголовком `X-Via-Proxy`, который nginx ставит на все проксируемые запросы
-  (тест в `tests/integration/intake/`).
+  и само приложение (D-155). Порт приложения открыт и из `crm_ingest`, где
+  заголовки может прислать кто угодно, поэтому метки nginx (`X-Via-Proxy`,
+  `X-Real-IP`, `X-Forwarded-For`) принимаются только вместе с `X-Proxy-Secret`
+  = `CRM_PROXY_SECRET` (секрет пишет `crmctl install/update` в конфиг nginx и
+  `app.env`; клиентский заголовок nginx затирает своим). Верный секрет и
+  `INGEST_PUBLIC=0` → 404; метка без верного секрета → 404 всегда; без меток —
+  внутренний источник (тест в `tests/integration/intake/`).
 - Стенд — отдельный сервер с синтетикой (D-030, D-044).
 
 ### 8.2. Сборка и пакет

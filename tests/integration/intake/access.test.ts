@@ -29,6 +29,8 @@ beforeEach(() => {
   resetAccessForTests();
   // Счётчик неудачных ключей живёт в памяти процесса; без доверенного IP все запросы теста — один «unknown»
   resetRateLimit('ingest:fail:unknown');
+  // ...а неудачи с разбираемым ключом считаются по его префиксу (прямые внутренние источники)
+  for (const prefix of [key.split('_')[1], 'abcdefgh', 'zzzzzzzz', 'oldkey01', 'oldkey02']) resetRateLimit(`ingest:fail:key:${prefix}`);
 });
 
 const code = async (r: Response) => ((await r.json()) as any).error?.code;
@@ -121,6 +123,17 @@ test('перебор неверных ключей с одного адреса 
   } finally {
     delete process.env.TRUST_X_REAL_IP;
   }
+});
+
+test('прямые источники без IP: неудачи считаются по префиксу ключа, старый ключ одного не вызывает 429 у другого', async () => {
+  const stale = `crm1_oldkey01_${'C'.repeat(43)}`;
+  let last = 0;
+  for (let i = 0; i < 40; i++) last = (await post(stale, ok())).status;
+  assert.equal(last, 429, 'источник со старым ключом упёрся в лимит');
+  // другой источник с неверным ключом по-прежнему получает 401, а не 429
+  assert.equal((await post(`crm1_oldkey02_${'D'.repeat(43)}`, ok())).status, 401);
+  // рабочий ключ не задет
+  assert.equal((await post(key, ok())).status, 200);
 });
 
 test('Content-Type, размер тела и разбор JSON', async () => {

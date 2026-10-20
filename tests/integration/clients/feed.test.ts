@@ -84,7 +84,7 @@ test('событие скрытого поля не приходит опера�
 test('событие поля, которого нет в настройках, и вид не из реестра не приходят', async () => {
   const id = clientOf('a', 64);
   await addEvent('fx-gone', id, 'field.changed', 10, { obj: 'client', sys: false, field: 'removed_field', before: 1, after: 2 });
-  await addEvent('fx-kind', id, 'deal.stage', 11, { stage: 'x' });
+  await addEvent('fx-kind', id, 'x.unknown', 11, { stage: 'x' });
   await addEvent('fx-ok', id, 'call', 12, { outcome: 'no_answer', secretKey: 'не должен выйти', durationSec: 5 });
   const v = await viewerOf(U.opA);
   const p = await getClientFeed(v, id, { cursor: null, groups: null });
