@@ -15,6 +15,11 @@ export function isProduction(e: Env = process.env): boolean {
   return e.NODE_ENV === 'production';
 }
 
+/** Разработка и тесты: только здесь допустимы умолчания «включено». Пустое окружение — как бой. */
+export function isDevOrTest(e: Env = process.env): boolean {
+  return e.NODE_ENV === 'development' || e.NODE_ENV === 'test';
+}
+
 /**
  * Адрес БД приложения. Без DATABASE_URL приложение не стартует ни в production, ни в разработке:
  * встроенной БД «на всякий случай» нет, иначе данные тихо пропали бы при перезапуске.
