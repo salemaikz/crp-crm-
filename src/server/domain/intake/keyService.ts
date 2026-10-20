@@ -1,6 +1,7 @@
 // Управление ключами приёма из консоли (`crmctl ingest-key`). Ключи `managed=cli` в интерфейсе CRM не показываются:
 // интерфейсу (после 1.11) отдаётся только `uiKeys()`. Секрет показывается один раз при создании, в БД — sha256.
 import type { SystemActor } from '@/server/access/systemActor';
+import { writeAudit } from '@/server/platform/audit';
 import { getActiveConfig } from '@/server/platform/config/active';
 import { getDb, newId } from '@/server/platform/db';
 import { generateKey } from './keys';
@@ -54,15 +55,28 @@ export async function createKey(
   if (source.kind !== 'ingest') throw new KeyInputError(`источник «${input.sourceKey}» не принимает лиды по API (вид ${source.kind})`);
 
   const g = generateKey();
-  await repo.insertKey(db.sql, {
-    id: newId(),
-    prefix: g.prefix,
-    keyHash: g.keyHash,
-    spaceId,
-    sourceKey: input.sourceKey,
-    scopes: input.scopes,
-    managed: input.managed,
-    now: actor.now,
+  const id = newId();
+  // Ключ и запись в журнале — атомарно; в журнале только prefix, сам ключ и хэш не пишутся
+  await db.tx(async (sql) => {
+    await repo.insertKey(sql, {
+      id,
+      prefix: g.prefix,
+      keyHash: g.keyHash,
+      spaceId,
+      sourceKey: input.sourceKey,
+      scopes: input.scopes,
+      managed: input.managed,
+      now: actor.now,
+    });
+    await writeAudit(sql, {
+      actorId: null,
+      action: 'ingest_key.create',
+      entity: 'ingest_key',
+      entityId: id,
+      spaceId,
+      meta: { prefix: g.prefix, sourceKey: input.sourceKey, scopes: [...input.scopes], managed: input.managed, job: actor.job },
+      createdAt: actor.now,
+    });
   });
   const row = await repo.findKeyByPrefix(db.sql, g.prefix);
   if (!row) throw new Error('ключ не создан');
@@ -86,5 +100,17 @@ export async function uiKeys(): Promise<KeyInfo[]> {
 export async function revokeKey(actor: SystemActor, prefix: string): Promise<boolean> {
   if (!/^[a-z0-9]{8}$/.test(prefix)) throw new KeyInputError('prefix — 8 символов a-z, 0-9');
   const db = await getDb();
-  return repo.revokeKeyRow(db.sql, prefix, actor.now);
+  return db.tx(async (sql) => {
+    const id = await repo.revokeKeyRow(sql, prefix, actor.now);
+    if (!id) return false;
+    await writeAudit(sql, {
+      actorId: null,
+      action: 'ingest_key.revoke',
+      entity: 'ingest_key',
+      entityId: id,
+      meta: { prefix, job: actor.job },
+      createdAt: actor.now,
+    });
+    return true;
+  });
 }

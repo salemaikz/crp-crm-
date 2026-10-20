@@ -4,12 +4,12 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import postgres from 'postgres';
 import { run } from '../../../scripts/crmctl';
 import { readState } from '../../../scripts/crmctl/state';
-import { makeFake, writePackage, type Fake } from '../../unit/ops/crmctl-fakes';
+import { makeFake, writePackage as writeBasePackage, type Fake } from '../../unit/ops/crmctl-fakes';
 import type { RunOptions, RunResult } from '../../../scripts/crmctl/types';
 
 const ADMIN_URL = process.env.TEST_DATABASE_URL?.trim() ?? '';
@@ -17,6 +17,18 @@ const REPO = process.cwd();
 const created: string[] = [];
 let dbUrl = '';
 let admin: ReturnType<typeof postgres>;
+
+/** Версия схемы пакета = последняя миграция репозитория по имени: новые миграции тест не ломают. */
+async function latestMigration(): Promise<string> {
+  const all = (await readdir(path.join(REPO, 'migrations'))).filter((n) => n.endsWith('.sql')).sort();
+  assert.ok(all.length > 0, 'в migrations/ нет миграций');
+  return all[all.length - 1] as string;
+}
+
+/** Пакет с актуальной схемой: manifest.schemaVersion не отстаёт от migrations/. */
+async function writePackage(dir: string, version: string): Promise<string> {
+  return writeBasePackage(dir, version, { schemaVersion: await latestMigration() });
+}
 
 function sh(cmd: string, args: string[], opts: RunOptions & { env?: Record<string, string> }): Promise<RunResult> {
   return new Promise((resolve) => {

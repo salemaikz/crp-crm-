@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import type { GlobalConfigV1 } from '@crm/core/config';
 import { minimalGlobal } from '@crm/core/config/testing/minimal';
 import { buildNormalizeCtx, cleanEmail, cleanText, cleanUrl, holdRuleOf, normalizeItem, SourceUnknownError, type NormalizeCtx, type Prepared } from '../../../src/server/domain/intake/normalize';
-import { iinHmac } from '../../../src/server/domain/intake/hmac';
+import { iinHmac } from '../../../src/server/platform/hmac';
 
 const t = (ru: string) => ({ ru });
 const field = (key: string, type: string, o: Record<string, unknown> = {}) => ({
