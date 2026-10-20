@@ -2,6 +2,7 @@
 // (работает с телефона); остальные роли — боковая колонка на ноутбуке и нижняя панель на телефоне.
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { LogoutButton } from './LogoutButton';
 import { BottomNav, NotificationBell, SideNav, type NavEntry } from './ShellNav';
 
 export type AppShellProps = {
@@ -14,10 +15,12 @@ export type AppShellProps = {
   /** Колокольчик: счётчик непрочитанных даёт P8a; пока 0 — бейджа нет. */
   bell: { href: string; label: string; count: number };
   more: { label: string; closeLabel: string };
+  /** Сотрудник: нужен кнопке «Выйти», чтобы отправить его неотправленные итоги. */
+  userId: string;
   children: ReactNode;
 };
 
-export function AppShell({ variant, brand, navLabel, items, bottomSlots, account, bell, more, children }: AppShellProps) {
+export function AppShell({ variant, brand, navLabel, items, bottomSlots, account, bell, more, userId, children }: AppShellProps) {
   const side = variant === 'side';
   return (
     <div className={`flex min-h-dvh flex-col ${side ? 'md:flex-row' : ''}`} style={{ background: 'var(--canvas)', color: 'var(--text)' }}>
@@ -37,6 +40,11 @@ export function AppShell({ variant, brand, navLabel, items, bottomSlots, account
           </div>
         </div>
         {side ? <SideNav label={navLabel} items={items} /> : null}
+        {side ? (
+          <div className="hidden px-2 pb-4 md:block">
+            <LogoutButton userId={userId} />
+          </div>
+        ) : null}
       </aside>
       {/* Страницы ведут свой <main>; здесь только отступ под нижнюю панель с безопасной зоной iOS */}
       <div
@@ -49,7 +57,7 @@ export function AppShell({ variant, brand, navLabel, items, bottomSlots, account
         always={!side}
         items={items}
         slots={bottomSlots}
-        more={{ label: more.label, closeLabel: more.closeLabel, account }}
+        more={{ label: more.label, closeLabel: more.closeLabel, account, logout: <LogoutButton userId={userId} /> }}
       />
     </div>
   );

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { BottomSheet } from '@/ui/kit';
 import { isCurrentPath, type MenuId } from './menu';
 
@@ -59,7 +59,7 @@ type BottomProps = {
   /** Все пункты меню: первые `slots` стоят в панели, остальные уходят в «Ещё». */
   items: readonly NavEntry[];
   slots: number;
-  more: { label: string; closeLabel: string; account: { href: string; label: string } };
+  more: { label: string; closeLabel: string; account: { href: string; label: string }; logout: ReactNode };
 };
 
 const slot = 'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 text-xs aria-[current=page]:font-semibold';
@@ -125,6 +125,7 @@ export function BottomNav({ label, always, items, slots, more }: BottomProps) {
               {more.account.label}
             </Link>
           </li>
+          <li>{more.logout}</li>
         </ul>
       </BottomSheet>
     </>

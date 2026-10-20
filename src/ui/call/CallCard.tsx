@@ -64,12 +64,28 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
           {card.lpr === 'yes' ? t('card.lprYes') : card.lpr === 'no' ? t('card.lprNo') : t('card.lprUnknown')}
           {card.isTarget === 'yes' ? ` · ${t('card.target')}` : ''}
         </p>
+        {card.decisionMaker && (
+          <p className="text-sm break-words" data-testid="call-lpr">
+            {card.decisionMaker.position !== ''
+              ? t('card.lprContactPosition', { name: card.decisionMaker.name, position: card.decisionMaker.position })
+              : t('card.lprContact', { name: card.decisionMaker.name })}
+            {card.decisionMaker.phone ? ` · ${t('card.lprPhone', { phone: formatKzPhone(card.decisionMaker.phone) })}` : ''}
+          </p>
+        )}
         <p className="text-sm" data-testid="call-last">
           {card.lastOutcomeAt !== null
             ? t('card.last', { label: lastLabel || t('card.lastUnknown'), when: when(card.lastOutcomeAt) })
             : t('card.first')}
           {card.nextCallAt !== null && card.group === 'callbacks' ? ` · ${t('card.callbackAt', { when: when(card.nextCallAt) })}` : ''}
         </p>
+        {card.lastNote && (
+          <blockquote className="border-l-4 pl-3 text-sm break-words" style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }} data-testid="call-note">
+            <span className="block text-xs" style={{ color: 'var(--text-3)' }}>
+              {t('card.lastNote')} · {when(card.lastNote.at)}
+            </span>
+            {card.lastNote.text}
+          </blockquote>
+        )}
         {rows.length > 0 && (
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
             {rows.map((r) => (

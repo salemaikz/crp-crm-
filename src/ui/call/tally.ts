@@ -87,3 +87,12 @@ export function viewOf(t: Tally): TallyView {
 export function callsInLastHour(t: Tally, now: number): number {
   return t.items.filter((x) => x.at > now - 3_600_000 && x.at <= now).length;
 }
+
+/** Серверная сводка плюс итоги, ещё лежащие в outbox (на сервер они не дошли). */
+export function withUnsent(server: TallyView, unsentKinds: readonly OutcomeKind[]): TallyView {
+  return {
+    outcomes: server.outcomes + unsentKinds.length,
+    connected: server.connected + unsentKinds.filter((k) => CONNECTED_KINDS.includes(k)).length,
+    booked: server.booked,
+  };
+}
