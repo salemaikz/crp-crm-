@@ -7,8 +7,13 @@ export interface LegalForm {
   key: string;
   /** Полные названия (любой регистр, любая буква ё/е). */
   full: readonly string[];
-  /** Аббревиатуры, как отдельное слово. */
+  /** Аббревиатуры, как отдельное слово. Первая — код формы для правил и профиля (`тоо`, `ип`). */
   short: readonly string[];
+  /**
+   * Аббревиатуры, которые признаются формой только в колонке «Тип», но не в названии: в названии они
+   * значат другое («ЖК» в «ЖК Альфа Парк» — жилой комплекс, а не «жеке кәсіпкер»).
+   */
+  typeOnly?: readonly string[];
 }
 
 export const DEFAULT_LEGAL_FORMS: readonly LegalForm[] = [
@@ -20,7 +25,8 @@ export const DEFAULT_LEGAL_FORMS: readonly LegalForm[] = [
   {
     key: 'sole_proprietor',
     full: ['индивидуальный предприниматель', 'жеке кәсіпкер'],
-    short: ['ип', 'жк'],
+    short: ['ип'],
+    typeOnly: ['жк'],
   },
   { key: 'jsc', full: ['акционерное общество'], short: ['ао'] },
 ];

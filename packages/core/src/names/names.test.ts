@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_LEGAL_FORMS,
   detectLegalForm,
+  legalFormCode,
+  legalFormOfTypeCell,
   normalizeBin,
   normalizeCompanyName,
   normalizePersonName,
@@ -11,9 +13,9 @@ import {
 const N = (s: string) => normalizeCompanyName(s);
 
 test('полная и короткая форма, кавычки и дефисы дают один ключ', () => {
-  const a = N('Товарищество с ограниченной ответственностью "Концерн "Найза-Қурылыс"');
-  assert.equal(a, N('ТОО «Концерн Найза Қурылыс»'));
-  assert.equal(a, 'концерн найза курылыс');
+  const a = N('Товарищество с ограниченной ответственностью "Пример "Гамма-Құрылыс"');
+  assert.equal(a, N('ТОО «Пример Гамма Құрылыс»'));
+  assert.equal(a, 'пример гамма курылыс');
 });
 
 test('ИП, АО, ЖШС, ЖК и латиница', () => {
@@ -65,6 +67,30 @@ test('detectLegalForm: полная, короткая, нет формы', () =>
   assert.equal(detectLegalForm('Пример'), null);
   assert.equal(detectLegalForm('ТОО Пример', []), null);
   assert.ok(DEFAULT_LEGAL_FORMS.length >= 3);
+});
+
+test('«ЖК» в названии — не ИП (жилой комплекс); ИП по-казахски — только полной формой', () => {
+  assert.equal(detectLegalForm('ЖК «Альфа Парк»'), null);
+  assert.equal(detectLegalForm('Альфа Парк ЖК'), null);
+  assert.equal(N('ЖК «Альфа Парк»'), 'жк альфа парк', '«ЖК» из названия не вырезается');
+  assert.equal(detectLegalForm('Жеке кәсіпкер Гамма'), 'sole_proprietor');
+  assert.equal(detectLegalForm('ЖК Жеке кәсіпкер Гамма'), 'sole_proprietor');
+});
+
+test('колонка «Тип»: полные, короткие и казахские формы, точки и регистр', () => {
+  const T = (s: string) => legalFormOfTypeCell(s);
+  for (const v of ['ИП', 'ип', 'ИП.', ' ИП ', 'Индивидуальный предприниматель', 'ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ', 'ЖК', 'Жеке кәсіпкер', 'жеке касипкер']) {
+    assert.equal(T(v), 'sole_proprietor', v);
+  }
+  assert.equal(T('ТОО'), 'llp');
+  assert.equal(T('Товарищество с ограниченной ответственностью'), 'llp');
+  assert.equal(T('ЖШС'), 'llp');
+  assert.equal(T('АО'), 'jsc');
+  assert.equal(T('Крестьянское хозяйство'), null);
+  assert.equal(T(''), null);
+  assert.equal(legalFormCode('sole_proprietor'), 'ип');
+  assert.equal(legalFormCode('llp'), 'тоо');
+  assert.equal(legalFormCode(null), '');
 });
 
 test('normalizePersonName: регистр, ё, казахские буквы, знаки', () => {

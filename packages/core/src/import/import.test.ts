@@ -1,14 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileMaps, isContradiction, parseAnswerCell, parseLpr, parseTarget } from './answer';
-import { parseCsvRecords, toCsv } from './csv';
+import { detectDelimiter, parseCsv, parseCsvRecords, toCsv } from './csv';
 import { importKeyOf, squashSpaces } from './keys';
 import { parseOperatorRules, resolveOwner, resolveRowOwner, ruleOverlaps } from './owner';
 import { compileProfile, parseSheet } from './parse';
 import { decideReimport } from './reimport';
 import { createBookingIndex, hasBooking } from './bookings';
+import { orgKeyOf, redactPersonalId } from './personalId';
+import { buildPreview } from './preview';
 import { generateSyntheticSheets } from './syntheticSheets';
-import { normalizers, parseOrThrow, testHash, testProfile } from './testProfile';
+import { DEFAULT_DEDUP_SETTINGS, normalizers, parseOrThrow, testHash, testProfile } from './testProfile';
 
 const slots = [
   { label: 'Оператор-01 (Синий)', name: 'Оператор-01', color: 'Синий', ranges: [[3, 202]] as [number, number][] },
@@ -31,6 +33,39 @@ test('CSV: BOM, CRLF и разделитель «;» определяются с
   assert.deepEqual(parseCsvRecords('﻿a;b\r\n1;2\r\n'), [['a', 'b'], ['1', '2']]);
   const grid = [['x', 'a,b', 'c"d'], ['1\n2', '', ' пробел ']];
   assert.deepEqual(parseCsvRecords(toCsv(grid)), grid);
+});
+
+test('CSV: разделитель — по строке заголовков, а не по баннеру с запятыми', () => {
+  const text = 'Таблица обзвона, октябрь, город Пример\nТип;Наименование;Телефон\nТОО;Альфа, Бета;+7 709 000 70 01\n';
+  assert.deepEqual(parseCsvRecords(text, { headers: Object.keys(profile.columns) })[2], ['ТОО', 'Альфа, Бета', '+7 709 000 70 01']);
+  // Без подсказки — разделитель, которого больше всего в одной строке.
+  const wide = 'Выгрузка, октябрь\nТип;Наименование;Телефон;Ответ\n';
+  assert.equal(detectDelimiter(wide), ';');
+  assert.equal(detectDelimiter('a\tb\tc\n1\t2\t3\n'), '\t');
+});
+
+test('CSV: непарная кавычка не съедает файл — ошибка строки, номера строк не едут', () => {
+  // Кавычка в середине ячейки — обычный символ.
+  const mid = parseCsv('a,b\nТОО "Альфа,x\nc,d\n');
+  assert.deepEqual(mid.rows, [['a', 'b'], ['ТОО "Альфа', 'x'], ['c', 'd']]);
+  assert.deepEqual(mid.errors, []);
+  // Кавычка в начале ячейки без пары до конца файла.
+  const eof = parseCsv('a,b\n"Альфа,x\nc,d\ne,f\n');
+  assert.deepEqual(eof.rows, [['a', 'b'], ['"Альфа', 'x'], ['c', 'd'], ['e', 'f']]);
+  assert.deepEqual(eof.errors, [{ rowNo: 2, code: 'bad_quote' }]);
+  // Непарная кавычка «закрылась» кавычкой следующей строки — откат, строки на месте.
+  const pair = parseCsv('a,b\n"Альфа,x\n"Бета",y\nc,d\n');
+  assert.deepEqual(pair.rows, [['a', 'b'], ['"Альфа', 'x'], ['Бета', 'y'], ['c', 'd']]);
+  assert.deepEqual(pair.errors, [{ rowNo: 2, code: 'bad_quote' }]);
+  // Слишком длинная кавычечная ячейка — тоже откат.
+  const long = parseCsv(`a,b\n"x,1\n${'r,2\n'.repeat(40)}`, { maxCellLines: 30 });
+  assert.equal(long.rows.length, 42);
+  assert.deepEqual(long.errors, [{ rowNo: 2, code: 'bad_quote' }]);
+  // Правильные кавычки с переводами строк и пробелом после закрывающей — без ошибок.
+  const ok = parseCsv('a,b\n"line1\nline2" ,x\n');
+  assert.deepEqual(ok.rows, [['a', 'b'], ['line1\nline2 ', 'x']]);
+  assert.deepEqual(ok.errors, []);
+  assert.equal(parseCsv('a,"').errors.length, 1);
 });
 
 // --- итоги ---
@@ -161,12 +196,12 @@ test('разбор: замечания строки — неизвестный �
 
 test('разбор: строка без названия — ошибка; заглушка и пустой номер — без рабочих номеров', () => {
   const { rows } = parseOrThrow(
-    [HEAD, line({ Телефон: '+7 709 111 22 33' }), line({ Наименование: 'Г', Телефон: '+7 777 777 77 77' }), line({ Наименование: 'Д' })],
+    [HEAD, line({ Телефон: '+7 709 111 22 33' }), line({ Наименование: 'Г', Телефон: '+7 799 999 99 99' }), line({ Наименование: 'Д' })],
     profile,
   );
   assert.equal(rows[0]?.issues[0]?.code, 'no_name');
   assert.deepEqual(rows[1]?.workingPhones, []);
-  assert.deepEqual(rows[1]?.stubPhones, ['77777777777']);
+  assert.deepEqual(rows[1]?.stubPhones, ['77999999999']);
   assert.ok(rows[1]?.issues.some((i) => i.code === 'no_working_phone'));
   assert.ok(rows[2]?.issues.some((i) => i.code === 'no_phone'));
 });
@@ -179,6 +214,64 @@ test('ИП: форма определяется по названию, 12 циф
   assert.equal(rows[0]?.legalForm, 'ип');
   assert.equal(rows[0]?.orgId, '123456789012');
   assert.equal(rows[0]?.orgIdPersonal, true);
+});
+
+test('колонка «Тип»: каждая форма записи ИП даёт код «ип», личный ИИН и срабатывание правила (D-052)', () => {
+  const p = testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' } });
+  const forms = ['ИП', 'ип', 'ИП.', 'Индивидуальный предприниматель', 'ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ', 'ЖК', 'Жеке кәсіпкер', 'жеке касипкер'];
+  const grid = [[...HEAD, 'БИН'], ...forms.map((t, i) => [...line({ Тип: t, Наименование: `Пример-${i}`, Телефон: `+7 709 000 10 ${10 + i}` }), '880101300123'])];
+  const { rows } = parseOrThrow(grid, p);
+  for (const [i, r] of rows.entries()) {
+    assert.equal(r.legalForm, 'ип', forms[i]);
+    assert.equal(r.orgIdPersonal, true, forms[i]);
+    assert.equal(r.issues.some((x) => x.code === 'unknown_legal_form'), false, forms[i]);
+  }
+  const pv = buildPreview({
+    rows, profile: p, ownerMap: {}, known: [], dedup: DEFAULT_DEDUP_SETTINGS, personalIdHmac: (d) => `h${d.length}`,
+    stopList: { hash: (d) => d, lookup: new Set() },
+    rules: { reject: [{ code: 'legal_review', type: 'legalFormIn', values: ['ип'] }] },
+  });
+  assert.equal(pv.counts.byAction.rejected_rule, forms.length);
+});
+
+test('колонка «Тип»: ТОО и АО распознаются; неизвестное значение — на разбор, форма из названия, номер считается личным', () => {
+  const p = testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' } });
+  const { rows } = parseOrThrow(
+    [
+      [...HEAD, 'БИН'],
+      [...line({ Тип: 'Товарищество с ограниченной ответственностью', Наименование: 'Альфа', Телефон: '+7 709 000 20 01' }), '990440000001'],
+      [...line({ Тип: 'ЖШС', Наименование: 'Бета', Телефон: '+7 709 000 20 02' }), '990440000002'],
+      [...line({ Тип: 'Крестьянское хозяйство', Наименование: 'ТОО Гамма', Телефон: '+7 709 000 20 03' }), '990440000003'],
+      [...line({ Тип: '', Наименование: 'Дельта', Телефон: '+7 709 000 20 04' }), '990440000004'],
+      [...line({ Тип: '', Наименование: 'ЖК «Альфа Парк»', Телефон: '+7 709 000 20 05' }), ''],
+    ],
+    p,
+  );
+  assert.deepEqual(rows.map((r) => r.legalForm), ['тоо', 'тоо', 'тоо', '', '']);
+  assert.deepEqual(rows.map((r) => r.orgIdPersonal), [false, false, true, true, false]);
+  assert.ok(rows[2]?.issues.some((x) => x.code === 'unknown_legal_form' && x.severity === 'review'));
+  // Профиль может назвать «личную» форму полностью — признак тот же.
+  const full = parseOrThrow([[...HEAD, 'БИН'], [...line({ Тип: 'ИП', Наименование: 'Пример', Телефон: '+7 709 000 20 06' }), '880101300123']],
+    testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' }, personalIdForms: ['Индивидуальный предприниматель'] }));
+  assert.equal(full.rows[0]?.orgIdPersonal, true);
+  // Без «личных» форм в профиле признака нет вовсе.
+  const none = parseOrThrow([[...HEAD, 'БИН'], [...line({ Наименование: 'Пример', Телефон: '+7 709 000 20 07' }), '990440000007']],
+    testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' }, personalIdForms: [] }));
+  assert.equal(none.rows[0]?.orgIdPersonal, false);
+});
+
+test('redactPersonalId: открытого ИИН в строке для хранения нет, ключ iin:HMAC не хэшируется повторно', () => {
+  const { rows } = parseOrThrow(
+    [[...HEAD, 'БИН'], [...line({ Тип: 'ИП', Наименование: 'Пример', Телефон: '+7 709 000 30 01' }), '880101300123'],
+      [...line({ Тип: 'ТОО', Наименование: 'Альфа', Телефон: '+7 709 000 30 02' }), '990440000001']],
+    testProfile(slots, { columns: { ...profile.columns, БИН: 'orgId' } }),
+  );
+  const hmac = (d: string) => `mac-${d.length}`;
+  const [ip, too] = rows.map((r) => redactPersonalId(r, hmac));
+  assert.equal(ip?.orgId, 'iin:mac-12');
+  assert.equal(JSON.stringify(ip).includes('880101300123'), false);
+  assert.equal(orgKeyOf(ip!, hmac), 'iin:mac-12');
+  assert.equal(too?.orgId, '990440000001', 'БИН не скрывается');
 });
 
 // --- ключи (D-048) ---

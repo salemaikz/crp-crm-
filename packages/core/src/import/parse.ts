@@ -67,6 +67,10 @@ export function parseSheet(grid: readonly (readonly string[])[], cp: CompiledPro
     return { ok: false, error: 'header_not_found', missing: REQUIRED_FIELDS.filter((f) => ![...known].includes(f)) };
   }
 
+  // Коды «личных» форм: профиль может написать форму как угодно («ИП», «Индивидуальный предприниматель»).
+  const personal = new Set(
+    (cp.profile.personalIdForms ?? []).map((x) => deps.normalizers.legalFormOf(x, '').code || x.trim().toLowerCase()).filter(Boolean),
+  );
   const rows: ParsedRow[] = [];
   let skippedBlank = 0;
   for (let i = headerIdx + 1; i < grid.length; i++) {
@@ -77,17 +81,24 @@ export function parseSheet(grid: readonly (readonly string[])[], cp: CompiledPro
       skippedBlank++; // пустые строки в хвосте листа
       continue;
     }
-    rows.push(buildRow(i + 1, fields, cp, deps));
+    rows.push(buildRow(i + 1, fields, cp, deps, personal));
   }
   return { ok: true, headerRow: headerIdx + 1, rows, unmappedHeaders: unmapped, skippedBlank };
 }
 
-function buildRow(rowNo: number, fields: Record<string, string>, cp: CompiledProfile, { normalizers: n, hash }: ParseDeps): ParsedRow {
+function buildRow(
+  rowNo: number,
+  fields: Record<string, string>,
+  cp: CompiledProfile,
+  { normalizers: n, hash }: ParseDeps,
+  personal: ReadonlySet<string>,
+): ParsedRow {
   const issues: RowIssue[] = [];
   const get = (f: string) => fields[f] ?? '';
   const name = get(F.name);
   const head = get(F.head);
-  const legalForm = n.legalFormOf(get(F.legalForm), name);
+  const form = n.legalFormOf(get(F.legalForm), name);
+  const legalForm = form.code;
   const phones = n.splitPhones(get(F.phones));
   const workingPhones = [...new Set(phones.flatMap((p) => (p.digits ? [p.digits] : [])))];
   const stubPhones = [...new Set(phones.flatMap((p) => (p.digits ? [] : [p.raw.replace(/\D+/g, '')])).filter(Boolean))];
@@ -110,6 +121,7 @@ function buildRow(rowNo: number, fields: Record<string, string>, cp: CompiledPro
   if (target === null) issues.push({ code: 'unknown_status', severity: 'review' });
   if (isContradiction(target, outcomeKind)) issues.push({ code: 'contradiction', severity: 'review' });
   if (/\d/.test(head)) issues.push({ code: 'head_has_digits', severity: 'info' });
+  if (form.typeUnknown) issues.push({ code: 'unknown_legal_form', severity: 'review' });
 
   const noteFlags: string[] = [];
   const note = get(F.note).toLowerCase();
@@ -120,7 +132,9 @@ function buildRow(rowNo: number, fields: Record<string, string>, cp: CompiledPro
   for (const code of noteFlags) if (code !== 'date_in_note') issues.push({ code: `note_${code}`, severity: 'review' });
 
   const orgId = n.normalizeOrgId(get(F.orgId));
-  const orgIdPersonal = !!orgId && (cp.profile.personalIdForms ?? []).includes(legalForm);
+  // D-052, D-141: ИИН не должен попасть в базу открыто. Форма не определена (пусто или «Тип» не
+  // распознан) — тоже «личный»: потерять склейку по БИН дешевле, чем сохранить ИИН открыто.
+  const orgIdPersonal = !!orgId && personal.size > 0 && (personal.has(legalForm) || legalForm === '' || form.typeUnknown);
 
   return {
     rowNo,
@@ -143,7 +157,7 @@ function buildRow(rowNo: number, fields: Record<string, string>, cp: CompiledPro
     outcomeKind,
     operatorLabel: get(F.operator) || null,
     noteFlags,
-    rowKey: rowKeyOf(cp.profile.key, { nameNorm, headNorm, workingPhones, stubPhones }, hash),
+    rowKey: rowKeyOf(cp.profile.key, { nameNorm, headNorm, workingPhones, stubPhones, legalForm }, hash),
     stateKey: stateKeyOf(fields, cp.stateFields, hash),
     issues,
   };

@@ -12,6 +12,8 @@ const sheets = generateSyntheticSheets({ seed: 1 });
 const profile = testProfile(sheets.slots);
 const { rows } = parseOrThrow(sheets.main, profile);
 const hashPhone = (d: string) => `hmac:${d}`;
+/** Тестовый «HMAC» ИИН: не содержит цифр входа, чтобы проверять отсутствие ИИН в отчёте. */
+const hmacIin = (d: string) => `m${[...d].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1e9, 7).toString(36)}`;
 
 function input(over: Partial<PreviewInput> = {}): PreviewInput {
   return {
@@ -21,6 +23,7 @@ function input(over: Partial<PreviewInput> = {}): PreviewInput {
     known: [],
     dedup: DEFAULT_DEDUP_SETTINGS,
     stopList: { hash: hashPhone, lookup: new Set<string>() },
+    personalIdHmac: hmacIin,
     ...over,
   };
 }
@@ -234,4 +237,94 @@ test('порядок результата стабилен: то же в тех 
   assert.deepEqual(buildPreview(input()), buildPreview(input()));
   void normalizers;
   void testHash;
+});
+
+// --- дубли с другим состоянием, ИИН по HMAC, «Подтвержден» без записи (ревью ядра) ---
+
+const HEAD = ['Тип', 'Наименование', 'Регион', 'Руководитель', 'ОКЭД', 'Телефон', 'Адрес', 'ЛПР подтвержден', 'Ответ', 'Статус', 'Точная ниша', 'Заметка', 'БИН'];
+const line = (o: Partial<Record<string, string>>): string[] => HEAD.map((h) => o[h] ?? '');
+const small = testProfile(sheets.slots, { columns: { ...profile.columns, БИН: 'orgId' } });
+const parseSmall = (...ls: string[][]) => parseOrThrow([HEAD, ...ls], small).rows;
+const gamma = { Тип: 'ТОО', Наименование: 'ТОО «Гамма»', Телефон: '+7 709 000 40 01', Руководитель: 'Примеров Пример' };
+
+test('вторая строка той же компании с «Полный отказ» — не теряется: дубль на разбор и отдельный счётчик', () => {
+  const rs = parseSmall(line({ ...gamma, Ответ: 'Не берет' }), line({ ...gamma, Ответ: 'Полный отказ' }));
+  assert.equal(rs[0]!.rowKey, rs[1]!.rowKey);
+  const p = buildPreview(input({ rows: rs }));
+  assert.deepEqual(p.rows.map((r) => r.action), ['create', 'duplicate_in_file']);
+  assert.equal(p.rows[1]?.matchId, 'row:2');
+  assert.deepEqual(p.rows[1]?.issues.filter((c) => c.startsWith('duplicate_')), ['duplicate_state_differs', 'duplicate_do_not_call']);
+  assert.equal(p.counts.duplicateConflicts, 1);
+  assert.equal(p.counts.needReview, 1);
+  // Тот же итог дважды — обычный дубль, не на разбор.
+  const same = buildPreview(input({ rows: parseSmall(line({ ...gamma, Ответ: 'Не берет' }), line({ ...gamma, Ответ: 'Не берет' })) }));
+  assert.equal(same.counts.duplicateConflicts, 0);
+  assert.equal(same.counts.needReview, 0);  // Тот же ключ строки, но разные БИН — разные лица: на разбор.
+  const bins = buildPreview(input({ rows: parseSmall(line({ ...gamma, БИН: '990440000001' }), line({ ...gamma, БИН: '990440000002' })) }));
+  assert.ok(bins.rows[1]?.issues.includes('duplicate_org_id_differs'));
+  assert.equal(bins.counts.duplicateConflicts, 1);
+});
+
+test('склейка со строкой выше с другим состоянием и с клиентом базы при «не звонить» — на разбор', () => {
+  // Другой руководитель — другой ключ строки, но общий номер и название: merge со строкой выше.
+  const rs = parseSmall(line({ ...gamma, Ответ: 'Не берет' }), line({ ...gamma, Руководитель: 'Альфин Альф', Ответ: 'Перезвонить' }));
+  const p = buildPreview(input({ rows: rs }));
+  assert.equal(p.rows[1]?.action, 'merge');
+  assert.equal(p.rows[1]?.matchId, 'row:2');
+  assert.ok(p.rows[1]?.issues.includes('duplicate_state_differs'));
+  assert.equal(p.counts.duplicateConflicts, 1);
+
+  const one = parseSmall(line({ ...gamma, Ответ: 'Полный отказ' }));
+  const known = [{ id: 'c1', createdAt: 1, orgId: null, legalForm: 'тоо', phones: one[0]!.workingPhones, nameNorm: one[0]!.nameNorm, headNorm: '' }];
+  const m = buildPreview(input({ rows: one, known }));
+  assert.equal(m.rows[0]?.action, 'merge');
+  assert.deepEqual(m.rows[0]?.issues.filter((c) => c.startsWith('duplicate_')), ['duplicate_do_not_call']);
+  assert.equal(m.counts.duplicateConflicts, 1);
+  assert.equal(m.counts.needReview, 1);
+});
+
+test('ИП из базы (iin:HMAC) находится повторной строкой по ИИН; открытый ИИН в индекс и отчёт не попадает', () => {
+  const iin = '880101300123';
+  const rs = parseSmall(line({ Тип: 'Индивидуальный предприниматель', Наименование: 'Примеров П.', Телефон: '+7 709 000 50 01', БИН: iin }));
+  assert.equal(rs[0]!.orgIdPersonal, true);
+  const known = [{ id: 'c7', createdAt: 1, orgId: `iin:${hmacIin(iin)}`, legalForm: 'ип', phones: ['77090005099'], nameNorm: 'другое имя', headNorm: '' }];
+  const p = buildPreview(input({ rows: rs, known }));
+  assert.equal(p.rows[0]?.action, 'merge');
+  assert.equal(p.rows[0]?.matchId, 'c7');
+  assert.equal(JSON.stringify(p).includes(iin), false);
+  // В базе открытый ИИН (так быть не должно) — с ним не сравниваем.
+  const open = buildPreview(input({ rows: rs, known: [{ ...known[0]!, orgId: iin }] }));
+  assert.equal(open.rows[0]?.action, 'create');
+  // Две строки файла с одним ИИН склеиваются по HMAC.
+  const two = parseSmall(
+    line({ Тип: 'ИП', Наименование: 'Примеров П.', Телефон: '+7 709 000 50 01', БИН: iin }),
+    line({ Тип: 'ИП', Наименование: 'Примеров Пример', Телефон: '+7 709 000 50 02', БИН: iin }),
+  );
+  assert.deepEqual(buildPreview(input({ rows: two })).rows.map((r) => r.action), ['create', 'merge']);
+});
+
+test('«Подтвержден» без записи помечается и для update_state, и для merge', () => {
+  const before = parseSmall(line({ ...gamma, Ответ: 'Не берет' }));
+  const after = parseSmall(line({ ...gamma, Ответ: 'Подтвержден' }));
+  const p = buildPreview(input({ rows: after, prior: priorOf(before) }));
+  assert.equal(p.rows[0]?.action, 'update_state');
+  assert.equal(p.rows[0]?.agreedWithoutBooking, true);
+  assert.equal(p.counts.agreedWithoutBooking, 1);
+
+  const known = [{ id: 'c1', createdAt: 1, orgId: null, phones: after[0]!.workingPhones, nameNorm: after[0]!.nameNorm, headNorm: '' }];
+  const m = buildPreview(input({ rows: after, known }));
+  assert.equal(m.rows[0]?.action, 'merge');
+  assert.equal(m.rows[0]?.agreedWithoutBooking, true);
+  const booked = buildPreview(input({ rows: after, known, bookings: createBookingIndex([{ phones: after[0]!.workingPhones }]) }));
+  assert.equal(booked.rows[0]?.agreedWithoutBooking, false);
+});
+
+test('«ТОО Альфа» и «ИП Альфа» с общим номером в одном файле — спорная пара, не склейка', () => {
+  const rs = parseSmall(
+    line({ Тип: 'ТОО', Наименование: 'ТОО «Альфа»', Телефон: '+7 709 000 60 01' }),
+    line({ Тип: 'ИП', Наименование: 'ИП Альфа', Телефон: '+7 709 000 60 01' }),
+  );
+  const p = buildPreview(input({ rows: rs }));
+  assert.deepEqual(p.rows.map((r) => r.action), ['create', 'create']);
+  assert.deepEqual(p.rows[1]?.pairs, [{ id: 'row:2', reason: 'shared_phone' }]);
 });

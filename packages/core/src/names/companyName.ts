@@ -6,7 +6,7 @@
 import { foldLetters, squashSeparators } from './fold.js';
 import { DEFAULT_LEGAL_FORMS, type LegalForm } from './legalForm.js';
 
-/** «Товарищество … "Концерн "Найза""» и «ТОО Концерн Найза» → «концерн найза». */
+/** «Товарищество … "Пример "Гамма""» и «ТОО Пример Гамма» → «пример гамма». */
 export function normalizeCompanyName(
   name: string | null | undefined,
   forms: readonly LegalForm[] = DEFAULT_LEGAL_FORMS,
@@ -27,17 +27,46 @@ export function normalizeCompanyName(
     .join(' ');
 }
 
-/** Ключ формы собственности, найденной в названии (первая по списку), или `null`. */
+/**
+ * Ключ формы собственности, найденной в названии (первая по списку), или `null`.
+ * Аббревиатуры `typeOnly` (`жк`) в названии формой не считаются — только полная форма.
+ */
 export function detectLegalForm(
   name: string | null | undefined,
   forms: readonly LegalForm[] = DEFAULT_LEGAL_FORMS,
 ): string | null {
-  const s = ` ${squashSeparators(foldLetters(name ?? ''))} `;
+  return findForm(name, forms, false);
+}
+
+/**
+ * Ключ формы по значению колонки «Тип» (`ИП`, `ИП.`, `Индивидуальный предприниматель`, `ЖК`,
+ * `Жеке кәсіпкер`) или `null`, если значение не распознано. Здесь `typeOnly` тоже признаются.
+ */
+export function legalFormOfTypeCell(
+  cell: string | null | undefined,
+  forms: readonly LegalForm[] = DEFAULT_LEGAL_FORMS,
+): string | null {
+  return findForm(cell, forms, true);
+}
+
+function findForm(text: string | null | undefined, forms: readonly LegalForm[], typeCell: boolean): string | null {
+  const s = ` ${squashSeparators(foldLetters(text ?? ''))} `;
+  if (!s.trim()) return null;
+  const has = (x: string) => {
+    const k = squashSeparators(foldLetters(x));
+    return k !== '' && s.includes(` ${k} `);
+  };
   for (const f of forms) {
-    if (f.full.some((x) => s.includes(` ${squashSeparators(foldLetters(x))} `))) return f.key;
-    if (f.short.some((x) => s.includes(` ${foldLetters(x)} `))) return f.key;
+    if (f.full.some(has) || f.short.some(has) || (typeCell && (f.typeOnly ?? []).some(has))) return f.key;
   }
   return null;
+}
+
+/** Код формы для правил и профиля — первая аббревиатура (`тоо`, `ип`), иначе ключ. */
+export function legalFormCode(key: string | null, forms: readonly LegalForm[] = DEFAULT_LEGAL_FORMS): string {
+  if (!key) return '';
+  const f = forms.find((x) => x.key === key);
+  return f ? foldLetters(f.short[0] ?? f.key) : '';
 }
 
 /** ФИО для сравнения руководителей: регистр, ё, казахские буквы, только буквы. */

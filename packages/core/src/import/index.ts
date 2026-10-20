@@ -8,3 +8,4 @@ export * from './parse';
 export * from './reimport';
 export * from './bookings';
 export * from './preview';
+export * from './personalId';
