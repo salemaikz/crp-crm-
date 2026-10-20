@@ -43,7 +43,8 @@ services:
       crm_internal: {}
       crm_egress: {}
       crm_ingest:
-        # Псевдоним, по которому источник лидов ходит на приём: http://crm-app:3000
+        # Псевдоним, по которому источник лидов ходит на приём: http://crm-app:3000. Его запросы идут мимо
+        # nginx: без X-Proxy-Secret приложение не верит их X-Real-IP и X-Via-Proxy (D-155)
         aliases: [crm-app]
     depends_on:
       db: { condition: service_healthy }
@@ -135,6 +136,8 @@ services:
       - ../nginx/crm.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ../nginx/maintenance.html:/etc/nginx/crm-static/maintenance.html:ro
       - ${CRM_TLS_DIR:-/etc/crm/tls}:/etc/nginx/tls:ro
+      # Секрет доверенного прокси (D-155): тот же путь, что в шаблоне; файл пишет crmctl install/update
+      - ${CRM_NGINX_PROXY_DIR:-/etc/crm/nginx-proxy.d}:/etc/crm/nginx-proxy.d:ro
     ports:
       - "80:80"
       - "443:443"

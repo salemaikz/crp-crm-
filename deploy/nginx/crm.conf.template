@@ -1,6 +1,7 @@
 # nginx для CRM: TLS, CSP, HSTS, журнал без query string и Referer (DEPLOY §3.1).
 # Шаблон для образа nginx (envsubst: CRM_DOMAIN, INGEST_PUBLIC, CRM_UPSTREAM) и для nginx на хосте:
 # install.sh подставляет значения (CRM_UPSTREAM=127.0.0.1:3100; в compose-профиле edge — app:3000).
+# Секрет доверенного прокси в шаблоне не хранится: он в /etc/crm/nginx-proxy.d/secret.conf (crmctl, D-155).
 
 # Журнал без query string (в ней бывают токены) и без Referer. Путь /invite/... маскируется (D-032):
 # токен приглашения живёт во фрагменте ссылки и до сервера не доходит, маска — второй рубеж.
@@ -62,6 +63,9 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         # Метка «пришло через прокси»: по ней приложение закрывает ingest при INGEST_PUBLIC=0
         proxy_set_header X-Via-Proxy 1;
+        # X-Proxy-Secret = CRM_PROXY_SECRET (D-155): файл пишет crmctl install/update (root, 0600). Без верного
+        # секрета приложение не верит X-Real-IP и X-Via-Proxy. Маска, а не имя: до crmctl install файла нет.
+        include /etc/crm/nginx-proxy.d/*.conf;
         proxy_read_timeout 60s;
         proxy_pass http://crm_app;
     }
@@ -84,6 +88,9 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         # Метка «пришло через прокси»: по ней приложение закрывает ingest при INGEST_PUBLIC=0
         proxy_set_header X-Via-Proxy 1;
+        # X-Proxy-Secret = CRM_PROXY_SECRET (D-155): файл пишет crmctl install/update (root, 0600). Без верного
+        # секрета приложение не верит X-Real-IP и X-Via-Proxy. Маска, а не имя: до crmctl install файла нет.
+        include /etc/crm/nginx-proxy.d/*.conf;
         proxy_read_timeout 60s;
         proxy_pass http://crm_app;
     }

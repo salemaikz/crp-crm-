@@ -8,6 +8,7 @@ import { applyGrants, currentSchema, pendingMigrations, runMigrate } from './db'
 import { probeCandidate, probeHost, waitHealthy } from './health';
 import { loadImages, syncCli } from './images';
 import { compareVersions, isDirectory, openPackage } from './manifest';
+import { ensureProxyTrust } from './secrets';
 import { composeFile, requireState, writeProjectEnv, writeState, type State } from './state';
 import { CrmctlError, type Deps } from './types';
 
@@ -92,6 +93,10 @@ export async function update(deps: Deps, args: ParsedArgs): Promise<number> {
     io.out('Новых миграций нет.');
   }
   await applyGrants(deps, version);
+
+  // Недостающие обязательные строки окружения (CRM_PROXY_SECRET, D-155) и include секрета в nginx: до
+  // кандидата — новая версия без секрета в production не стартует. Прежней версии они не мешают.
+  await ensureProxyTrust(deps);
 
   io.out('[4/7] Проверка новой версии рядом со старой');
   await checkCandidate(deps, version, waitMs);

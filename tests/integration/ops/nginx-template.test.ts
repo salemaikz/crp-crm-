@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { patchNginxConf, proxyIncludeLine } from '../../../scripts/crmctl/secrets';
+import type { Deps } from '../../../scripts/crmctl/types';
 
 const tpl = readFileSync('deploy/nginx/crm.conf.template', 'utf8');
 
@@ -23,6 +25,30 @@ test('X-Via-Proxy выставляется в обоих проксирующи�
   for (const head of ['location ^~ /api/ingest', 'location / {']) {
     assert.match(block(tpl, head), /proxy_set_header X-Via-Proxy 1;/, head);
   }
+});
+
+test('секрет доверенного прокси (D-155): include в обоих location вместе с X-Real-IP и X-Via-Proxy', () => {
+  for (const head of ['location ^~ /api/ingest', 'location / {']) {
+    const b = block(tpl, head);
+    assert.match(b, /proxy_set_header X-Real-IP \$remote_addr;/, head);
+    assert.match(b, /proxy_set_header X-Via-Proxy 1;\n(?:\s*#.*\n)*\s*include \/etc\/crm\/nginx-proxy\.d\/\*\.conf;/, head);
+    // клиентский X-Real-IP/X-Forwarded-For затирается, а не дописывается
+    assert.ok(!/proxy_add_x_forwarded_for/.test(b), head);
+  }
+  // маска, а не имя файла: до crmctl install файла нет, и nginx -t не должен падать
+  assert.ok(!/include \/etc\/crm\/nginx-proxy\.d\/secret\.conf;/.test(tpl));
+  // значения секрета в шаблоне нет, в журнал он не пишется
+  assert.ok(!/X-Proxy-Secret\s+"/.test(tpl.replace(/#.*$/gm, '')), 'секрет не зашит в шаблон');
+  const fmt = /log_format crm '([^']+)'/.exec(tpl)![1] as string;
+  assert.ok(!/\$http_x_proxy_secret|\$http_/.test(fmt.replace('$http_user_agent', '')), 'в журнале нет заголовков, кроме User-Agent');
+});
+
+test('include шаблона совпадает с тем, что дописывает crmctl update; edge-профиль compose монтирует каталог секрета', () => {
+  const deps = { paths: { etcDir: '/etc/crm' } } as unknown as Deps;
+  assert.ok(tpl.includes(`        ${proxyIncludeLine(deps)}\n`));
+  assert.equal(patchNginxConf(tpl, proxyIncludeLine(deps)).added, 0);
+  const compose = readFileSync('deploy/compose/compose.yaml', 'utf8');
+  assert.match(compose, /- \$\{CRM_NGINX_PROXY_DIR:-\/etc\/crm\/nginx-proxy\.d\}:\/etc\/crm\/nginx-proxy\.d:ro/);
 });
 
 test('/api/ingest закрыт снаружи при INGEST_PUBLIC != 1, в том числе без завершающего слэша', () => {

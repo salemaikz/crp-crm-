@@ -42,7 +42,7 @@ export interface Fake {
   calls: Call[];
   out: string[];
   err: string[];
-  dirs: { etc: string; lib: string; cli: string };
+  dirs: { etc: string; lib: string; cli: string; nginxConf: string };
   verdicts: { package: boolean; license: boolean };
   sleeps: number[];
   /** Номера вызовов compose-подкоманд, например ['up','run']. */
@@ -58,7 +58,13 @@ function composeSub(args: string[]): string[] {
 
 export async function makeFake(override?: Override, now = 1_800_000_000_000): Promise<Fake> {
   const root = await mkdtemp(path.join(tmpdir(), 'crmctl-test-'));
-  const dirs = { etc: path.join(root, 'etc'), lib: path.join(root, 'lib'), cli: path.join(root, 'cli') };
+  const dirs = {
+    etc: path.join(root, 'etc'),
+    lib: path.join(root, 'lib'),
+    cli: path.join(root, 'cli'),
+    /** Конфиг nginx «на хосте» (CRM_NGINX_CONF); по умолчанию файла нет. */
+    nginxConf: path.join(root, 'nginx', 'crm.conf'),
+  };
   await mkdir(dirs.etc, { recursive: true });
   await mkdir(dirs.lib, { recursive: true });
   await mkdir(dirs.cli, { recursive: true });
@@ -148,7 +154,7 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
   const deps: Deps = {
     exec,
     io: { out: (l) => out.push(l), err: (l) => err.push(l) },
-    env: {},
+    env: { CRM_NGINX_CONF: dirs.nginxConf },
     paths: { etcDir: dirs.etc, libDir: dirs.lib, backupCmd: '/fake/backup.sh', cliDir: dirs.cli },
     verifier,
     http: async (url) => {
@@ -208,6 +214,16 @@ export async function writePackage(dir: string, version: string, over: Partial<P
   return pkg;
 }
 
+/** app.env «старой» установки: синтетика, без CRM_PROXY_SECRET. */
+export const SEED_APP_ENV = [
+  '# Создан crmctl install.',
+  'DATABASE_URL=postgres://crm_app:synthetic@db:5432/crm',
+  'APP_ORIGIN=https://crm.example.kz',
+  'TRUST_X_REAL_IP=1',
+  'TELEMETRY=off',
+  '',
+].join('\n');
+
 /** Установка уже сделана: state.json, project.env, compose/, образ версии загружен и «запущен». */
 export async function seedInstalled(f: Fake, version: string, previous: string | null = null): Promise<State> {
   const state: State = {
@@ -220,6 +236,8 @@ export async function seedInstalled(f: Fake, version: string, previous: string |
   await mkdir(path.join(f.dirs.lib, 'compose'), { recursive: true });
   await writeFile(path.join(f.dirs.lib, 'compose', 'compose.yaml'), `# compose для ${version}\n`);
   await writeState(f.deps.paths, state);
+  // app.env установки до D-155: без CRM_PROXY_SECRET (update его допишет)
+  await writeFile(path.join(f.dirs.etc, 'app.env'), SEED_APP_ENV, { mode: 0o600 });
   await writeProjectEnv(f.deps.paths, version, state.current.buildId, 3100);
   f.server.running = version;
   f.server.images.add(`crm-app:${version}`);
