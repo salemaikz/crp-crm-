@@ -51,9 +51,7 @@ test('cancel_future do_not_call: только будущие активные з
 });
 
 test('cancel_future not_target (после M1): причина записывается; записи других клиентов не затронуты', async () => {
-  // M1 (docs/booking-design.md §12) оформляет координатор; здесь — тот же идемпотентный текст, чтобы проверить эффект
-  await db.exec(`ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_cancel_reason_check;
-    ALTER TABLE bookings ADD CONSTRAINT bookings_cancel_reason_check CHECK (cancel_reason IN ('','client','event_cancelled','operator_error','do_not_call','not_target'))`);
+  // Причину добавляет миграция 2026-10-22-booking-fix-cancel-reason-not-target.sql (M1)
   await seedBookings(db.sql, 'f1', one(2), { bookedBy: U.opA });
   await seedBookings(db.sql, 'f1', one(3), { bookedBy: U.opA });
   await db.tx((tx) => applyBookingEffects(tx, rop, card(2), [{ op: 'cancel_future', reason: 'not_target' }], SEED_NOW));

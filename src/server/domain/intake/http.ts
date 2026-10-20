@@ -1,6 +1,6 @@
 // HTTP-обработчики ingest/v1 на стандартных Request/Response (без Next): тонкие маршруты в src/app/api/ingest/v1/**
 // оборачивают их в publicRoute(). Ошибки — по INTEGRATIONS 5.4: `{ error: { code, message, issues? } }`, без значений полей.
-import { ConfigInvalidError } from '@crm/core/config';
+import { config as coreConfig } from '@crm/core';
 import { deriveClientIp } from '@/server/platform/http/clientIp';
 import { ConfigMissingError } from '@/server/platform/config/active';
 import { authenticateKey, IngestAuthError } from './auth';
@@ -36,7 +36,7 @@ function authFailure(f: IngestAuthError['failure']): Response {
 function serverFailure(e: unknown): Response {
   const err = e as { name?: unknown; code?: unknown; message?: unknown } | null;
   console.error('[ingest] ошибка', err?.name, err?.code ?? '', err?.message ?? '');
-  if (e instanceof ConfigMissingError || e instanceof ConfigInvalidError || e instanceof SpaceUnknownError) return fail(503, 'unavailable');
+  if (e instanceof ConfigMissingError || e instanceof coreConfig.ConfigInvalidError || e instanceof SpaceUnknownError) return fail(503, 'unavailable');
   return fail(500, 'internal');
 }
 

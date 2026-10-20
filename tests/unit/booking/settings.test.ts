@@ -7,8 +7,8 @@ import { assembleChain } from '../config/helpers';
 
 const SPACE = 'sp-test';
 
-function settingsOf(chain: Parameters<typeof assembleChain>[0], withRoles = false) {
-  const a = assembleChain(chain, withRoles);
+function settingsOf(chain: Parameters<typeof assembleChain>[0]) {
+  const a = assembleChain(chain);
   return parseBookingSettings({ spaceId: SPACE, global: a.global, space: a.spaces.sales });
 }
 
@@ -28,7 +28,7 @@ test('consulting-sales: воронка с createDealOn agreed даёт этап�
 });
 
 test('накладка клиента: групповой вид и стартовая серия берутся из настроек', () => {
-  const s = settingsOf(['base', 'kz', 'consulting-sales', 'crp'], true);
+  const s = settingsOf(['base', 'kz', 'consulting-sales', 'crp']);
   assert.equal(s.groupTypes.length, 1, 'индивидуальный вид в групповые не входит');
   assert.deepEqual(s.groupTypes[0], { key: 'br', capacity: 30, durationMin: 180 });
   assert.equal(s.seedSeries.length, 1);

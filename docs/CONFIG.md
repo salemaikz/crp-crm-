@@ -444,6 +444,7 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | web-push | приватный — да |
 | `LICENSE_PATH` | путь к файлу лицензии в томе | нет |
 | `INGEST_PUBLIC` | `0` — `/api/ingest/` закрыт снаружи (по умолчанию): nginx и второй рубеж в приложении по заголовку `X-Via-Proxy` | нет |
+| `INGEST_ACCEPTING` | `1` — приём ingest/v1 включён; `0` — выключен целиком, ответ 423 (рубильник на время разбора проблем источника) | нет |
 | `FEATURE_BK_WIZARD`, `FEATURE_PURCHASES`, `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_PUSH`, `FEATURE_MERGE`, `FEATURE_BULK_TRANSFER` | флаги модулей пилота — аварийные выключатели (D-047, D-062; таблица — PLAN §7.3) | нет |
 | `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_ZADARMA`, `FEATURE_TELEPHONY_BEELINE` | флаги интеграций (D-025 crp-kz) | нет |
 | `TELEMETRY` | `off` по умолчанию | нет |

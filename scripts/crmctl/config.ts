@@ -5,7 +5,10 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
+// Ядро — только из корня @crm/core (D-101): подпуть в сборке crmctl утянул бы исходник ядра без обфускации
+import { config as coreConfig } from '@crm/core';
+import type { ConfigChange, ConfigInvalidError as ConfigInvalidErrorT, Json, JsonObject, PresetUpdateResult } from '@crm/core/config';
+const {
   CONFIG_SCHEMA_VERSION,
   ConfigInvalidError,
   ConfigVersionError,
@@ -22,11 +25,7 @@ import {
   presetUpdate,
   setAt,
   validateConfigSet,
-  type ConfigChange,
-  type Json,
-  type JsonObject,
-  type PresetUpdateResult,
-} from '@crm/core/config';
+} = coreConfig;
 import { getDb, openScriptDb } from '../../src/server/platform/db';
 import { docOf, getActiveConfig, resetConfigCache } from '../../src/server/platform/config/active';
 import { listRevisionHeads, listSpaces, loadCompatible, loadRevision } from '../../src/server/platform/config/repo';
@@ -113,7 +112,7 @@ async function currentOf(a: Area): Promise<{ rev: number; doc: JsonObject; prese
   return { rev: r.rev, doc: docOf(r, a.kind), presetBase: lastPresetDoc(heads) };
 }
 
-function printIssues(io: Io, e: ConfigInvalidError): void {
+function printIssues(io: Io, e: ConfigInvalidErrorT): void {
   io.err('Набор настроек не прошёл проверку:');
   for (const i of e.issues) io.err(`  ${i.path}: ${i.message}`);
 }
@@ -235,7 +234,7 @@ async function cmdApplyOrDiff(p: Parsed, ctx: ConfigCtx, mode: 'apply' | 'diff')
 }
 
 /** Проверка набора «итоговые документы + области, которых нет в этом apply». */
-async function finalCheck(docs: { global?: Json; spaces: Record<string, Json> }, areas: Area[]): Promise<ConfigInvalidError | null> {
+async function finalCheck(docs: { global?: Json; spaces: Record<string, Json> }, areas: Area[]): Promise<ConfigInvalidErrorT | null> {
   const spaces: Record<string, Json> = { ...docs.spaces };
   for (const a of areas) {
     if (a.kind === 'space' && spaces[a.name] === undefined) {

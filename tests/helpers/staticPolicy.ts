@@ -11,6 +11,9 @@ export const STATIC_POLICY: WrapperPolicy = {
     'POST /api/auth/logout': 'auth',
     'POST /api/auth/invite/inspect': 'invite',
     'POST /api/auth/invite/accept': 'invite',
+    // Приём лидов ingest/v1 (INTEGRATIONS §5): доступ по ключу источника, не по сессии; снаружи закрыт nginx
+    'POST /api/ingest/v1/leads': 'ingest',
+    'GET /api/ingest/v1/demand': 'ingest',
   },
   // ARCHITECTURE §5.2: вне обёртки — healthcheck без данных и без БД и корневой layout: он читает
   // только тему и язык из настроек (нужны и странице входа), данных клиентов в нём нет.

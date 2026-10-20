@@ -15,6 +15,7 @@ import { stubVerifier } from './verify';
 import { runConfig } from './config';
 import { backupMain } from './backup';
 import { restoreMain } from './restore';
+import { runIngestKey } from './ingest';
 
 type Command = (deps: Deps, args: ParsedArgs) => Promise<number>;
 
@@ -38,6 +39,7 @@ export const rawCommands: Record<string, (argv: string[]) => Promise<number>> = 
   config: runConfig,
   backup: (argv) => backupMain(argv),
   restore: (argv) => restoreMain(argv),
+  'ingest-key': runIngestKey,
 };
 
 export const USAGE = `crmctl — сопровождение установки CRM
@@ -51,6 +53,7 @@ export const USAGE = `crmctl — сопровождение установки C
   config …        настройки и пресеты (crmctl config --help)
   backup …        копии БД (crmctl backup --help)
   restore …       восстановление копии (crmctl restore --help)
+  ingest-key …    ключи источников лидов: create | list | revoke
 
 Пакет — каталог или .tar.zst. Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;
 
