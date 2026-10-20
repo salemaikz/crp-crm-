@@ -4,8 +4,12 @@
  * поэтому ПДн на телефоне не копятся. Кэш очищается при выходе (страница сама вызывает caches.delete и ждёт; команда
  * {type:'clear'} — запасной путь), а HTML оболочки ещё и при заходе на /login и при POST /api/auth/*: следующий сотрудник
  * не получит страницу прежнего. Если без сети всё же отдана кэшированная оболочка, в неё вшивается метка
- * <meta name="crm-shell" content="stale">: страница не отправляет итоги, пока не получит себя заново с сервера. */
-const VERSION = 'crm-shell-v2';
+ * <meta name="crm-shell" content="stale">: страница не отправляет итоги, пока не получит себя заново с сервера.
+ * Выход не завершён (кэш-метка crm-logout-pending, её ставит страница): оболочка /call не отдаётся из кэша и не
+ * кэшируется; в самой оболочке скрипт в <head> по флагу в localStorage прячет страницу (D-063).
+ * v3: оболочки v2 (без этого скрипта) удаляются при активации. */
+const VERSION = 'crm-shell-v3';
+const LOGOUT_BLOCK = 'crm-logout-pending';
 const SHELL_PATH = '/call';
 
 self.addEventListener('install', () => {
@@ -85,10 +89,12 @@ self.addEventListener('fetch', (event) => {
         const cache = await caches.open(VERSION);
         try {
           const res = await fetch(req);
-          // Кэшируем только успешную страницу без перенаправления (на вход не уводит)
-          if (res.ok && !res.redirected) cache.put(SHELL_PATH, res.clone());
+          // Кэшируем только успешную страницу без перенаправления (на вход не уводит) и не во время выхода
+          if (res.ok && !res.redirected && !(await caches.has(LOGOUT_BLOCK))) cache.put(SHELL_PATH, res.clone());
           return res;
         } catch (e) {
+          // Выход не завершён: оболочку прежнего сотрудника из кэша не отдаём
+          if (await caches.has(LOGOUT_BLOCK)) throw e;
           const hit = await cache.match(SHELL_PATH);
           if (hit) return markStale(hit);
           throw e;

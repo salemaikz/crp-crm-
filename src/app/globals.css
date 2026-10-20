@@ -8,3 +8,36 @@ body {
   color: var(--text);
   font-family: var(--font-body);
 }
+
+/* Выход не завершён (D-063, ARCHITECTURE §7): атрибут ставит скрипт в <head> до первой отрисовки. Видно только
+   экран блокировки, остальная страница (данные клиентов) не рисуется. */
+.logout-lock {
+  display: none;
+}
+html[data-logout-pending] body > :not([data-logout-lock]) {
+  display: none !important;
+}
+html[data-logout-pending] .logout-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: var(--canvas);
+  color: var(--text);
+}
+.logout-lock__box {
+  max-width: 24rem;
+  text-align: center;
+}
+.logout-lock__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.logout-lock__text {
+  margin: 0;
+  color: var(--text-2);
+}

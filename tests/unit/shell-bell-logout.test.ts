@@ -25,5 +25,16 @@ test('выход: сначала отправка итогов и предупр
   const button = read('src/ui/shells/LogoutButton.tsx');
   assert.ok(button.indexOf('await flushDeviceOutbox(') < button.indexOf('await finishLogout(userId)'), 'итоги отправляются до выхода');
   const logout = read('src/ui/call/logout.ts');
-  assert.ok(logout.indexOf('clearShellCache()') < logout.indexOf("'/api/auth/logout'"), 'кэш очищается до закрытия сессии');
+  const body = logout.slice(logout.indexOf('export async function finishLogout'));
+  const at = (x: string) => {
+    const i = body.indexOf(x);
+    assert.ok(i >= 0, x);
+    return i;
+  };
+  // Флаг «выход не завершён» — до всего остального: сбой посреди выхода не оставит живую сессию без блокировки
+  assert.ok(at('markLogoutPending(') < at('clearShellCache()'), 'флаг ставится до очистки');
+  assert.ok(at('clearShellCache()') < at('postLogout()'), 'кэш очищается до закрытия сессии');
+  // На вход уходим только после ответа сервера
+  assert.ok(at('postLogout()') < at("window.location.replace('/login')"), 'вход — только после выхода на сервере');
+  assert.ok(read('src/ui/call/logoutPending.ts').includes("'/api/auth/logout'"));
 });

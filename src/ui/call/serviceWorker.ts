@@ -23,6 +23,18 @@ export async function clearShellCache(): Promise<void> {
   }
 }
 
+/** Метка в Cache Storage «выход не завершён»: localStorage service worker не видит, а кэш — видит (public/sw.js). */
+export const LOGOUT_BLOCK_CACHE = 'crm-logout-pending';
+
+/** Пока выход не завершён, service worker не отдаёт и не кэширует оболочку /call. */
+export async function blockShell(): Promise<void> {
+  if (typeof caches !== 'undefined') await caches.open(LOGOUT_BLOCK_CACHE);
+}
+
+export async function unblockShell(): Promise<void> {
+  if (typeof caches !== 'undefined') await caches.delete(LOGOUT_BLOCK_CACHE);
+}
+
 /**
  * Страницу отдал кэш service worker (нет сети), а не сервер: сессия на ней могла смениться (userId в странице —
  * прежнего сотрудника). Пока так, ничего не уходит на сервер: итоги отправляются только под сессией, которая их создала.

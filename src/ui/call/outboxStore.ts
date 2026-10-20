@@ -13,6 +13,10 @@ export interface OutboxStore {
   removeRejected(opId: string): Promise<void>;
   /** Выход: отказы сервера этого сотрудника (в них названия компаний) удаляются совсем. */
   clearRejected(userId: string): Promise<void>;
+  /** Итоги других сотрудников на этом телефоне (D-291: при входе нового они обезличиваются). */
+  allExcept(userId: string): Promise<OutboxEntry[]>;
+  /** Отказы сервера всех, кроме `userId`, удаляются (D-291). */
+  clearRejectedExcept(userId: string): Promise<void>;
   getMeta(key: string): Promise<string | null>;
   setMeta(key: string, value: string): Promise<void>;
 }
@@ -35,6 +39,10 @@ export function createMemoryStore(): OutboxStore {
     removeRejected: async (id) => void rejected.delete(id),
     clearRejected: async (userId) => {
       for (const [id, e] of rejected) if (e.userId === userId) rejected.delete(id);
+    },
+    allExcept: async (userId) => [...outbox.values()].filter((e) => e.userId !== userId).map((e) => structuredClone(e)),
+    clearRejectedExcept: async (userId) => {
+      for (const [id, e] of rejected) if (e.userId !== userId) rejected.delete(id);
     },
     getMeta: async (k) => meta.get(k) ?? null,
     setMeta: async (k, v) => void meta.set(k, v),
@@ -73,8 +81,8 @@ export function createIndexedDbStore(): OutboxStore {
   let dbp: Promise<IDBDatabase> | null = null;
   const db = () => (dbp ??= open());
   const store = async (name: string, mode: IDBTransactionMode) => (await db()).transaction(name, mode).objectStore(name);
-  const allOf = async <T extends { userId: string }>(name: string, userId: string): Promise<T[]> =>
-    ((await wrap((await store(name, 'readonly')).getAll())) as T[]).filter((e) => e.userId === userId);
+  const everything = async <T extends { userId: string }>(name: string): Promise<T[]> => (await wrap((await store(name, 'readonly')).getAll())) as T[];
+  const allOf = async <T extends { userId: string }>(name: string, userId: string): Promise<T[]> => (await everything<T>(name)).filter((e) => e.userId === userId);
   return {
     put: async (e) => void (await wrap((await store(OUTBOX, 'readwrite')).put(e))),
     remove: async (id) => void (await wrap((await store(OUTBOX, 'readwrite')).delete(id))),
@@ -85,6 +93,10 @@ export function createIndexedDbStore(): OutboxStore {
     removeRejected: async (id) => void (await wrap((await store(REJECTED, 'readwrite')).delete(id))),
     clearRejected: async (userId) => {
       for (const e of await allOf<RejectedEntry>(REJECTED, userId)) await wrap((await store(REJECTED, 'readwrite')).delete(e.opId));
+    },
+    allExcept: async (userId) => (await everything<OutboxEntry>(OUTBOX)).filter((e) => e.userId !== userId),
+    clearRejectedExcept: async (userId) => {
+      for (const e of (await everything<RejectedEntry>(REJECTED)).filter((x) => x.userId !== userId)) await wrap((await store(REJECTED, 'readwrite')).delete(e.opId));
     },
     getMeta: async (key) => {
       const row = (await wrap((await store(META, 'readonly')).get(key))) as { key: string; value: string } | undefined;

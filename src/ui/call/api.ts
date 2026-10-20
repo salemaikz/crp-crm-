@@ -1,5 +1,6 @@
-// Запросы экрана «Звонить» к API обзвона. Каждый несёт заголовки устройства (D-063). Ответы API не кэшируются:
-// `cache: 'no-store'`, service worker эти запросы не трогает.
+// Запросы экрана «Звонить» к API обзвона. Каждый несёт заголовки устройства (D-063), записи — ещё и автора
+// (X-Call-Author, D-291): сервер не примет итог под чужой сессией. Ответы API не кэшируются: `cache: 'no-store'`,
+// service worker эти запросы не трогает.
 import type { QueueResponse, SkipResponse, TodaySummary } from '@/server/domain/calls';
 import type { SendResult } from './outbox';
 import type { OutcomeRequest } from './types';
@@ -20,14 +21,19 @@ async function codeOf(res: Response): Promise<string | undefined> {
 export interface CallApi {
   queue(q: { limit: number; exclude: readonly string[]; group: string; signal?: AbortSignal }): Promise<{ status: number; data: QueueResponse | null }>;
   skip(body: { opId: string; cardId: string }): Promise<{ status: number; data: SkipResponse | null; code?: string }>;
-  sendOutcome(request: OutcomeRequest): Promise<SendResult>;
+  /** `author` — сотрудник, поставивший итог (из записи outbox, а не из страницы). */
+  sendOutcome(request: OutcomeRequest, author: string): Promise<SendResult>;
   /** Итог «Договорились — записать»: ответ нужен мастеру целиком (запись, свободные даты). Нет сети — исключение. */
   postOutcome(request: OutcomeRequest): Promise<{ status: number; json: unknown }>;
   /** Сводка «Сегодня» с сервера; нет сети или ошибка — null. */
   today(): Promise<TodaySummary | null>;
 }
 
-export function createCallApi(headers: HeaderFactory, fetchImpl: typeof fetch = (...a) => fetch(...a)): CallApi {
+/** Заголовок автора итога и пропуска (D-291); имя совпадает с AUTHOR_HEADER маршрутов. */
+export const AUTHOR_HEADER = 'X-Call-Author';
+
+/** `author` — сотрудник этой страницы: им подписываются пропуск и итог с записью; итоги outbox — своим автором. */
+export function createCallApi(headers: HeaderFactory, author: string, fetchImpl: typeof fetch = (...a) => fetch(...a)): CallApi {
   const base = { cache: 'no-store' as const, credentials: 'same-origin' as const };
   return {
     async queue({ limit, exclude, group, signal }) {
@@ -37,16 +43,16 @@ export function createCallApi(headers: HeaderFactory, fetchImpl: typeof fetch = 
       return { status: res.status, data: res.ok ? ((await res.json()) as QueueResponse) : null };
     },
     async skip(body) {
-      const res = await fetchImpl('/api/calls/skips', { ...base, method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await fetchImpl('/api/calls/skips', { ...base, method: 'POST', headers: { ...headers(), [AUTHOR_HEADER]: author, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (res.ok) return { status: res.status, data: (await res.json()) as SkipResponse };
       return { status: res.status, data: null, code: await codeOf(res) };
     },
-    async sendOutcome(request) {
-      const res = await fetchImpl('/api/calls/outcomes', { ...base, method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+    async sendOutcome(request, by) {
+      const res = await fetchImpl('/api/calls/outcomes', { ...base, method: 'POST', headers: { ...headers(), [AUTHOR_HEADER]: by, 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
       return { status: res.status, ...(res.ok ? {} : { code: await codeOf(res) }) };
     },
     async postOutcome(request) {
-      const res = await fetchImpl('/api/calls/outcomes', { ...base, method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+      const res = await fetchImpl('/api/calls/outcomes', { ...base, method: 'POST', headers: { ...headers(), [AUTHOR_HEADER]: author, 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
       return { status: res.status, json: await res.json().catch(() => null) };
     },
     async today() {

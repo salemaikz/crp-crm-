@@ -10,18 +10,26 @@ export interface SendResult {
   code?: string;
 }
 
-/** Сеть: бросает исключение, если ответа нет. Заголовки устройства (X-Outbox-Pending …) добавляет транспорт. */
-export type OutcomeSender = (request: OutcomeRequest) => Promise<SendResult>;
+/**
+ * Сеть: бросает исключение, если ответа нет. `author` — сотрудник, поставивший итог (заголовок X-Call-Author, D-291);
+ * заголовки устройства (X-Outbox-Pending …) добавляет транспорт.
+ */
+export type OutcomeSender = (request: OutcomeRequest, author: string) => Promise<SendResult>;
 
-export type Verdict = 'sent' | 'rejected' | 'retry';
+export type Verdict = 'sent' | 'rejected' | 'retry' | 'hold';
+
+/** Сервер: итог пришёл не под сессией автора (на телефоне вошёл другой сотрудник). */
+export const WRONG_USER = 'wrong_user';
 
 /**
  * Что делать с записью после ответа. 2xx — готово. 400/403/404 — сервер не примет никогда (проверка шторки,
  * чужая или переданная карточка): убрать и показать оператору. 401, 423 (лицензия «только чтение»), 408, 429
  * и 5xx — оставить и повторить (D-063, calls-design §11).
  */
-export function classify(status: number): Verdict {
+export function classify(status: number, code?: string): Verdict {
   if (status >= 200 && status < 300) return 'sent';
+  // Сессия не автора: итог не теряется и не показывается как отказ, ждёт входа автора (D-291)
+  if (status === 409 && code === WRONG_USER) return 'hold';
   if (status === 401 || status === 408 || status === 423 || status === 429 || status >= 500) return 'retry';
   return 'rejected';
 }
@@ -43,6 +51,8 @@ export interface FlushReport {
   sent: string[];
   rejected: Array<{ opId: string; code: string }>;
   retry: string[];
+  /** Ждут входа автора (сервер ответил `wrong_user`): в этой вкладке больше не отправляются. */
+  held: string[];
   /** Прервано из-за сети. */
   offline: boolean;
 }
@@ -165,12 +175,12 @@ export class Outbox {
     if (this.running) await this.running;
     const e = this.entries.get(opId);
     if (!e) return;
-    await this.attempt(e, { sent: [], rejected: [], retry: [], offline: false });
+    await this.attempt(e, { sent: [], rejected: [], retry: [], held: [], offline: false });
   }
 
   private async run(opts: { force?: boolean; ignoreBackoff?: boolean }): Promise<FlushReport> {
     if (!this.loaded) await this.load();
-    const report: FlushReport = { sent: [], rejected: [], retry: [], offline: false };
+    const report: FlushReport = { sent: [], rejected: [], retry: [], held: [], offline: false };
     const now = this.now();
     const due = this.list().filter((e) => opts.force === true || (e.notBefore <= now && (opts.ignoreBackoff === true || e.retryAt <= now)));
     for (const e of due) {
@@ -188,23 +198,29 @@ export class Outbox {
     try {
       let res: SendResult;
       try {
-        res = await this.send(e.request);
+        res = await this.send(e.request, e.userId);
       } catch {
         await this.later(e);
         report.retry.push(e.opId);
         report.offline = true;
         return false;
       }
-      const verdict = classify(res.status);
+      const verdict = classify(res.status, res.code);
       if (verdict === 'sent') {
         await this.store.remove(e.opId);
         this.entries.delete(e.opId);
         this.lastFlush = this.now();
         await this.store.setMeta('lastFlushAt', String(this.lastFlush));
         report.sent.push(e.opId);
+      } else if (verdict === 'hold') {
+        await this.hold(e);
+        report.held.push(e.opId);
+        return false;
       } else if (verdict === 'rejected') {
         const code = res.code ?? (res.status === 404 ? 'not_found' : res.status === 403 ? 'forbidden' : 'bad_request');
-        await this.store.putRejected({ opId: e.opId, userId: this.userId, title: e.title, code, at: this.now() });
+        // Подпись — из хранилища, а не из памяти вкладки: после выхода в другой вкладке там уже пусто
+        const title = (await this.store.get(e.opId))?.title ?? '';
+        await this.store.putRejected({ opId: e.opId, userId: this.userId, title, code, at: this.now() });
         await this.store.remove(e.opId);
         this.entries.delete(e.opId);
         report.rejected.push({ opId: e.opId, code });
@@ -219,11 +235,31 @@ export class Outbox {
     }
   }
 
+  /**
+   * Повтор позже. Основа — запись из хранилища, а не копия в памяти вкладки: если выход в другой вкладке стёр
+   * название компании (purgeDevice), вкладка его не вернёт. Записи в хранилище нет — её отправила или отменила
+   * другая вкладка: из памяти убираем, не воскрешаем.
+   */
   private async later(e: OutboxEntry): Promise<void> {
-    const next: OutboxEntry = { ...e, attempts: e.attempts + 1 };
-    next.retryAt = this.now() + backoffMs(next.attempts);
+    const stored = await this.store.get(e.opId);
+    if (!stored) {
+      this.entries.delete(e.opId);
+      return;
+    }
+    const attempts = Math.max(stored.attempts, e.attempts) + 1;
+    const next: OutboxEntry = { ...stored, attempts, retryAt: this.now() + backoffMs(attempts) };
     await this.store.put(next);
     this.entries.set(next.opId, next);
+  }
+
+  /**
+   * Сервер ответил `wrong_user`: на телефоне вошёл другой сотрудник. Итог остаётся в хранилище без названия
+   * компании (только id и коды) и уходит при следующем входе автора; из этой вкладки — больше никогда.
+   */
+  private async hold(e: OutboxEntry): Promise<void> {
+    const stored = await this.store.get(e.opId);
+    if (stored && stored.title !== '') await this.store.put({ ...stored, title: '' });
+    this.entries.delete(e.opId);
   }
 
   rejectedList(): Promise<Array<{ opId: string; title: string; code: string; at: number }>> {

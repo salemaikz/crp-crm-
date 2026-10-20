@@ -45,6 +45,20 @@ export async function respond<T>(run: () => Promise<T>): Promise<T | Response> {
   });
 }
 
+/** Заголовок автора: id сотрудника, который поставил итог или пропуск на устройстве (D-291). */
+export const AUTHOR_HEADER = 'x-call-author';
+
+/**
+ * Итог или пропуск пришёл не от того, кто вошёл: вкладка или outbox прежнего сотрудника под cookie нового (общий
+ * телефон). Ответ 409 `wrong_user` до разбора тела и до записи: устройство держит такой итог до входа автора.
+ * Заголовка нет — запрос от сессии как есть (скрипты, интеграции); экран «Звонить» шлёт его всегда.
+ */
+export function wrongAuthor(req: Request, viewer: Viewer): Response | null {
+  const author = req.headers.get(AUTHOR_HEADER);
+  if (author === null || author === '' || author === viewer.userId) return null;
+  return Response.json({ error: 'wrong_user', code: 'wrong_user' }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
+}
+
 /** Статус устройства из заголовков: после основной работы, ошибка не меняет ответ (D-063). */
 export async function noteDevice(req: Request, viewer: Viewer): Promise<void> {
   const report = parseDeviceHeaders(req.headers);

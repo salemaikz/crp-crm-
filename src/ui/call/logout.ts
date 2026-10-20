@@ -2,11 +2,14 @@
 // черновик шторки и счётчик за день (localStorage), отказы сервера (IndexedDB), кэш оболочки (Cache Storage).
 // Если что-то не ушло (нет сети), выход требует подтверждения: на телефоне остаются только неотправленные итоги,
 // без названий компаний (в них только то, что нужно для отправки), до следующего входа этого же сотрудника.
+// Сессию закрывает только сервер: до запроса ставится флаг «выход не завершён» (logoutPending.ts), и пока сервер
+// не ответил, любая страница показывает экран блокировки вместо данных и повторяет выход.
 import { createCallApi } from './api';
 import { deviceHeaders, ensureDeviceId } from './device';
 import { Outbox } from './outbox';
 import { createDeviceStore } from './outboxStore';
-import { clearShellCache, isStaleShell } from './serviceWorker';
+import { browserStorage, clearLogoutPending, isLogoutPending, LOGOUT_PENDING_ATTR, LOGOUT_PENDING_EVENT, markLogoutPending, postLogout } from './logoutPending';
+import { blockShell, clearShellCache, isStaleShell, unblockShell } from './serviceWorker';
 import { clearPending } from './pending';
 import { clearTally, type StorageLike } from './tally';
 import type { OutboxStore } from './outboxStore';
@@ -34,9 +37,10 @@ export async function openDeviceOutbox(userId: string): Promise<Outbox> {
   const { store } = createDeviceStore();
   const deviceId = await ensureDeviceId(store);
   const holder: { outbox?: Outbox } = {};
-  const api = createCallApi(() => deviceHeaders(deviceId, holder.outbox?.pendingCount() ?? 0, holder.outbox?.lastFlushAt() ?? null));
-  // Страница из кэша service worker: сессия могла смениться, чужие итоги под новой сессией не отправляем
-  const send = (req: Parameters<typeof api.sendOutcome>[0]) => (isStaleShell() ? Promise.reject(new Error('stale_shell')) : api.sendOutcome(req));
+  const api = createCallApi(() => deviceHeaders(deviceId, holder.outbox?.pendingCount() ?? 0, holder.outbox?.lastFlushAt() ?? null), userId);
+  // Страница из кэша service worker (сессия могла смениться) или выход не завершён: ничего не отправляем
+  const send = (req: Parameters<typeof api.sendOutcome>[0], author: string) =>
+    isStaleShell() || isLogoutPending() ? Promise.reject(new Error('blocked')) : api.sendOutcome(req, author);
   const outbox = new Outbox({ store, send, userId });
   holder.outbox = outbox;
   return outbox;
@@ -64,17 +68,29 @@ export async function purgeDevice(userId: string, deps: { storage: StorageLike; 
   }
 }
 
-/** Второй шаг: телефон очищается, кэш оболочки удаляется (с ожиданием), сессия закрывается. Сбой сети не мешает уйти на вход. */
+/**
+ * Второй шаг. Сначала флаг «выход не завершён» и метка для service worker, потом очистка телефона и кэша оболочки,
+ * потом запрос выхода. Сервер ответил — флаг снят, открывается вход. Нет сети — на вход не уходим (сессия жива,
+ * следующий человек попал бы в неё): экран блокировки (LogoutGuard) прячет страницу и повторяет запрос.
+ */
 export async function finishLogout(userId: string): Promise<void> {
+  const storage = browserStorage();
+  // Флаг до всего остального: закроют вкладку посреди выхода — следующая загрузка любой страницы его доведёт.
+  // Экран блокировки включается только если сервер не ответил: при сети выход занимает доли секунды
+  markLogoutPending(storage);
+  await blockShell().catch(() => undefined);
   try {
     await purgeDevice(userId, { storage: window.localStorage, store: createDeviceStore().store });
   } catch {
     // хранилище недоступно: чистить нечего
   }
   await clearShellCache().catch(() => undefined);
-  try {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
-  } finally {
+  if (await postLogout()) {
+    await unblockShell().catch(() => undefined);
+    clearLogoutPending(storage);
     window.location.replace('/login');
+    return;
   }
+  document.documentElement.setAttribute(LOGOUT_PENDING_ATTR, '');
+  window.dispatchEvent(new Event(LOGOUT_PENDING_EVENT));
 }

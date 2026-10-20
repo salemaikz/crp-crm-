@@ -23,6 +23,7 @@ function loadWorker() {
   };
   const caches = {
     keys: async () => [...stores.keys()],
+    has: async (k: string) => stores.has(k),
     delete: async (k: string) => stores.delete(k),
     open: async (k: string) => {
       const m = stores.get(k) ?? new Map<string, unknown>();
@@ -73,7 +74,7 @@ test('SW берёт статику сборки и оболочку экрана
   fetchHandler(nav.e);
   assert.ok(nav.responded());
   await nav.responded();
-  const names = [...w.stores.get('crm-shell-v2')!.keys()];
+  const names = [...w.stores.get('crm-shell-v3')!.keys()];
   assert.ok(names.includes('/call'), 'оболочка сохранена');
   assert.ok(!names.some((n) => n.includes('/api/')), 'в кэше нет API');
 });
@@ -84,11 +85,11 @@ test('SW очищает кэш по команде выхода', async () => {
   const nav = fetchEvent('https://crm.test/call', { mode: 'navigate' });
   fetchHandler(nav.e);
   await nav.responded();
-  assert.ok(w.stores.has('crm-shell-v2'));
+  assert.ok(w.stores.has('crm-shell-v3'));
   let waited: Promise<unknown> | null = null;
   w.listeners.get('message')!({ data: { type: 'clear' }, waitUntil: (p: Promise<unknown>) => void (waited = p) });
   await waited;
-  assert.equal(w.stores.has('crm-shell-v2'), false);
+  assert.equal(w.stores.has('crm-shell-v3'), false);
 });
 
 test('без сети оболочка /call отдаётся с меткой «из кэша» (страница не шлёт итоги под чужой сессией)', async () => {
@@ -120,6 +121,32 @@ test('вход и выход: оболочка прежнего сотрудни
     fetchHandler(offline.e);
     await assert.rejects(Promise.resolve(offline.responded()));
   }
+});
+
+test('выход не завершён (метка crm-logout-pending): оболочка /call не отдаётся из кэша и не кэшируется заново', async () => {
+  const w = loadWorker();
+  const fetchHandler = w.listeners.get('fetch')!;
+  const first = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(first.e);
+  await first.responded();
+  w.stores.set('crm-logout-pending', new Map());
+  w.stores.get('crm-shell-v3')!.clear();
+  // Сеть есть, сессия прежнего сотрудника ещё жива: страница приходит, но в кэш не ложится
+  const online = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(online.e);
+  await online.responded();
+  assert.equal(w.stores.get('crm-shell-v3')!.has('/call'), false);
+  // Оболочка из кэша (положена до выхода) без сети не отдаётся
+  w.stores.get('crm-shell-v3')!.set('/call', { text: async () => '<html><head></head></html>', headers: new Headers(), status: 200, statusText: 'OK' });
+  w.net.down = true;
+  const offline = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(offline.e);
+  await assert.rejects(Promise.resolve(offline.responded()));
+  // Выход завершён — метка снята, кэшированная оболочка снова доступна без сети
+  w.stores.delete('crm-logout-pending');
+  const after = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(after.e);
+  assert.ok(await after.responded());
 });
 
 function flat(tree: Record<string, unknown>, prefix = '', out = new Set<string>()): Set<string> {
