@@ -2,7 +2,7 @@
 // константы: файл безопасен и для браузера, и для тестов. Контракт API — src/server/domain/calls/types.ts.
 import type { OutcomeRequest } from '@/server/domain/calls';
 
-export type { OutcomeRequest, QueueCard, QueueCounts, QueuePhone, QueueResponse, SkipResponse } from '@/server/domain/calls';
+export type { OutcomeRequest, OutcomeResponse, QueueCard, QueueCounts, QueuePhone, QueueResponse, SkipResponse, TodaySummary } from '@/server/domain/calls';
 
 export type OutcomeKind = 'no_answer' | 'bad_number' | 'callback' | 'agreed' | 'not_interested' | 'not_target' | 'do_not_call';
 
@@ -67,8 +67,6 @@ export interface CallConfig {
   timeZone: string;
   calendar: CallCalendar;
   cardFields: CardFieldLabel[];
-  /** Мастер записи: `<bookHref>?card=<id>`. */
-  bookHref: string;
 }
 
 /** Номер в памяти устройства: без цифр, только подпись. */

@@ -20,12 +20,18 @@ export interface Operator {
   phone: string;
   cardIds: string[];
   names: string[];
+  clientIds: string[];
+}
+
+export interface OperatorOptions {
+  /** У каждого клиента есть контакт-ЛПР («Асель Синтетик, Директор») со своим номером и заметка. */
+  lpr?: boolean;
 }
 
 const digits = (n: number) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
 
 /** Оператор отдела продаж и `cards` новых карточек в его очереди (порядок — по номеру). */
-export async function makeOperator(cards: number): Promise<Operator> {
+export async function makeOperator(cards: number, opts: OperatorOptions = {}): Promise<Operator> {
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   if (!space) throw new Error('нет пространства sales: prepareDb() не выполнен');
   const id = randomUUID();
@@ -38,6 +44,7 @@ export async function makeOperator(cards: number): Promise<Operator> {
   const tag = digits(5);
   const cardIds: string[] = [];
   const names: string[] = [];
+  const clientIds: string[] = [];
   for (let i = 1; i <= cards; i++) {
     const clientId = randomUUID();
     const cardId = randomUUID();
@@ -48,10 +55,20 @@ export async function makeOperator(cards: number): Promise<Operator> {
               VALUES (${randomUUID()}, ${clientId}, ${`7709${digits(7)}`}, 'mobile', TRUE, ${t})`;
     await sql`INSERT INTO cards (id, space_id, client_id, owner_user_id, state, assigned_at, created_at, updated_at)
               VALUES (${cardId}, ${space.id}, ${clientId}, ${id}, 'new', ${t}, ${t + i}, ${t})`;
+    if (opts.lpr) {
+      const contactId = randomUUID();
+      await sql`INSERT INTO contacts (id, client_id, name, position, is_decision_maker, created_at)
+                VALUES (${contactId}, ${clientId}, 'Асель Синтетик', 'Директор', TRUE, ${t})`;
+      await sql`INSERT INTO client_phones (id, client_id, contact_id, digits, kind, is_primary, created_at)
+                VALUES (${randomUUID()}, ${clientId}, ${contactId}, ${`7709${digits(7)}`}, 'mobile', FALSE, ${t})`;
+      await sql`INSERT INTO notes (id, client_id, space_id, body, created_at)
+                VALUES (${randomUUID()}, ${clientId}, ${space.id}, 'Просили перезвонить после обеда', ${t})`;
+    }
+    clientIds.push(clientId);
     cardIds.push(cardId);
     names.push(name);
   }
-  return { id, phone, cardIds, names };
+  return { id, phone, cardIds, names, clientIds };
 }
 
 const pretty = (p: string) => `8 ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7, 9)} ${p.slice(9)}`;
@@ -91,3 +108,26 @@ export async function callAndOutcome(page: Page, kind: string): Promise<void> {
 }
 
 export const cardTitle = (page: Page) => page.locator('#call-title');
+
+const DAY = 86_400_000;
+const localDate = (plusDays: number) => new Date(Date.now() + plusDays * DAY + 5 * 3_600_000).toISOString().slice(0, 10);
+
+/** Групповые мероприятия «БР» в пространстве: прежние запланированные снимаем, чтобы предложение было предсказуемым. */
+export async function seedGroupEvents(specs: Array<{ id: string; plusDays: number; capacity?: number }>): Promise<void> {
+  const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
+  await sql`UPDATE events SET status = 'cancelled', occurrence_key = NULL, updated_at = ${Date.now()} WHERE space_id = ${space!.id} AND status = 'scheduled'`;
+  for (const e of specs) {
+    const date = localDate(e.plusDays);
+    const startsAt = Date.parse(`${date}T15:00:00+05:00`);
+    await sql`
+      INSERT INTO events (id, space_id, series_id, event_type_key, event_date, start_time, starts_at, duration_min, location, format, capacity, status, occurrence_key, touched, created_at, updated_at)
+      VALUES (${e.id}, ${space!.id}, NULL, 'br', ${date}, '15:00', ${startsAt}, 180, 'Зал 1', 'offline', ${e.capacity ?? 30}, 'scheduled', NULL, FALSE, ${Date.now()}, ${Date.now()})`;
+  }
+}
+
+/** Заполнить в шторке то, что требует «Договорились»: ЛПР «Да» и ниша (поле итога). */
+export async function fillAgreed(page: Page): Promise<void> {
+  await page.getByTestId('lpr-yes').click();
+  await page.getByTestId('outcome-agreed').click();
+  await page.getByTestId('outcome-details').getByRole('combobox').selectOption({ index: 1 });
+}

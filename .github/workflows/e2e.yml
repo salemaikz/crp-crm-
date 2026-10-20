@@ -39,6 +39,11 @@ jobs:
       # CRM_PROXY_SECRET приложение не стартует (D-155). Секрет — синтетика только для e2e.
       APP_ORIGIN: http://localhost:3100
       CRM_PROXY_SECRET: e2e-proxy-secret-synthetic-not-for-production
+      # Ключи HMAC номеров и ИИН: без них итог звонка в production-сборке отвечает 500. Синтетика только для e2e.
+      CRM_PHONE_HMAC_KEY: e2e-phone-hmac-key-synthetic-not-for-production
+      CRM_IIN_HMAC_KEY: e2e-iin-hmac-key-synthetic-not-for-production
+      # БД, которую готовят сценарии (tests/e2e/support/prepare-db.ts): та же, что у сервера
+      E2E_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/crm_e2e
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

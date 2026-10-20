@@ -30,7 +30,6 @@ test('кнопки итогов: порядок настроек, без арх�
   assert.equal(cfg.userId, U.opA);
   assert.equal(cfg.timeZone.length > 0, true);
   assert.ok(cfg.undoMs >= 0 && cfg.undoMs <= 10_000);
-  assert.ok(cfg.bookHref.startsWith('/'));
 });
 
 test('праздники отдаются не раньше сегодняшнего дня; цель «звонков в час» — число или null', async () => {

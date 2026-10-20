@@ -9,9 +9,6 @@ type L = { ru: string; kk?: string | undefined };
 const text = (l: L): string => l.ru;
 const live = <T extends { archived?: boolean | undefined }>(xs: readonly T[]): T[] => xs.filter((x) => x.archived !== true);
 
-/** Мастер записи (B3a): `<адрес>?card=<id>`. */
-export const BOOK_HREF = '/book';
-
 /** Окно отмены итога по умолчанию, если настройки не задают. */
 const DEFAULT_UNDO_SECONDS = 5;
 /** Праздники отдаём на 120 дней вперёд: хватает, чтобы найти ближайший рабочий день. */
@@ -83,6 +80,5 @@ export async function loadCallConfig(viewer: Viewer): Promise<CallConfig | null>
       holidays: g.calendar.holidays.filter((h) => h.date >= viewer.today && h.date <= horizon).map((h) => ({ date: h.date, kind: h.kind })),
     },
     cardFields,
-    bookHref: BOOK_HREF,
   };
 }

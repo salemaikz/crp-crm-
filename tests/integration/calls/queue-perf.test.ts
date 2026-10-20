@@ -29,18 +29,27 @@ before(async () => {
                       (ARRAY['new','retry','callback'])[1 + (i % 3)], CASE WHEN i % 3 = 0 THEN NULL ELSE ${SEED_NOW}::bigint - (i % 50) * ${HOUR}::bigint END,
                       ${SEED_NOW}::bigint - i * 1000, ${SEED_NOW}::bigint, ${SEED_NOW}::bigint
                  FROM generate_series(1, 5000) AS i`;
+  // ЛПР и заметки у всех клиентов, как в боевой базе: очередь не должна замедляться от них
+  await db.sql`INSERT INTO contacts (id, client_id, name, position, is_decision_maker, created_at)
+               SELECT 'ct-perf-' || i, 'cl-perf-' || i, 'Контакт ' || i, 'Директор', TRUE, ${SEED_NOW}::bigint FROM generate_series(1, 5000) AS i`;
+  await db.sql`INSERT INTO notes (id, client_id, space_id, body, created_at)
+               SELECT 'nt-perf-' || i || '-' || k, 'cl-perf-' || i, 'sp-sales', 'заметка ' || k, ${SEED_NOW}::bigint - k * 1000
+                 FROM generate_series(1, 5000) AS i, generate_series(1, 3) AS k`;
   await db.sql`ANALYZE cards`;
+  await db.sql`ANALYZE contacts`;
+  await db.sql`ANALYZE notes`;
   await db.sql`ANALYZE client_phones`;
 });
 after(() => closeCallsWorld(db));
 
-test('очередь оператора: 30 запросов, p95 не больше 300 мс', async () => {
+test('очередь оператора с ЛПР и заметками: 30 запросов, p95 не больше 300 мс', async () => {
   const times: number[] = [];
   for (let i = 0; i < 30; i++) {
     const t0 = performance.now();
     const r = await getQueue(deps, opA, { limit: 4, exclude: [], group: 'all' });
     times.push(performance.now() - t0);
     assert.equal(r.items.length, 4);
+    assert.ok(r.items.every((c) => c.decisionMaker !== null && c.lastNote !== null));
   }
   times.sort((a, b) => a - b);
   const p95 = times[Math.ceil(times.length * 0.95) - 1]!;

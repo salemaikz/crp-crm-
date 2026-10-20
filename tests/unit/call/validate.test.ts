@@ -25,7 +25,6 @@ const CONFIG: CallConfig = {
   timeZone: 'Asia/Almaty',
   calendar: { workdays: [1, 2, 3, 4, 5], holidays: [] },
   cardFields: [],
-  bookHref: '/book',
 };
 const draft = (over: Partial<SheetDraft> = {}): SheetDraft => ({ ...EMPTY_DRAFT, ...over });
 
@@ -100,4 +99,19 @@ test('buildRequest: opId и время с устройства, офлайн-к�
   assert.deepEqual(dnc.alsoDncPhoneIds, ['ph-2'], 'номер разговора не дублируется');
   assert.equal(dnc.via, 'ui');
   assert.equal(dnc.callbackAt, null);
+});
+
+test('«Договорились» с обязательным контактом: без ЛПР-контакта у клиента итог не сохранить', () => {
+  const d = def('agreed', { contact: true, agreement: true, lpr: true });
+  assert.deepEqual(missingFor(d, draft({ lpr: 'yes' }), CONFIG, {}, false), ['contact']);
+  assert.deepEqual(missingFor(d, draft({ lpr: 'yes' }), CONFIG, {}, true), []);
+  // итог, которому контакт не нужен, контакта не требует
+  assert.deepEqual(missingFor(def('agreed'), draft({ lpr: 'yes' }), CONFIG, {}, false), []);
+});
+
+test('тело итога несёт договорённость (запись или «позже»), по умолчанию её нет', () => {
+  const base = { opId: 'o', cardId: 'c', def: def('agreed'), draft: draft({ lpr: 'yes' }), tappedAt: 1, now: 2, online: true };
+  assert.equal(buildRequest(base).agreement, null);
+  const agreement = { contactId: 'ct', agreedDueAt: 5, booking: null };
+  assert.deepEqual(buildRequest({ ...base, agreement }).agreement, agreement);
 });

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import type { Viewer } from '../../../src/server/access/types';
 import { BookingDomainError } from '../../../src/server/domain/booking/errors';
 import { submitOutcome } from '../../../src/server/domain/calls/outcomes';
+import { getToday } from '../../../src/server/domain/calls/today';
 import type { CallsDeps } from '../../../src/server/domain/calls';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { U } from '../../isolation/harness/seed';
@@ -36,6 +37,10 @@ test('итог + запись + сделка: одна транзакция, к�
   assert.equal(r.status, 'applied');
   assert.equal(r.card?.state, 'agreed');
   assert.ok(r.bookingId);
+  // мастер в шторке получает запись целиком: дату для тоста и версию для «Отменить»
+  assert.equal(r.booking?.id, r.bookingId);
+  assert.equal(r.bookingAction, 'created');
+  assert.equal(r.booking?.status, 'registered');
   const b = await db.sql<{ id: string; requestId: string; status: string; dealId: string | null; cardId: string }>`SELECT id, request_id, status, deal_id, card_id FROM bookings WHERE client_id = 'cl-a-70'`;
   assert.equal(b.length, 1);
   assert.deepEqual([b[0]!.id, b[0]!.requestId, b[0]!.status, b[0]!.cardId], [r.bookingId, req.opId, 'registered', 'cd-a-70']);
@@ -45,12 +50,25 @@ test('итог + запись + сделка: одна транзакция, к�
   assert.equal(await cnt(db.sql<{ n: number }>`SELECT count(*)::int AS n FROM calls WHERE id = ${req.opId} AND applied = 'applied'`), 1);
 });
 
+test('запись из шторки попадает в «Сегодня» оператора: итог, дозвон и запись', async () => {
+  await fresh('cd-a-79');
+  const t0 = await getToday(deps, opA);
+  await submitOutcome(deps, opA, agreedReq('cd-a-79', 'ev-ag'));
+  const t1 = await getToday(deps, opA);
+  assert.deepEqual([t1.outcomes - t0.outcomes, t1.connected - t0.connected, t1.booked - t0.booked], [1, 1, 1]);
+});
+
 test('повтор того же opId после успеха: duplicate, второй записи и сделки нет', async () => {
   await fresh('cd-a-71');
   const req = agreedReq('cd-a-71', 'ev-ag');
   await submitOutcome(deps, opA, req);
+  const first = await submitOutcome(deps, opA, req);
   const again = await submitOutcome(deps, opA, req);
   assert.equal(again.status, 'duplicate');
+  // потерянный ответ: повтор отдаёт ту же запись, чтобы мастер закончил как после первого запроса
+  assert.equal(again.bookingId, first.bookingId);
+  assert.equal(again.booking?.id, first.bookingId);
+  assert.equal(again.booking?.version, first.booking?.version);
   assert.equal(await cnt(db.sql<{ n: number }>`SELECT count(*)::int AS n FROM bookings WHERE client_id = 'cl-a-71'`), 1);
   assert.equal(await cnt(db.sql<{ n: number }>`SELECT count(*)::int AS n FROM deals WHERE card_id = 'cd-a-71'`), 1);
 });

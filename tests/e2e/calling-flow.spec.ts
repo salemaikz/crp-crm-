@@ -2,7 +2,8 @@
 // переживает перезапуск; отмена за 5 с не доходит до сервера; установка на экран. Нужна БД e2e (E2E_DATABASE_URL).
 // Синтетика: номера +7 709 …, названия «ТОО Синтетика …».
 import { expect, test } from '@playwright/test';
-import { DB_URL, callAndOutcome, callsOf, cardTitle, login, makeOperator, openCall, prepareDb, sql } from './support/calling';
+import { randomUUID } from 'node:crypto';
+import { DB_URL, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, prepareDb, seedGroupEvents, sql } from './support/calling';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -151,11 +152,125 @@ test('вход обязателен: без сессии страница вед
   await expect(page.getByTestId('call-card')).toBeVisible();
 });
 
-test('«Договорились — записать» ведёт в мастер записи с карточкой и opId; звонок без итога не теряется', async ({ page }) => {
-  const op = await makeOperator(2);
+test('в карточке очереди видны ЛПР (имя, должность, телефон) и последняя заметка', async ({ page }) => {
+  const op = await makeOperator(2, { lpr: true });
+  await openCall(page, op);
+  await expect(page.getByTestId('call-lpr')).toContainText('ЛПР: Асель Синтетик, Директор');
+  await expect(page.getByTestId('call-lpr')).toContainText(/тел\. \+7 709/);
+  await expect(page.getByTestId('call-note')).toContainText('Просили перезвонить после обеда');
+});
+
+test('«Договорились»: ЛПР и ниша → «Записать клиента» → мастер в той же шторке → итог и запись одним запросом', async ({ page }) => {
+  const op = await makeOperator(2, { lpr: true });
+  await seedGroupEvents([{ id: randomUUID(), plusDays: 3 }, { id: randomUUID(), plusDays: 10 }]);
   await openCall(page, op);
   await page.getByTestId('call-button').click();
-  await page.getByTestId('outcome-agreed').click();
-  await expect(page).toHaveURL(new RegExp(`/book\\?card=${op.cardIds[0]}&opId=[0-9a-f-]{36}&from=call`));
+  await fillAgreed(page);
+  await page.getByTestId('sheet-book').click();
+
+  // Мастер открылся в шторке, страница не уходила
+  await expect(page.getByTestId('booking-panel')).toBeVisible();
+  await expect(page).toHaveURL(/\/call$/);
+  await page.getByRole('tab', { name: 'БР' }).click();
+  await page.getByRole('button', { name: /^Записать на / }).click();
+  await expect(page.getByText(new RegExp(`^Записать ${op.names[0]} на БР `))).toBeVisible();
+  // Подтверждение не отправляет ничего, пока оператор не нажал «Подтвердить»
   expect(await callsOf(op.id)).toHaveLength(0);
+  await page.getByRole('button', { name: 'Подтвердить' }).click();
+
+  await expect(page.getByTestId('outcome-sheet')).toBeHidden();
+  await expect(page.getByTestId('booking-panel')).toBeHidden();
+  await expect(cardTitle(page)).toHaveText(op.names[1]!);
+
+  // Итог и запись — одна строка каждого, ключ записи = opId итога, ЛПР-контакт передан
+  const calls = await callsOf(op.id);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.applied).toBe('applied');
+  const rows = await sql<{ requestId: string; status: string; kind: string; contactId: string | null }[]>`SELECT request_id AS "requestId", status, kind, contact_id AS "contactId" FROM bookings WHERE client_id = ${op.clientIds[0]!}`;
+  expect(rows).toHaveLength(1);
+  expect([rows[0]!.requestId, rows[0]!.status, rows[0]!.kind]).toEqual([calls[0]!.id, 'registered', 'group']);
+  expect(rows[0]!.contactId).not.toBeNull();
+  const [card] = await sql<{ state: string }[]>`SELECT state FROM cards WHERE id = ${op.cardIds[0]!}`;
+  expect(card!.state).toBe('agreed');
+
+  // Строка «Сегодня» — с сервера: итог, дозвон и запись
+  await expect(page.getByTestId('call-today')).toContainText('1 запись');
+});
+
+test('«Запишу позже»: итог «Договорились» без записи и задача «записать» на следующий рабочий день', async ({ page }) => {
+  const op = await makeOperator(2, { lpr: true });
+  await openCall(page, op);
+  await page.getByTestId('call-button').click();
+  await fillAgreed(page);
+  await page.getByTestId('sheet-later').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeHidden();
+  await expect(page.getByText('Сохранено. Запишите клиента позже')).toBeVisible();
+
+  await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 20_000 }).toBe(1);
+  const [call] = await callsOf(op.id);
+  expect(call!.outcome).toBe('agreed');
+  expect(await sql`SELECT 1 FROM bookings WHERE client_id = ${op.clientIds[0]!}`).toHaveLength(0);
+  const [task] = await sql<{ status: string; dueAt: number }[]>`SELECT status, due_at AS "dueAt" FROM tasks WHERE source_key = ${`agreement:${call!.id}`}`;
+  expect(task?.status).toBe('open');
+  expect(Number(task!.dueAt)).toBeGreaterThan(Date.now());
+});
+
+test('мастер недоступен без сети: сообщение и «Запишу позже» в той же шторке', async ({ page, context }) => {
+  const op = await makeOperator(2, { lpr: true });
+  await openCall(page, op);
+  await page.getByTestId('call-button').click();
+  await fillAgreed(page);
+  await context.setOffline(true);
+  await page.getByTestId('sheet-book').click();
+  await expect(page.getByText('Мастер записи не открылся')).toBeVisible();
+  await page.getByTestId('booking-later').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeHidden();
+  await context.setOffline(false);
+  await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 40_000 }).toBe(1);
+});
+
+test('«Сегодня» берётся с сервера: итоги с другого телефона учтены', async ({ page }) => {
+  const op = await makeOperator(2);
+  // Два итога поставлены на другом устройстве: на этом телефоне локального счётчика нет
+  for (let i = 0; i < 2; i++) {
+    const t = Date.now() - 60_000 * (i + 1);
+    await sql`INSERT INTO calls (id, space_id, card_id, client_id, user_id, via, phone_digits, outcome_code, outcome_kind, applied, occurred_at, received_at, config_rev)
+              SELECT ${randomUUID()}, c.space_id, c.id, c.client_id, ${op.id}, 'ui', '', 'agreed', 'agreed', 'applied', ${t}, ${t}, 1 FROM cards c WHERE c.id = ${op.cardIds[1]!}`;
+  }
+  await openCall(page, op);
+  await expect(page.getByTestId('call-today')).toContainText('2 итога');
+  await expect(page.getByTestId('call-today')).toContainText('2 дозвона');
+});
+
+test('колокольчик показывает число непрочитанных уведомлений', async ({ page }) => {
+  const op = await makeOperator(1);
+  for (let i = 0; i < 3; i++) {
+    await sql`INSERT INTO notifications (id, user_id, kind, not_before, created_at) VALUES (${randomUUID()}, ${op.id}, 'digest', ${Date.now()}, ${Date.now() + i})`;
+  }
+  await openCall(page, op);
+  await expect(page.getByRole('link', { name: 'Уведомления: 3' })).toBeVisible();
+});
+
+test('выход: неотправленные итоги уходят до выхода; без сети — предупреждение «N итогов ещё не отправлены»', async ({ page, context }) => {
+  const op = await makeOperator(4);
+  await openCall(page, op);
+  await context.setOffline(true);
+  await callAndOutcome(page, 'no_answer');
+  await callAndOutcome(page, 'no_answer');
+  await expect(page.getByTestId('outbox-banner')).toContainText('Не отправлено: 2', { timeout: 15_000 });
+
+  await page.getByRole('button', { name: 'Ещё' }).click();
+  await page.getByTestId('logout').click();
+  await expect(page.getByTestId('logout-unsent')).toContainText('2 итога ещё не отправлены');
+  await page.getByTestId('logout-stay').click();
+  await expect(page.getByTestId('logout-unsent')).toBeHidden();
+  expect(await callsOf(op.id)).toHaveLength(0);
+
+  // Сеть вернулась: «Выйти» сначала отправляет итоги, потом закрывает сессию и ведёт на вход
+  await context.setOffline(false);
+  await page.getByTestId('logout').click();
+  await page.waitForURL(/\/login/);
+  expect(await callsOf(op.id)).toHaveLength(2);
+  await page.goto('/call');
+  await expect(page).toHaveURL(/\/login/);
 });

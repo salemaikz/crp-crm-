@@ -5,7 +5,7 @@ import type { SheetDraft, CallConfig, OutcomeButton, OutcomeRequest } from './ty
 /** Виды, для которых действует `calling.lprRequiredOnContact` (зеркало ядра). */
 const LPR_ON_CONTACT: readonly string[] = ['callback', 'agreed', 'not_interested'];
 
-export type Missing = 'lpr' | 'lprInfo' | 'reason' | 'reasonText' | 'callbackAt' | 'phone' | 'field';
+export type Missing = 'lpr' | 'lprInfo' | 'reason' | 'reasonText' | 'callbackAt' | 'phone' | 'field' | 'contact';
 
 export function lprNeeded(def: OutcomeButton, cfg: Pick<CallConfig, 'lprRequiredOnContact'>): boolean {
   return def.requires.lpr || (cfg.lprRequiredOnContact && LPR_ON_CONTACT.includes(def.kind));
@@ -16,8 +16,16 @@ export function lprInfoFilled(d: SheetDraft): boolean {
 }
 
 /** Чего не хватает для итога. Пусто — можно сохранять. */
-export function missingFor(def: OutcomeButton, d: SheetDraft, cfg: CallConfig, fieldValues: Record<string, string> = {}): Missing[] {
+export function missingFor(
+  def: OutcomeButton,
+  d: SheetDraft,
+  cfg: CallConfig,
+  fieldValues: Record<string, string> = {},
+  /** Есть ли у клиента контакт ЛПР: итогу с `requires.contact` без него отказывает ядро (`contact_required`). */
+  hasContact = true,
+): Missing[] {
   const out: Missing[] = [];
+  if (def.requires.contact && !hasContact) out.push('contact');
   if (lprNeeded(def, cfg) && d.lpr === '') out.push('lpr');
   if (d.lpr === 'no' && cfg.lprNoRequiresInfo && !lprInfoFilled(d) && d.note.trim() === '') out.push('lprInfo');
   if (def.requires.reason) {
@@ -51,6 +59,7 @@ export function buildRequest(args: {
   now: number;
   online: boolean;
   fieldValues?: Record<string, string>;
+  agreement?: OutcomeRequest['agreement'];
 }): OutcomeRequest {
   const { def, draft: d } = args;
   const info = lprInfoFilled(d) ? { name: d.lprName.trim(), phone: d.lprPhone.trim(), when: d.lprWhen.trim() } : null;
@@ -73,6 +82,6 @@ export function buildRequest(args: {
     alsoDncPhoneIds: def.kind === 'do_not_call' ? d.alsoDncPhoneIds.filter((id) => id !== d.phoneId) : [],
     fields,
     durationSec: null,
-    agreement: null,
+    agreement: args.agreement ?? null,
   };
 }

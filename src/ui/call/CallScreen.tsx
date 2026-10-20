@@ -9,6 +9,10 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatKzPhone, maskKzPhone } from '@/shared/tel';
 import { Alert, Button, Chip, ChipGroup, EmptyState, ToastProvider, useToast } from '@/ui/kit';
+import type { WizardChoice } from '@/app/(op)/bookings/_wizard/choice';
+import type { BookingWizardProps } from '@/app/(op)/bookings/_wizard/BookingWizard';
+import type { WizardResult } from '@/app/(op)/bookings/_wizard/result';
+import { bookingAgreement, laterAgreement, parseAgreementResponse } from './agreement';
 import { createCallApi, type CallApi } from './api';
 import { CallCard } from './CallCard';
 import { deviceHeaders, ensureDeviceId } from './device';
@@ -17,7 +21,7 @@ import { Outbox } from './outbox';
 import { createDeviceStore } from './outboxStore';
 import { clearPending, readPending, writePending, type PendingState } from './pending';
 import { registerShell } from './serviceWorker';
-import { callsInLastHour, forgetOutcome, markBooked, readTally, recordOutcome, viewOf, type Tally } from './tally';
+import { callsInLastHour, forgetOutcome, readTally, recordOutcome, viewOf, withUnsent, type Tally } from './tally';
 import {
   DEVICE_PING_MS,
   EMPTY_DRAFT,
@@ -29,6 +33,7 @@ import {
   type QueueCounts,
   type QueuePhone,
   type SheetDraft,
+  type TodaySummary,
 } from './types';
 import { buildRequest } from './validate';
 import { localDay } from './zoned';
@@ -82,6 +87,9 @@ function CallScreenInner({ config }: { config: CallConfig }) {
   const [hydrated, setHydrated] = useState(false);
   const [tally, setTally] = useState<Tally>({ day: '', items: [] });
   const [rejected, setRejected] = useState<RejectedView[]>([]);
+  // «Сегодня» с сервера (по всем устройствам); до первого ответа показывается счётчик этого телефона
+  const [serverToday, setServerToday] = useState<TodaySummary | null>(null);
+  const [booking, setBooking] = useState<{ def: OutcomeButton; fieldValues: Record<string, string> } | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const queueRef = useRef(queue);
@@ -156,15 +164,25 @@ function CallScreenInner({ config }: { config: CallConfig }) {
     setRejected((await r.outbox.rejectedList()).map((x) => ({ opId: x.opId, title: x.title, code: x.code })));
   }, []);
 
+  const refreshToday = useCallback(async () => {
+    const r = rtRef.current;
+    if (!r) return;
+    const res = await r.api.today();
+    if (res) setServerToday(res);
+  }, []);
+
   const flushAndSync = useCallback(
     async (opts: { force?: boolean; ignoreBackoff?: boolean } = {}) => {
       const r = rtRef.current;
       if (!r) return;
       const rep = await r.outbox.flush(opts);
       if (rep.rejected.length > 0) await loadRejected();
-      if (rep.sent.length > 0 || rep.rejected.length > 0) void refill();
+      if (rep.sent.length > 0 || rep.rejected.length > 0) {
+        void refill();
+        void refreshToday();
+      }
     },
-    [loadRejected, refill],
+    [loadRejected, refill, refreshToday],
   );
 
   // ---- Старт ------------------------------------------------------------------------------------------------
@@ -188,21 +206,8 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       rtRef.current = runtime;
       setRt(runtime);
 
-      // Возврат из мастера записи: ?booked=<opId>
-      const url = new URL(window.location.href);
-      const booked = url.searchParams.get('booked');
       let p = readPending(window.localStorage, userId);
-      if (booked) {
-        setTally(markBooked(window.localStorage, userId, today(), booked, Date.now()));
-        if (p?.call.opId === booked) {
-          clearPending(window.localStorage, userId);
-          p = null;
-        }
-        url.searchParams.delete('booked');
-        window.history.replaceState(null, '', url.pathname + url.search);
-      } else {
-        setTally(readTally(window.localStorage, userId, today()));
-      }
+      setTally(readTally(window.localStorage, userId, today()));
       // Шторка, оставшаяся после перезапуска приложения, открывается сама
       if (p) p = { ...p, draft: { ...p.draft, open: true } };
       setPending(p);
@@ -212,6 +217,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       await refill({ replace: true });
       void outbox.flush({ ignoreBackoff: true }).then((rep) => {
         if (rep.rejected.length > 0) void loadRejected();
+        void refreshToday();
       });
     })();
     return () => {
@@ -246,12 +252,15 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       void flushAndSync({ ignoreBackoff: true });
     }, OUTBOX_TICK_MS);
     // Пинг статуса устройства: обычный запрос очереди несёт X-Outbox-Pending (D-063)
-    const ping = setInterval(() => void refill(), DEVICE_PING_MS);
+    const ping = setInterval(() => {
+      void refill();
+      void refreshToday();
+    }, DEVICE_PING_MS);
     return () => {
       clearInterval(tick);
       clearInterval(ping);
     };
-  }, [rt, flushAndSync, refill]);
+  }, [rt, flushAndSync, refill, refreshToday]);
 
   const openSheetIfPending = useCallback(() => {
     setPending((p) => (p && !p.draft.open ? { ...p, draft: { ...p.draft, open: true } } : p));
@@ -279,6 +288,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
     const onOnline = () => {
       void flushAndSync({ ignoreBackoff: true });
       void refill();
+      void refreshToday();
     };
     const onFocus = () => void flushAndSync();
     document.addEventListener('visibilitychange', onVisibility);
@@ -291,7 +301,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('focus', onFocus);
     };
-  }, [flushAndSync, openSheetIfPending, refill]);
+  }, [flushAndSync, openSheetIfPending, refill, refreshToday]);
 
   // ---- Действия ---------------------------------------------------------------------------------------------
 
@@ -333,7 +343,10 @@ function CallScreenInner({ config }: { config: CallConfig }) {
 
   const patchDraft = (patch: Partial<SheetDraft>) => setPending((p) => (p ? { ...p, draft: { ...p.draft, ...patch } } : p));
 
-  const closeSheet = () => patchDraft({ open: false });
+  const closeSheet = () => {
+    setBooking(null);
+    patchDraft({ open: false });
+  };
 
   const undo = async (opId: string, p: PendingState, card: QueueCard | null) => {
     const r = rtRef.current;
@@ -348,7 +361,14 @@ function CallScreenInner({ config }: { config: CallConfig }) {
     toast.show({ message: t('toast.undone'), tone: 'neutral' });
   };
 
-  const submit = async (def: OutcomeButton, fieldValues: Record<string, string>) => {
+  /** Контакт ЛПР из очереди: уходит в `agreement.contactId` итога «Договорились». */
+  const contactId = (): string | null => {
+    const p = pendingRef.current;
+    const card = p ? queueRef.current.find((c) => c.cardId === p.call.cardId) : null;
+    return card?.decisionMaker?.contactId ?? null;
+  };
+
+  const submit = async (def: OutcomeButton, fieldValues: Record<string, string>, opts: { later?: boolean } = {}) => {
     const r = rtRef.current;
     const p = pendingRef.current;
     if (!r || !p) return;
@@ -362,6 +382,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       now: nowMs,
       online: navigator.onLine,
       fieldValues,
+      ...(opts.later ? { agreement: laterAgreement(contactId(), config, nowMs) } : {}),
     });
     try {
       await r.outbox.enqueue({ request, title: p.call.title, kind: def.kind, undoMs: config.undoMs });
@@ -371,24 +392,77 @@ function CallScreenInner({ config }: { config: CallConfig }) {
     }
     const card = queueRef.current.find((c) => c.cardId === p.call.cardId) ?? null;
     setTally(recordOutcome(window.localStorage, userId, today(), { opId: p.call.opId, kind: def.kind, at: p.call.tappedAt, booked: false }));
+    setBooking(null);
     setPending(null);
     setQueue((q) => q.filter((c) => c.cardId !== p.call.cardId));
     setCounts((c) => (c ? { ...c, dueNow: Math.max(0, c.dueNow - 1) } : c));
     const withUndo = config.undoMs > 0;
     undoToast.current = toast.show({
-      message: t('toast.saved'),
+      message: opts.later ? t('toast.savedLater') : t('toast.saved'),
       tone: 'success',
       ...(withUndo ? { undo: { label: t('toast.undo'), onUndo: () => void undo(p.call.opId, p, card) }, durationMs: config.undoMs } : {}),
     });
     void refill();
   };
 
-  const book = (def: OutcomeButton) => {
+  // ---- «Договорились — записать»: мастер в шторке, итог и запись одним запросом (D-202) ----------------------
+
+  /** Итог принят вместе с записью (или без неё, если карточку передали): шторка закрывается, карточка уходит из очереди. */
+  const finishAgreement = (p: PendingState, booked: boolean) => {
+    const def = config.outcomes.find((o) => o.key === p.draft.outcomeKey);
+    setTally(recordOutcome(window.localStorage, userId, today(), { opId: p.call.opId, kind: def?.kind ?? 'agreed', at: p.call.tappedAt, booked }));
+    setBooking(null);
+    setPending(null);
+    setQueue((q) => q.filter((c) => c.cardId !== p.call.cardId));
+    setCounts((c) => (c ? { ...c, dueNow: Math.max(0, c.dueNow - 1) } : c));
+    void refill();
+    void refreshToday();
+  };
+
+  const submitBooking: NonNullable<BookingWizardProps['submit']> = async (choice: WizardChoice): Promise<WizardResult> => {
+    const r = rtRef.current;
     const p = pendingRef.current;
-    if (!p) return;
-    writePending(window.localStorage, userId, { call: p.call, draft: { ...p.draft, outcomeKey: def.key, open: false } });
-    const qs = new URLSearchParams({ card: p.call.cardId, opId: p.call.opId, from: 'call' });
-    router.push(`${config.bookHref}?${qs}`);
+    const b = booking;
+    if (!r || !p || !b) return { ok: false, code: 'handled' };
+    const request = buildRequest({
+      opId: p.call.opId,
+      cardId: p.call.cardId,
+      def: b.def,
+      draft: p.draft,
+      tappedAt: p.call.tappedAt,
+      now: Date.now(),
+      online: true,
+      fieldValues: b.fieldValues,
+      agreement: bookingAgreement(contactId(), choice),
+    });
+    let res: Awaited<ReturnType<CallApi['postOutcome']>>;
+    try {
+      res = await r.api.postOutcome(request);
+    } catch {
+      return { ok: false, code: 'network' };
+    }
+    const verdict = parseAgreementResponse(res.status, res.json);
+    switch (verdict.kind) {
+      case 'result':
+        return verdict.result;
+      case 'login':
+        router.replace('/login');
+        return { ok: false, code: 'handled' };
+      case 'fact_only':
+        // Карточку успели передать: итог в истории, записи нет (PROCESS 12.5)
+        finishAgreement(p, false);
+        toast.show({ message: t('toast.transferred'), tone: 'info' });
+        return { ok: false, code: 'handled' };
+      case 'rejected':
+        setBooking(null);
+        toast.show({ message: te.has(`errors.${verdict.code}`) ? te(`errors.${verdict.code}`) : te('errors.not_found'), tone: 'danger' });
+        return { ok: false, code: 'handled' };
+    }
+  };
+
+  const onBooked: NonNullable<BookingWizardProps['onDone']> = () => {
+    const p = pendingRef.current;
+    if (p) finishAgreement(p, true);
   };
 
   const skip = async (card: QueueCard) => {
@@ -424,9 +498,10 @@ function CallScreenInner({ config }: { config: CallConfig }) {
 
   // ---- Разметка ---------------------------------------------------------------------------------------------
 
-  const view = viewOf(tally);
-  const skipsToday = counts?.skippedToday ?? 0;
-  const skipLimit = counts?.skipLimit ?? 0;
+  // Серверная сводка точнее (все устройства) плюс итоги, которые ещё в outbox; локальный счётчик — пока ответа нет
+  const view = serverToday ? withUnsent(serverToday, rt ? rt.outbox.list().map((e) => e.kind) : []) : viewOf(tally);
+  const skipsToday = counts?.skippedToday ?? serverToday?.skips ?? 0;
+  const skipLimit = counts?.skipLimit ?? serverToday?.skipLimit ?? 0;
   const online = typeof navigator === 'undefined' ? true : navigator.onLine;
   const pace = callsInLastHour(tally, now);
   const waiting = rt ? rt.outbox.list().filter((e) => e.notBefore <= now).length : 0;
@@ -530,7 +605,21 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       {rt && !rt.persistent && <Alert tone="warning">{t('outbox.volatile')}</Alert>}
 
       {pending && pending.draft.open && (
-        <OutcomeSheet config={config} pending={pending} phones={sheetPhones} onChange={patchDraft} onClose={closeSheet} onSubmit={(d, f) => void submit(d, f)} onBook={book} />
+        <OutcomeSheet
+          config={config}
+          pending={pending}
+          phones={sheetPhones}
+          onChange={patchDraft}
+          onClose={closeSheet}
+          onSubmit={(d, f) => void submit(d, f)}
+          hasContact={current?.decisionMaker != null}
+          booking={booking !== null}
+          onBookingOpen={(def, fieldValues) => setBooking({ def, fieldValues })}
+          onBookingBack={() => setBooking(null)}
+          onLater={(d, f) => void submit(d, f, { later: true })}
+          submitBooking={submitBooking}
+          onBooked={onBooked}
+        />
       )}
     </main>
   );

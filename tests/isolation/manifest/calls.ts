@@ -48,6 +48,8 @@ const entries: ManifestEntry[] = [
     touches: ['skips', 'cards'],
   },
   { kind: 'route', path: '/api/calls/queue', method: 'GET', perm: 'card.outcome', target: 'section', mutation: false },
+  // Сводка «Сегодня»: только свои числа за сутки, чужих карточек и клиентов в ответе нет
+  { kind: 'route', path: '/api/calls/today', method: 'GET', perm: 'card.outcome', target: 'section', mutation: false },
 ];
 
 export default defineManifest('calls', entries);
