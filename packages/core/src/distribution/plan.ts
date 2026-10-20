@@ -107,6 +107,18 @@ export function planAllocation(
     const g = groups.get(l.id);
     if (l.heldBy && g && !groupHolder.has(g)) groupHolder.set(g, l.heldBy);
   }
+  // Члены группы закреплены за РАЗНЫМИ операторами: делить пару нельзя, а резерв места один — вся группа ждёт РОП.
+  const groupConflict = new Set<string>();
+  {
+    const seenHolder = new Map<string, UserId>();
+    for (const l of pool) {
+      const g = groups.get(l.id);
+      if (!g || !l.heldBy) continue;
+      const prev = seenHolder.get(g);
+      if (prev === undefined) seenHolder.set(g, l.heldBy);
+      else if (prev !== l.heldBy) groupConflict.add(g);
+    }
+  }
   const groupOwner = new Map<string, UserId>();
   // Сколько карточек группы ещё предстоит раздать (заблокированные не считаются) и итог по группе.
   const groupLeft = new Map<string, number>();
@@ -125,9 +137,11 @@ export function planAllocation(
     if (group) {
       // Первая выдача из группы резервирует место под всю группу сразу; остальные карточки группы
       // место уже не тратят, а одиночные карточки не успевают занять резерв.
-      if (!groupOwner.has(group)) o.room -= groupLeft.get(group) ?? 1;
+      const owner = groupOwner.get(group);
+      if (owner === undefined) o.room -= groupLeft.get(group) ?? 1;
+      else if (owner !== o.userId) o.room--; // не владелец резерва: место берём как под одиночную
       groupLeft.set(group, (groupLeft.get(group) ?? 1) - 1);
-      groupOwner.set(group, o.userId);
+      if (owner === undefined) groupOwner.set(group, o.userId);
     } else o.room--;
   };
 
@@ -137,6 +151,7 @@ export function planAllocation(
       continue;
     }
     const group = groups.get(lead.id);
+    if (group && groupConflict.has(group) && !groupFate.has(group)) groupFate.set(group, 'heldBack');
     const fate = group ? groupFate.get(group) : undefined;
     if (fate) {
       plan[fate].push(lead.id);
