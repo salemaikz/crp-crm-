@@ -1,0 +1,1 @@
+{ "statuses": [ { "messageId": "aaaaaaaa-0000-4000-8000-000000000002", "timestamp": 1793180760000, "status": "delivered" }, { "messageId": "aaaaaaaa-0000-4000-8000-000000000002", "timestamp": 1793180820000, "status": "read" }, { "messageId": "aaaaaaaa-0000-4000-8000-000000000002", "timestamp": 1793180820000, "status": "weird status" } ] }

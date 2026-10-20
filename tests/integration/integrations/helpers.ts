@@ -56,7 +56,8 @@ export const fakeMessenger: MessengerPlugin<{ sourceKey?: string }, { apiKey?: s
   },
 };
 
-export const fakeRegistry = createRegistry([...PLUGINS, fakeMessenger as unknown as AnyPlugin]);
+// Настоящий wazzup из реестра заменён синтетическим плагином с тем же id: сеть и подпись в тестах не нужны
+export const fakeRegistry = createRegistry([...PLUGINS.filter((p) => p.id !== fakeMessenger.id), fakeMessenger as unknown as AnyPlugin]);
 
 export function deps(over: Partial<IntegrationDeps> = {}): IntegrationDeps {
   return { registry: fakeRegistry, usability: pluginUsability, http: () => noHttp, flagOn: () => true, licensed: async () => true, appOrigin: 'https://crm.test', now: () => T0, ...over };

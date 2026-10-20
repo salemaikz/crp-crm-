@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PLUGIN_IDS, type Ctx } from '../../../src/integrations/contract';
 import { createHttp, PluginHttpError } from '../../../src/integrations/http';
-import { PLUGINS, createRegistry, registry } from '../../../src/integrations/registry';
+import { PLUGINS, PLUGIN_HOSTS, createRegistry, pluginDeps, registry } from '../../../src/integrations/registry';
 import { FEATURES } from '../../../src/server/platform/flags';
 
 const ctx = { integrationId: null, spaceId: null, config: {}, secrets: async () => ({}), http: createHttp([]), appOrigin: '', now: 0 } as Ctx<never, never>;
@@ -18,7 +18,7 @@ test('каждый плагин в реестре ровно один раз, id
     assert.ok(p.id.startsWith(`${p.kind}.`), p.id);
     if (p.flag) assert.ok((FEATURES as readonly string[]).includes(p.flag), `${p.id}: флаг ${p.flag}`);
   }
-  for (const id of ['telephony.manual', 'telephony.beeline', 'messenger.wa_link'] as const) assert.ok(registry.get(id), id);
+  for (const id of ['telephony.manual', 'telephony.beeline', 'messenger.wa_link', 'messenger.wazzup'] as const) assert.ok(registry.get(id), id);
   assert.equal(registry.telephony('messenger.wa_link'), null);
   assert.equal(registry.messenger('telephony.manual'), null);
   assert.throws(() => createRegistry([PLUGINS[0]!, PLUGINS[0]!]), /дубль/);
@@ -68,4 +68,15 @@ test('HTTP плагина: только https и только хосты из с
     await assert.rejects(http.fetch(bad, {}), (e: Error) => e instanceof PluginHttpError && e.message === 'host_not_allowed', bad);
   }
   assert.equal(seen.length, 1);
+});
+
+test('messenger.wazzup: флаг, лицензия, зарубежный, подключение; наружу только на api.wazzup24.com', async () => {
+  const p = registry.messenger('messenger.wazzup')!;
+  assert.deepEqual([p.flag, p.licenseFeature, p.crossBorder, p.needsConnection, p.capabilities.chat], ['WAZZUP', 'messenger.wazzup', true, true, 'iframe']);
+  assert.ok(p.webhook && p.listChannels && p.subscribe && p.syncUsers);
+  assert.deepEqual(PLUGIN_HOSTS['messenger.wazzup'], ['api.wazzup24.com']);
+  const http = pluginDeps().http('messenger.wazzup');
+  await assert.rejects(http.fetch('https://evil.example/v3/channels', {}), PluginHttpError);
+  await assert.rejects(http.fetch('http://api.wazzup24.com/v3/channels', {}), PluginHttpError);
+  await assert.rejects(pluginDeps().http('messenger.wa_link').fetch('https://api.wazzup24.com/v3/channels', {}), PluginHttpError);
 });

@@ -58,8 +58,8 @@ test('мессенджер: окно провайдера только при п
 });
 
 test('очередь: обработчик только у плагина с вебхуком и применителем; parse → применитель; пусто — done', async () => {
-  assert.equal(webhookHandlers().size, 0, 'у плагинов продукта пока нет вебхуков');
-  assert.equal(webhookHandlers(fakeRegistry).size, 0, 'нет применителя — нет обработчика (retry no_handler)');
+  assert.deepEqual([...webhookHandlers().keys()], ['messenger.wazzup'], 'у плагинов продукта вебхук только у Wazzup (O7a)');
+  assert.equal(webhookHandlers(fakeRegistry, {}).size, 0, 'нет применителя — нет обработчика (retry no_handler)');
   const seen: unknown[] = [];
   const apply: InboxApplier = async (_a, input) => (seen.push(input), { status: 'done' });
   const handlers = webhookHandlers(fakeRegistry, { messenger: apply });
@@ -73,7 +73,7 @@ test('очередь: обработчик только у плагина с в�
   const h = handlers.get('messenger.wazzup')!;
   const signal = new AbortController().signal;
   assert.deepEqual(await h(actor, { id: 'w-1', handlerKey: 'messenger.wazzup', kind: 'status', attempt: 1 }, signal), { status: 'done' });
-  assert.deepEqual(seen, [{ integrationId: 'hook-1', pluginId: 'messenger.wazzup', kind: 'status', events: [{ type: 'status', providerMessageId: 'm1', status: 'delivered', at: T0 }] }]);
+  assert.deepEqual(seen, [{ integrationId: 'hook-1', pluginId: 'messenger.wazzup', kind: 'status', events: [{ type: 'status', providerMessageId: 'm1', status: 'delivered', at: T0 }], attempt: 1 }]);
   assert.deepEqual(await h(actor, { id: 'w-2', handlerKey: 'messenger.wazzup', kind: 'message', attempt: 1 }, signal), { status: 'done' });
   assert.equal(seen.length, 1, 'нет событий — применитель не зовётся');
   assert.deepEqual(await h(actor, { id: 'w-3', handlerKey: 'messenger.wazzup', kind: 'status', attempt: 1 }, signal), { status: 'failed', error: 'payload_purged' });

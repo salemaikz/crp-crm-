@@ -5,11 +5,13 @@ import type { AnyPlugin, MessengerPlugin, PluginHttp, PluginId, PluginRegistry, 
 import { pluginUsability } from './enablement';
 import { createHttp } from './http';
 import { waLinkMessenger } from './messenger/wa-link';
+import { wazzupMessenger } from './messenger/wazzup';
+import { WAZZUP_API_HOST } from './messenger/wazzup/types';
 import { beelineTelephony } from './telephony/beeline';
 import { manualTelephony } from './telephony/manual';
 
 /** Порядок важен: первая пригодная телефония пространства побеждает, manual и wa_link — запасные. */
-export const PLUGINS: readonly AnyPlugin[] = [manualTelephony, beelineTelephony, waLinkMessenger];
+export const PLUGINS: readonly AnyPlugin[] = [manualTelephony, beelineTelephony, waLinkMessenger, wazzupMessenger];
 
 export function createRegistry(plugins: readonly AnyPlugin[]): PluginRegistry {
   const byId = new Map<PluginId, AnyPlugin>();
@@ -34,7 +36,9 @@ export function createRegistry(plugins: readonly AnyPlugin[]): PluginRegistry {
 export const registry: PluginRegistry = createRegistry(PLUGINS);
 
 /** Хосты провайдеров (INTEGRATIONS §8): плагин ходит наружу только на свои. manual и wa_link наружу не ходят. */
-export const PLUGIN_HOSTS: Readonly<Partial<Record<PluginId, readonly string[]>>> = {};
+export const PLUGIN_HOSTS: Readonly<Partial<Record<PluginId, readonly string[]>>> = {
+  'messenger.wazzup': [WAZZUP_API_HOST],
+};
 
 /** Что домену нужно от интеграций: реестр, правило пригодности и HTTP наружу на хосты плагина. */
 export interface PluginDeps {
