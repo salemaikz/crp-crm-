@@ -6,6 +6,7 @@ import { isFeatureEnabled } from '@/server/platform/flags';
 import type { JobDefinition, JobResult, ScheduleInput, ScheduleSpec } from '@/server/platform/jobs/types';
 import { bookingDeps } from './deps';
 import { runGreyAssign } from './greyJob';
+import { runAttendanceSweep } from './sweep';
 
 const Hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const ScheduleSlice = z
@@ -33,5 +34,23 @@ export const greyAssignJob: JobDefinition = {
     const report = await runGreyAssign(bookingDeps(), ctx.actor, { spaceId: ctx.space.id, now: ctx.now });
     ctx.log.info('grey-assign.run', { mode: report.mode, assigned: report.assigned, suggested: report.suggested, unassignable: report.unassignable });
     return { status: 'ok', stats: { assigned: report.assigned, suggested: report.suggested, unassignable: report.unassignable } };
+  },
+};
+
+/**
+ * `attendance-sweep@<пространство>`: рабочие дни 10:00 — неотмеченная явка (D-243) и «Договорились» без шага (D-244).
+ * Выключатель автонеявки — `booking.attendance.autoNoShowWorkdays: null` (остаются только напоминания).
+ */
+export const attendanceSweepJob: JobDefinition = {
+  name: 'attendance-sweep',
+  perSpace: true,
+  schedule: () => ({ kind: 'daily', at: '10:00', days: 'workdays' }),
+  writes: 'business',
+  timeoutMs: 5 * 60_000,
+  async handler(ctx): Promise<JobResult> {
+    if (!ctx.space) throw new Error('attendance-sweep: нужен контекст пространства');
+    const r = await runAttendanceSweep(bookingDeps(), ctx.actor, { spaceId: ctx.space.id, now: ctx.now });
+    ctx.log.info('attendance-sweep.run', { ...r });
+    return { status: 'ok', stats: { ...r } };
   },
 };

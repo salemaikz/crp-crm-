@@ -6,7 +6,8 @@ export { getDutyCandidates, getDutyEvent, listDutyEvents, listEventsBoard, markR
 export { registerWalkIn } from './walkIn';
 export { clearException, createConsultant, getConsultant, getSchedule, listConsultantCandidates, listConsultants, setException, setSchedule, updateConsultant } from './consultants';
 export { loadBookingOpsSettings } from './opsSettings';
-export { greyAssignJob, greyAssignSchedule } from './jobs';
+export { attendanceSweepJob, greyAssignJob, greyAssignSchedule } from './jobs';
+export { countAgreedWithoutStep, countUnmarkedAttendance, runAttendanceSweep, sweepAttendance, workdaysAfter } from './sweep';
 export { runGreyAssign } from './greyJob';
 export { assignConsultant, listAssignCandidates } from './assign';
 export { getConsultDay, getConsultStrip } from './consultDay';

@@ -214,7 +214,8 @@ export type BookingCardEvent =
   | calling.AttendedEvent
   | calling.BookingCancelledEvent
   | calling.AttendanceCorrectedEvent
-  | calling.AttendanceSweepEvent;
+  | calling.AttendanceSweepEvent
+  | calling.AgreedSweepEvent;
 
 /**
  * Применить событие записи к карточке в транзакции `tx`: снимок → `calling.applyOutcome` → запись карточки

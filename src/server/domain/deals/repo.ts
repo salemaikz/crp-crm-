@@ -118,3 +118,15 @@ export async function updateDealStageScoped(viewer: Viewer, sql: Sql, a: { id: s
     RETURNING d.id`;
   return rows.length > 0;
 }
+
+/** Агрегат без строк сделок (число для тревоги), поэтому без охвата, как `countTaken` в записи. Сколько открытых сделок лежат на этапе не меньше срока (`stage_changed_at` не позже границы). */
+export async function countStaleOnStage(
+  sql: Sql,
+  a: { spaceId: string; pipelineKey: string; stageKey: string; threshold: number },
+): Promise<number> {
+  const rows = await sql<{ n: number }>`
+    SELECT count(*)::int AS n FROM deals d
+     WHERE d.space_id = ${a.spaceId} AND d.pipeline_key = ${a.pipelineKey} AND d.status = 'open' AND d.stage_key = ${a.stageKey}
+       AND d.stage_changed_at <= ${a.threshold}`;
+  return rows[0]?.n ?? 0;
+}

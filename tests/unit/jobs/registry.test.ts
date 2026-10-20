@@ -57,7 +57,9 @@ test('distribute — по пространствам; части invariants и p
   assert.equal(byName.get('distribute')!.perSpace, true);
   assert.equal(byName.get('grey-assign')!.perSpace, true);
   assert.equal(byName.get('grey-assign')!.writes, 'business');
-  assert.deepEqual(invariantParts.map((p) => p.key), ['ownerless_cards']);
+  assert.equal(byName.get('attendance-sweep')!.perSpace, true);
+  assert.equal(byName.get('attendance-sweep')!.writes, 'business');
+  assert.deepEqual(invariantParts.map((p) => p.key), ['ownerless_cards', 'agreed_without_step']);
   assert.deepEqual(purgeParts.map((p) => p.key), ['sessions', 'invites', 'push_outbox', 'device_status', 'import_rows']);
 });
 
