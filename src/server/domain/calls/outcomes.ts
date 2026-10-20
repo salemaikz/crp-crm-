@@ -5,7 +5,7 @@ import { NotFoundError } from '@/server/access';
 import { createBooking } from '@/server/domain/booking/bookings';
 import { toCoreActor } from '@/server/domain/cards/actor';
 import { persistTransition } from '@/server/domain/cards/persist';
-import { findPriorCall, lockCardScoped, lockCardUnscoped, wasEverAssignedTo, wasOwnerAt } from '@/server/domain/cards/repo';
+import { findPriorCall, lockCardScoped, lockCardUnscoped, wasEverAssignedTo, wasOwnerAt, type PriorCallRow } from '@/server/domain/cards/repo';
 import type { CallExtras, LockedCardRow, OutcomeConfig } from '@/server/domain/cards/types';
 import { CallsDomainError } from './errors';
 import { assertFieldKeysAllowed, loadFieldsConfig, validateOutcomeFields, writeOutcomeFields, type FieldWrite } from './fields';
@@ -71,16 +71,39 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
   const offlineMs = ctx.settings.offlineWindowHours * HOUR_MS;
   const t = Math.min(Math.max(req.occurredAt, receivedAt - offlineMs), receivedAt + calling.OCCURRED_FUTURE_TOLERANCE_MS);
 
+  const duplicateOf = (prior: PriorCallRow, card: OutcomeCardView | null): OutcomeResponse => ({
+    status: 'duplicate',
+    applied: prior.applied,
+    factReason: prior.factReason,
+    warnings: [],
+    card,
+    bookingId: null,
+  });
+  /** Свой прошлый звонок с этим opId (тот же сотрудник и та же карточка): повтор ответа, не новая запись. */
+  const ownPrior = async (tx: Parameters<typeof findPriorCall>[0]): Promise<PriorCallRow | null> => {
+    const p = await findPriorCall(tx, req.opId);
+    return p && p.userId === viewer.userId && p.cardId === req.cardId ? p : null;
+  };
+
   const response = await inCallsTx(async (tx) => {
     // --- блокировка: карточка первой ---
     let row = await lockCardScoped(tx, viewer, req.cardId, 'card.outcome');
     let wasOwner = false;
     if (!row) {
+      // Свой уже записанный итог — duplicate до проверки владения (D-223): ответ потерялся, карточку передали,
+      // устройство повторило позже окна — время сдвинуто, «был владельцем» уже не доказать, а запись есть.
+      // Запись в calls неизменна, поэтому блокировка карточки для этого ответа не нужна; данных карточки нет.
+      const early = await ownPrior(tx);
+      if (early) return duplicateOf(early, null);
       // Карточку передали после звонка: итог пишется фактом (D-175), всё остальное — как несуществующая
       // Блокировка без охвата — только если карточка когда-либо была за сотрудником: чужие не блокируем
       if (!(await wasEverAssignedTo(tx, { cardId: req.cardId, userId: viewer.userId }))) throw new CallsDomainError('not_found');
       row = await lockCardUnscoped(tx, req.cardId);
-      if (!row || row.spaceId !== spaceId || !(await wasOwnerAt(tx, { cardId: req.cardId, userId: viewer.userId, at: t }))) throw new CallsDomainError('not_found');
+      if (!row || row.spaceId !== spaceId) throw new CallsDomainError('not_found');
+      // Параллельный первый запрос мог записать звонок, пока ждали блокировку
+      const locked = await ownPrior(tx);
+      if (locked) return duplicateOf(locked, null);
+      if (!(await wasOwnerAt(tx, { cardId: req.cardId, userId: viewer.userId, at: t }))) throw new CallsDomainError('not_found');
       wasOwner = true;
     }
 
@@ -88,21 +111,17 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
     const prior = await findPriorCall(tx, req.opId);
     if (prior) {
       if (prior.userId !== viewer.userId || prior.cardId !== req.cardId) throw new CallsDomainError('opid_reused');
-      const dup: OutcomeResponse = {
-        status: 'duplicate',
-        applied: prior.applied,
-        factReason: prior.factReason,
-        warnings: [],
-        card: wasOwner ? null : view(row.snapshot),
-        bookingId: null,
-      };
-      return dup;
+      return duplicateOf(prior, wasOwner ? null : view(row.snapshot));
     }
 
     assertPhonesOnCard(req, row);
     const writes: FieldWrite[] = fieldsCfg ? await validateOutcomeFields(tx, viewer, fieldsCfg, def, { id: row.snapshot.id, clientId: row.snapshot.clientId }, req.fields, req.outcomeKey) : [];
 
-    const coreActor = toCoreActor(viewer);
+    // Карточка вне охвата сотрудника (передана после звонка, D-175): ядро должно дать только факт owner_changed.
+    // Охват team/space/all ядро видит как space и применило бы итог к чужой карточке (сделки, состояние), поэтому
+    // в этой ветке исполнитель для ядра всегда own (D-224). relation остаётся relation — ядро откажет.
+    const baseActor = toCoreActor(viewer);
+    const coreActor: calling.Actor = wasOwner && baseActor.scope === 'space' ? { ...baseActor, scope: 'own' } : baseActor;
     const run = (bookingId: string | null) =>
       calling.applyOutcome({
         card: row.snapshot,
