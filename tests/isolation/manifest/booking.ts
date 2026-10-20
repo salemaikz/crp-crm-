@@ -100,6 +100,27 @@ const entries: ManifestEntry[] = [
     touches: ['event_series', 'events', 'audit_log'],
   },
 
+  // --- мастер записи и «Записи» (B3a) ---
+  {
+    kind: 'route',
+    path: '/api/bookings/wizard/[cardId]',
+    method: 'GET',
+    perm: 'booking.create',
+    target: 'object',
+    idParam: { name: 'cardId', entity: 'card' },
+    mutation: false,
+  },
+  {
+    kind: 'page',
+    path: '/(op)/bookings/new/[cardId]',
+    method: 'GET',
+    perm: 'booking.create',
+    target: 'object',
+    idParam: { name: 'cardId', entity: 'card' },
+    mutation: false,
+  },
+  { kind: 'page', path: '/(op)/bookings', method: 'GET', perm: 'booking.read', target: 'section', mutation: false },
+
   // --- записи ---
   { kind: 'route', path: '/api/bookings', method: 'GET', perm: 'booking.read', target: 'section', mutation: false },
   {

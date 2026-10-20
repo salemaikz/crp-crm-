@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseBookingSettings } from '../../../src/server/domain/booking/settings';
+import { pickLabel } from '../../../src/server/domain/booking/wizard';
 import { BookingDomainError } from '../../../src/server/domain/booking/errors';
 import { assembleChain } from '../config/helpers';
 
@@ -52,6 +53,46 @@ test('сломанный документ → invalid_settings, а не неоп
   );
   assert.throws(
     () => parseBookingSettings({ spaceId: SPACE, global: {}, space: a.spaces.sales }),
+    (e: unknown) => e instanceof BookingDomainError && e.code === 'invalid_settings',
+  );
+});
+
+test('каталог base: видов и направлений нет, сетка консультаций из настроек', () => {
+  const s = settingsOf(['base']);
+  assert.deepEqual(s.catalog.eventTypes, []);
+  assert.deepEqual(s.catalog.directions, []);
+  assert.deepEqual(s.catalog.consult, { slotMinutes: 45, hours: { workdays: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' }, stripDays: 7 });
+});
+
+test('каталог накладки клиента: виды по порядку настроек, подписи, направления', () => {
+  const s = settingsOf(['base', 'kz', 'consulting-sales', 'crp']);
+  assert.deepEqual(
+    s.catalog.eventTypes.map((t) => [t.key, t.behavior, t.durationMin]),
+    [['br', 'group', 180], ['bk', 'individual', 45]],
+  );
+  assert.ok((s.catalog.eventTypes[1]?.short.ru.length ?? 0) > 0);
+  assert.deepEqual(s.catalog.eventTypes[0]?.directions, []);
+  assert.equal(s.catalog.directions.length, 6);
+  assert.deepEqual(s.catalog.directions.map((d) => d.key), ['program', 'consulting', 'marketing', 'automation', 'training', 'other']);
+});
+
+test('каталог: казахская подпись берётся из kk, если она есть', () => {
+  const a = assembleChain(['base', 'kz', 'consulting-sales', 'crp']);
+  const space = a.spaces.sales as { booking: { directions: Array<{ key: string; label: Record<string, string> }> } };
+  const patched = { ...space, booking: { ...space.booking, directions: [{ key: 'marketing', label: { ru: 'Маркетинг', kk: 'Маркетинг-kk' } }] } };
+  const s = parseBookingSettings({ spaceId: SPACE, global: a.global, space: patched });
+  assert.deepEqual(s.catalog.directions[0]?.label, { ru: 'Маркетинг', kk: 'Маркетинг-kk' });
+  assert.equal(pickLabel(s.catalog.directions[0]!.label, 'kz'), 'Маркетинг-kk');
+  assert.equal(pickLabel(s.catalog.directions[0]!.label, 'ru'), 'Маркетинг');
+});
+
+test('сетка консультаций без consult → invalid_settings', () => {
+  const a = assembleChain(['base']);
+  const space = a.spaces.sales as { booking: Record<string, unknown> };
+  const { consult: _c, ...rest } = space.booking;
+  void _c;
+  assert.throws(
+    () => parseBookingSettings({ spaceId: SPACE, global: a.global, space: { ...space, booking: rest } }),
     (e: unknown) => e instanceof BookingDomainError && e.code === 'invalid_settings',
   );
 });

@@ -163,9 +163,9 @@ test('импорт (система): занесение в прошедшее м
   assert.equal(unknown.booking.bookedByUserId, null, 'автор неизвестен — NULL, а не выдуманный');
 });
 
-test('индивидуальная запись в B2 не реализована: ошибка сборки, а не ответ пользователю', async () => {
+test('запись к консультанту (resourceId не null) — B5: ошибка сборки, а не ответ пользователю', async () => {
   await assert.rejects(
-    createBooking(deps, opA, { kind: 'individual', requestId: uuid(), clientId: 'cl-a-1', eventTypeKey: 'consult', date: '2026-10-29', time: '11:00', directionKey: '', resourceId: null, contactId: null }),
-    /B3a/,
+    createBooking(deps, opA, { kind: 'individual', requestId: uuid(), clientId: 'cl-a-1', eventTypeKey: 'bk', date: '2026-10-29', time: '11:15', directionKey: 'marketing', resourceId: 'r1', contactId: null }),
+    /B5/,
   );
 });

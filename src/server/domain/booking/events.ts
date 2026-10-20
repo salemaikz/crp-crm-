@@ -77,6 +77,18 @@ export async function nearestOptions(
     .map((e) => toEventOption(byId.get(e.id) as EventRowWithTaken));
 }
 
+/** Предложение мастера внутри открытой транзакции чтения: ближайшие с местами и текущая запись вида. */
+export async function offerInTx(
+  viewer: Viewer,
+  tx: Sql,
+  a: { spaceId: string; clientId: string; settings: BookingSettings; eventTypeKey: string | null; now: number },
+): Promise<OfferResult> {
+  const options = await nearestOptions(viewer, tx, { spaceId: a.spaceId, settings: a.settings, eventTypeKey: a.eventTypeKey, now: a.now });
+  const active = await listActiveFutureBookings(viewer, tx, { spaceId: a.spaceId, clientId: a.clientId, now: a.now, perm: 'booking.create' });
+  const current = active.find((b) => a.eventTypeKey === null || b.eventTypeKey === a.eventTypeKey) ?? null;
+  return { options, current: current ? toBookingView(current) : null };
+}
+
 export const offerEvents: OfferEvents = async (deps, viewer, input) => {
   requireRole(viewer, 'booking.create', 'section');
   const spaceId = requireSpace(viewer);
@@ -88,10 +100,7 @@ export const offerEvents: OfferEvents = async (deps, viewer, input) => {
     // Карточка клиента должна быть видна по booking.create, иначе клиент «не существует».
     const card = await findCardByClient(viewer, tx, { spaceId, clientId: input.clientId, perm: 'booking.create', lock: false });
     if (!card) throw new NotFoundError();
-    const options = await nearestOptions(viewer, tx, { spaceId, settings, eventTypeKey: type, now });
-    const active = await listActiveFutureBookings(viewer, tx, { spaceId, clientId: input.clientId, now, perm: 'booking.create' });
-    const current = active.find((b) => type === null || b.eventTypeKey === type) ?? null;
-    return { options, current: current ? toBookingView(current) : null };
+    return offerInTx(viewer, tx, { spaceId, clientId: input.clientId, settings, eventTypeKey: type, now });
   });
 };
 

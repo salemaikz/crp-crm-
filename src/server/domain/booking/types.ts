@@ -64,6 +64,8 @@ export interface BookingSettings {
   deals: DealStages | null;
   /** Окно отмены «ошибка оператора» автором (PROCESS 12.7), минуты. Константа продукта: 10. */
   operatorErrorWindowMin: number;
+  /** B3a: виды, направления и консультации без графиков (мастер записи, «серая» заявка на консультацию). */
+  catalog: BookingCatalog;
 }
 
 export type LoadBookingSettings = (spaceId: string, now: number) => Promise<BookingSettings>;
@@ -402,3 +404,120 @@ export type UpdateSeries = (
 export type SyncSeries = (deps: BookingDeps, actor: BookingActor, seriesId: string, opts?: TxOptions) => Promise<SyncReport>;
 /** Job `events-ensure` (регистрирует P7): все активные серии всех пространств. */
 export type EnsureAllSeries = (deps: BookingDeps, actor: SystemActor) => Promise<SyncReport[]>;
+
+// ---------------------------------------------------------------------------
+// B3a: мастер записи и минимальная заявка на консультацию («серая», без консультанта).
+// Дизайн — docs/booking-wizard-design.md, решения D-201…D-205. Только новые типы и сигнатуры;
+// единственная разрешённая правка существующего — поле `catalog` в BookingSettings (§3 дизайна, D-203).
+// ---------------------------------------------------------------------------
+
+/** Подпись из настроек (`I18n` ядра настроек): `ru` обязательна, `kk` — казахский слой. */
+export interface LocalizedLabel {
+  ru: string;
+  kk?: string;
+}
+
+/** Вид мероприятия из `booking.eventTypes[]` в порядке настроек — вкладки мастера. */
+export interface EventTypeInfo {
+  key: string;
+  behavior: core.EventBehavior;
+  label: LocalizedLabel;
+  short: LocalizedLabel;
+  durationMin: number;
+  /** Ключи `booking.directions[]`, разрешённые виду; пусто — все. */
+  directions: readonly string[];
+}
+
+/** Срез `booking.*` для консультаций без графиков (CONFIG §6.9). */
+export interface ConsultSettings {
+  /** `booking.consult.slotMinutes`: шаг сетки времени заявки. */
+  slotMinutes: number;
+  /** `booking.consult.hours`: рабочие дни и часы консультантов без графика. */
+  hours: core.ConsultHours;
+  /** `booking.consultStripDays`: сколько рабочих дней предлагает мастер. */
+  stripDays: number;
+}
+
+/** Каталог записи пространства: виды, направления, консультации. Становится полем `BookingSettings.catalog`. */
+export interface BookingCatalog {
+  eventTypes: readonly EventTypeInfo[];
+  directions: readonly { key: string; label: LocalizedLabel }[];
+  consult: ConsultSettings;
+}
+
+/**
+ * Задачи клиента, которые закрывает новая запись или перенос (PROCESS 6.2 «при новой записи», D-204).
+ * Закрывает домен записи в своей транзакции через `tasks/auto.closeAutoTasks`; импорт «Записи» — нет.
+ */
+export const BOOKING_CLOSES_TASK_SOURCES = ['agreement', 'next_step', 'rebook', 'no_show', 'clarify_import'] as const satisfies readonly calling.TaskSource[];
+
+/** Вкладка мастера: подписи уже на языке зрителя (запасной — ru). */
+export interface WizardEventType {
+  key: string;
+  behavior: core.EventBehavior;
+  label: string;
+  short: string;
+  durationMin: number;
+}
+
+export interface WizardDirection {
+  key: string;
+  label: string;
+}
+
+/** День полосы заявки на консультацию: только рабочий день, в котором остались слоты. */
+export interface ConsultDay {
+  /** YYYY-MM-DD в поясе `org.timezone`. */
+  date: string;
+  /** Старты 'HH:MM' по сетке `consult.slotMinutes` внутри `consult.hours`, только будущие. Сервер примет любой из них. */
+  times: string[];
+}
+
+/** Предложение мастера для индивидуального вида (B3a: без консультантов и без проверки мест). */
+export interface ConsultOffer {
+  eventTypeKey: string;
+  /** Направления, разрешённые видом, в порядке настроек. */
+  directions: WizardDirection[];
+  /** Ближайшие `consult.stripDays` рабочих дней (сегодня — если остались слоты). */
+  days: ConsultDay[];
+  /** Активная будущая запись клиента этого вида: новая заявка станет переносом (D-042). */
+  current: BookingView | null;
+}
+
+/** Всё, что нужно мастеру на одном экране: `GET /api/bookings/wizard/[cardId]` и страница `/bookings/new/[cardId]`. */
+export interface BookingWizardView {
+  cardId: string;
+  clientId: string;
+  /** Название клиента для вопроса подтверждения; карточка видна зрителю по `booking.create`. */
+  clientName: string;
+  /**
+   * `direct` — карточка в `agreed` или `client`: мастер пишет через `POST /api/bookings`;
+   * `outcome_required` — записать можно только вместе с итогом «Договорились» из шторки (D-202).
+   */
+  mode: 'direct' | 'outcome_required';
+  /** Вкладки в порядке `booking.eventTypes[]`. */
+  types: WizardEventType[];
+  /** Групповые виды: ближайшие мероприятия с местами (как `GET /api/events/offer`). */
+  groupOffers: (OfferResult & { eventTypeKey: string })[];
+  consultOffers: ConsultOffer[];
+  /** `org.timezone` — интерфейс форматирует даты в нём, а не в поясе телефона. */
+  timeZone: string;
+  /** Сегодня в `timeZone` (YYYY-MM-DD): «сегодня» и «завтра» в подписях. */
+  today: string;
+}
+
+/** Охват: карточка `scopeSql(v,'card','booking.create')`; чужая и несуществующая — `NotFoundError`. */
+export type GetBookingWizard = (deps: BookingDeps, viewer: Viewer, input: { cardId: string; locale: string }) => Promise<BookingWizardView>;
+
+/** Полоса дней и сетка времени заявки (чистая функция: настройки + `now`). */
+export type ConsultDays = (settings: BookingSettings & { catalog: BookingCatalog }, now: number) => ConsultDay[];
+
+/** Строка минимальных «Записей» (B3a; действия и фильтры — B3b). */
+export interface BookingListItem extends BookingView {
+  /** Название клиента: строка видна по охвату записи (`scopeSql(v,'booking','booking.read')`). */
+  clientName: string;
+  /** Консультация без консультанта (`kind = 'individual' AND resource_id IS NULL`). */
+  grey: boolean;
+}
+
+export type ListBookingItems = (deps: BookingDeps, viewer: Viewer, filter: BookingListFilter) => Promise<BookingListItem[]>;

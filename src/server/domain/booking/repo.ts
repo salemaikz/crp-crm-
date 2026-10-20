@@ -552,10 +552,14 @@ export async function lockClientBookings(actor: BookingActor, sql: Sql, a: { spa
 }
 
 /** Активные будущие записи клиента (мастер: «перенос с …»). */
-export async function listActiveFutureBookings(actor: BookingActor, sql: Sql, a: { spaceId: string; clientId: string; now: number; perm: Permission }): Promise<BookingRow[]> {
+export async function listActiveFutureBookings(
+  actor: BookingActor,
+  sql: Sql,
+  a: { spaceId: string; clientId: string; now: number; perm: Permission; kind?: 'group' | 'individual' },
+): Promise<BookingRow[]> {
   return scoped(sql)<BookingRow>`
     SELECT b.* FROM bookings b
-     WHERE b.space_id = ${a.spaceId} AND b.client_id = ${a.clientId} AND b.kind = 'group'
+     WHERE b.space_id = ${a.spaceId} AND b.client_id = ${a.clientId} AND b.kind = ${a.kind ?? 'group'}
        AND b.status = ANY(${ACTIVE}) AND b.starts_at > ${a.now} AND ${scopeSql(actor, 'booking', a.perm)}
      ORDER BY b.starts_at, b.id`;
 }
@@ -587,6 +591,41 @@ export async function insertGroupBooking(sql: Sql, b: NewBooking): Promise<Booki
     VALUES (${b.id}, ${b.spaceId}, 'group', ${e.eventTypeKey}, ${e.id}, ${b.clientId}, ${b.cardId}, ${b.dealId}, ${b.contactId},
             ${e.eventDate}, ${e.startTime}, ${e.startsAt}, ${e.durationMin}, 'registered', ${b.via}, ${b.bookedByUserId},
             ${b.responsibleUserId}, ${b.movedFromId}, ${b.requestId}, ${b.importKey}, 0, ${b.at}, ${b.at})
+    ON CONFLICT (request_id) WHERE request_id IS NOT NULL DO NOTHING
+    RETURNING *`;
+  return rows[0] ?? null;
+}
+
+export interface NewIndividualBooking {
+  id: string;
+  spaceId: string;
+  eventTypeKey: string;
+  clientId: string;
+  cardId: string;
+  dealId: string | null;
+  contactId: string | null;
+  date: string;
+  time: string;
+  startsAt: number;
+  durationMin: number;
+  directionKey: string;
+  via: BookingVia;
+  bookedByUserId: string | null;
+  responsibleUserId: string | null;
+  movedFromId: string | null;
+  requestId: string;
+  at: number;
+}
+
+/** Вставка «серой» заявки на консультацию (без консультанта, без мероприятия); повтор ключа — null. */
+export async function insertIndividualBooking(sql: Sql, b: NewIndividualBooking): Promise<BookingRow | null> {
+  const rows = await sql<BookingRow>`
+    INSERT INTO bookings (id, space_id, kind, event_type_key, event_id, resource_id, client_id, card_id, deal_id, contact_id, booking_date,
+                          start_time, starts_at, duration_min, direction_key, is_reserve, status, via, booked_by_user_id,
+                          responsible_user_id, moved_from_id, request_id, import_key, version, created_at, updated_at)
+    VALUES (${b.id}, ${b.spaceId}, 'individual', ${b.eventTypeKey}, NULL, NULL, ${b.clientId}, ${b.cardId}, ${b.dealId}, ${b.contactId},
+            ${b.date}, ${b.time}, ${b.startsAt}, ${b.durationMin}, ${b.directionKey}, FALSE, 'registered', ${b.via}, ${b.bookedByUserId},
+            ${b.responsibleUserId}, ${b.movedFromId}, ${b.requestId}, NULL, 0, ${b.at}, ${b.at})
     ON CONFLICT (request_id) WHERE request_id IS NOT NULL DO NOTHING
     RETURNING *`;
   return rows[0] ?? null;
@@ -748,4 +787,41 @@ export async function auditEvent(
     spaceId: a.spaceId,
     meta: a.meta,
   });
+}
+
+// ---------------------------------------------------------------------------
+// B3a: мастер записи и «Записи»
+// ---------------------------------------------------------------------------
+
+export interface WizardCardRow {
+  cardId: string;
+  clientId: string;
+  state: string;
+  clientName: string;
+}
+
+/** Карточка мастера и название клиента; карточка должна быть видна по `booking.create`, иначе — null (404). */
+export async function findWizardCard(actor: BookingActor, sql: Sql, a: { spaceId: string; cardId: string }): Promise<WizardCardRow | null> {
+  const rows = await scoped(sql)<WizardCardRow>`
+    SELECT c.id AS card_id, c.client_id, c.state, cl.name AS client_name
+      FROM cards c JOIN clients cl ON cl.id = c.client_id
+     WHERE c.id = ${a.cardId} AND c.space_id = ${a.spaceId} AND ${scopeSql(actor, 'card', 'booking.create')}`;
+  return rows[0] ?? null;
+}
+
+export type BookingItemRow = BookingRow & { clientName: string };
+
+/** Строки «Записей»: охват записи, название клиента из JOIN; по времени начала. */
+export async function listBookingItemRows(
+  actor: BookingActor,
+  sql: Sql,
+  a: { spaceId: string; from: string; to: string; statuses: readonly string[] | null; limit: number },
+): Promise<BookingItemRow[]> {
+  return scoped(sql)<BookingItemRow>`
+    SELECT b.*, cl.name AS client_name FROM bookings b JOIN clients cl ON cl.id = b.client_id
+     WHERE b.space_id = ${a.spaceId} AND b.booking_date BETWEEN ${a.from} AND ${a.to}
+       AND (${a.statuses === null}::boolean OR b.status = ANY(${a.statuses === null ? [] : [...a.statuses]}::text[]))
+       AND ${scopeSql(actor, 'booking', 'booking.read')}
+     ORDER BY b.starts_at, b.id
+     LIMIT ${a.limit}`;
 }
