@@ -40,6 +40,8 @@ export default defineConfig({
       CRM_PROXY_SECRET: process.env.CRM_PROXY_SECRET || 'e2e-proxy-secret-synthetic-not-for-production',
       // Ключи HMAC номеров и ИИН: в production без них итог звонка отвечает 500 (fail closed). Только синтетика.
       CRM_PHONE_HMAC_KEY: process.env.CRM_PHONE_HMAC_KEY || 'e2e-phone-hmac-key-synthetic-not-for-production',
+      // Канбан (B8) в production выключен по умолчанию; на стенде и в e2e включён
+      FEATURE_KANBAN: process.env.FEATURE_KANBAN || '1',
       CRM_IIN_HMAC_KEY: process.env.CRM_IIN_HMAC_KEY || 'e2e-iin-hmac-key-synthetic-not-for-production',
     },
   },
