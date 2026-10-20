@@ -16,7 +16,7 @@ test('у каждого вида есть известная группа и п�
   }
   assert.deepEqual([...DESCRIBED_KINDS].sort(), Object.keys(EVENT_KINDS).sort());
   for (const g of FEED_GROUPS) assert.ok(messages.feed.group[g], `нет подписи группы ${g}`);
-  for (const key of ['fieldChanged', 'contactFieldChanged', 'phone_added', 'phone_not_working', 'phone_primary', 'contact_added', 'contact_archived', 'call', 'call_voided', 'note_created', 'unknown', 'card_created', 'card_state', 'card_assigned', 'card_released', 'card_transferred', 'card_acting', 'card_merged', 'dnc_set', 'dnc_cleared', 'import_row', 'client_created']) {
+  for (const key of ['fieldChanged', 'contactFieldChanged', 'phone_added', 'phone_not_working', 'phone_primary', 'contact_added', 'contact_archived', 'call', 'call_voided', 'note_created', 'unknown', 'card_created', 'card_state', 'card_assigned', 'card_released', 'card_transferred', 'card_acting', 'card_merged', 'dnc_set', 'dnc_cleared', 'import_row', 'client_created', 'task_created', 'task_done', 'task_cancelled', 'task_comment']) {
     assert.ok(messages.feed.kinds[key], `нет сообщения feed.kinds.${key}`);
   }
 });

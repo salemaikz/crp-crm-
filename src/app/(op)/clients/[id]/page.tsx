@@ -1,9 +1,10 @@
 import { notFound, redirect } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
-import { page } from '@/server/access';
+import { can, page } from '@/server/access';
 import { loadClientPage } from '@/server/domain/clients';
 import { TextLink } from '@/ui/kit';
+import { ClientTasksPanel } from '../../tasks/_ui/ClientTasksPanel';
 import { CallButton } from '../_ui/CallButton';
 import { CardActions } from '../_ui/CardActions';
 import { CardFieldsPanel } from '../_ui/CardFieldsPanel';
@@ -52,7 +53,8 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
         <p className="mb-3">
           <TextLink href="/clients">{t('card.back')}</TextLink>
         </p>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start">
+        {/* Одна колонка на телефоне — minmax(0,1fr): ряд чипов ленты прокручивается сам, а не растягивает страницу */}
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start">
           <div className="flex min-w-0 flex-col gap-4">
             <ClientHeader card={card} legalForms={legalForms} timeZone={tz} />
             <CallButton phone={card.primaryPhone} />
@@ -61,6 +63,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
             {card.card && <Counters head={card.card} timeZone={tz} />}
             <FieldsPanel client={card} legalForms={legalForms} />
             {card.card && <CardFieldsPanel cardId={card.card.id} version={card.card.version} fields={cardFieldList} canEdit={card.can.editCard} />}
+            {can(viewer, 'task.read') && <ClientTasksPanel clientId={card.id} clientName={card.name} canCreate={card.can.task} meId={viewer.userId} timeZone={tz} />}
             <NotesPanel key={pinnedNotes.map((n) => n.id).join(',')} clientId={card.id} pinned={pinnedNotes} canWrite={card.can.note} timeZone={tz} />
             <DealsPanel deals={deals} catalog={catalog} timeZone={tz} />
             <PhonesPanel clientId={card.id} phones={card.phones} contacts={card.contacts} canEdit={card.can.edit} />

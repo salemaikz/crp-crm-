@@ -208,6 +208,10 @@
       "dnc_cleared": "Снято «Не звонить»",
       "import_row": "Строка загрузки таблицы",
       "client_created": "Клиент создан",
+      "task_created": "Поставлена задача",
+      "task_done": "Задача выполнена",
+      "task_cancelled": "Задача отменена",
+      "task_comment": "Комментарий к задаче",
       "unknown": "Событие"
     },
     "filter": {

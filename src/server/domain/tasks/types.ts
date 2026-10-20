@@ -72,3 +72,94 @@ export interface MyOpenTask {
 
 /** Мои открытые задачи (scopeSql('task', 'task.read')), по сроку: просроченные сверху, без срока — в конце. */
 export type ListMyOpenTasks = (viewer: Viewer, input: { limit: number; sources?: readonly TaskSource[] }) => Promise<MyOpenTask[]>;
+
+// ---------------------------------------------------------------------------
+// B7: экран задач, ручные задачи, комментарии (docs/tasks-team-design.md §4, D-252, D-253)
+// ---------------------------------------------------------------------------
+
+/** Вкладка списка: мои; команда и без исполнителя — у кого `task.read` шире `own`; выполненные за 7 дней. */
+export type TaskView = 'mine' | 'team' | 'unassigned' | 'done';
+export const TASK_VIEWS: readonly TaskView[] = ['mine', 'team', 'unassigned', 'done'];
+
+/** Группа по сроку: просрочено (срок прошёл, задача открыта), сегодня, завтра, позже, без срока (PROCESS 6.3). */
+export type TaskBucket = 'overdue' | 'today' | 'tomorrow' | 'later' | 'none';
+export const TASK_BUCKETS: readonly TaskBucket[] = ['overdue', 'today', 'tomorrow', 'later', 'none'];
+
+export type TaskStatus = 'open' | 'done' | 'cancelled';
+
+/**
+ * Строка списка. `title` у автозадач пустой — подпись строит интерфейс по `source`. `clientName` и `cardId` —
+ * только если клиент и карточка видны зрителю (иначе null). `closable` — «Готово» доступно по источнику (§4.2).
+ */
+export interface TaskRow {
+  id: string;
+  clientId: string;
+  clientName: string | null;
+  cardId: string | null;
+  dealId: string | null;
+  kind: TaskKind;
+  source: TaskSource;
+  title: string;
+  dueAt: number | null;
+  bucket: TaskBucket;
+  assigneeUserId: string | null;
+  assigneeName: string | null;
+  createdBy: string | null;
+  comments: number;
+  closable: boolean;
+  /** Переход в строке по источнику (§4.2): у закрываемых — рядом с «Готово», у остальных — вместо него. */
+  action: 'done' | 'openCard' | 'book' | 'openEvent' | 'openHandoff' | 'bookings';
+  status: TaskStatus;
+  doneAt: number | null;
+}
+
+export interface TaskList {
+  items: TaskRow[];
+  counts: Record<TaskBucket, number>;
+  /** Строк больше предела (300): показаны первые. */
+  truncated: boolean;
+}
+
+export interface TaskCommentDto {
+  id: string;
+  body: string;
+  authorName: string | null;
+  createdAt: number;
+}
+
+/** Задача с комментариями и тем, что можно сделать зрителю (считает сервер). */
+export interface TaskDetail {
+  task: TaskRow;
+  comments: TaskCommentDto[];
+  can: { done: boolean; cancel: boolean; edit: boolean; assign: boolean; take: boolean; comment: boolean };
+}
+
+export interface TaskAssignee {
+  userId: string;
+  name: string;
+  me: boolean;
+}
+
+export type TaskWarning = 'due_outside_work_hours';
+
+export type ListTasksQuery = { view: TaskView; userId?: string | null; clientId?: string | null };
+export type ListTasks = (viewer: Viewer, q: ListTasksQuery) => Promise<TaskList>;
+
+export type CreateTaskInput = {
+  opId: string;
+  clientId: string;
+  dealId?: string | null;
+  kind: Exclude<TaskKind, 'handoff'>;
+  title: string;
+  dueAt: number | null;
+  assigneeUserId: string;
+};
+export type CreateTask = (viewer: Viewer, b: CreateTaskInput) => Promise<{ task: TaskRow; warnings: TaskWarning[] }>;
+
+/** Правка: срок и заголовок — только у ручных; исполнитель — с `task.assign_others` или «взять себе» без исполнителя. */
+export type UpdateTaskInput = { title?: string; dueAt?: number | null; assigneeUserId?: string };
+export type UpdateTask = (viewer: Viewer, id: string, b: UpdateTaskInput) => Promise<{ task: TaskRow; warnings: TaskWarning[] }>;
+
+export type CompleteTask = (viewer: Viewer, id: string, b: { comment?: string }) => Promise<{ task: TaskRow; askNext: boolean }>;
+export type CancelTask = (viewer: Viewer, id: string) => Promise<{ task: TaskRow }>;
+export type AddComment = (viewer: Viewer, taskId: string, b: { opId: string; body: string }) => Promise<TaskCommentDto>;

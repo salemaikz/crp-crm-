@@ -70,7 +70,7 @@ export type CardHeadDto = {
 
 /**
  * Действия карточки (C8 §3.6): сервер считает по правам и состоянию, интерфейс только показывает.
- * `task`, `closeFromMenu`, `reopen`, `unblock`, `transfer` приходят `false`, пока не влиты B7, C9, B9a.
+ * `closeFromMenu`, `reopen`, `unblock`, `transfer` приходят `false`, пока не влиты C9, B9a; `task` — право `task.write` (B7).
  */
 export type ClientCan = {
   edit: boolean;

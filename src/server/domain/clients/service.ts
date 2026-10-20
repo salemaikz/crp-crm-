@@ -74,8 +74,9 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
       editCard: head?.canEditCard ?? false,
       note: !viewer.readOnly && can(viewer, 'note.write'),
       book: head ? head.canBook && (head.state === 'agreed' || head.state === 'client') : false,
-      // Подключаются вместе с B7, C9, B9a: до их влития сервер отдаёт false (docs/tasks-team-design.md §3.6)
-      task: false,
+      // Задача (B7): нужно право записи задач и карточка в пространстве (задача привязана к клиенту карточки)
+      task: head !== null && !viewer.readOnly && can(viewer, 'task.write'),
+      // Подключаются вместе с C9, B9a: до их влития сервер отдаёт false (docs/tasks-team-design.md §3.6)
       closeFromMenu: false,
       reopen: false,
       unblock: false,

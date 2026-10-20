@@ -29,6 +29,11 @@ export const EVENT_KINDS = {
   'deal.created': { group: 'deals', dataKeys: ['dealId', 'pipelineKey', 'stageKey'] },
   'deal.stage': { group: 'deals', dataKeys: ['dealId', 'from', 'to', 'cause', 'bookingId'] },
   'deal.lost': { group: 'deals', dataKeys: ['dealId', 'reasonCode'] },
+  // Задачи (B7): только id, коды и сроки; заголовок и текст комментария в ленту не пишутся
+  'task.created': { group: 'tasks', dataKeys: ['taskId', 'kind', 'assigneeUserId', 'dueAt'] },
+  'task.done': { group: 'tasks', dataKeys: ['taskId', 'source'] },
+  'task.cancelled': { group: 'tasks', dataKeys: ['taskId', 'source'] },
+  'task.comment': { group: 'tasks', dataKeys: ['taskId', 'commentId'] },
   // Карточка обзвона (C5): только коды, id сотрудников и счётчики; номера и тексты в данные не пишутся
   'card.created': { group: 'system', dataKeys: ['sourceKey'] },
   'card.state': { group: 'system', dataKeys: ['fromState', 'toState', 'cause'] },
