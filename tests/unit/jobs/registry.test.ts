@@ -56,7 +56,7 @@ test('distribute — по пространствам; части invariants и p
   const byName = new Map(jobDefinitions().map((d) => [d.name, d]));
   assert.equal(byName.get('distribute')!.perSpace, true);
   assert.deepEqual(invariantParts.map((p) => p.key), ['ownerless_cards']);
-  assert.deepEqual(purgeParts.map((p) => p.key), ['sessions', 'invites', 'push_outbox', 'device_status', 'import_rows']);
+  assert.deepEqual(purgeParts.map((p) => p.key), ['sessions', 'invites', 'push_outbox', 'device_status', 'import_rows', 'webhook_payload']);
 });
 
 test('имя экземпляра `distribute@sales` принимает systemActor (аудит пишет имя как есть)', () => {
