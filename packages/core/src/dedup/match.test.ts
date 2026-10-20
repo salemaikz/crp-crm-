@@ -165,3 +165,19 @@ test('ИИН (iin:HMAC) против БИН — разные лица; загл�
   const same = classifyCompany(who({ orgId: 'iin:h1', nameNorm: 'бета' }), [co('c2', { orgId: 'iin:h1' })], settings());
   assert.deepEqual(same, { kind: 'duplicate', matchId: 'c2', basis: 'org_id' });
 });
+
+test('неуверенный iin:HMAC против открытого БИН — не конфликт; псевдоним БИН находит скрытую запись (D-141)', () => {
+  const known = [co('c1', { orgId: '111111111111', legalForm: 'тоо', nameNorm: 'альфа', phones: ['77091110001'] })];
+  const unsure = who({ orgId: 'iin:h9', orgIdUncertain: true, nameNorm: 'альфа', phones: ['77091110001'] });
+  assert.deepEqual(classifyCompany(unsure, known, settings()), { kind: 'duplicate', matchId: 'c1', basis: 'phone_and_name' });
+  // Без признака — уверенный ИИН: разные лица, только пара.
+  assert.equal(classifyCompany({ ...unsure, orgIdUncertain: false }, known, settings()).kind, 'disputed');
+  // Неуверенный против другого скрытого ключа — конфликт.
+  const hiddenKnown = [co('c2', { orgId: 'iin:h8', nameNorm: 'альфа', phones: ['77091110001'] })];
+  assert.equal(classifyCompany(unsure, hiddenKnown, settings()).kind, 'disputed');
+  // Открытый БИН с псевдонимом iin:<HMAC> находит запись, скрытую тем же ключом, по БИН — в обе стороны.
+  const idx = createCompanyIndex([co('c3', { orgId: 'iin:h7', orgIdUncertain: true })], settings());
+  assert.deepEqual(idx.match(who({ orgId: '222222222222', orgIdAliases: ['iin:h7'] })), { kind: 'duplicate', matchId: 'c3', basis: 'org_id' });
+  const idx2 = createCompanyIndex([co('c4', { orgId: '222222222222', orgIdAliases: ['iin:h7'] })], settings());
+  assert.deepEqual(idx2.match(who({ orgId: 'iin:h7', orgIdUncertain: true })), { kind: 'duplicate', matchId: 'c4', basis: 'org_id' });
+});

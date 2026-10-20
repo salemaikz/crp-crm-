@@ -5,8 +5,9 @@
 // не даёт пару (PROCESS 2.3 п. 4: название И руководитель); пара-причина `name_and_head`.
 // При сомнении не склеиваем: слияние решает РОП. Склейка по номеру или заглушке запрещена, если у
 // сторон разные непустые БИН/ИИН или разные известные формы собственности — тогда только пара (D-142).
+// Исключение — ИИН, скрытый «по неуверенности» (форма не определена), против открытого БИН (D-141).
 
-import type { CompanyKeys, DedupResult, DedupSettings, DupPair, KnownCompany } from './types';
+import { HIDDEN_ORG_ID_PREFIX, type CompanyKeys, type DedupResult, type DedupSettings, type DupPair, type KnownCompany } from './types';
 
 export interface CompanyIndex {
   /** Классифицировать запись относительно всего, что в индексе. */
@@ -16,9 +17,24 @@ export interface CompanyIndex {
   readonly size: number;
 }
 
+/** Все ключи номера стороны: сам `orgId` и его псевдонимы (`iin:<HMAC>` от открытого БИН). */
+function orgKeys(c: CompanyKeys): string[] {
+  return c.orgId ? [c.orgId, ...(c.orgIdAliases ?? [])] : [];
+}
+
+/** Тот же номер: `orgId` одной стороны среди ключей другой (D-141). */
+function sameOrgId(a: CompanyKeys, b: CompanyKeys): boolean {
+  return !!a.orgId && !!b.orgId && (orgKeys(b).includes(a.orgId) || orgKeys(a).includes(b.orgId));
+}
+
+/** Неуверенно скрытый ключ против открытого БИН: номера разные, но это слабое свидетельство (D-141). */
+function uncertainVsOpen(u: CompanyKeys, o: CompanyKeys): boolean {
+  return !!u.orgIdUncertain && !!o.orgId && !o.orgId.startsWith(HIDDEN_ORG_ID_PREFIX);
+}
+
 /** Стороны могут быть одним лицом: нет двух разных БИН/ИИН и двух разных известных форм. */
 function compatible(a: CompanyKeys, b: CompanyKeys): boolean {
-  if (a.orgId && b.orgId && a.orgId !== b.orgId) return false;
+  if (a.orgId && b.orgId && !sameOrgId(a, b) && !uncertainVsOpen(a, b) && !uncertainVsOpen(b, a)) return false;
   if (a.legalForm && b.legalForm && a.legalForm !== b.legalForm) return false;
   return true;
 }
@@ -41,7 +57,7 @@ export function createCompanyIndex(known: readonly KnownCompany[], settings: Ded
 
   const add = (c: KnownCompany) => {
     size++;
-    if (c.orgId) push(byOrgId, c.orgId, c);
+    for (const k of new Set(orgKeys(c))) push(byOrgId, k, c);
     for (const p of c.phones) push(byPhone, p, c);
     for (const p of c.stubPhones ?? []) push(byStub, p, c);
     if (c.nameNorm) push(byName, c.nameNorm, c);
@@ -57,8 +73,9 @@ export function createCompanyIndex(known: readonly KnownCompany[], settings: Ded
 
   const match = (who: CompanyKeys): DedupResult => {
     // 1. БИН.
+    //    Ключи с обеих сторон: открытый БИН находит ту же компанию, скрытую как `iin:<HMAC>`, и наоборот.
     if (settings.byOrgId && who.orgId) {
-      const same = [...(byOrgId.get(who.orgId) ?? [])].sort(byAge)[0];
+      const same = collect(byOrgId, orgKeys(who))[0];
       if (same) return { kind: 'duplicate', matchId: same.id, basis: 'org_id' };
     }
 
