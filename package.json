@@ -1,0 +1,45 @@
+{
+  "name": "crm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --import tsx --test \"tests/unit/**/*.test.ts\" \"packages/core/**/*.test.ts\"",
+    "test:unit:tz": "TZ=UTC npm run test:unit && TZ=Asia/Almaty npm run test:unit",
+    "test:integration": "node --import tsx --test --test-concurrency=1 \"tests/integration/**/*.test.ts\"",
+    "test:isolation": "node --import tsx --test --test-concurrency=1 \"tests/isolation/**/*.test.ts\"",
+    "test:e2e": "playwright test",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:status": "tsx scripts/db-migrate.ts --status"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.3",
+    "lucide-react": "1.59.0",
+    "next": "16.4.2",
+    "next-intl": "4.14.9",
+    "postgres": "3.4.9",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "10.13.0",
+    "eslint-config-next": "16.4.2",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}

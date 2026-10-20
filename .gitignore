@@ -23,3 +23,9 @@ release-private*
 stage-private*
 backup-recipients.secret*
 .claude/settings.local.json
+
+# Next
+next-env.d.ts
+.next-*/
+*.log
+.DS_Store
