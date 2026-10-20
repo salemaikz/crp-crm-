@@ -213,13 +213,16 @@ export type LockedClient = {
   website: string;
   custom: Json;
   canIdentity: boolean;
+  /** Есть скрытый номер (`iin_hmac`). Сам HMAC наружу не читается. */
+  hasHiddenId: boolean;
 };
 
 /** 4.6. Клиент под блокировкой с охватом `client.edit`. Нет строки — вызывающий зовёт throwNotFoundOrForbidden. */
 export async function lockClientForEdit(sql: Sql, viewer: Viewer, id: string): Promise<LockedClient | null> {
   const rows = await scoped(sql)<LockedClient>`
     SELECT cl.id, cl.kind, cl.name, cl.legal_form, cl.org_id, cl.region, cl.address, cl.email, cl.website, cl.custom,
-           (${scopeSql(viewer, 'client', 'client.edit_identity')}) AS can_identity
+           (${scopeSql(viewer, 'client', 'client.edit_identity')}) AS can_identity,
+           (cl.iin_hmac IS NOT NULL) AS has_hidden_id
       FROM clients cl
      WHERE cl.id = ${id} AND cl.merged_into_id IS NULL AND ${scopeSql(viewer, 'client', 'client.edit')}
        FOR UPDATE OF cl`;
@@ -237,6 +240,8 @@ export type SystemColumns = {
   nameNorm: string | null;
   /** HMAC ИИН (D-181): null — не менять. Открытый ИИН в `org_id` не пишется никогда. */
   iinHmac: string | null;
+  /** Сбросить `iin_hmac` в NULL (D-192): номер очищен или форма стала «не личной». Сильнее `iinHmac`. */
+  clearIinHmac: boolean;
 };
 
 /** UPDATE клиента с тем же охватом; null в колонке — не менять. `custom` пишется целиком. */
@@ -251,7 +256,7 @@ export async function updateClient(sql: Sql, viewer: Viewer, id: string, c: Syst
            email = COALESCE(${c.email}::text, cl.email),
            website = COALESCE(${c.website}::text, cl.website),
            name_norm = COALESCE(${c.nameNorm}::text, cl.name_norm),
-           iin_hmac = COALESCE(${c.iinHmac}::text, cl.iin_hmac),
+           iin_hmac = CASE WHEN ${c.clearIinHmac}::boolean THEN NULL ELSE COALESCE(${c.iinHmac}::text, cl.iin_hmac) END,
            custom = ${jsonParam(custom)},
            updated_at = ${viewer.now}
      WHERE cl.id = ${id} AND ${scopeSql(viewer, 'client', 'client.edit')}
@@ -471,6 +476,31 @@ export async function phoneTakenElsewhere(sql: Sql, digits: string, clientId: st
     SELECT EXISTS (SELECT 1 FROM client_phones cp JOIN clients o ON o.id = cp.client_id
                     WHERE cp.digits = ${digits} AND cp.client_id <> ${clientId} AND o.merged_into_id IS NULL) AS taken`;
   return rows[0]?.taken === true;
+}
+
+/**
+ * D-192. Как `phoneTakenElsewhere`: без scopeSql, id второго клиента уходит только в ключ задачи РОП, наружу
+ * ответ одинаковый. Условие — как у уникального индекса clients_iin_uq (слитые не считаются).
+ */
+export async function iinTakenBy(sql: Sql, iinHmac: string, clientId: string): Promise<string | null> {
+  const rows = await sql<{ id: string }>`
+    SELECT o.id FROM clients o
+     WHERE o.iin_hmac = ${iinHmac} AND o.id <> ${clientId} AND o.merged_into_id IS NULL
+     ORDER BY o.id LIMIT 1`;
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Задача РОП «ИИН совпал с другим клиентом» (D-192): без исполнителя (видят охваты пространства), заголовок
+ * пустой — текст строит интерфейс по `source`/`kind` (D-176); ни ИИН, ни его HMAC в задачу не попадают.
+ * Повтор той же пары открытую задачу не дублирует (tasks_source_uq).
+ */
+export async function insertIinReviewTask(sql: Sql, viewer: Viewer, v: { clientId: string; twinId: string }): Promise<void> {
+  if (viewer.spaceId === null) throw new Error('insertIinReviewTask: у сотрудника нет пространства');
+  await sql`INSERT INTO tasks (id, space_id, client_id, kind, source, title, assignee_user_id, source_key, created_by, created_at)
+            VALUES (${newId()}, ${viewer.spaceId}, ${v.clientId}, 'check', 'review', '', NULL,
+                    ${`iin_taken:${v.clientId}:${v.twinId}`}, ${viewer.userId}, ${viewer.now})
+            ON CONFLICT DO NOTHING`;
 }
 
 export async function insertProbe(sql: Sql, viewer: Viewer, matched: boolean): Promise<void> {
