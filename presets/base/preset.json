@@ -1,0 +1,183 @@
+{
+  "meta": { "key": "base", "version": "2026.10.1", "schemaVersion": 1, "requires": { "product": ">=0.1.0" } },
+  "global": {
+    "org": {
+      "productName": { "ru": "CRM" },
+      "timezone": "UTC",
+      "locales": ["ru"],
+      "defaultLocale": "ru",
+      "currency": "KZT",
+      "legalForms": [],
+      "idRule": "none",
+      "personIdRule": "none"
+    },
+    "calendar": {
+      "workdays": [1, 2, 3, 4, 5],
+      "workHours": { "start": "09:00", "end": "18:00" },
+      "callWindow": { "start": "09:00", "end": "18:00" },
+      "holidays": []
+    },
+    "phone": { "country": "KZ", "mobilePrefixes": [], "reviewPrefixes": [], "landlinePrefixes": [] },
+    "dedup": { "byOrgId": true, "byPhoneAndName": true, "pairs": { "sharedPhone": true, "nameAndHead": true } },
+    "sources": [
+      { "key": "manual", "label": { "ru": "Вручную" }, "kind": "manual", "allowPersonNames": true, "detailedReport": false, "rejectRules": [], "holdRules": [] },
+      { "key": "import", "label": { "ru": "Импорт таблицы" }, "kind": "import", "allowPersonNames": true, "detailedReport": false, "rejectRules": [], "holdRules": [] }
+    ],
+    "roles": [
+      { "key": "lead", "label": { "ru": "Руководитель" } },
+      { "key": "manager", "label": { "ru": "Менеджер" } },
+      { "key": "observer", "label": { "ru": "Наблюдатель" } }
+    ],
+    "team": { "fallbackOwnerRole": "lead" },
+    "theme": {
+      "brandColor": "#1f2937",
+      "accentColor": "#2563eb",
+      "fontPreset": "system",
+      "radius": "md",
+      "density": "normal",
+      "logo": "logo.svg",
+      "statusStyle": "color_text_icon"
+    },
+    "spaces": [{ "key": "sales", "label": { "ru": "Продажи" }, "enabled": true, "default": true }],
+    "security": { "sessionDays": 30, "inviteTtlHours": 72, "loginAttempts": { "perPhone": 5, "perIp": 20, "windowMin": 15 }, "phoneProbesPerDay": 20 },
+    "audit": { "retentionDays": 1095 },
+    "fields": []
+  },
+  "spaceDefaults": {
+    "calling": {
+      "outcomes": [
+        {
+          "key": "no_answer", "kind": "no_answer", "label": { "ru": "Не берёт" }, "color": "#6b7280", "order": 10, "reasonGroup": null,
+          "requires": { "lpr": false, "reason": false, "callbackAt": false, "contact": false, "fields": [], "agreement": false }, "importAliases": []
+        },
+        {
+          "key": "bad_number", "kind": "bad_number", "label": { "ru": "Неверный номер" }, "color": "#9a5200", "order": 20, "reasonGroup": "bad_number",
+          "requires": { "lpr": false, "reason": true, "callbackAt": false, "contact": false, "fields": [], "agreement": false }, "importAliases": []
+        },
+        {
+          "key": "callback", "kind": "callback", "label": { "ru": "Перезвонить" }, "color": "#1f5fbf", "order": 30, "reasonGroup": null,
+          "requires": { "lpr": false, "reason": false, "callbackAt": true, "contact": false, "fields": [], "agreement": false }, "importAliases": []
+        },
+        {
+          "key": "agreed", "kind": "agreed", "label": { "ru": "Договорились" }, "color": "#17803f", "order": 40, "reasonGroup": null,
+          "requires": { "lpr": false, "reason": false, "callbackAt": false, "contact": false, "fields": [], "agreement": false }, "importAliases": []
+        },
+        {
+          "key": "not_interested", "kind": "not_interested", "label": { "ru": "Не интересно" }, "color": "#4a4f59", "order": 50, "reasonGroup": "not_interested",
+          "requires": { "lpr": false, "reason": true, "callbackAt": false, "contact": false, "fields": [], "agreement": false }, "importAliases": []
+        },
+        {
+          "key": "not_target", "kind": "not_target", "label": { "ru": "Не целевой" }, "color": "#4a4f59", "order": 60, "reasonGroup": "not_target",
+          "requires": { "lpr": false, "reason": true, "callbackAt": false, "contact": false, "fields": [], "agreement": false }, "importAliases": []
+        },
+        {
+          "key": "do_not_call", "kind": "do_not_call", "label": { "ru": "Просил не звонить" }, "color": "#b3151b", "order": 70, "reasonGroup": "do_not_call",
+          "requires": { "lpr": false, "reason": true, "callbackAt": false, "contact": false, "fields": [], "agreement": false }, "importAliases": []
+        }
+      ],
+      "lprRequiredOnContact": false,
+      "lprNoRequiresInfo": false,
+      "undoSeconds": 5,
+      "offlineWindowHours": 72,
+      "callbackPastToleranceMin": 5,
+      "callbackPresets": ["+2h", "nextWorkday@10:00"],
+      "retry": { "steps": ["+2h", "nextWorkday@10:00"], "maxAttempts": 3 },
+      "returnDays": { "not_interested": 90, "deal_lost_soft": 90 }
+    },
+    "reasons": {
+      "bad_number": [{ "key": "not_exists", "label": { "ru": "Номер не существует" }, "needsText": false, "softness": "hard" }],
+      "not_interested": [
+        { "key": "no_need", "label": { "ru": "Нет потребности" }, "needsText": false, "softness": "soft" },
+        { "key": "expensive", "label": { "ru": "Дорого" }, "needsText": false, "softness": "soft" },
+        { "key": "other", "label": { "ru": "Другое" }, "needsText": true, "softness": "soft" }
+      ],
+      "not_target": [
+        { "key": "company_closed", "label": { "ru": "Компания закрылась" }, "needsText": false, "softness": "hard" },
+        { "key": "other", "label": { "ru": "Другое" }, "needsText": true, "softness": "hard" }
+      ],
+      "do_not_call": [
+        { "key": "asked", "label": { "ru": "Просил не звонить" }, "needsText": false, "softness": "hard" },
+        { "key": "other", "label": { "ru": "Другое" }, "needsText": true, "softness": "hard" }
+      ],
+      "deal_lost": [
+        { "key": "expensive", "label": { "ru": "Дорого" }, "needsText": false, "softness": "soft" },
+        { "key": "chose_other", "label": { "ru": "Выбрал другого" }, "needsText": false, "softness": "soft" },
+        { "key": "other", "label": { "ru": "Другое" }, "needsText": true, "softness": "soft" }
+      ]
+    },
+    "queue": { "order": ["callbacks", "retries", "returns", "new"], "mobileFirst": true, "skipLimit": 10 },
+    "distribution": {
+      "mode": "manual",
+      "schedule": { "from": "08:00", "to": "18:00", "everyMin": 60, "workdaysOnly": true },
+      "dailyCap": 40,
+      "capIncludes": ["auto", "manual", "return"],
+      "capOverride": false,
+      "topUpKeep": 10,
+      "participantRoles": ["manager"],
+      "inbound": { "rule": "channel_owner_then_least_loaded", "offHours": "lead" }
+    },
+    "intake": { "demandWorkdays": 7, "bufferDays": 0.5, "maxBatch": 1000 },
+    "pipelines": [
+      {
+        "key": "sales",
+        "kind": "sales",
+        "label": { "ru": "Продажи" },
+        "createDealOn": "manual",
+        "stages": [
+          { "key": "new", "label": { "ru": "Новая" }, "kind": "open", "order": 10, "requires": { "fields": [], "booking": false, "attendance": false, "nextTask": false, "amount": false, "serviceType": false, "reason": false }, "staleDays": null, "auto": null },
+          { "key": "offer", "label": { "ru": "КП" }, "kind": "open", "order": 20, "requires": { "fields": [], "booking": false, "attendance": false, "nextTask": false, "amount": false, "serviceType": false, "reason": false }, "staleDays": null, "auto": null },
+          { "key": "invoice", "label": { "ru": "Счёт" }, "kind": "open", "order": 30, "requires": { "fields": [], "booking": false, "attendance": false, "nextTask": false, "amount": false, "serviceType": false, "reason": false }, "staleDays": null, "auto": null },
+          { "key": "paid", "label": { "ru": "Оплачено" }, "kind": "won", "order": 40, "requires": { "fields": [], "booking": false, "attendance": false, "nextTask": false, "amount": true, "serviceType": false, "reason": false }, "staleDays": null, "auto": null },
+          { "key": "lost", "label": { "ru": "Проиграно" }, "kind": "lost", "order": 50, "requires": { "fields": [], "booking": false, "attendance": false, "nextTask": false, "amount": false, "serviceType": false, "reason": true }, "staleDays": null, "auto": null }
+        ]
+      }
+    ],
+    "serviceTypes": [{ "key": "other", "label": { "ru": "Услуга" }, "routeToTeam": null }],
+    "deals": { "purchaseFutureLimitHours": 36 },
+    "teams": [],
+    "handoff": { "acceptSlaWorkdays": 1, "alarmTo": ["lead"] },
+    "booking": {
+      "eventTypes": [],
+      "horizonDays": 28,
+      "groupOptions": 3,
+      "consultStripDays": 7,
+      "consult": { "slotMinutes": 45, "hours": { "workdays": [1, 2, 3, 4, 5], "start": "09:00", "end": "18:00" } },
+      "directions": [],
+      "grey": { "mode": "suggest", "schedule": { "first": "09:00", "last": "18:00", "stepMin": 30 } },
+      "duty": { "defaultRole": "manager" },
+      "noShow": { "callbackAt": "nextWorkday@10:00" },
+      "attendance": { "autoNoShowWorkdays": 2 },
+      "nextStep": { "taskAt": "nextWorkday@10:00" },
+      "seedSeries": []
+    },
+    "access": { "consultantWindow": { "fromDays": -1, "toDays": 30 } },
+    "reminders": {
+      "days": ["today", "tomorrow"],
+      "templates": [{ "key": "default", "eventTypeKey": null, "text": { "ru": "Здравствуйте, {name}! Напоминаем о записи: {date} в {time}, {place}. Подтверждаете участие?" } }]
+    },
+    "fields": [
+      {
+        "key": "comment", "object": "card", "type": "textarea", "label": { "ru": "Комментарий" }, "options": [], "access": { "*": "edit" },
+        "required": { "always": false, "onOutcome": [], "onStage": [] }, "searchable": false, "filterable": false, "ingest": false, "pii": "contact",
+        "showOn": { "card": true, "kanban": false, "list": false }
+      }
+    ],
+    "tasks": { "overdueAlertMinutes": 60, "inboundReplyMinutes": 15, "askNextStep": {} },
+    "reports": { "callsPerHourTarget": null, "tiles": [], "intakeTile": true },
+    "export": { "allowedRoles": ["manager"] },
+    "notifications": { "morningDigestAt": "09:00", "callbackSoonMinutes": null, "quietHours": "outside_work_hours" },
+    "alerts": { "intakeStaleHours": 26, "stockMinDays": null },
+    "timeline": { "crossSpace": "none" },
+    "import": {
+      "profiles": [
+        {
+          "key": "simple", "label": { "ru": "Простая таблица" }, "columns": {},
+          "valueMaps": { "outcome": {}, "lpr": {}, "target": {} }, "ownerBy": "column", "outcomePriority": [], "snapshotDate": null
+        }
+      ],
+      "maxFileMb": 10,
+      "maxRows": 20000,
+      "rowsRetentionDays": 14
+    }
+  }
+}

@@ -10,7 +10,16 @@ export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system';
  * Реестр имён действий. Имя — «<сущность>.<глагол_snake>» в два сегмента, первый совпадает с
  * сущностью. Новое действие = строка здесь; модули добавляют свои строки вместе со своим кодом.
  */
-export const AUDIT_ACTIONS = ['system.migrate', 'session.login', 'session.logout', 'session.logout_all'] as const;
+export const AUDIT_ACTIONS = [
+  'system.migrate',
+  'session.login',
+  'session.logout',
+  'session.logout_all',
+  'config.write',
+  'config.preset',
+  'config.rollback',
+  'config.migrate',
+] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 /**

@@ -1,0 +1,150 @@
+{
+  "meta": {
+    "key": "consulting-sales",
+    "version": "2026.10.1",
+    "schemaVersion": 1,
+    "extends": [
+      "base"
+    ],
+    "requires": {
+      "product": ">=0.1.0"
+    }
+  },
+  "global": {
+    "sources": [
+      {
+        "key": "proposal",
+        "label": {
+          "ru": "Предложен оператором"
+        },
+        "kind": "proposal",
+        "allowPersonNames": true,
+        "detailedReport": false,
+        "rejectRules": [],
+        "holdRules": []
+      },
+      {
+        "key": "walk_in",
+        "label": {
+          "ru": "Пришёл без записи"
+        },
+        "kind": "walk_in",
+        "allowPersonNames": true,
+        "detailedReport": false,
+        "rejectRules": [],
+        "holdRules": []
+      }
+    ]
+  },
+  "spaceDefaults": {
+    "calling": {
+      "outcomes": [
+        {
+          "key": "callback",
+          "requires": {
+            "lpr": true
+          }
+        },
+        {
+          "key": "agreed",
+          "requires": {
+            "lpr": true,
+            "contact": true,
+            "agreement": true
+          }
+        },
+        {
+          "key": "not_interested",
+          "requires": {
+            "lpr": true
+          }
+        }
+      ]
+    },
+    "pipelines": [
+      {
+        "key": "sales",
+        "createDealOn": "agreed",
+        "stages": [
+          {
+            "key": "new",
+            "archived": true
+          },
+          {
+            "key": "invoice",
+            "archived": true
+          },
+          {
+            "key": "booked",
+            "label": {
+              "ru": "Записан"
+            },
+            "kind": "open",
+            "order": 10,
+            "requires": {
+              "fields": [],
+              "booking": false,
+              "attendance": false,
+              "nextTask": false,
+              "amount": false,
+              "serviceType": false,
+              "reason": false
+            },
+            "staleDays": null,
+            "auto": "on_agreed"
+          },
+          {
+            "key": "attended",
+            "label": {
+              "ru": "Пришёл"
+            },
+            "kind": "open",
+            "order": 20,
+            "requires": {
+              "fields": [],
+              "booking": false,
+              "attendance": true,
+              "nextTask": false,
+              "amount": false,
+              "serviceType": false,
+              "reason": false
+            },
+            "staleDays": null,
+            "auto": "on_attended"
+          },
+          {
+            "key": "offer",
+            "label": {
+              "ru": "Переговоры / КП"
+            },
+            "order": 30,
+            "requires": {
+              "nextTask": true
+            }
+          },
+          {
+            "key": "paid",
+            "label": {
+              "ru": "Покупка"
+            },
+            "order": 40,
+            "requires": {
+              "amount": true,
+              "serviceType": true
+            }
+          },
+          {
+            "key": "lost",
+            "label": {
+              "ru": "Проигран"
+            },
+            "order": 50,
+            "requires": {
+              "reason": true
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
