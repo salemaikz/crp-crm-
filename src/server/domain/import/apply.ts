@@ -108,7 +108,8 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
       at: now,
       refType: 'import',
       refId: imp.id,
-      data: { importId: imp.id, rowNo: r.rowNo, rowKey: r.rowKey, stateKey: r.stateKey, action, outcomeKey: r.outcomeKey, answerRaw: r.answer.raw, ...extra },
+      // Только коды и служебные ключи: сырой текст ячеек (ответ, заметка) живёт лишь в import_rows до чистки по сроку (D-221)
+      data: { importId: imp.id, rowNo: r.rowNo, rowKey: r.rowKey, stateKey: r.stateKey, action, outcomeKey: r.outcomeKey, ...extra },
     });
   const callEvent = (clientId: string, callId: string, p: NonNullable<CardPlan['call']>) =>
     events.push({ id: newId(), clientId, kind: 'call', actorId: null, at: p.occurredAt, refType: 'call', refId: callId, data: { outcome: p.outcomeCode, kind: p.outcomeKind, via: 'import' } });
@@ -292,10 +293,14 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
         }
         const existing = phoneRows.get(link.clientId) ?? [];
         const working = existing.filter((p) => p.isWorking);
+        // Карточка без владельца и без задержки получает владельца строки, как при create (D-222): иначе
+        // отложенный рабочий итог не применился бы и после настройки слотов
+        const newOwner = card.ownerUserId === null && card.holdReason === '' && pr.ownerUserId ? pr.ownerUserId : null;
+        const base = newOwner ? { ...card, ownerUserId: newOwner, assignedAt: now } : card;
         const plan = planImportedCard({
-          card: { ...card, phones: [] },
+          card: { ...base, phones: [] },
           row,
-          held: card.ownerUserId === null,
+          held: base.ownerUserId === null,
           workingPhones: working.length,
           settings: ctx.calling,
           calendar: ctx.calendar,
@@ -315,6 +320,7 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
           card.version,
           {
             ownerUserId: c.ownerUserId,
+            assignedAt: c.assignedAt,
             state: c.state,
             holdReason: c.holdReason,
             attempts: c.attempts,
@@ -343,9 +349,13 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
           break;
         }
         counts.cardsUpdated++;
+        if (newOwner) {
+          assigns.push({ id: newId(), cardId: card.id, toUserId: newOwner, runId: imp.id, day: today, actorId: actor.userId });
+          counts.assigned[newOwner] = (counts.assigned[newOwner] ?? 0) + 1;
+        }
         if (plan.effects.closeTasks) await repo.closeTasks(sql, ctx.spaceId, link.clientId, plan.effects.closeTasks, now);
         if (plan.effects.singlePhoneNotWorking && working[0]) await repo.markPhoneNotWorking(sql, link.clientId, working[0].digits);
-        planEffects(link.clientId, card.id, card.ownerUserId, row, plan, working.map((p) => p.digits));
+        planEffects(link.clientId, card.id, base.ownerUserId, row, plan, working.map((p) => p.digits));
         rowEvent(link.clientId, row, 'update_state', { flags: plan.effects.flags });
         break;
       }

@@ -356,6 +356,18 @@ test('решение при повторе: тот же ключ — пропу�
   assert.equal(decideReimport(row, { rowKey: 'k', stateKey: 's1', touchedInCrm: true }), 'kept_in_crm');
 });
 
+test('решение при повторе: отложенный без владельца итог — не повтор, пока его можно применить (D-222)', () => {
+  const row = { stateKey: 's2' };
+  const prior = { rowKey: 'k', stateKey: 's2', touchedInCrm: false };
+  assert.equal(decideReimport(row, { ...prior, deferredResumable: true }), 'update_state');
+  assert.equal(decideReimport(row, { ...prior, deferredResumable: false }), 'skip');
+  assert.equal(decideReimport(row, prior), 'skip');
+  // карточку уже ведут в CRM — таблица её не трогает
+  assert.equal(decideReimport(row, { ...prior, touchedInCrm: true, deferredResumable: true }), 'skip');
+  // состояние изменилось — обычные правила
+  assert.equal(decideReimport({ stateKey: 's3' }, { ...prior, deferredResumable: true }), 'update_state');
+});
+
 test('индекс записей: по номеру или БИН', () => {
   const idx = createBookingIndex([{ phones: ['77091112233'] }, { phones: [], orgId: '123456789012' }]);
   assert.equal(hasBooking({ orgId: null, workingPhones: ['77091112233'] }, idx), true);

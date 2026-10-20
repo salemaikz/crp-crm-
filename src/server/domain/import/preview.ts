@@ -37,6 +37,10 @@ export function blockersOf(imp: repo.ImportRow, ctx: ImportContext, rowsPresent:
   if (!rowsPresent) b.push('rows_expired');
   if (!configUnchanged(imp.report, ctx)) b.push('config_changed');
   if (unmappedSlots > 0) b.push('unmapped_slots');
+  // Профиль «диапазон строк → оператор» без слотов: все строки ушли бы без владельца, рабочие итоги — в ленту
+  // (D-115). Сначала слоты (`crmctl config set`, D-191), потом «Применить» (D-222).
+  const profile = ctx.settings.profiles.find((p) => p.key === imp.profileKey);
+  if (profile?.ownerBy.kind === 'row_ranges' && profile.ownerBy.slots.length === 0) b.push('no_owner_slots');
   return b;
 }
 

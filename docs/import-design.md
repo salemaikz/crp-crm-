@@ -190,9 +190,12 @@ pairs (id+reason по порядку), outcomeKey, agreedWithoutBooking, stopped
 `PreviewSummary` (`types.ts`): счётчики по действиям и задержкам, «каждому оператору N» (с именами
 для экрана), без владельца, несопоставленные ярлыки, пересечения правил (`imports.ruleOverlaps`),
 `heldWithWorkingOutcome`, `blockers`. В `imports.report.preview` пишется `PreviewStamp` (без имён).
-Блокеры «Применить»: `unmapped_slots`, `rows_expired`, `config_changed` (ревизии настроек импорта,
-дедупа, источников или номеров ≠ `report.input.parseConfigRev` → загрузить заново), `already_applied`,
-`failed`. Предпросмотр бизнес-таблицы не меняет.
+Блокеры «Применить»: `unmapped_slots`, `no_owner_slots` (профиль `row_ranges` без слотов в настройках
+установки — все строки ушли бы без владельца, рабочие итоги отложились бы; сначала слоты, D-191, D-222),
+`rows_expired`, `config_changed` (ревизии настроек импорта, дедупа, источников или номеров ≠
+`report.input.parseConfigRev` → загрузить заново), `already_applied`, `failed`. Предпросмотр
+бизнес-таблицы не меняет. «Каждому оператору N» считает и строки `update_state`, которым повтор назначает
+владельца (§8).
 
 Список строк (`GET …/rows`) пересчитывает предпросмотр с картой из `ownerMapRef` (≤ 2 с на 20 000
 строк; кэш не нужен) и отдаёт страницу `ImportRowView` по фильтру `RowFilter`.
@@ -237,12 +240,17 @@ pairs (id+reason по порядку), outcomeKey, agreedWithoutBooking, stopped
 | `invalid`, `duplicate_in_file`, `skip_same`, `rejected_rule`, `stop_list` | ничего (только счётчик) |
 | `create` | `clients` (`source_kind='import'`, `source_key`, `name`, `name_norm`, `legal_form`, `org_id` или `iin_hmac` для ИП, `region`, `address`, `custom` по `fieldTargets`, `search_norm`) · `client_phones` (рабочие; первый мобильный — `is_primary`; заглушки не пишутся) · `client_sources` (`external_id = rowKey`, `import_id`) · `cards` (план §7.3; владелец — только если строка без задержки и с владельцем) · `assign_log` (`kind='import'`, `counts_to_cap=false`) при владельце · звонок и побочные эффекты §7.3 · `dup_pairs` (`a < b`; `row:N` → id созданного клиента) · `client_events`: `client.created` + `import.row` |
 | `merge` | номера `ON CONFLICT DO NOTHING`; пустые колонки клиента дописываются (не перезаписываются); `client_sources` для `rowKey`; карточки в пространстве нет — создаётся `new` (без итога таблицы), есть — **не меняется**; `import.row` |
-| `update_state` | один звонок `import_key = rowKey:stateKey` и новое состояние по §7.3 — `UPDATE cards … WHERE id = $1 AND touched_in_crm = false AND version = $v`; 0 строк → строка уходит в `kept_in_crm` (оператор успел тронуть); `import.row` |
+| `update_state` | один звонок `import_key = rowKey:stateKey` и новое состояние по §7.3 — `UPDATE cards … WHERE id = $1 AND touched_in_crm = false AND version = $v`; 0 строк → строка уходит в `kept_in_crm` (оператор успел тронуть); карточка без владельца и без `hold_reason` получает владельца строки, как при `create` (`owner_user_id`, `assigned_at`, `assign_log kind='import'`, D-222); `import.row` |
 | `kept_in_crm` | карточка не меняется; `import.row` с `action: 'kept_in_crm'` (следующая загрузка того же — `skip_same`); строка в отчёте «на разбор РОП» |
 
 Событие `import.row`: `client_events.kind='import.row'`, `ref_type='import'`, `ref_id=importId`,
-`data = { importId, rowNo, rowKey, stateKey, action, outcomeKey, answerRaw }` (`answerRaw` — исходный
-текст ячейки итога, PROCESS 3.7; колонка в реестре ПДн, обезличивание его чистит).
+`data = { importId, rowNo, rowKey, stateKey, action, outcomeKey }` и, где есть, `deferred`, `flags`, `hold`
+(коды). Сырой текст ячеек — «Ответ», «Заметка» и прочих — в событие **не пишется** (D-221): оператор пишет
+туда «перезвонить жене, Айгуль +7…», а лента живёт бессрочно и переживает обезличивание. Итог в ленте —
+только код `outcomeKey`; исходный текст РОП видит в строках предпросмотра и отчёта (`ImportRowView.answerRaw`,
+выгрузка CSV с аудитом), пока `import_rows` не удалены по сроку (§11). Дольше срока текст ячейки живёт
+только в полях клиента и карточки, куда профиль его явно направил (`fieldTargets`, §4) — это данные профиля
+под реестром ПДн полей. `rowKey` и `stateKey` — sha256 опознающих полей и колонок состояния, не текст.
 
 Карточки, клиенты, номера, события — через функции C2 (`domain/clients`, `domain/cards`), если они
 уже есть с пакетным вариантом; иначе SQL в `domain/import/repo.ts` (схема v1 разрешает импорту писать
@@ -283,14 +291,25 @@ pairs (id+reason по порядку), outcomeKey, agreedWithoutBooking, stopped
 `prior` для `buildPreview` (только пространство импорта):
 
 ```sql
-SELECT cs.external_id AS row_key, c.touched_in_crm,
-       (SELECT e.data->>'stateKey' FROM client_events e
-         WHERE e.client_id = cs.client_id AND e.space_id = $space AND e.kind = 'import.row'
-           AND e.data->>'rowKey' = cs.external_id
-         ORDER BY e.at DESC, e.id DESC LIMIT 1) AS state_key
+SELECT cs.external_id AS row_key, c.touched_in_crm, c.owner_user_id, c.hold_reason, ev.state_key, ev.deferred
   FROM client_sources cs JOIN cards c ON c.client_id = cs.client_id AND c.space_id = $space
+  JOIN LATERAL (SELECT e.data->>'stateKey' AS state_key, coalesce(e.data->>'deferred', '') = 'true' AS deferred
+                  FROM client_events e
+                 WHERE e.client_id = cs.client_id AND e.space_id = $space AND e.kind = 'import.row'
+                   AND e.data->>'rowKey' = cs.external_id
+                 ORDER BY e.at DESC, e.id DESC LIMIT 1) ev ON ev.state_key IS NOT NULL
  WHERE cs.source_key = $sourceKey AND cs.external_id = ANY($rowKeys)
 ```
+
+**Отложенный итог — не повтор (D-222).** Если последнее применение строки отложило рабочий итог
+(`deferred`, §7.3), карточка не задержана (`hold_reason = ''`), её не трогали в CRM, а владелец у неё есть
+или находится по слотам/колонке (`assigned` или `unmapped` — тогда блокер `unmapped_slots`), то та же
+пара ключей даёт `update_state`, а не `skip_same` (`PriorImportRow.deferredResumable`, считает
+`load.ts`). Владельца такой и любой другой строке `update_state` по карточке без владельца и без задержки
+назначает `load.ts` после `buildPreview` и до отпечатка — тем же `resolveOwner`, что у `create`. Так
+загрузка до настройки слотов (или строка вне диапазонов) не теряет «Перезвонить» навсегда: после слотов
+тот же файл применит владельцев и итоги, а следующий повтор снова даст `skip_same`. Задержанная строка
+(`dup_pair`, `import_conflict`, `no_working_phone`, `rule`) ждёт разбора РОП и при повторе не трогается.
 
 Применение пишет `client_sources` и `import.row` для каждой строки `create`, `merge`, `update_state`,
 `kept_in_crm` (и у задержанных). Нет карточки в этом пространстве или события — строки нет в `prior`:

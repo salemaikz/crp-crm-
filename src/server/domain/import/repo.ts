@@ -204,23 +204,29 @@ export interface PriorRow {
   touchedInCrm: boolean;
   clientId: string;
   cardId: string;
+  /** Последнее применение строки отложило рабочий итог (`import.row` с `deferred: true`, D-115). */
+  deferred: boolean;
+  ownerUserId: string | null;
+  holdReason: string;
 }
 
 /** Прошлое состояние строк (D-114): источник строки + последнее событие import.row с ключом состояния. */
 export async function selectPrior(sql: Sql, spaceId: string, sourceKey: string, rowKeys: readonly string[]): Promise<PriorRow[]> {
   if (rowKeys.length === 0) return [];
   return sql<PriorRow>`
-    SELECT x.row_key, x.state_key, x.touched_in_crm, x.client_id, x.card_id FROM (
-      SELECT cs.external_id AS row_key, cs.client_id, c.id AS card_id, c.touched_in_crm,
-             (SELECT e.data ->> 'stateKey' FROM client_events e
-               WHERE e.client_id = cs.client_id AND e.space_id = ${spaceId} AND e.kind = 'import.row'
-                 AND e.data ->> 'rowKey' = cs.external_id
-               ORDER BY e.at DESC, e.id DESC LIMIT 1) AS state_key
-        FROM client_sources cs
-        JOIN clients cl ON cl.id = cs.client_id AND cl.merged_into_id IS NULL
-        JOIN cards c ON c.client_id = cs.client_id AND c.space_id = ${spaceId}
-       WHERE cs.source_key = ${sourceKey} AND cs.external_id = ANY(${[...rowKeys]}::text[])
-    ) x WHERE x.state_key IS NOT NULL`;
+    SELECT cs.external_id AS row_key, cs.client_id, c.id AS card_id, c.touched_in_crm, c.owner_user_id, c.hold_reason,
+           ev.state_key, ev.deferred
+      FROM client_sources cs
+      JOIN clients cl ON cl.id = cs.client_id AND cl.merged_into_id IS NULL
+      JOIN cards c ON c.client_id = cs.client_id AND c.space_id = ${spaceId}
+      JOIN LATERAL (
+        SELECT e.data ->> 'stateKey' AS state_key, COALESCE(e.data ->> 'deferred', '') = 'true' AS deferred
+          FROM client_events e
+         WHERE e.client_id = cs.client_id AND e.space_id = ${spaceId} AND e.kind = 'import.row'
+           AND e.data ->> 'rowKey' = cs.external_id
+         ORDER BY e.at DESC, e.id DESC LIMIT 1
+      ) ev ON ev.state_key IS NOT NULL
+     WHERE cs.source_key = ${sourceKey} AND cs.external_id = ANY(${[...rowKeys]}::text[])`;
 }
 
 export interface Participant {
@@ -561,6 +567,7 @@ export async function markPhoneNotWorking(sql: Sql, clientId: string, digits: st
 
 export interface CardUpdate {
   ownerUserId: string | null;
+  assignedAt: number | null;
   state: string;
   holdReason: string;
   attempts: number;
@@ -584,7 +591,7 @@ export interface CardUpdate {
 /** Правка карточки по состоянию из таблицы: только если её не трогали в CRM и версия та же. 0 строк = «оставлено как в CRM». */
 export async function updateCardFromImport(sql: Sql, cardId: string, version: number, u: CardUpdate, now: number): Promise<boolean> {
   const r = await sql<{ id: string }>`
-    UPDATE cards SET state = ${u.state}, hold_reason = ${u.holdReason}, attempts = ${u.attempts}, next_call_at = ${u.nextCallAt},
+    UPDATE cards SET owner_user_id = ${u.ownerUserId}, assigned_at = ${u.assignedAt}, state = ${u.state}, hold_reason = ${u.holdReason}, attempts = ${u.attempts}, next_call_at = ${u.nextCallAt},
            return_at = ${u.returnAt}, lpr = ${u.lpr}, is_target = ${u.isTarget}, last_outcome_code = ${u.lastOutcomeCode},
            last_outcome_kind = ${u.lastOutcomeKind}, last_outcome_at = ${u.lastOutcomeAt}, close_reason_code = ${u.closeReasonCode},
            closed_at = ${u.closedAt}, calls_total = ${u.callsTotal}, connects_total = ${u.connectsTotal},

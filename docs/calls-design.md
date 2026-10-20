@@ -60,6 +60,8 @@
   → `to_user_id = $me`. Строк нет → false.
 - `toCoreActor`: Viewer → `{ userId, kind: 'user', scope }`, где `scopeOf(v, 'card.outcome')`: `own` → `own`;
   `team`/`space`/`all` → `space`; нет → `relation`. SystemActor → `{ userId: null, kind: 'system', scope: 'space' }`.
+  Ветка итога без охвата (карточку передали, §4.2) заменяет `space` на `own`: ядро превращает итог в
+  `fact_only owner_changed` только при `own`, а `team` без замены применил бы итог к карточке вне охвата (D-224).
 
 ## 4. Итог: `POST /api/calls/outcomes` → `submitOutcome`
 
@@ -80,17 +82,21 @@ SET LOCAL lock_timeout = '5s'
 t = clamp(occurredAt, receivedAt − offlineWindowHours·ч, receivedAt + 5 мин)
 row = lockCardScoped(tx, viewer, cardId, 'card.outcome'); wasOwner = false
 если row = null:
-   row = lockCardUnscoped(tx, viewer, cardId)
-   нет, другое пространство или !wasOwnerAt(cardId, viewer, t) → 404          -- чужое = несуществующее
+   свой prior (user_id = viewer и card_id = cardId) → ответ duplicate, card: null       -- D-223, до проверки владения
+   !wasEverAssignedTo(cardId, viewer) → 404                                  -- чужие карточки не блокируем
+   row = lockCardUnscoped(tx, viewer, cardId); нет или другое пространство → 404
+   свой prior (появился, пока ждали блокировку) → ответ duplicate, card: null
+   !wasOwnerAt(cardId, viewer, t) → 404                                      -- чужое = несуществующее
    wasOwner = true                                                           -- ядро даст fact_only owner_changed
 prior = SELECT applied, fact_reason, user_id, card_id FROM calls WHERE id = $opId   -- после блокировки!
 если prior: user_id ≠ viewer или card_id ≠ cardId → 404; иначе → ответ duplicate (§4.5)
+actor = toCoreActor(viewer); wasOwner и actor.scope = space → actor.scope = own  -- D-224: вне охвата только факт
 phoneId и alsoDncPhoneIds ∉ номера карточки → 400 phone_not_on_card
 event = OutcomeEvent { …req, receivedAt, occurredAt: req.occurredAt (ядро само ограничит и предупредит),
                        hasNote: note.trim() ≠ '', lprInfoFilled: любое поле lprInfo не пусто,
                        seenVersion: null, facts: { sameOpId: null, actorWasOwnerAtCall: wasOwner } }
 -- «Договорились — записать» (§4.3) меняет здесь event.agreement.bookingId
-result = calling.applyOutcome({ card: row.snapshot, event, actor: toCoreActor(viewer), now: receivedAt,
+result = calling.applyOutcome({ card: row.snapshot, event, actor, now: receivedAt,
                                 settings: ctx.settings, calendar: ctx.calendar })
 rejected → throw CallsDomainError(error, field)       -- откат всего, включая запись
 applied | fact_only → persistTransition(tx, viewer, { ctx, before: row, result, call: extras, at: receivedAt })
@@ -145,7 +151,7 @@ applied и fields не пусто → поля в client.custom / card.custom (K
 |---|---|
 | `tasks.create` | получатель: `{ user }` или `resolveLead` (D-176); `ensureAutoTask` (`title = ''`, `created_by` = автор или NULL) |
 | `tasks.close` / `close_by_key` / `reassign_open` | `closeAutoTasks` / `closeAutoTaskByKey` / `reassignOpenTasks` |
-| `deals.*` | `applyDealEffects(tx, actor, card, effects, at)` (deals/effects.ts). **`lose_open` там ещё бросает** (B6) — §12 |
+| `deals.*` | `applyDealEffects(tx, actor, card, effects, at)` (deals/effects.ts). `lose_open` закрывает проигрышем с причиной итога **все открытые сделки клиента в пространстве** (PROCESS 4.1), каждой — `deal.lost` в ленте; открытых нет — ничего. `lose`, `win`, `cancel_purchase`, `reassign_open` пока бросают (B6/B9a) |
 | `bookings.*` | `applyBookingEffects(tx, actor, card, effects, at)` (booking/effects.ts) |
 | `stopList.add` | `INSERT INTO stop_list (phone_hmac, reason_code, source 'outcome', created_by, created_at) ON CONFLICT DO NOTHING` |
 | `stopList.remove` | `DELETE FROM stop_list WHERE phone_hmac = $h` |
@@ -288,6 +294,8 @@ Zod-тело итога (лишние поля → 400); исполнитель 
   ответ `duplicate` с тем же `applied`; лента и задачи не задвоены;
 - `fact_only owner_changed`: карточку передали (assign_log `transfer` → B) после звонка A → итог A пишется
   фактом, состояние не меняется, задача B `review:<opId>`, ответ `card: null`; звонок после передачи → 404;
+  то же для роли с охватом `team`, когда карточка ушла в другую команду: факт, сделки открыты (D-224);
+  свой повтор `opId` после передачи и позже окна офлайна → `duplicate`, `card: null` (D-223);
 - `stale`: итог с `occurredAt` раньше `last_outcome_at` → факт, состояние прежнее; офлайн-итог 3 ч назад →
   `retry` от времени звонка (12.3); `occurredAt` +10 мин в будущем → ограничен, предупреждение;
 - гонка двух итогов по одной карточке (владелец и временный владелец, 20 прогонов): побеждает поздний по
@@ -323,7 +331,7 @@ Zod-тело итога (лишние поля → 400); исполнитель 
 
 | Что | Кто | Когда |
 |---|---|---|
-| `lose_open` (и `reassign_open`) в `deals/effects.applyDealEffects`: открытые сделки карточки → `lost` с причиной итога | booking (B6, ранняя часть) | **23.10**, до пилота: без неё «Не интересно» и «Не целевой» по карточке с открытой сделкой падают 500 |
+| ~~`lose_open`~~ сделано (сведение дня 3): все открытые сделки клиента в пространстве → `lost` с причиной итога. Осталось `reassign_open` в `deals/effects.applyDealEffects` | booking (B6) | до пилота |
 | замена `cards` в `booking/deps.ts` на `cardBookingPort` | координатор | при влитии C5 |
 | строки в реестре воркера: `countOwnerlessWorkingCards` (`invariants`), `purgeDeviceStatus` (`purge`) | координатор после P7 | 23.10 |
 | `POST /api/device/ping` → `recordDeviceStatus` | platform (C7b) | 23.10 |
