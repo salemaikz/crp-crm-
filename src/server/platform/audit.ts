@@ -42,6 +42,11 @@ export const AUDIT_ACTIONS = [
   // C6a: раздача (без ПДн в meta)
   'distribution.issue',
   'distribution.participant',
+  // C6b: отсутствие, пауза, раздел «без владельца» (в meta — коды и числа)
+  'distribution.absence',
+  'distribution.absence_cancel',
+  'distribution.pause',
+  'distribution.ownerless_assign',
   // C5: карточка обзвона (без ПДн в meta)
   'card.dnc_cleared',
   'card.merged',

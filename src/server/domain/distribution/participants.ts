@@ -5,8 +5,8 @@ import { writeAudit } from '@/server/platform/audit';
 import { getDb, type Sql } from '@/server/platform/db';
 import { distributionDeps } from './deps';
 import { requireRole, requireSpace } from './guards';
-import { listParticipantRows, loadParticipantLoad, updateInDistribution, type ParticipantRow } from './repo';
-import type { DistributionConfig, ListParticipants, ParticipantView, SetParticipation } from './types';
+import { listParticipantRows, loadParticipantLoad, lockDistribution, updateInDistribution, updatePausedOn, type ParticipantRow } from './repo';
+import type { DistributionConfig, ListParticipants, ParticipantView, SetParticipation, SetPause } from './types';
 
 /** Статус на сегодня: отсутствие сильнее паузы; пауза действует только в день `paused_on` (PROCESS 7.5). */
 export function participantStatus(row: Pick<ParticipantRow, 'pausedOn' | 'absentUntil'>, today: string): core.ParticipantStatus {
@@ -65,6 +65,36 @@ export const setParticipation: SetParticipation = async (viewer, input) => {
       entityId: input.userId,
       spaceId,
       meta: { inDistribution: input.inDistribution },
+      createdAt: now,
+    });
+    const view = (await loadParticipants(tx, cfg, now)).find((p) => p.userId === input.userId);
+    if (!view) throw new NotFoundError();
+    return view;
+  });
+};
+
+/**
+ * «Пауза» РОП на сегодня (PROCESS 7.5, D-256): `paused_on` = местный день или пусто. Снять — `paused: false`.
+ * Тик и ручная выдача читают статус сами (C6a). Пауза отсутствующего разрешена (ничего не меняет).
+ */
+export const setPause: SetPause = async (viewer, input) => {
+  requireRole(viewer, 'distribution.manage');
+  const spaceId = requireSpace(viewer);
+  const deps = distributionDeps();
+  const now = deps.now();
+  const cfg = await deps.config(spaceId, now);
+  const db = await getDb();
+  return db.tx(async (tx) => {
+    await lockDistribution(tx);
+    const ok = await updatePausedOn(tx, { spaceId, userId: input.userId, roles: cfg.participantRoles, value: input.paused ? cfg.calendar.localDay(now) : '', now });
+    if (!ok) throw new NotFoundError();
+    await writeAudit(tx, {
+      actorId: viewer.userId,
+      action: 'distribution.pause',
+      entity: 'distribution',
+      entityId: input.userId,
+      spaceId,
+      meta: { paused: input.paused },
       createdAt: now,
     });
     const view = (await loadParticipants(tx, cfg, now)).find((p) => p.userId === input.userId);

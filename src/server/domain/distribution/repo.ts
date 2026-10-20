@@ -5,10 +5,12 @@
 import type { distribution as core } from '@crm/core';
 import { scopeSql, scoped } from '@/server/access/scope';
 import type { Permission } from '@/server/access/types';
-import type { Sql } from '@/server/platform/db';
+import { newId, type Sql } from '@/server/platform/db';
+import { jsonParam } from '@/server/platform/db/core';
 import { DISTRIBUTION_LOCK_KEY } from '@/server/platform/db/locks';
 import { assignRows } from './assign';
 import {
+  type AbsenceView,
   type AssignLogKind,
   type AssignWritten,
   type DistributionActor,
@@ -195,6 +197,15 @@ export async function poolCounts(actor: DistributionActor, sql: Sql, a: { spaceI
   return { ready, held };
 }
 
+/** Рабочие карточки без владельца, кроме `new` (раздел «Без владельца (не новые)», C6b §2.5.5). */
+export async function countOwnerless(actor: DistributionActor, sql: Sql, a: { spaceId: string }): Promise<number> {
+  const rows = await scoped(sql)<{ n: number }>`
+    SELECT count(*)::int AS n FROM cards c
+     WHERE c.space_id = ${a.spaceId} AND c.owner_user_id IS NULL AND c.state <> 'new' AND c.hold_reason <> 'merged'
+       AND ${scopeSql(actor, 'card', 'pool.read')}`;
+  return rows[0]?.n ?? 0;
+}
+
 /** Страница пула с названиями клиентов (РОП с `pool.read` видит их по охвату space). */
 export async function selectPoolPage(
   actor: DistributionActor,
@@ -359,3 +370,240 @@ export const writeAssignBatch: WriteAssignBatch = async (tx, actor, batch) => {
   const written: AssignWritten = { byOperator, raced };
   return written;
 };
+
+// ---------------------------------------------------------------------------
+// «Пауза» (C6b §2.2, §2.4)
+// ---------------------------------------------------------------------------
+
+/** Пауза на сегодня (`paused_on = день`) или снятие (`''`). false — не участник пространства. */
+export async function updatePausedOn(sql: Sql, a: { spaceId: string; userId: string; roles: readonly string[]; value: string; now: number }): Promise<boolean> {
+  const rows = await sql<{ userId: string }>`
+    UPDATE memberships SET paused_on = ${a.value}, updated_at = ${a.now}
+     WHERE space_id = ${a.spaceId} AND user_id = ${a.userId} AND status = 'active' AND role_key = ANY(${[...a.roles]}::text[])
+     RETURNING user_id`;
+  return rows.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// «Отсутствует» (C6b §2.4, §2.5). Чтения карточек и участников — служебные (без охвата): отсутствие ставит РОП
+// или система на всё пространство, наружу уходят только счётчики и id.
+// ---------------------------------------------------------------------------
+
+export interface AbsenceRow {
+  id: string;
+  spaceId: string;
+  userId: string;
+  fromDay: string;
+  toDay: string;
+  substituteUserId: string | null;
+  createdBy: string | null;
+  createdAt: number;
+  cancelledAt: number | null;
+}
+
+/** Список отсутствий экрана (§2.5.1): неотменённые, не закончившиеся. */
+export async function selectAbsenceViews(sql: Sql, a: { spaceId: string; today: string }): Promise<AbsenceView[]> {
+  return sql<AbsenceView>`
+    SELECT ab.id, ab.user_id, u.name AS user_name, ab.from_day, ab.to_day, ab.substitute_user_id, su.name AS substitute_name, ab.created_at
+      FROM absences ab JOIN users u ON u.id = ab.user_id LEFT JOIN users su ON su.id = ab.substitute_user_id
+     WHERE ab.space_id = ${a.spaceId} AND ab.cancelled_at IS NULL AND ab.to_day >= ${a.today}::text
+     ORDER BY ab.from_day, u.name, ab.id LIMIT 200`;
+}
+
+/** Одно отсутствие (с отменёнными) — для повтора opId и ответа отмены. */
+export async function selectAbsenceById(sql: Sql, a: { spaceId: string; id: string }): Promise<(AbsenceView & { cancelledAt: number | null; createdBy: string | null }) | null> {
+  const rows = await sql<AbsenceView & { cancelledAt: number | null; createdBy: string | null }>`
+    SELECT ab.id, ab.user_id, u.name AS user_name, ab.from_day, ab.to_day, ab.substitute_user_id, su.name AS substitute_name,
+           ab.created_at, ab.cancelled_at, ab.created_by
+      FROM absences ab JOIN users u ON u.id = ab.user_id LEFT JOIN users su ON su.id = ab.substitute_user_id
+     WHERE ab.id = ${a.id} AND ab.space_id = ${a.spaceId}`;
+  return rows[0] ?? null;
+}
+
+/** Любое id отсутствия (в том числе чужого пространства): занят ли ключ. */
+export async function absenceIdTaken(sql: Sql, id: string): Promise<boolean> {
+  const rows = await sql<{ hit: number }>`SELECT 1 AS hit FROM absences WHERE id = ${id}`;
+  return rows.length > 0;
+}
+
+/** Есть ли у сотрудника неотменённое отсутствие, пересекающее период (`absences_user_idx`). */
+export async function absenceOverlaps(sql: Sql, a: { spaceId: string; userId: string; from: string; to: string }): Promise<boolean> {
+  const rows = await sql<{ hit: number }>`
+    SELECT 1 AS hit FROM absences
+     WHERE space_id = ${a.spaceId} AND user_id = ${a.userId} AND cancelled_at IS NULL
+       AND from_day <= ${a.to}::text AND to_day >= ${a.from}::text LIMIT 1`;
+  return rows.length > 0;
+}
+
+export async function insertAbsence(sql: Sql, a: { id: string; spaceId: string; userId: string; fromDay: string; toDay: string; substituteUserId: string | null; createdBy: string | null; now: number }): Promise<void> {
+  await sql`
+    INSERT INTO absences (id, space_id, user_id, from_day, to_day, substitute_user_id, created_by, created_at)
+    VALUES (${a.id}, ${a.spaceId}, ${a.userId}, ${a.fromDay}, ${a.toDay}, ${a.substituteUserId}, ${a.createdBy}, ${a.now})`;
+}
+
+/** Отметить отменённым; null — нет такого или уже отменено. */
+export async function cancelAbsenceRow(sql: Sql, a: { spaceId: string; id: string; now: number }): Promise<{ userId: string } | null> {
+  const rows = await sql<{ userId: string }>`
+    UPDATE absences a SET cancelled_at = ${a.now}
+     WHERE a.id = ${a.id} AND a.space_id = ${a.spaceId} AND a.cancelled_at IS NULL RETURNING a.user_id`;
+  return rows[0] ?? null;
+}
+
+/** Отсутствия, действующие сегодня (задача `absence`): начались и не закончились. */
+export async function selectActiveAbsences(sql: Sql, a: { spaceId: string; today: string }): Promise<AbsenceRow[]> {
+  return sql<AbsenceRow>`
+    SELECT id, space_id, user_id, from_day, to_day, substitute_user_id, created_by, created_at, cancelled_at FROM absences
+     WHERE space_id = ${a.spaceId} AND cancelled_at IS NULL AND from_day <= ${a.today}::text AND to_day >= ${a.today}::text
+     ORDER BY from_day, id`;
+}
+
+export async function selectAbsenceRow(sql: Sql, a: { spaceId: string; id: string }): Promise<AbsenceRow | null> {
+  const rows = await sql<AbsenceRow>`
+    SELECT id, space_id, user_id, from_day, to_day, substitute_user_id, created_by, created_at, cancelled_at FROM absences
+     WHERE id = ${a.id} AND space_id = ${a.spaceId}`;
+  return rows[0] ?? null;
+}
+
+/** Активный сотрудник пространства (членство и учётная запись активны). */
+export async function memberActive(sql: Sql, a: { spaceId: string; userId: string }): Promise<boolean> {
+  const rows = await sql<{ hit: number }>`
+    SELECT 1 AS hit FROM memberships m JOIN users u ON u.id = m.user_id AND u.status = 'active'
+     WHERE m.space_id = ${a.spaceId} AND m.user_id = ${a.userId} AND m.status = 'active'`;
+  return rows.length > 0;
+}
+
+/**
+ * Кандидаты во временные владельцы (§2.5.3): участники ролей `roles`, кроме `exceptUserId`, без отсутствия, которое
+ * пересекает период. `onlyInDistribution` — для «поровну» (участвуют в раздаче).
+ */
+export async function selectSubstituteCandidates(
+  sql: Sql,
+  a: { spaceId: string; roles: readonly string[]; exceptUserId: string; from: string; to: string; onlyInDistribution: boolean },
+): Promise<{ userId: string; name: string }[]> {
+  return sql<{ userId: string; name: string }>`
+    SELECT m.user_id, u.name FROM memberships m JOIN users u ON u.id = m.user_id AND u.status = 'active'
+     WHERE m.space_id = ${a.spaceId} AND m.status = 'active' AND m.role_key = ANY(${[...a.roles]}::text[])
+       AND m.user_id <> ${a.exceptUserId} AND (NOT ${a.onlyInDistribution}::boolean OR m.in_distribution)
+       AND NOT EXISTS (SELECT 1 FROM absences ab WHERE ab.space_id = m.space_id AND ab.user_id = m.user_id AND ab.cancelled_at IS NULL
+                         AND ab.from_day <= ${a.to}::text AND ab.to_day >= ${a.from}::text)
+     ORDER BY u.name, m.user_id`;
+}
+
+export interface AbsenceCardDb {
+  id: string;
+  clientId: string;
+  ownerUserId: string | null;
+  state: string;
+  callsTotal: number;
+  nextCallAt: number | null;
+  actingUserId: string | null;
+  actingUntilDay: string;
+  hasBooking: boolean;
+}
+
+/** Карточки отсутствующего: свои без временного (§2.5.2) и те, где он сам временный владелец. */
+export async function selectAbsenceCards(sql: Sql, a: { spaceId: string; userId: string; winFrom: string; winTo: string }): Promise<AbsenceCardDb[]> {
+  const own = await sql<AbsenceCardDb>`
+    SELECT c.id, c.client_id, c.owner_user_id, c.state, c.calls_total, c.next_call_at, c.acting_user_id, c.acting_until_day,
+           EXISTS (SELECT 1 FROM bookings b WHERE b.client_id = c.client_id AND b.space_id = c.space_id
+                     AND b.status IN ('registered','confirmed') AND b.booking_date BETWEEN ${a.winFrom}::text AND ${a.winTo}::text) AS has_booking
+      FROM cards c
+     WHERE c.space_id = ${a.spaceId} AND c.owner_user_id = ${a.userId} AND c.acting_user_id IS NULL AND c.hold_reason <> 'merged'
+       AND c.state IN ('new','retry','callback','agreed','client')`;
+  const substituting = await sql<AbsenceCardDb>`
+    SELECT c.id, c.client_id, c.owner_user_id, c.state, c.calls_total, c.next_call_at, c.acting_user_id, c.acting_until_day, FALSE AS has_booking
+      FROM cards c
+     WHERE c.space_id = ${a.spaceId} AND c.acting_user_id = ${a.userId} AND c.hold_reason <> 'merged'
+       AND c.state IN ('retry','callback','agreed','client')`;
+  return [...own, ...substituting];
+}
+
+/** Спорные пары среди клиентов (`open|distinct`): обе стороны в множестве. */
+export async function selectPairsAmong(sql: Sql, clientIds: readonly string[]): Promise<PairRow[]> {
+  if (clientIds.length < 2) return [];
+  const ids = [...clientIds];
+  return sql<PairRow>`
+    SELECT p.a_client_id, p.b_client_id, p.status FROM dup_pairs p
+     WHERE p.status IN ('open','distinct') AND p.a_client_id = ANY(${ids}::text[]) AND p.b_client_id = ANY(${ids}::text[])`;
+}
+
+/** Уведомление со счётчиком (`params {count}`); повтор по `dedupe_key` не задваивается. */
+export async function insertCountNotification(sql: Sql, a: { userId: string; kind: string; count: number; dedupeKey: string; now: number }): Promise<void> {
+  await sql`
+    INSERT INTO notifications (id, user_id, kind, entity_type, entity_id, params, dedupe_key, not_before, created_at)
+    VALUES (${newId()}, ${a.userId}, ${a.kind}, '', '', ${jsonParam({ count: a.count })}, ${a.dedupeKey}, ${a.now}, ${a.now})
+    ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`;
+}
+
+/** Какие временные владельцы снимаются (§2.5.4). */
+export type ActingScope = { owner: string } | { expiredBefore: string } | { cardIds: readonly string[] };
+
+/**
+ * Снять временных владельцев: у всех карточек владельца (отмена отсутствия), у карточек со сроком раньше дня (задача
+ * `absence`) или у перечисленных (временный стал владельцем). Ядро события снятия не имеет, запись пакетом: меняются
+ * `acting_*` и версия, в журнал `absence` (от временного к владельцу — нужно для D-175), в ленту `card.acting`.
+ */
+export async function releaseActing(sql: Sql, a: { spaceId: string; scope: ActingScope; today: string; runId: string; actorId: string | null; now: number }): Promise<number> {
+  const owner = 'owner' in a.scope ? a.scope.owner : null;
+  const expired = 'expiredBefore' in a.scope ? a.scope.expiredBefore : null;
+  const ids = 'cardIds' in a.scope ? [...a.scope.cardIds] : null;
+  if (ids !== null && ids.length === 0) return 0;
+  const cards = await sql<{ id: string; clientId: string; ownerUserId: string; actingUserId: string }>`
+    SELECT c.id, c.client_id, c.owner_user_id, c.acting_user_id FROM cards c
+     WHERE c.space_id = ${a.spaceId} AND c.acting_user_id IS NOT NULL AND c.owner_user_id IS NOT NULL
+       AND ((${owner}::text IS NOT NULL AND c.owner_user_id = ${owner}::text)
+         OR (${expired}::text IS NOT NULL AND c.acting_until_day < ${expired}::text)
+         OR (${ids}::text[] IS NOT NULL AND c.id = ANY(${ids}::text[])))
+     ORDER BY c.id FOR UPDATE OF c`;
+  if (cards.length === 0) return 0;
+  const locked = cards.map((c) => c.id);
+  await sql`
+    UPDATE cards SET acting_user_id = NULL, acting_until_day = '', version = version + 1, updated_at = ${a.now}::bigint
+     WHERE id = ANY(${locked}::text[])`;
+  await sql`
+    INSERT INTO assign_log (id, space_id, card_id, from_user_id, to_user_id, kind, counts_to_cap, run_id, day, actor_id, created_at)
+    SELECT w.id, ${a.spaceId}::text, w.card_id, w.from_user, w.to_user, 'absence', FALSE, ${a.runId}::text, ${a.today}::text, ${a.actorId}::text, ${a.now}::bigint
+      FROM unnest(${cards.map(() => newId())}::text[], ${locked}::text[], ${cards.map((c) => c.actingUserId)}::text[], ${cards.map((c) => c.ownerUserId)}::text[])
+           AS w(id, card_id, from_user, to_user)`;
+  await sql`
+    INSERT INTO client_events (id, client_id, space_id, deal_id, kind, actor_id, at, ref_type, ref_id, data)
+    SELECT w.id, w.client_id, ${a.spaceId}::text, NULL, 'card.acting', ${a.actorId}::text, ${a.now}::bigint, '', '',
+           ${jsonParam({ actingUserId: null, untilDay: '' })}
+      FROM unnest(${cards.map(() => newId())}::text[], ${cards.map((c) => c.clientId)}::text[]) AS w(id, client_id)`;
+  return cards.length;
+}
+
+// ---------------------------------------------------------------------------
+// «Без владельца (не новые)» (C6b §2.6)
+// ---------------------------------------------------------------------------
+
+export interface OwnerlessRow {
+  id: string;
+  clientId: string;
+  name: string;
+  state: string;
+  nextCallAt: number | null;
+  version: number;
+  createdAt: number;
+}
+
+export async function selectOwnerlessPage(
+  actor: DistributionActor,
+  sql: Sql,
+  a: { spaceId: string; limit: number; after: { createdAt: number; id: string } | null },
+): Promise<OwnerlessRow[]> {
+  const after = a.after ?? { createdAt: -1, id: '' };
+  return scoped(sql)<OwnerlessRow>`
+    SELECT c.id, c.client_id, cl.name, c.state, c.next_call_at, c.version, c.created_at
+      FROM cards c JOIN clients cl ON cl.id = c.client_id
+     WHERE c.space_id = ${a.spaceId} AND c.owner_user_id IS NULL AND c.state <> 'new' AND c.hold_reason <> 'merged'
+       AND (c.created_at, c.id) > (${after.createdAt}::bigint, ${after.id}::text)
+       AND ${scopeSql(actor, 'card', 'pool.read')}
+     ORDER BY c.created_at, c.id LIMIT ${a.limit}`;
+}
+
+/** Выдачи с этим `run_id` (повтор назначения «без владельца» тем же opId). */
+export async function countRunRows(sql: Sql, a: { spaceId: string; runId: string }): Promise<number> {
+  const rows = await sql<{ n: number }>`SELECT count(*)::int AS n FROM assign_log WHERE space_id = ${a.spaceId} AND run_id = ${a.runId}`;
+  return rows[0]?.n ?? 0;
+}

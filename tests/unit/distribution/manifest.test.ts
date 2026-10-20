@@ -11,7 +11,7 @@ const routeFile = (path: string) => join(ROOT, 'src', 'app', path, 'route.ts');
 
 test('манифест: маршруты — route.ts с экспортом метода, обёрткой route() и тем же правом', () => {
   const routes = manifest.entries.filter((e) => e.kind === 'route');
-  assert.equal(routes.length, 5);
+  assert.equal(routes.length, 10);
   for (const e of routes) {
     const file = routeFile(e.path);
     assert.ok(existsSync(file), `нет файла маршрута ${e.method} ${e.path}`);

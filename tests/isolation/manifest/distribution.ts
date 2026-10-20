@@ -31,6 +31,38 @@ const entries: ManifestEntry[] = [
     touches: ['cards', 'assign_log', 'client_events', 'notifications', 'audit_log'],
   },
   { kind: 'route', path: `${API}/log`, method: 'GET', perm: 'pool.read', target: 'section', mutation: false },
+  // C6b: «Отсутствует», «Пауза», «Без владельца (не новые)». Отсутствие — не охватываемая сущность: раздел.
+  { kind: 'route', path: `${API}/absences`, method: 'GET', perm: 'pool.read', target: 'section', mutation: false },
+  {
+    kind: 'route',
+    path: `${API}/absences`,
+    method: 'POST',
+    perm: 'distribution.manage',
+    target: 'section',
+    sampleBody: { opId: OP_ID, userId: 'u-op-a', fromDay: '2026-10-28', toDay: '2026-10-30', substituteUserId: 'u-op-b' },
+    mutation: true,
+    touches: ['absences', 'cards', 'assign_log', 'client_events', 'notifications', 'audit_log'],
+  },
+  {
+    kind: 'route',
+    path: `${API}/absences/[id]/cancel`,
+    method: 'POST',
+    perm: 'distribution.manage',
+    target: 'section',
+    mutation: true,
+    touches: ['absences', 'cards', 'assign_log', 'client_events', 'audit_log'],
+  },
+  { kind: 'route', path: `${API}/ownerless`, method: 'GET', perm: 'pool.read', target: 'section', mutation: false },
+  {
+    kind: 'route',
+    path: `${API}/ownerless/assign`,
+    method: 'POST',
+    perm: 'card.assign',
+    target: 'section',
+    sampleBody: { opId: OP_ID, toUserId: 'u-op-b', items: [{ cardId: 'cd-b-1', version: 0 }] },
+    mutation: true,
+    touches: ['cards', 'assign_log', 'client_events', 'notifications', 'audit_log'],
+  },
 ];
 
 export default defineManifest('distribution', entries);

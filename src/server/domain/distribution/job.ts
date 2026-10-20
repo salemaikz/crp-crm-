@@ -2,6 +2,7 @@
 // Расписание — из настроек: auto_even / top_up → сетка окна раздачи по рабочим дням; manual / off → задачи нет.
 import { z } from 'zod';
 import type { JobDefinition, JobResult, ScheduleInput, ScheduleSpec } from '@/server/platform/jobs/types';
+import { runAbsences } from './absence';
 import { runTick } from './tick';
 
 /** Время на один тик раздачи — 2 минуты (worker-design §3), а не общие 5 минут по умолчанию. */
@@ -58,5 +59,19 @@ export const distributeJob: JobDefinition = {
     ctx.log.info('distribute.tick', { status: report.status, assigned: report.assigned, raced: report.raced });
     if (report.status === 'skipped') return { status: 'skipped', stats, note: report.reason ?? 'skipped' };
     return { status: 'ok', stats };
+  },
+};
+
+/** Задача `absence@<пространство>` (07:30 ежедневно, включая выходные: срок отсутствия не зависит от рабочих дней). */
+export const absenceJob: JobDefinition = {
+  name: 'absence',
+  perSpace: true,
+  schedule: () => ({ kind: 'daily', at: '07:30', days: 'all' }),
+  writes: 'business',
+  async handler(ctx): Promise<JobResult> {
+    if (!ctx.space) throw new Error('absence: нужен контекст пространства');
+    const r = await runAbsences(ctx.actor, { spaceId: ctx.space.id, runId: ctx.runId, now: ctx.now });
+    ctx.log.info('absence.done', { ended: r.ended, released: r.released, acting: r.acting });
+    return { status: 'ok', stats: { ended: r.ended, released: r.released, acting: r.acting } };
   },
 };

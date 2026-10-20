@@ -97,8 +97,18 @@ test('закрытие и передача открытых задач идут 
   const { tx, log } = fakeTx();
   const e = empty();
   e.tasks.push({ op: 'close', sources: 'all' }, { op: 'close_by_key', sourceKey: 'k' }, { op: 'reassign_open', to: 'u-2' });
-  await applyCardEffects(tx, ACTOR, CARD, e, 100, CTX);
+  await applyCardEffects(tx, ACTOR, { ...CARD, priorOwnerUserId: 'u-op', priorActingUserId: 'u-temp' }, e, 100, CTX);
   assert.equal(log.filter((l) => tableOf(l.text) === 'tasks').length, 3);
+  const reassign = log.filter((l) => tableOf(l.text) === 'tasks')[2]!;
+  assert.deepEqual(reassign.values.find(Array.isArray), ['u-op', 'u-temp'], 'забираем задачи прежнего и временного владельца (D-254)');
+});
+
+test('передача без прежнего владельца и временного задач не трогает (D-254)', async () => {
+  const { tx, log } = fakeTx();
+  const e = empty();
+  e.tasks.push({ op: 'reassign_open', to: 'u-2' });
+  await applyCardEffects(tx, ACTOR, { ...CARD, priorOwnerUserId: null, priorActingUserId: null }, e, 100, CTX);
+  assert.equal(log.filter((l) => tableOf(l.text) === 'tasks').length, 0);
 });
 
 test('пропуск без сотрудника (система) — ошибка сборки', async () => {

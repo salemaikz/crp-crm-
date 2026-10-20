@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { DISTRIBUTION_HTTP_STATUS, DistributionDomainError, failureBody, isDistributionDomainError } from '../../../src/server/domain/distribution/errors';
 import { DISTRIBUTION_ERRORS } from '../../../src/server/domain/distribution/types';
 
-test('у каждого кода есть HTTP-статус: not_participant — 400, остальные — 409', () => {
-  for (const code of DISTRIBUTION_ERRORS) assert.equal(DISTRIBUTION_HTTP_STATUS[code], code === 'not_participant' ? 400 : 409, code);
+test('у каждого кода есть HTTP-статус: not_participant и dates — 400, остальные — 409', () => {
+  for (const code of DISTRIBUTION_ERRORS) assert.equal(DISTRIBUTION_HTTP_STATUS[code], code === 'not_participant' || code === 'dates' ? 400 : 409, code);
 });
 
 test('over_cap несёт остаток и лимит, остальные коды — только код', () => {
