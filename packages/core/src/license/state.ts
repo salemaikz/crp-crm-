@@ -3,7 +3,7 @@
 //   valid, expiring          → valid      всё работает (expiring — баннер администраторам, P10b)
 //   expired                  → grace      срок прошёл, идёт льготный период: всё работает
 //   invalid в льготе 7 дней   → grace      лицензия перестала сходиться после рабочей (сборка, битый файл);
-//                                         опора льготы — подписанная копия в БД (D-271), не строка license_state
+//                                         опора льготы — подписанная копия в БД (D-290), не строка license_state
 //   read_only                → read_only  мутации 423, кроме D-054; просмотр и выгрузка работают
 //   invalid                  → invalid    как read_only
 //   missing                  → missing    как read_only
@@ -32,13 +32,13 @@ export type EvaluateInput = {
   now: number;
   /** Сохранённое состояние прошлой проверки; null — проверок ещё не было. */
   previous: LicenseStatus | null;
-  /** Начало льготы `invalid` (license_state.invalid_since); null — льготы не было. Строке не доверяем (D-271). */
+  /** Начало льготы `invalid` (license_state.invalid_since); null — льготы не было. Строке не доверяем (D-290). */
   invalidSince: number | null;
   /** license_state.last_seen_at до этой проверки: invalidSince раньше него на 7+ сут — не начало текущей льготы. */
   lastSeenAt: number | null;
   /**
    * Последняя рабочая лицензия — копия license_raw, заново проверенная verifyStoredCopy; null — нет или не сходится.
-   * Без неё льготы `invalid` нет, и льгота не идёт дальше её expiresAt + graceDays (D-271).
+   * Без неё льготы `invalid` нет, и льгота не идёт дальше её expiresAt + graceDays (D-290).
    */
   anchor: LicensePayload | null;
   /** Отсутствие лицензии не блокирует (только общая сборка — missingAllowed). */
@@ -92,7 +92,7 @@ export function evaluateLicense({ verdict, now, previous, invalidSince, lastSeen
 }
 
 /**
- * Льгота 7 дней для `invalid` (D-211, D-271). Строка license_state правится в обход crmctl, поэтому ей не верим:
+ * Льгота 7 дней для `invalid` (D-211, D-290). Строка license_state правится в обход crmctl, поэтому ей не верим:
  *  - опора — подписанная копия последней рабочей лицензии (anchor): её нет или её срок + graceDays прошёл —
  *    льготы нет, что бы ни стояло в state и invalid_since; льгота не выходит за этот срок;
  *  - invalid_since в будущем или раньше last_seen_at − 7 сут — подделка или давно кончившаяся льгота: не учитываем;

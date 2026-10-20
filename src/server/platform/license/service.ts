@@ -3,7 +3,7 @@
 // Источник текста: файл LICENSE_PATH (его пишет `crmctl license install`), иначе копия в license_state
 // (восстановление из копии БД на новой ВМ работает без файла). Проверка — ядро: подпись, установка,
 // водяной знак, правило часов, состояния. Льгота `invalid` опирается только на подписанную копию license_raw
-// (D-271): правка state/invalid_since/last_seen_at в обход crmctl «только чтение» не снимает. Запись — под
+// (D-290): правка state/invalid_since/last_seen_at в обход crmctl «только чтение» не снимает. Запись — под
 // блокировкой строки: несколько процессов не сдвигают часы дважды. Аудит — на новую лицензию, смену состояния
 // и шаг при скачке часов.
 import { license as coreLicense } from '@crm/core';
@@ -49,7 +49,7 @@ export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSn
       previous,
       invalidSince: row.invalidSince,
       lastSeenAt: row.lastSeenAt,
-      // Опора льготы invalid — только подписанная копия в БД, а не state/invalid_since строки (D-271)
+      // Опора льготы invalid — только подписанная копия в БД, а не state/invalid_since строки (D-290)
       anchor: verdict === null ? null : verifyStoredCopy(row.licenseRaw, expect),
       allowMissing: missingAllowed(env.watermark),
     });

@@ -1,7 +1,7 @@
 // Лицензия на Postgres 16 (P10, ARCHITECTURE §5.3, §8.4, D-029, D-054, D-211): состояние считается из файла
 // и license_state ядром с одноразовыми ключами; мутации в read_only/invalid/missing → 423, кроме D-054;
 // выгрузка и чтение работают всегда; правило часов; правка строки license_state в обход crmctl ничего не даёт
-// (D-211, D-271): льгота invalid опирается только на подписанную копию license_raw.
+// (D-211, D-290): льгота invalid опирается только на подписанную копию license_raw.
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
@@ -145,7 +145,7 @@ test('подпись и установка: valid; запись копии в Б
   // Файл пропал — работает копия из БД (восстановление на новой ВМ)
   await put(null);
   assert.equal(await state(), 'valid');
-  // Подделка: поле state в БД при битой копии не делает лицензию рабочей и льготы не даёт — опоры нет (D-271)
+  // Подделка: поле state в БД при битой копии не делает лицензию рабочей и льготы не даёт — опоры нет (D-290)
   await db.sql`UPDATE license_state SET license_raw = ${'CRM1.e30.' + 'A'.repeat(86)}, state = 'valid'`;
   assert.equal(await state(), 'invalid');
   assert.equal((await row()).invalidSince, null);
@@ -254,7 +254,7 @@ test('кэш процесса: смена файла видна после ис�
   assert.equal(await currentLicenseState(), 'missing');
 });
 
-// ── Подделка строки license_state (D-271) ──────────────────────────────────────────────────────────────────
+// ── Подделка строки license_state (D-290) ──────────────────────────────────────────────────────────────────
 
 type Forge = { licenseRaw?: string; state?: string; invalidSince?: number | null; lastSeenAt?: number };
 /** Правка строки в обход crmctl, как её сделал бы root через psql. */

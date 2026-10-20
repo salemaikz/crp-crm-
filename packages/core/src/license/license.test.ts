@@ -211,7 +211,7 @@ test('перевод часов назад не возвращает лицен�
   assert.equal(ev({ verdict: v, now: c.now, previous: 'read_only', invalidSince: null }).access, 'read_only');
 });
 
-test('льгота invalid: опора — подписанная копия в БД; без неё или после её срока + graceDays льготы нет (D-271)', () => {
+test('льгота invalid: опора — подписанная копия в БД; без неё или после её срока + graceDays льготы нет (D-290)', () => {
   const bad = { ok: false as const, reason: 'malformed' as const };
   // Нет опоры (в БД мусор или пусто): state/invalid_since строки не дают льготы
   for (const invalidSince of [null, T0, T0 + 1_000 * DAY_MS]) {
@@ -232,7 +232,7 @@ test('льгота invalid: опора — подписанная копия в 
   assert.equal(ev({ verdict: bad, now: T0 + 3 * DAY_MS, previous: 'invalid', invalidSince: T0, anchor: short }).access, 'invalid');
 });
 
-test('льгота invalid: invalid_since в будущем или раньше last_seen_at − 7 сут не учитывается (D-271)', () => {
+test('льгота invalid: invalid_since в будущем или раньше last_seen_at − 7 сут не учитывается (D-290)', () => {
   const bad = { ok: false as const, reason: 'bad_signature' as const };
   // В будущем: не начало льготы. После invalid — сразу «только чтение»; после рабочей — льгота от «сейчас»
   const future = ev({ verdict: bad, now: T0, previous: 'invalid', invalidSince: 9_000_000_000_000_000 });
