@@ -102,7 +102,8 @@ export async function runSeedCommand(argv: string[], ctx: SeedCtx = defaultCtx()
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Только как отдельная программа (tsx); в бандле dist/crmctl.mjs этот файл — часть общего бандла, запуск идёт через index.ts
+if (/[\\/]seed\.ts$/.test(import.meta.url) && process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runSeedCommand(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e) => {

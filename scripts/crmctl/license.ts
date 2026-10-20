@@ -148,8 +148,7 @@ async function install(deps: Deps, file: string | undefined): Promise<number> {
   const st = await requireState(deps.paths);
   const text = await readSmall(file);
   if (text === null) throw new CrmctlError(`Файла ${file} нет`);
-  const quick = coreLicense.decodeLicense(text);
-  if (!quick.ok) throw new CrmctlError(`Лицензия не принята: ${reasonText(quick.reason)}`);
+  // Формат и подпись проверяет ядро образа (ниже): хостовая копия crmctl запускается без ядра (build-cli.mjs)
 
   io.out(`[1/3] Проверка ядром образа crm-app:${st.current.version}`);
   const v = await verifyInImage(deps, `crm-app:${st.current.version}`, file, st.installId);

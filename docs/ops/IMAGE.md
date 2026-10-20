@@ -18,6 +18,7 @@
 
 ```
 docker build -t crm-app:<версия> --build-arg BUILD_ID=<sha> .
+# клиентский образ: + --build-arg CUSTOMER_ID=<клиент> --secret id=license_keys,src=<keys.json>
 scripts/check-image.sh crm-app:<версия>
 ```
 
@@ -48,4 +49,4 @@ docker compose -f deploy/compose/compose.yaml up -d app worker
 
 - `worker` не стартует, пока нет `dist/worker.mjs` (точка входа `scripts/worker/index.ts` — отдельная задача). Healthcheck воркера — по процессу; heartbeat в БД добавит задача воркера.
 - CSP содержит `'unsafe-inline'` для скриптов (Next); переход на nonce — отдельно.
-- Обфускация ядра (`packages/core`, D-028) и слой клиента (`FROM crm-app:<версия>`) — задача K0/O1b.
+- Ядро (`packages/core`, D-028) собирается в образе `build.mjs` до `next build`; клиентский образ — `--build-arg CUSTOMER_ID/BUILD_ID` и секрет `license_keys` (открытые ключи лицензий). `dist/{migrate,crmctl,worker}.mjs` собирает `scripts/crmctl/build-cli.mjs`: ядро в них внешнее, берётся из образа. Слой клиента поверх готового образа (`FROM crm-app:<версия>`) — задача O1b.

@@ -4,7 +4,10 @@
 // В dev и тестах ядро берётся из исходников (tsconfig paths); dist нужен только production-сборке Next.
 //
 //   node packages/core/build.mjs                   общая сборка (водяной знак «unset»)
-//   node packages/core/build.mjs --customer <клиент> --build-id <id>   сборка ядра клиента (слой образа)
+//   node packages/core/build.mjs --customer <клиент> --build-id <id> --license-keys <файл>
+//                                                  сборка ядра клиента (слой образа); файл — JSON
+//                                                  { "<kid>": "<base64 32 байта открытого ключа>" } (D-211).
+//                                                  Для клиента ключи обязательны; тестовые `test-*` — запрещены.
 //   node packages/core/build.mjs --check           + проверки: нет карт и путей, экспорт совпадает,
 //                                                  тесты ядра и тест-векторы на обфусцированной сборке
 //   node packages/core/build.mjs --no-obfuscate    только esbuild + минификация (диагностика, запасной вариант)
@@ -31,6 +34,7 @@ const { values: args } = parseArgs({
   options: {
     customer: { type: 'string', default: process.env.CRM_CUSTOMER_ID ?? 'unset' },
     'build-id': { type: 'string', default: process.env.CRM_BUILD_ID ?? 'unset' },
+    'license-keys': { type: 'string', default: process.env.CRM_LICENSE_KEYS_FILE },
     check: { type: 'boolean', default: false },
     'no-obfuscate': { type: 'boolean', default: false },
   },
@@ -41,6 +45,37 @@ for (const k of ['customer', 'build-id']) {
   if (!ID_RE.test(args[k])) fail(`--${k}: только [a-z0-9._-], до 64 символов`);
 }
 
+/**
+ * Открытые ключи лицензий (D-211): только открытые половины Ed25519, формат как в license/keys.ts.
+ * Клиентская сборка (задан --customer) без ключей — ошибка: образ не смог бы проверить ни одну лицензию.
+ */
+function loadLicenseKeys() {
+  const clientBuild = args.customer !== 'unset';
+  const file = args['license-keys'];
+  if (!file) {
+    if (clientBuild) fail('--license-keys обязателен вместе с --customer (сборка клиента без ключей лицензий)');
+    return null;
+  }
+  let obj;
+  try {
+    obj = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    fail(`--license-keys ${file}: не читается или не JSON (${e.code ?? e.name})`);
+  }
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) fail('--license-keys: ожидается объект kid → ключ');
+  const entries = Object.entries(obj);
+  if (entries.length === 0) fail('--license-keys: пустой набор ключей');
+  for (const [kid, key] of entries) {
+    if (!/^[a-z0-9][a-z0-9._-]{0,31}$/.test(kid)) fail(`--license-keys: недопустимый kid ${JSON.stringify(kid)}`);
+    if (typeof key !== 'string' || !/^[A-Za-z0-9+/]{43}=$/.test(key) || Buffer.from(key, 'base64').length !== 32) {
+      fail(`--license-keys: ключ ${kid} — не 32 байта base64`);
+    }
+    if (clientBuild && kid.startsWith('test-')) fail(`--license-keys: тестовый ключ ${kid} в сборке клиента запрещён`);
+  }
+  return JSON.stringify(Object.fromEntries(entries));
+}
+const licenseKeys = loadLicenseKeys();
+
 // Внешние зависимости ядра: только zod (D-011) и встроенные модули — их не бандлим и не обфусцируем.
 const EXTERNAL = ['zod', 'node:*'];
 
@@ -48,6 +83,8 @@ const EXTERNAL = ['zod', 'node:*'];
 const define = {
   __CRM_CUSTOMER_ID__: JSON.stringify(args.customer),
   __CRM_BUILD_ID__: JSON.stringify(args['build-id']),
+  // Без файла константы нет: ядро доверяет только тестовому ключу репозитория (dev и общая сборка)
+  ...(licenseKeys === null ? {} : { __CRM_LICENSE_KEYS__: JSON.stringify(licenseKeys) }),
 };
 
 /**
@@ -129,7 +166,7 @@ async function buildCore() {
     `core build: ${relative(process.cwd(), OUT)} · esbuild ${(t1 - t0).toFixed(0)} мс · ` +
       `обфускация ${args['no-obfuscate'] ? 'выкл' : `${(t2 - t1).toFixed(0)} мс`} · ` +
       `${kb(plain.length)} → ${kb(code.length)} (gzip ${kb(gzipSync(code).length)}) · ` +
-      `клиент ${args.customer}, сборка ${args['build-id']}`,
+      `клиент ${args.customer}, сборка ${args['build-id']}, ключи лицензий ${licenseKeys === null ? 'тестовый' : Object.keys(JSON.parse(licenseKeys)).join(',')}`,
   );
   return { plain, code };
 }
