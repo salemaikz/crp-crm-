@@ -13,6 +13,15 @@ const restrict = (paths, patterns) => ({
 });
 const msg = (group, message, allowTypeImports = false) => ({ group, message, allowTypeImports });
 
+// Внутренности доступа: подмена сессии/часов для тестов, сырые SQL-фрагменты охвата, реестр выданных исполнителей.
+// В src/** (кроме самого src/server/access) их импортировать нельзя — только тесты (дублирует tests/unit/layers.test.ts).
+const ACCESS_INTERNALS = msg(
+  ['@/server/access/testing', '@/server/access/sqlFrag', '@/server/access/registry', '**/access/testing', '**/access/sqlFrag', '**/access/registry'],
+  'access/testing, access/sqlFrag и access/registry — внутренности доступа: тесты и сам src/server/access.',
+);
+// restrict для файлов src/** вне src/server/access: общие запреты блока + запрет внутренностей доступа
+const restrictSrc = (paths, patterns) => restrict(paths, [...patterns, ACCESS_INTERNALS]);
+
 const INTEGRATION_PATTERNS = [
   msg(['@/server/domain', '@/server/domain/*', '@/app/*', '@/ui', '@/ui/*'], 'Интеграции не импортируют домен и интерфейс.'),
   msg([SYSTEM_ACTOR], 'SystemActor недоступен интеграциям.'),
@@ -23,6 +32,12 @@ const config = [
   ...nextTs,
   {
     ignores: ['.next/**', 'node_modules/**', 'docs/**', '.claude/**', 'dist/**', 'packages/core/dist/**', 'playwright-report/**', 'test-results/**'],
+  },
+  // Остальной src/** (i18n, shared, proxy, platform/http): внутренности доступа закрыты; дальше блоки слоёв повторяют запрет
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/server/access/**'],
+    rules: restrictSrc([], []),
   },
   // Ядро: только себя и zod
   {
@@ -39,7 +54,7 @@ const config = [
   {
     files: ['src/server/platform/**/*.{ts,tsx}'],
     ignores: ['src/server/platform/http/**'],
-    rules: restrict(
+    rules: restrictSrc(
       [],
       [msg(NEXT, 'Платформа без Next (кроме src/server/platform/http/).'), msg(['@/server/domain', '@/server/domain/*', '@/integrations', '@/integrations/*', '@/app/*', '@/ui', '@/ui/*'], 'Платформа не импортирует домен, интеграции и интерфейс.')],
     ),
@@ -47,7 +62,7 @@ const config = [
   // Домен: без Next, интерфейса и конкретных плагинов (контракт можно); SystemActor — только типом
   {
     files: ['src/server/domain/**/*.{ts,tsx}'],
-    rules: restrict(
+    rules: restrictSrc(
       [],
       [
         msg(NEXT, 'Домен без Next.'),
@@ -66,20 +81,20 @@ const config = [
   // между блоками (последний побеждает), поэтому блоки плагинов собираются из общего списка + своего запрета
   {
     files: ['src/integrations/**/*.{ts,tsx}'],
-    rules: restrict([], INTEGRATION_PATTERNS),
+    rules: restrictSrc([], INTEGRATION_PATTERNS),
   },
   {
     files: ['src/integrations/telephony/**/*.{ts,tsx}'],
-    rules: restrict([], [...INTEGRATION_PATTERNS, msg(['@/integrations/messenger/*', '@/integrations/messenger'], 'Плагины не импортируют друг друга.')]),
+    rules: restrictSrc([], [...INTEGRATION_PATTERNS, msg(['@/integrations/messenger/*', '@/integrations/messenger'], 'Плагины не импортируют друг друга.')]),
   },
   {
     files: ['src/integrations/messenger/**/*.{ts,tsx}'],
-    rules: restrict([], [...INTEGRATION_PATTERNS, msg(['@/integrations/telephony/*', '@/integrations/telephony'], 'Плагины не импортируют друг друга.')]),
+    rules: restrictSrc([], [...INTEGRATION_PATTERNS, msg(['@/integrations/telephony/*', '@/integrations/telephony'], 'Плагины не импортируют друг друга.')]),
   },
   // Интерфейс: SQL и охват запросов — только через домен и доступ; SystemActor недоступен
   {
     files: ['src/app/**/*.{ts,tsx}', 'src/ui/**/*.{ts,tsx}'],
-    rules: restrict(
+    rules: restrictSrc(
       [{ name: 'postgres', message: 'SQL — только в репозиториях домена.' }],
       [
         msg(['@/server/platform/db', '@/server/platform/db/*'], 'Интерфейс не работает с БД напрямую.'),

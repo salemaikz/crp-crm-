@@ -111,6 +111,10 @@ export function checkFile(file: string, source: string): Violation[] {
     if (target === 'src/server/access/scope' && !(under(file, 'src/server/access') || under(file, 'src/server/domain') || under(file, 'tests'))) {
       bad('scopeSql выдаёт только src/server/access, использует домен');
     }
+    // Внутренности доступа (подмена сессии/часов, сырой SQL охвата, реестр исполнителей) — только тесты и сам доступ
+    if (/^src\/server\/access\/(testing|sqlFrag|registry)$/.test(target) && under(file, 'src') && !under(file, 'src/server/access')) {
+      bad('access/testing, access/sqlFrag и access/registry недоступны из src/** (кроме src/server/access)');
+    }
     // Клиентский компонент не получает ядро и сервер
     if (client && (under(target, 'packages/core') || under(target, 'src/server'))) bad("файл с 'use client' не импортирует ядро и src/server/**");
   }
@@ -156,6 +160,16 @@ test('проверка слоёв ловит нарушения (самопро�
   assert.equal(checkFile('src/ui/C.tsx', "import { a } from '@/server/platform/env';").length, 0);
   assert.equal(checkFile('src/integrations/telephony/z/i.ts', "import {\n  x,\n} from '@/server/domain/calls';").length, 1);
   assert.equal(checkFile('src/integrations/telephony/z/i.ts', "import { S } from '@/server/access/systemActor';").length, 1);
+  // Внутренности доступа закрыты для src/**, открыты тестам и самому доступу
+  assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { signInForTests } from '@/server/access/testing';").length, 1);
+  assert.equal(checkFile('src/server/domain/clients/repo.ts', "import { x } from '../../access/sqlFrag';").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "import { assertIssued } from '@/server/access/registry';").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "const m = await import('@/server/access/testing');").length, 1);
+  assert.equal(checkFile('src/server/platform/x.ts', "import type { T } from '@/server/access/testing';").length, 1);
+  assert.equal(checkFile('src/server/access/scope.ts', "import { x } from './sqlFrag';").length, 0);
+  assert.equal(checkFile('src/server/access/viewer.ts', "import { registerActor } from './registry';").length, 0);
+  assert.equal(checkFile('tests/integration/access/world.ts', "import { resetAccessForTests } from '../../../src/server/access/testing';").length, 0);
+  assert.equal(checkFile('src/app/page.tsx', "import { page } from '@/server/access';").length, 0);
   // В .ts приведение <T>x не должно прятать импорты после себя
   assert.equal(checkFile('src/app/x.ts', "const a = <any>foo;\nconst m = require('@/server/platform/db');").length, 1);
   assert.equal(checkFile('src/app/x.ts', "function f<T>(x: T) { return <T>x; }\nexport { getDb } from '@/server/platform/db';").length, 1);
