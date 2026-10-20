@@ -8,6 +8,8 @@ ARG NODE_IMAGE=node:22-slim
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /build
 COPY package.json package-lock.json ./
+# Рабочее пространство ядра: без его package.json npm ci не создаст ссылку node_modules/@crm/core
+COPY packages/core/package.json ./packages/core/package.json
 # Секрет npmca (необязателен): корневой сертификат корпоративного прокси —
 #   docker build --secret id=npmca,src=/path/ca.pem .
 RUN --mount=type=secret,id=npmca,required=false \
@@ -20,20 +22,24 @@ WORKDIR /build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /build/node_modules ./node_modules
 COPY . .
+# Ядро (D-028, D-101): esbuild + обфускация → packages/core/dist/index.cjs, ДО next build. Сборка клиента:
+#   docker build --build-arg CUSTOMER_ID=<клиент> --build-arg BUILD_ID=<id> --secret id=license_keys,src=<keys.json> .
+# keys.json — JSON { "<kid>": "<открытый ключ Ed25519 base64>" } (только открытые половины; D-211). С CUSTOMER_ID
+# без ключей build.mjs падает: образ клиента без ключей не проверил бы ни одну лицензию. Без CUSTOMER_ID —
+# общая сборка (стенд, CI): водяного знака нет, лицензии проверяются тестовым ключом репозитория.
+ARG CUSTOMER_ID=
+ARG BUILD_ID=dev
+RUN --mount=type=secret,id=license_keys,required=false \
+    set -eu; set --; \
+    if [ -n "$CUSTOMER_ID" ]; then set -- --customer "$CUSTOMER_ID" --build-id "$BUILD_ID"; fi; \
+    if [ -s /run/secrets/license_keys ]; then set -- "$@" --license-keys /run/secrets/license_keys; fi; \
+    node packages/core/build.mjs "$@"
 # Карт кода нет: next.config.ts ставит productionBrowserSourceMaps=false, ниже это ещё и проверяется
 RUN npx next build --webpack && mkdir -p public
 # Скрипты migrate, crmctl, worker — один минифицированный .mjs на каждый, без исходников в образе.
-# Собираем те точки входа, что уже есть в репозитории; без migrate образ не собирается.
-RUN set -eu; mkdir -p dist; \
-    for pair in scripts/db-migrate.ts:migrate scripts/crmctl/index.ts:crmctl scripts/worker/index.ts:worker; do \
-      src="${pair%%:*}"; out="${pair##*:}"; \
-      if [ -f "$src" ]; then \
-        npx esbuild "$src" --bundle --platform=node --target=node22 --format=esm --minify \
-          --banner:js="import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" \
-          --outfile="dist/$out.mjs"; \
-      elif [ "$out" = migrate ]; then echo "нет $src" >&2; exit 1; \
-      else echo "пропуск $out: нет $src"; fi; \
-    done
+# Ядро @crm/core в них не вшивается (build-cli.mjs): берётся из образа, тот же обфусцированный dist,
+# что у приложения, — лицензия проверяется ключами образа. Без migrate образ не собирается.
+RUN node scripts/crmctl/build-cli.mjs --outdir dist
 # Страховка: ни одной карты кода в результатах сборки
 RUN test -z "$(find .next/standalone .next/static dist -name '*.map' -print -quit)"
 
@@ -57,11 +63,16 @@ COPY --from=build /build/.next/standalone ./
 COPY --from=build /build/.next/static ./.next/static
 COPY --from=build /build/public ./public
 COPY --from=build /build/dist ./dist
+# Ядро: только package.json и обфусцированный dist; ссылку node_modules/@crm/core ставит standalone-трассировка,
+# её копия ниже страхует случай, когда трассировка её не положила
+COPY --from=build /build/packages/core/package.json ./packages/core/package.json
+COPY --from=build /build/packages/core/dist ./packages/core/dist
+RUN mkdir -p node_modules/@crm && ln -sfn ../../packages/core node_modules/@crm/core
 COPY migrations ./migrations
 COPY presets ./presets
 COPY deploy/postgres/grants.sql ./deploy/postgres/grants.sql
 # standalone кладёт копии конфигов и lock-файла; исходников в нём быть не должно
-RUN rm -rf /app/src /app/packages /app/tests /app/docs /app/next.config.ts /app/tsconfig.json \
+RUN rm -rf /app/src /app/packages/core/src /app/packages/core/build.mjs /app/tests /app/docs /app/next.config.ts /app/tsconfig.json \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 # npm, npx, corepack и yarn в рантайме не нужны (меньше поверхность атаки); их пакеты несут .map и .ts
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \

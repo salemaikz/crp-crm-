@@ -3,6 +3,7 @@
 import type { SystemActor } from '@/server/access';
 import { bookingDeps, ensureAllSeries } from '@/server/domain/booking';
 import { getDb } from '@/server/platform/db';
+import { licenseJobHandler } from '@/server/platform/license/job';
 import { purgeInvites, purgePushOutbox, purgeSessions, type JobDefinition, type JobResult, type Ms } from '@/server/platform/jobs';
 
 /** Часть сверки `invariants`: возвращает число найденных нарушений (в stats по ключу части). */
@@ -87,14 +88,14 @@ export const eventsEnsureJob: JobDefinition = {
 
 const notImplemented = async (): Promise<JobResult> => ({ status: 'skipped', stats: {}, note: 'not_implemented' });
 
-/** Заглушка до P10: страница «Состояние» показывает «не реализовано». */
+/** Пересчёт состояния лицензии при старте и раз в час (P10, D-211): часы и «только чтение» идут и без запросов. */
 export const licenseJob: JobDefinition = {
   name: 'license',
   perSpace: false,
   schedule: () => ({ kind: 'interval', everyMin: 60 }),
   runOnStart: true,
   writes: 'housekeeping',
-  handler: notImplemented,
+  handler: licenseJobHandler,
 };
 
 export const configIntegrityJob: JobDefinition = {

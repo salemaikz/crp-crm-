@@ -116,7 +116,8 @@ export async function runIngestKey(argv: string[], ctx: IngestCtx = defaultCtx()
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Только как отдельная программа (tsx); в бандле dist/crmctl.mjs этот файл — часть общего бандла, запуск идёт через index.ts
+if (/[\\/]ingest\.ts$/.test(import.meta.url) && process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runIngestKey(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e) => {

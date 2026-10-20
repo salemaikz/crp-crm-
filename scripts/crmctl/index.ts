@@ -12,12 +12,9 @@ import { health, status } from './status';
 import { CrmctlError, type Deps } from './types';
 import { update } from './update';
 import { stubVerifier } from './verify';
-import { runConfig } from './config';
 import { backupMain } from './backup';
 import { restoreMain } from './restore';
-import { runIngestKey } from './ingest';
-import { runJob } from './job';
-import { runSeedCommand } from './seed';
+import { imageLicenseVerifier, license } from './license';
 
 type Command = (deps: Deps, args: ParsedArgs) => Promise<number>;
 
@@ -31,19 +28,22 @@ export const commands: Record<string, Command> = {
   rollback,
   status: (deps) => status(deps),
   health: (deps) => health(deps),
+  license,
 };
 
 /**
  * Команды со своим разбором аргументов: получают argv без имени команды и сами печатают справку.
  * config — настройки (P5), backup/restore — копии и восстановление (O3).
  */
+// Команды, которым нужны БД и ядро, подключаются лениво: хостовая копия crmctl запускается без ядра и без
+// приложения (build-cli.mjs), а эти команды исполняются внутри образа. Статический импорт уронил бы весь crmctl.
 export const rawCommands: Record<string, (argv: string[]) => Promise<number>> = {
-  config: runConfig,
+  config: async (argv) => (await import('./config')).runConfig(argv),
   backup: (argv) => backupMain(argv),
   restore: (argv) => restoreMain(argv),
-  'ingest-key': runIngestKey,
-  seed: runSeedCommand,
-  job: runJob,
+  'ingest-key': async (argv) => (await import('./ingest')).runIngestKey(argv),
+  seed: async (argv) => (await import('./seed')).runSeedCommand(argv),
+  job: async (argv) => (await import('./job')).runJob(argv),
 };
 
 export const USAGE = `crmctl — сопровождение установки CRM
@@ -59,12 +59,13 @@ export const USAGE = `crmctl — сопровождение установки C
   restore …       восстановление копии (crmctl restore --help)
   ingest-key …    ключи источников лидов: create | list | revoke
   seed …          синтетические данные для стенда (только стенд; crmctl seed --help)
+  license …       лицензия: install <файл> | status
   job …           фоновые задачи: list | run <имя> [--space <ключ>] [--slot <ключ>]
 
 Пакет — каталог или .tar.zst. Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;
 
 export function defaultDeps(env: Record<string, string | undefined> = process.env): Deps {
-  return {
+  const deps: Deps = {
     exec: realExecutor,
     io: { out: (l) => console.log(l), err: (l) => console.error(l) },
     env,
@@ -84,6 +85,9 @@ export function defaultDeps(env: Record<string, string | undefined> = process.en
     randomBytes: (n) => randomBytes(n),
     randomUuid: () => randomUUID(),
   };
+  // Лицензия проверяется ядром НОВОГО образа до переключения (P10, D-211); подпись пакета — пока заглушка (O4c)
+  deps.verifier = { ...deps.verifier, verifyLicense: imageLicenseVerifier(deps).verifyLicense };
+  return deps;
 }
 
 /** Точка входа для тестов и main: возвращает код выхода, не завершает процесс. */
