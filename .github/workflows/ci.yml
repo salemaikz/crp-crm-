@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Новый прогон отменяет устаревший той же ветки (минуты платные)
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+  HUSKY: '0'
+
+jobs:
+  # Быстрые проверки без БД: типы, lint, unit (паритет локалей и стоп-слова — внутри unit)
+  static:
+    name: typecheck, lint, unit (${{ matrix.tz }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [UTC, Asia/Almaty]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # tsc и lint не зависят от часового пояса — один раз
+      - name: Typecheck
+        if: matrix.tz == 'UTC'
+        run: npm run typecheck
+      - name: Lint
+        if: matrix.tz == 'UTC'
+        run: npm run lint
+      - name: Unit-тесты (TZ=${{ matrix.tz }})
+        run: npm run test:unit
+        env:
+          TZ: ${{ matrix.tz }}
+
+  # Postgres 16: миграции, права, интеграционные тесты, сборка
+  database:
+    name: postgres 16, integration, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: crm_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MIGRATE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/crm_ci
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/crm_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Миграции с нуля дважды и контрольные суммы
+        run: scripts/ci/check-migrations.sh
+      - name: grants.sql дважды
+        run: scripts/ci/apply-grants.sh
+      - name: Интеграционные тесты
+        run: npm run test:integration
+      - name: Сборка (webpack)
+        run: npx next build --webpack
+      - name: Нет .map в сборке
+        run: scripts/ci/check-no-sourcemaps.sh
