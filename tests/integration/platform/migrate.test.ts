@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { MIGRATION_LOCK_KEY } from '../../../src/server/platform/db/locks';
 import { createTestDb } from '../../../src/server/platform/db/testing';
 import {
   MigrationChecksumError,
@@ -118,6 +119,59 @@ test('незнакомая накатанная миграция (откат р�
     await rm(path.join(dir, B));
     assert.deepEqual(await migrate(db, dir), []);
     assert.deepEqual((await migrationStatus(db, dir)).unknown, [B]);
+  } finally {
+    await db.close();
+  }
+});
+
+test('файл .sql с неверным именем — ошибка, а не молчаливый пропуск', async () => {
+  const dir = await tmpMigrations({ [A]: 'SELECT 1;', '2026-10-22-calling_fix.sql': 'SELECT 1;' });
+  const db = await createTestDb({ migrate: false, register: false });
+  try {
+    await assert.rejects(migrate(db, dir), /2026-10-22-calling_fix\.sql/);
+    await assert.rejects(migrationStatus(db, dir), /Неверное имя/);
+  } finally {
+    await db.close();
+  }
+});
+
+test('assertMigrated: изменённый применённый файл — MigrationChecksumError', async () => {
+  const dir = await tmpMigrations({ [A]: 'SELECT 1;' });
+  const db = await createTestDb({ migrate: false, register: false });
+  try {
+    await migrate(db, dir);
+    await assertMigrated(db, dir);
+    await writeFile(path.join(dir, A), 'SELECT 2;');
+    await assert.rejects(assertMigrated(db, dir), (e: unknown) => e instanceof MigrationChecksumError && e.changed.join() === A);
+  } finally {
+    await db.close();
+  }
+});
+
+test('lock_timeout действует и на advisory-блокировку: занятая блокировка не вешает migrate', async () => {
+  const dir = await tmpMigrations({ [A]: 'SELECT 1;' });
+  const db = await createTestDb({ migrate: false, register: false });
+  try {
+    await migrate(db, await tmpMigrations()); // создать schema_migrations
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const lockedP = new Promise<void>((r) => (locked = r));
+    const holder = db.withTx(async (c) => {
+      await c.sql`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK_KEY})`;
+      locked();
+      await held;
+    });
+    await lockedP;
+    const t0 = Date.now();
+    try {
+      await assert.rejects(migrate(db, dir, { lockTimeoutMs: 300 }), /lock timeout/i);
+      assert.ok(Date.now() - t0 < 5000, 'ожидание ограничено lock_timeout');
+    } finally {
+      release();
+      await holder;
+    }
+    assert.deepEqual(await migrate(db, dir), [A]);
   } finally {
     await db.close();
   }

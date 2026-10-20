@@ -74,7 +74,7 @@ Code — в `CLAUDE.md`.
   `calls`, `pwa`, `distribution`, `intake`, `import`, `booking`, `deals`,
   `handoffs`, `tasks`, `timeline`, `reports`, `team`, `notify`, `admin`,
   `license`, `integrations`, `telephony`, `messenger`, `ui`, `i18n`,
-  `presets`, `deploy`, `ci`, `ops`, `plan`, `agents`, `handoff`.
+  `presets`, `deploy`, `ci`, `ops`, `plan`, `agents`, `handoff`, `platform`.
 - Тело коммита объясняет, *зачем* сделано и какие компромиссы приняты, а не
   пересказывает дифф.
 - Никогда: `--no-verify`, `push --force` в чужую ветку, переписывание истории

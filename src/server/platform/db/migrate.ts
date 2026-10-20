@@ -22,6 +22,11 @@ export function migrationsDir(): string {
 /** Файлы миграций по алфавиту. Пустой каталог допустим (до влития схемы); несуществующий — ошибка. */
 export async function listMigrations(dir = migrationsDir()): Promise<string[]> {
   const files = await readdir(dir);
+  // Файл .sql с неверным именем нельзя молча пропускать: db:status показал бы «всё накатано»
+  const bad = files.filter((f) => f.toLowerCase().endsWith('.sql') && !NAME_RE.test(f));
+  if (bad.length > 0) {
+    throw new Error(`Неверное имя файла миграции (${bad.join(', ')}): ожидается YYYY-MM-DD-<slug>.sql, slug из a-z, 0-9 и «-».`);
+  }
   return files.filter((f) => NAME_RE.test(f)).sort();
 }
 
@@ -98,16 +103,20 @@ export async function migrationStatus(db: Pick<Db, 'sql'>, dir = migrationsDir()
   return diffMigrations(files, rows.map((r) => r.name), diskHashes, appliedHashes);
 }
 
-/** Fail closed: есть ненакатанные миграции — ошибка со списком. Лишние накатанные (БД новее) — не ошибка. */
+/**
+ * Fail closed: есть ненакатанные миграции или применённый файл изменён (D-059) — ошибка.
+ * Лишние накатанные (БД новее) — не ошибка.
+ */
 export async function assertMigrated(db: Pick<Db, 'sql'>, dir = migrationsDir()): Promise<void> {
-  const { pending } = await migrationStatus(db, dir);
+  const { pending, changed } = await migrationStatus(db, dir);
+  if (changed.length > 0) throw new MigrationChecksumError(changed);
   if (pending.length > 0) throw new MigrationsPendingError(pending);
 }
 
 /**
  * Применяет ненакатанные миграции в одной транзакции под advisory-блокировкой. Возвращает имена
  * применённых. Сначала сверяет sha256 уже применённых файлов: расхождение — MigrationChecksumError.
- * lockTimeoutMs — сколько ждать блокировку таблицы (lock_timeout действует до конца транзакции).
+ * lockTimeoutMs — сколько ждать блокировку таблицы (lock_timeout действует до конца транзакции и ставится ДО advisory-блокировки, чтобы она тоже не ждала вечно).
  */
 export async function migrate(
   db: DbHandle,
@@ -121,13 +130,13 @@ export async function migrate(
   // не должна падать на актуальной схеме
   if (before.pending.length === 0 && t?.ok) return [];
   return db.withTx(async (c) => {
-    await c.sql`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK_KEY})`;
     if (opts.lockTimeoutMs !== undefined) {
       if (!Number.isSafeInteger(opts.lockTimeoutMs) || opts.lockTimeoutMs < 0) {
         throw new Error('lockTimeoutMs must be a non-negative integer');
       }
       await c.sql`SELECT set_config('lock_timeout', ${String(opts.lockTimeoutMs)}, true)`;
     }
+    await c.sql`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK_KEY})`;
     await c.exec(
       'CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at BIGINT NOT NULL, sha256 TEXT NOT NULL)',
     );

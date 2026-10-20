@@ -3,20 +3,47 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join, normalize } from 'node:path';
+import ts from 'typescript';
 import { read, walk } from '../helpers/sourceFiles';
 
 const CODE = ['.ts', '.tsx', '.mjs'] as const;
-const IMPORT_RE = /(?:^|\n)\s*(import|export)\s+(type\s+)?(?:[^'"\n;]*?\sfrom\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
-
 type Imp = { spec: string; typeOnly: boolean };
 
-export function importsOf(source: string): Imp[] {
+/** Все зависимости файла через TypeScript API: import/export from (в т.ч. многострочные), import(), require(). */
+export function importsOf(source: string, fileName = 'x.tsx'): Imp[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const out: Imp[] = [];
-  for (const m of source.matchAll(IMPORT_RE)) {
-    const spec = m[3] ?? m[4];
-    if (spec) out.push({ spec, typeOnly: m[2] !== undefined });
-  }
+  const lit = (n: ts.Node | undefined) => (n && ts.isStringLiteralLike(n) ? n.text : undefined);
+  const visit = (n: ts.Node): void => {
+    if (ts.isImportDeclaration(n)) {
+      const spec = lit(n.moduleSpecifier);
+      if (spec) out.push({ spec, typeOnly: n.importClause?.isTypeOnly === true });
+    } else if (ts.isExportDeclaration(n)) {
+      const spec = lit(n.moduleSpecifier);
+      if (spec) out.push({ spec, typeOnly: n.isTypeOnly });
+    } else if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference)) {
+      const spec = lit(n.moduleReference.expression);
+      if (spec) out.push({ spec, typeOnly: n.isTypeOnly });
+    } else if (ts.isCallExpression(n)) {
+      const isDyn = n.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isReq = ts.isIdentifier(n.expression) && n.expression.text === 'require';
+      const spec = (isDyn || isReq) && n.arguments.length > 0 ? lit(n.arguments[0]) : undefined;
+      if (spec) out.push({ spec, typeOnly: false });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
   return out;
+}
+
+/** Директива 'use client' среди начальных директив файла (после "use strict" и комментариев тоже). */
+export function isClientFile(source: string): boolean {
+  const sf = ts.createSourceFile('x.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  for (const st of sf.statements) {
+    if (!ts.isExpressionStatement(st) || !ts.isStringLiteral(st.expression)) break;
+    if (st.expression.text === 'use client') return true;
+  }
+  return false;
 }
 
 /** Спецификатор → путь от корня репозитория без расширения (для @/, @crm/core и относительных) или сам пакет. */
@@ -35,8 +62,8 @@ type Violation = string;
 /** Правила слоёв для одного файла. */
 export function checkFile(file: string, source: string): Violation[] {
   const v: Violation[] = [];
-  const imps = importsOf(source);
-  const client = /^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*['"]use client['"]/.test(source);
+  const imps = importsOf(source, file);
+  const client = isClientFile(source);
   for (const { spec, typeOnly } of imps) {
     const target = resolveSpec(file, spec);
     const bad = (why: string) => v.push(`${file}: import '${spec}' — ${why}`);
@@ -113,4 +140,17 @@ test('проверка слоёв ловит нарушения (самопро�
   assert.equal(checkFile('src/ui/Card.tsx', "import { x } from '@crm/core';").length, 0);
   assert.equal(checkFile('src/integrations/telephony/zadarma/index.ts', "import { m } from '../../messenger/wazzup';").length, 1);
   assert.equal(checkFile('scripts/worker.ts', "import { SystemActor } from '../src/server/access/systemActor';").length, 0);
+  // Многострочные и скрытые формы импорта
+  assert.equal(checkFile('src/app/page.tsx', "import {\n  getDb,\n} from '@/server/platform/db';").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "export {\n  getDb,\n} from '@/server/platform/db';").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "const m = await import(\n  '@/server/platform/db'\n);").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "const m = require('@/server/platform/db');").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "import db = require('@/server/platform/db');").length, 1);
+  assert.equal(checkFile('src/app/page.tsx', "// import { x } from '@/server/platform/db';\nconst s = \"import x from '@/server/platform/db'\";").length, 0);
+  assert.equal(checkFile('src/ui/C.tsx', "'use client';\nimport {\n  a,\n} from '@/server/domain/x';").length, 1);
+  assert.equal(checkFile('src/ui/C.tsx', "\"use strict\";\n'use client';\nimport { a } from '@/server/platform/env';").length, 1);
+  assert.equal(checkFile('src/ui/C.tsx', "/* c */\n// d\n'use client'\nconst a = require('@/server/platform/env');").length, 1);
+  assert.equal(checkFile('src/ui/C.tsx', "import { a } from '@/server/platform/env';").length, 0);
+  assert.equal(checkFile('src/integrations/telephony/z/i.ts', "import {\n  x,\n} from '@/server/domain/calls';").length, 1);
+  assert.equal(checkFile('src/integrations/telephony/z/i.ts', "import { S } from '@/server/access/systemActor';").length, 1);
 });

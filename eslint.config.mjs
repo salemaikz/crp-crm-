@@ -13,6 +13,11 @@ const restrict = (paths, patterns) => ({
 });
 const msg = (group, message, allowTypeImports = false) => ({ group, message, allowTypeImports });
 
+const INTEGRATION_PATTERNS = [
+  msg(['@/server/domain', '@/server/domain/*', '@/app/*', '@/ui', '@/ui/*'], 'Интеграции не импортируют домен и интерфейс.'),
+  msg([SYSTEM_ACTOR], 'SystemActor недоступен интеграциям.'),
+];
+
 const config = [
   ...next,
   ...nextTs,
@@ -57,21 +62,19 @@ const config = [
     files: ['src/server/access/**/*.{ts,tsx}'],
     rules: restrict([], [msg(['@/app/*', '@/ui', '@/ui/*', '@/integrations', '@/integrations/*'], 'Доступ не импортирует интерфейс и интеграции.')]),
   },
-  // Интеграции: ядро и платформа; друг друга и домен — нельзя
+  // Интеграции: ядро и платформа; друг друга и домен — нельзя. Flat config не склеивает no-restricted-imports
+  // между блоками (последний побеждает), поэтому блоки плагинов собираются из общего списка + своего запрета
   {
     files: ['src/integrations/**/*.{ts,tsx}'],
-    rules: restrict([], [
-      msg(['@/server/domain', '@/server/domain/*', '@/app/*', '@/ui', '@/ui/*'], 'Интеграции не импортируют домен и интерфейс.'),
-      msg([SYSTEM_ACTOR], 'SystemActor недоступен интеграциям.'),
-    ]),
+    rules: restrict([], INTEGRATION_PATTERNS),
   },
   {
     files: ['src/integrations/telephony/**/*.{ts,tsx}'],
-    rules: restrict([], [msg(['@/integrations/messenger/*', '@/integrations/messenger'], 'Плагины не импортируют друг друга.')]),
+    rules: restrict([], [...INTEGRATION_PATTERNS, msg(['@/integrations/messenger/*', '@/integrations/messenger'], 'Плагины не импортируют друг друга.')]),
   },
   {
     files: ['src/integrations/messenger/**/*.{ts,tsx}'],
-    rules: restrict([], [msg(['@/integrations/telephony/*', '@/integrations/telephony'], 'Плагины не импортируют друг друга.')]),
+    rules: restrict([], [...INTEGRATION_PATTERNS, msg(['@/integrations/telephony/*', '@/integrations/telephony'], 'Плагины не импортируют друг друга.')]),
   },
   // Интерфейс: SQL и охват запросов — только через домен и доступ; SystemActor недоступен
   {
