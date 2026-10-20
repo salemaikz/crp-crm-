@@ -217,9 +217,9 @@ export const WORKER_ALIVE_MAX_AGE_MS = 90_000;
 export const WORKER_TICK_MS = 30_000;
 export const WORKER_QUEUE_TICK_MS = 5_000;
 
+/** job_runs.stats пульса: только числа (версию показывает crmctl status по образу). */
 export interface WorkerHeartbeat {
-  bootId: string;
-  version: string;
+  /** Старт процесса: смена значения = перезапуск воркера. */
   startedAt: Ms;
   lastLoopAt: Ms;
   /** Сколько экземпляров задач в реестре на текущих настройках. */

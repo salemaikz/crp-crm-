@@ -31,7 +31,7 @@ export interface OutcomeAgreement {
   contactId: string | null;
   /** Договорённость с датой без записи (`calling` создаст задачу `agreement:<opId>`). */
   agreedDueAt: number | null;
-  /** Запись в той же транзакции: requestId = opId. Индивидуальная (БК) — после B3a, модель уже допускает. */
+  /** Запись в той же транзакции: requestId = opId. Индивидуальная запись — после B3a, модель уже допускает. */
   booking: OutcomeBookingRequest | null;
 }
 
@@ -200,7 +200,8 @@ export type RecordDeviceStatus = (viewer: Viewer, report: DeviceReport, now: num
 // Ошибки (HTTP — docs/calls-design.md §8)
 // ---------------------------------------------------------------------------
 
-export const CALLS_DOMAIN_ERRORS = ['field_not_allowed', 'phone_not_on_card', 'invalid_settings', 'opid_reused'] as const;
+/** `fields` — значения `requires.fields[]` не прошли движок полей K2 (подробности — в `field`). */
+export const CALLS_DOMAIN_ERRORS = ['field_not_allowed', 'fields', 'phone_not_on_card', 'invalid_settings', 'opid_reused'] as const;
 export type CallsErrorCode = calling.RejectCode | (typeof CALLS_DOMAIN_ERRORS)[number];
 
 export interface CallsFailure {
