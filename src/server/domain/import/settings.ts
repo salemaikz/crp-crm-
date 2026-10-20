@@ -1,32 +1,13 @@
 // Настройки импорта пространства (дизайн C4d §4, CONFIG §6.13). Раздел `import` читается из активных
 // настроек; профиль собирается из настроек: карта итогов — importAliases итогов поверх карты профиля,
-// виды итогов — из calling.outcomes[], правила источника kind=import — из sources[].
-// Расширения профиля, которых ещё нет в схеме настроек (слоты «диапазон строк → оператор», fieldTargets,
-// noteMarkers…), читаются своей схемой Zod, если platform их добавит; без них профиль работает с колонкой «оператор».
+// виды итогов — из calling.outcomes[], правила источника kind=import — из sources[]. Слоты «диапазон строк →
+// оператор», fieldTargets и noteMarkers — ключи схемы ConfigV1 (D-191): слоты задаёт установка через CLI,
+// в пресете их нет. Подмены настроек для тестов нет: тесты пишут настоящую ревизию.
 import { calling, dedup, fields, imports, names, phone, time } from '@crm/core';
 import type { GlobalConfigV1, SpaceConfigV1 } from '@crm/core/config';
-import { z } from 'zod';
 import { NotFoundError } from '@/server/access/errors';
 import { getActiveConfig } from '@/server/platform/config/active';
 import type { ConfigRevPair, FieldTarget, ImportProfileSetting, ImportSettings } from './types';
-
-const Slot = z.object({
-  label: z.string().min(1),
-  name: z.string().default(''),
-  color: z.string().default(''),
-  ranges: z.array(z.tuple([z.number().int().min(1), z.number().int().min(1)])),
-});
-const Ext = z
-  .object({
-    kind: z.enum(['clients', 'bookings']).default('clients'),
-    ownerSlots: z.array(Slot).default([]),
-    fieldTargets: z.record(z.string(), z.object({ object: z.enum(['client', 'card']), fieldKey: z.string().min(1) })).default({}),
-    headerScanRows: z.number().int().min(1).max(100).optional(),
-    stateFields: z.array(z.string()).optional(),
-    noteMarkers: z.array(z.object({ code: z.string(), words: z.array(z.string()) })).optional(),
-    personalIdForms: z.array(z.string()).optional(),
-  })
-  .passthrough();
 
 const DAY_STEP = 'nextWorkday@10:00';
 
@@ -69,7 +50,7 @@ export function buildImportContext(input: { spaceId: string; spaceKey: string; r
 
   // Формы собственности: код (`ип`) ↔ ключ; признак «личный номер» словаря (D-141)
   const legal = global.org.legalForms;
-  const coreForms: names.LegalForm[] = names.legalFormsFromConfig(legal).map((f, i) => ({ ...f, idIsPersonal: legal[i]?.idIsPersonal === true }));
+  const coreForms: names.LegalForm[] = names.legalFormsFromConfig(legal);
   const legalKeyByCode = new Map<string, string>();
   const codeByKey = new Map<string, string>();
   for (const f of coreForms) {
@@ -84,34 +65,43 @@ export function buildImportContext(input: { spaceId: string; spaceKey: string; r
     rules.map((r) => (r.type === 'legalFormIn' ? { ...r, values: r.values.flatMap((v) => (codeByKey.has(v) ? [v, codeByKey.get(v) as string] : [v])) } : r));
   const importSource = global.sources.find((s) => s.kind === 'import' && !s.archived);
 
+  // Поля с ФИО (pii: person) из таблицы пишутся, только если источник импорта это разрешает (D-052)
+  const allowPersonNames = importSource?.allowPersonNames ?? false;
+  const personFields = new Set([...global.fields, ...space.fields].filter((f) => f.pii === 'person').map((f) => `${f.object}:${f.key}`));
+  const targetsOf = (raw: Readonly<Record<string, FieldTarget>> | undefined): Record<string, FieldTarget> =>
+    Object.fromEntries(
+      Object.entries(raw ?? {})
+        .filter(([, t]) => allowPersonNames || !personFields.has(`${t.object}:${t.fieldKey}`))
+        .map(([k, t]) => [k, { object: t.object, fieldKey: t.fieldKey }]),
+    );
+
   const profiles: ImportProfileSetting[] = space.import.profiles
     .filter((p) => !p.archived)
     .map((p) => {
-      const ext = Ext.parse(p);
-      const ownerRaw = p.ownerBy as unknown;
-      const rowRanges = ownerRaw === 'row_ranges' || (typeof ownerRaw === 'object' && ownerRaw !== null && (ownerRaw as { kind?: string }).kind === 'row_ranges');
-      const slots = rowRanges && typeof ownerRaw === 'object' && Array.isArray((ownerRaw as { slots?: unknown }).slots)
-        ? z.array(Slot).parse((ownerRaw as { slots: unknown }).slots)
-        : ext.ownerSlots;
+      // Ярлык слота — он же имя для экрана: ФИО в настройках не хранится (D-191), цвет — часть ярлыка
+      const slots: imports.OperatorSlot[] = (p.ownerSlots ?? []).map((s) => ({
+        label: s.label,
+        name: s.label,
+        color: '',
+        ranges: s.ranges.map(([a, b]) => [a, b] as [number, number]),
+      }));
       const lprMap: Record<string, 'yes' | 'no'> = {};
-      for (const [k, v] of Object.entries(p.valueMaps.lpr as Record<string, boolean | string>)) lprMap[k] = lprOf(v);
+      for (const [k, v] of Object.entries(p.valueMaps.lpr)) lprMap[k] = lprOf(v);
       const targetMap: Record<string, 'target' | 'non_target'> = {};
-      for (const [k, v] of Object.entries(p.valueMaps.target as Record<string, boolean | string>)) targetMap[k] = targetOf(v);
+      for (const [k, v] of Object.entries(p.valueMaps.target)) targetMap[k] = targetOf(v);
       return {
         key: p.key,
         label: p.label.ru,
-        kind: ext.kind,
+        // Профиль «Записи» (C4b) появится отдельным ключом схемы; пока все профили — таблицы клиентов
+        kind: 'clients',
         columns: p.columns,
         valueMaps: { outcome: { ...aliasMap, ...p.valueMaps.outcome }, lpr: lprMap, target: targetMap },
-        ownerBy: rowRanges ? { kind: 'row_ranges', slots } : { kind: 'column' },
+        ownerBy: p.ownerBy === 'row_ranges' ? { kind: 'row_ranges', slots } : { kind: 'column' },
         outcomePriority: p.outcomePriority,
         outcomeKinds: kinds,
         ...(p.snapshotDate ? { snapshotDate: p.snapshotDate } : {}),
-        ...(ext.headerScanRows !== undefined ? { headerScanRows: ext.headerScanRows } : {}),
-        ...(ext.stateFields ? { stateFields: ext.stateFields } : {}),
-        ...(ext.noteMarkers ? { noteMarkers: ext.noteMarkers } : {}),
-        ...(ext.personalIdForms ? { personalIdForms: ext.personalIdForms } : {}),
-        fieldTargets: ext.fieldTargets as Record<string, FieldTarget>,
+        ...(p.noteMarkers ? { noteMarkers: p.noteMarkers.map((m) => ({ code: m.code, words: [...m.words] })) } : {}),
+        fieldTargets: targetsOf(p.fieldTargets),
       } satisfies ImportProfileSetting;
     });
 
@@ -174,19 +164,7 @@ export function buildImportContext(input: { spaceId: string; spaceKey: string; r
   };
 }
 
-type ContextLoader = (spaceId: string) => Promise<ImportContext>;
-let loaderOverride: ContextLoader | null = null;
-
-/** Только для тестов: подменить загрузку настроек (профиль с «диапазонами строк» пока не ложится в схему настроек). */
-export function overrideImportContextForTests(loader: ContextLoader | null): void {
-  loaderOverride = loader;
-}
-
 export async function loadImportContext(spaceId: string): Promise<ImportContext> {
-  return loaderOverride ? loaderOverride(spaceId) : loadImportContextFromConfig(spaceId);
-}
-
-export async function loadImportContextFromConfig(spaceId: string): Promise<ImportContext> {
   const cfg = await getActiveConfig();
   const entry = Object.entries(cfg.spaces).find(([, s]) => s.spaceId === spaceId);
   // Пространства нет в настройках: для пользователя это «нет такого» (404), как чужой импорт

@@ -215,11 +215,86 @@ test('12 цифр при пустой форме, форме ИП и у физл
   await db.sql`UPDATE clients SET kind = 'person', legal_form = 'llp' WHERE id = ${person}`;
   await updateClient(rop, person, body({ system: { org_id: '880101300126' }, custom: {} }, { system: { org_id: '' }, custom: {} }));
   await assertIinHidden(person, '880101300126');
-  // тот же ИИН у другого клиента — 409, а не второй клиент с этим ИИН
-  await assert.rejects(
-    updateClient(rop, clientOf('a', 27), body({ system: { org_id: '880101300123' }, custom: {} }, { system: { org_id: '' }, custom: {} })),
-    { code: 'conflict' },
-  );
+  // тот же ИИН у другого клиента — не второй клиент с этим ИИН; ответ без 409 (D-192, отдельный тест ниже)
+  await updateClient(rop, clientOf('a', 27), body({ system: { org_id: '880101300123' }, custom: {} }, { system: { org_id: '' }, custom: {} }));
+  const [twin] = await db.sql<{ iinHmac: string | null }>`SELECT iin_hmac FROM clients WHERE id = ${clientOf('a', 27)}`;
+  assert.equal(twin?.iinHmac, null);
+});
+
+async function hiddenOf(id: string): Promise<string | null> {
+  const [row] = await db.sql<{ iinHmac: string | null }>`SELECT iin_hmac FROM clients WHERE id = ${id}`;
+  return row?.iinHmac ?? null;
+}
+
+async function allEvents(id: string) {
+  return db.sql<{ kind: string; data: Record<string, unknown> }>`SELECT kind, data FROM client_events WHERE client_id = ${id} ORDER BY id`;
+}
+
+test('занятый ИИН (D-192): ответ как при записи, без 409; HMAC не пишется, РОП получает задачу без ИИН', async () => {
+  const rop = await viewerOf(U.rop);
+  const iin = '880101300140';
+  const owner = clientOf('a', 39);
+  await updateClient(rop, owner, body({ system: { legal_form: 'sole', org_id: iin }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }));
+  assert.equal(await hiddenOf(owner), iinHmac(iin));
+
+  const id = clientOf('a', 40);
+  const free = clientOf('a', 48);
+  const patch = (cid: string, number: string) =>
+    updateClient(rop, cid, body({ system: { legal_form: 'sole', org_id: number, region: 'Павлодар' }, custom: {} }, { system: { legal_form: '', org_id: '', region: '' }, custom: {} }));
+  const taken = await patch(id, iin);
+  const ok = await patch(free, '880101300148');
+  // Наружу одинаково: остальные поля записаны, номер скрыт в обоих случаях
+  assert.deepEqual([taken.legalForm, taken.orgId, taken.region], ['sole', '', 'Павлодар']);
+  assert.deepEqual([ok.legalForm, ok.orgId, ok.region], ['sole', '', 'Павлодар']);
+  const kinds = async (cid: string) => (await allEvents(cid)).map((e) => `${e.kind}:${String(e.data.field)}`).sort();
+  assert.deepEqual(await kinds(id), await kinds(free));
+  // Внутри: у занятого HMAC не записан, у владельца ИИН он прежний
+  assert.equal(await hiddenOf(id), null);
+  assert.equal(await hiddenOf(free), iinHmac('880101300148'));
+  assert.equal(await hiddenOf(owner), iinHmac(iin));
+
+  const tasks = await db.sql<{ kind: string; source: string; title: string; assigneeUserId: string | null; sourceKey: string; status: string }>`
+    SELECT kind, source, title, assignee_user_id, source_key, status FROM tasks WHERE client_id = ${id}`;
+  assert.deepEqual(tasks, [{ kind: 'check', source: 'review', title: '', assigneeUserId: null, sourceKey: `iin_taken:${id}:${owner}`, status: 'open' }]);
+  assert.ok(!JSON.stringify(tasks).includes(iin) && !JSON.stringify(tasks).includes(iinHmac(iin)));
+  assert.equal((await db.sql`SELECT 1 FROM tasks WHERE client_id = ${free}`).length, 0);
+
+  // Повтор той же правки — задача не задваивается
+  await updateClient(rop, id, body({ system: { org_id: iin }, custom: {} }, { system: {}, custom: {} }));
+  assert.equal((await db.sql`SELECT 1 FROM tasks WHERE client_id = ${id}`).length, 1);
+});
+
+test('скрытый номер сбрасывается очисткой org_id и сменой формы на «не личную»; событий о нём нет (D-192)', async () => {
+  const rop = await viewerOf(U.rop);
+  // очистка номера у ИП: org_id и так пуст, но HMAC сбрасывается
+  const sole = clientOf('a', 28);
+  await updateClient(rop, sole, body({ system: { legal_form: 'sole', org_id: '880101300128' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }));
+  const before = (await allEvents(sole)).length;
+  await updateClient(rop, sole, body({ system: { org_id: null }, custom: {} }, { system: { org_id: '' }, custom: {} }));
+  assert.equal(await hiddenOf(sole), null);
+  assert.equal((await allEvents(sole)).length, before, 'очистка скрытого номера не пишет событие');
+
+  // неопределённая форма: очистка пустой строкой
+  const uncertain = clientOf('a', 29);
+  await updateClient(rop, uncertain, body({ system: { org_id: '880101300129' }, custom: {} }, { system: { org_id: '' }, custom: {} }));
+  assert.equal(await hiddenOf(uncertain), iinHmac('880101300129'));
+  await updateClient(rop, uncertain, body({ system: { org_id: '' }, custom: {} }, { system: {}, custom: {} }));
+  assert.equal(await hiddenOf(uncertain), null);
+
+  // смена формы ИП → ТОО: HMAC сброшен, в ленте только смена формы
+  const toLlp = clientOf('a', 49);
+  await updateClient(rop, toLlp, body({ system: { legal_form: 'sole', org_id: '880101300149' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }));
+  const n = (await allEvents(toLlp)).length;
+  const card = await updateClient(rop, toLlp, body({ system: { legal_form: 'llp' }, custom: {} }, { system: { legal_form: 'sole' }, custom: {} }));
+  assert.equal(card.legalForm, 'llp');
+  assert.equal(await hiddenOf(toLlp), null);
+  const added = (await allEvents(toLlp)).slice(n);
+  assert.deepEqual(added.map((e) => e.data.field), ['legal_form']);
+
+  // форма убрана (стала неопределённой) — номер мог быть ИИН: HMAC остаётся
+  await updateClient(rop, sole, body({ system: { org_id: '880101300128' }, custom: {} }, { system: {}, custom: {} }));
+  await updateClient(rop, sole, body({ system: { legal_form: '' }, custom: {} }, { system: { legal_form: 'sole' }, custom: {} }));
+  assert.equal(await hiddenOf(sole), iinHmac('880101300128'));
 });
 
 test('занятый БИН — 409, транзакция откачена: ни полей, ни событий', async () => {

@@ -128,18 +128,26 @@ architect (вариант: `worker_threads`), не ослаблять преде
 
 ## 4. Профиль и настройки (`domain/import/settings.ts`)
 
-- Раздел пространства `import` (CONFIG §6.13) читается из `getActiveConfig()` и проверяется своей
-  схемой Zod (`.strict()`): `profiles[]`, `maxFileMb` (1–25), `maxRows` (1–50 000),
-  `rowsRetentionDays` (1–30). Профиль = `imports.ImportProfile` + `label`, `kind` (`clients`;
-  `bookings` — C4b), `fieldTargets` (новый необязательный ключ CONFIG §6.13: поле импорта → поле
-  клиента или карточки из `fields[]`, например `head → client.head`, `activity → client.okved`,
-  `niche → card.niche`; пресет ЦРП добавляет platform по issue).
+- Раздел пространства `import` (CONFIG §6.13) читается из `getActiveConfig()` — уже проверенным схемой
+  ConfigV1; своей схемы Zod и подмены настроек для тестов (`overrideImportContextForTests`) больше нет:
+  интеграционные тесты пишут настоящую ревизию со слотами (D-191). Профиль = `imports.ImportProfile` +
+  `label`, `kind` (`clients`; `bookings` — C4b, отдельным ключом схемы), `fieldTargets` (поле импорта →
+  поле клиента или карточки: у ЦРП `head → client.head_name`, `activity → client.oked`,
+  `niche → client.niche_other`; поле `pii: person` отбрасывается, если источнику импорта имена запрещены).
+- Слоты `row_ranges` — `import.profiles[].ownerSlots` (`{label, ranges}`) **настройки установки**, не
+  пресета (D-191): сопровождение задаёт их `crmctl config set` по списку РОП, ярлык нейтральный (цвет,
+  блок), не ФИО. В ядро уходят как `OperatorSlot { label, name: label, color: '', ranges }`. Учётку
+  слоту по-прежнему назначает РОП в предпросмотре (`ownerMap`); пресет ЦРП приходит с пустыми слотами
+  — все строки «без владельца», пока слоты не заданы.
+- `noteMarkers` — тоже ключ профиля в схеме; `headerScanRows`, `stateFields`, `personalIdForms` в схеме
+  нет — у ядра свои значения по умолчанию, «личные» формы берутся из словаря (`idIsPersonal`).
 - Карта итогов собирается так: `calling.outcomes[].importAliases` (CONFIG §6.5) → `valueMaps.outcome`,
   поверх — `valueMaps.outcome` профиля; `outcomeKinds` — из `calling.outcomes[]` (ключ → вид).
 - Правила источника — `sources[]` с `kind: import` (ключ — `sourceKey`, по умолчанию `import`):
   `rejectRules`, `holdRules` → `buildPreview({ rules })`. ИП у ЦРП — в `holdRules` (D-052).
 - Нормализаторы — `imports.createImportNormalizers(phone-правила установки, org.legalForms)`;
-  `personalIdForms` — формы с `idIsPersonal`. Хэш ключей D-048 — `sha256` hex (`node:crypto`).
+  «личные» формы — с `idIsPersonal` (переносит `names.legalFormsFromConfig`). Хэш ключей D-048 — `sha256`
+  hex (`node:crypto`).
 - **Редактора профиля в C4 нет** (D-116): РОП выбирает профиль из настроек; не сошлись заголовки —
   `header_not_found` с перечнем недостающих полей, профиль правит владелец через пресет или CLI.
 
@@ -429,7 +437,8 @@ IN (SELECT id … WHERE created_at < $cutoff LIMIT 5000)` в цикле. Выз�
 2. **platform**: в `src/server/platform/db/locks.ts` — `IMPORT_APPLY_LOCK_KEY = 72_026_102_011` и общий
    `INTAKE_LOCK_KEY` (D-022), если C3 ещё не завёл; флаг `'IMPORT'` в `FEATURES`; HMAC-помощники
    `phoneHmac`/`iinHmac` (`CRM_PHONE_HMAC_KEY`, `CRM_IIN_HMAC_KEY`, в production без ключа — отказ),
-   общие с C3 и K2; `fieldTargets` и профиль «Таблицы операторов» в пресете ЦРП (CONFIG §6.13).
+   общие с C3 и K2; `fieldTargets` и профиль «Таблицы операторов» в пресете ЦРП (CONFIG §6.13) — сделано
+   (D-191), слоты задаёт установка.
 3. **ops**: `ENV CRM_BUILD_ID=${BUILD_ID}` в финальном слое `Dockerfile` (отпечаток «той же версии»);
    строка RUNBOOK «копия перед применением импорта»; `FEATURE_IMPORT=1` в env стенда.
 4. **calling**: `domain/tasks/auto.ts` (C5) — создать перезвон и `clarify_import` в чужой транзакции;

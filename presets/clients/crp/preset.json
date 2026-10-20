@@ -1341,7 +1341,19 @@
               "ru": "Таблицы операторов ЦРП"
             },
             "columns": {
-              "Ниша": "niche"
+              "Тип": "legalForm",
+              "Наименование": "name",
+              "Регион": "region",
+              "Руководитель": "head",
+              "ОКЭД": "activity",
+              "Телефон": "phones",
+              "Адрес": "address",
+              "ЛПР подтвержден": "lpr",
+              "Ответ": "outcome",
+              "Статус": "status",
+              "Точная ниша": "niche",
+              "Ниша": "niche",
+              "Заметка": "note"
             },
             "valueMaps": {
               "outcome": {
@@ -1362,11 +1374,36 @@
                 "нет": false
               },
               "target": {
-                "да": true,
-                "нет": false
+                "целевой": true,
+                "не целевой": false
               }
             },
             "ownerBy": "row_ranges",
+            "ownerSlots": [],
+            "fieldTargets": {
+              "head": {
+                "object": "client",
+                "fieldKey": "head_name"
+              },
+              "activity": {
+                "object": "client",
+                "fieldKey": "oked"
+              },
+              "niche": {
+                "object": "client",
+                "fieldKey": "niche_other"
+              }
+            },
+            "noteMarkers": [
+              {
+                "code": "dnc_request",
+                "words": [
+                  "не звонить",
+                  "не звоните",
+                  "удалить"
+                ]
+              }
+            ],
             "outcomePriority": [
               "do_not_call",
               "not_target",

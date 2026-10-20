@@ -9,8 +9,11 @@ import { appendEvents, type NewEvent } from '../timeline/repo';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
 import { pickDecisionMaker, pickPrimaryPhone, toCardHead, toContactDto, toPhoneDto } from './dto';
 import { FieldIssuesError } from './errors';
+import { hiddenIdAction } from './hiddenId';
 import { SEARCH_LIMIT, LIST_LIMIT, decodeCursor, encodeCursor, type ListQuery, type PatchBody } from './input';
 import {
+  iinTakenBy,
+  insertIinReviewTask,
   lockClientForEdit,
   lockIntake,
   selectCardHead,
@@ -216,6 +219,9 @@ function touchesOrgKeys(body: PatchBody): boolean {
  * PATCH клиента (5.1). Порядок: [блокировка приёма, если меняются БИН/форма] → блокировка с охватом →
  * проверка значений (права на поля, типы) → сверка `expect` → запись и события в одной транзакции. Нет
  * изменений — ни записи, ни событий. 12 цифр, которые могут быть ИИН, пишутся только как HMAC (D-181).
+ * Скрытый номер (D-192): очистка номера и переход на «не личную» форму сбрасывают `iin_hmac`; ИИН, уже
+ * записанный другому клиенту, не пишется и уходит задачей РОП, а ответ тот же, что при записи: занятость
+ * ИИН наружу не видна (409 остаётся только у открытого БИН).
  */
 export async function updateClient(viewer: Viewer, id: string, body: PatchBody): Promise<ClientCardDto> {
   const cfg = await loadClientsConfig(viewer);
@@ -255,7 +261,16 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
       const issues = [...sys.errors, ...cv.errors];
       if (issues.length > 0) throw new FieldIssuesError(issues);
       assertExpected(body, currentSystem, row.custom);
-      if (sys.changes.length + cv.changes.length === 0 && sys.hiddenId === null) return;
+      const hidden = hiddenIdAction({
+        patch: body.set.system ?? {},
+        hiddenId: sys.hiddenId,
+        current: { legalForm: row.legalForm, hasHiddenId: row.hasHiddenId },
+        clientKind: row.kind,
+        legalForms: cfg.legalForms,
+      });
+      if (sys.changes.length + cv.changes.length === 0 && hidden.kind === 'keep') return;
+      // Занятый ИИН: строка всё равно обновляется (тот же updatedAt и те же события, что при записи)
+      const twinId = hidden.kind === 'set' ? await iinTakenBy(sql, hidden.hmac, id) : null;
 
       const col = (k: string): string | null => {
         const v = sys.columns[k];
@@ -275,16 +290,19 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
           email: col('email'),
           website: col('website'),
           nameNorm: newName === null ? null : names.normalizeCompanyName(newName, cfg.namesForms),
-          iinHmac: sys.hiddenId,
+          iinHmac: hidden.kind === 'set' && twinId === null ? hidden.hmac : null,
+          clearIinHmac: hidden.kind === 'clear',
         },
         cv.next,
       );
       if (!ok) throw new ConflictError();
+      if (twinId !== null) await insertIinReviewTask(sql, viewer, { clientId: id, twinId });
       await appendEvents(sql, viewer, changeEvents('client', id, null, sys.changes, cv.changes));
       await refreshSearchNorm(sql, viewer, id, cfg);
     });
   } catch (e) {
-    // Занятый БИН или ИИН: уникальные индексы clients_org_uq, clients_iin_uq. Транзакция откачена, событий нет.
+    // Занятый БИН: clients_org_uq. ИИН проверен заранее под блокировкой приёма (D-192); сюда он попадает
+    // только при гонке с путём, который этой блокировки не берёт. Транзакция откачена, событий нет.
     if (isUniqueViolation(e)) throw new ConflictError();
     throw e;
   }

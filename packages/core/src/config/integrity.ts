@@ -132,10 +132,29 @@ export function checkConfigSet(set: SetInput, ctx: z.RefinementCtx): void {
       }
     });
 
-    // импорт: итоги в карте значений и приоритете
+    // импорт: итоги в карте значений и приоритете; слоты владельцев; куда пишутся поля (D-191)
+    const cardFields = new Set(sp.fields.filter((f) => f.object === 'card').map((f) => f.key));
+    const clientFields = new Set(g.fields.filter((f) => f.object === 'client').map((f) => f.key));
     sp.import.profiles.forEach((p, i) => {
-      for (const [col, ok] of Object.entries(p.valueMaps.outcome)) ref(at('import', 'profiles', i, 'valueMaps', 'outcome', col), ok, outcomes, 'итога');
-      p.outcomePriority.forEach((ok, j) => ref(at('import', 'profiles', i, 'outcomePriority', j), ok, outcomes, 'итога'));
+      const pp = (...x: P): P => at('import', 'profiles', i, ...x);
+      for (const [col, ok] of Object.entries(p.valueMaps.outcome)) ref(pp('valueMaps', 'outcome', col), ok, outcomes, 'итога');
+      p.outcomePriority.forEach((ok, j) => ref(pp('outcomePriority', j), ok, outcomes, 'итога'));
+      const slots = p.ownerSlots ?? [];
+      if (slots.length > 0 && p.ownerBy !== 'row_ranges') issue(pp('ownerSlots'), 'слоты владельцев — только при ownerBy = row_ranges');
+      const labels = new Set<string>();
+      slots.forEach((s, j) => {
+        // Ярлыки сравниваются так же, как в карте владельцев: без регистра, ё = е, пробелы схлопнуты
+        const norm = s.label.trim().toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+        if (labels.has(norm)) issue(pp('ownerSlots', j, 'label'), `ярлык слота «${s.label}» повторяется`);
+        labels.add(norm);
+        s.ranges.forEach(([from, to], k) => {
+          if (from > to) issue(pp('ownerSlots', j, 'ranges', k), `диапазон ${from}–${to}: начало больше конца`);
+        });
+      });
+      for (const [from, t] of Object.entries(p.fieldTargets ?? {})) {
+        const allowed = t.object === 'client' ? clientFields : cardFields;
+        ref(pp('fieldTargets', from, 'fieldKey'), t.fieldKey, allowed, t.object === 'client' ? 'поля клиента' : 'поля карточки');
+      }
     });
   }
 }

@@ -190,6 +190,14 @@ test('снимок ЦРП: отчёты, выгрузка, уведомлени�
   assert.deepEqual(s.alerts, { intakeStaleHours: null, stockMinDays: null });
   const prof = byKey(s.import.profiles, 'operator_tables');
   assert.equal(prof.ownerBy, 'row_ranges');
+  // Слоты «диапазон → оператор» — учётки установки: в пресете их нет, задаёт crmctl (D-191)
+  assert.deepEqual(prof.ownerSlots, []);
+  assert.deepEqual(prof.fieldTargets, {
+    head: { object: 'client', fieldKey: 'head_name' },
+    activity: { object: 'client', fieldKey: 'oked' },
+    niche: { object: 'client', fieldKey: 'niche_other' },
+  });
+  assert.deepEqual(prof.valueMaps.target, { целевой: true, 'не целевой': false });
   assert.equal(prof.valueMaps.outcome['Недоступен'], 'bad_number');
   assert.equal(prof.outcomePriority[0], 'do_not_call');
   assert.equal(prof.outcomePriority.at(-1), 'no_answer');

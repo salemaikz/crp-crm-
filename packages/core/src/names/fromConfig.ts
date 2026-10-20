@@ -1,11 +1,14 @@
 // Формы собственности из настроек (`global.org.legalForms[]`, CONFIG §6.1) → список для нормализации
 // названий. Алиас из одного слова до 6 букв — аббревиатура (`short`), всё остальное — полное название
 // (`full`). Архивные формы остаются: старые названия клиентов должны нормализоваться так же.
+// Признак `idIsPersonal` переносится как есть: без него импорт и приём не узнают «личную» форму (D-141).
 import type { LegalForm } from './legalForm.js';
 
 export interface LegalFormSetting {
   key: string;
   aliases: readonly string[];
+  /** 12 цифр у формы — ИИН (D-052). В настройках обязателен; здесь необязателен для старых вызовов. */
+  idIsPersonal?: boolean;
 }
 
 const SHORT_MAX = 6;
@@ -21,6 +24,7 @@ export function legalFormsFromConfig(forms: readonly LegalFormSetting[]): LegalF
       key: f.key,
       full: aliases.filter((a) => !isShortAlias(a)),
       short: aliases.filter(isShortAlias),
+      ...(f.idIsPersonal !== undefined ? { idIsPersonal: f.idIsPersonal } : {}),
     };
   });
 }

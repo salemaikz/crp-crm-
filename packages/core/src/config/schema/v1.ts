@@ -278,6 +278,21 @@ const Reports = obj({
   intakeTile: z.boolean(),
 });
 
+/** Номер строки таблицы (1 — первая строка файла). */
+const RowNo = int(1, 1_000_000);
+
+/**
+ * Слот «диапазон строк → оператор» (D-191). Ярлык — нейтральный (цвет, номер блока), не ФИО: карту
+ * «ярлык → учётка» утверждает РОП в предпросмотре. Слоты — настройка установки (CLI), не пресета.
+ */
+const OwnerSlot = obj({
+  label: z.string().trim().min(1).max(60),
+  ranges: z.array(z.tuple([RowNo, RowNo])).min(1).max(50),
+});
+
+/** Поле импорта (`head`, `activity`, `niche`…): ключ ядра импорта в camelCase или ключ `fields[]`. */
+const ImportFieldKey = z.string().regex(/^[a-z][a-zA-Z0-9_]{0,39}$/, 'поле импорта: ^[a-z][a-zA-Z0-9_]{0,39}$');
+
 const ImportProfile = obj({
   key: Key,
   label: I18n,
@@ -289,6 +304,13 @@ const ImportProfile = obj({
     target: z.record(z.string().min(1).max(200), z.boolean()),
   }),
   ownerBy: z.enum(['column', 'row_ranges']),
+  // Необязательные ключи D-191: отсутствие = пусто (как у `archived`), значения по умолчанию нет.
+  /** Слоты для `ownerBy: row_ranges`; задаёт установка (`crmctl config set`), в пресете — пусто. */
+  ownerSlots: z.array(OwnerSlot).max(100).optional(),
+  /** Поле импорта → поле клиента (`global.fields`) или карточки (`fields[]` пространства). */
+  fieldTargets: z.record(ImportFieldKey, obj({ object: z.enum(['client', 'card']), fieldKey: Key })).optional(),
+  /** Слова в заметке → код отметки для РОП (просьбы «не звонить», особые категории). */
+  noteMarkers: z.array(obj({ code: Key, words: z.array(z.string().trim().min(1).max(100)).min(1).max(50) })).max(20).optional(),
   outcomePriority: uniqueArray(Key),
   snapshotDate: LocalDate.nullable(),
   archived: Archived,

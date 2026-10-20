@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { imports } from '@crm/core';
 import { importService } from '../../../src/server/domain/import';
-import { overrideImportContextForTests } from '../../../src/server/domain/import/settings';
 import { phoneHmac } from '../../../src/server/platform/hmac';
 import { createTestDb, type TestDb } from '../../../src/server/platform/db/testing';
 import { SYSTEM_COLUMNS, T0, makeWorld, upload, type World } from './helpers';
@@ -17,7 +16,6 @@ before(async () => {
   w = await makeWorld(db, 30, 5, [{ label: 'Оператор-01 (Синий)', name: 'Оператор-01', color: 'Синий', ranges: [[3, 50]] }]);
 });
 after(async () => {
-  overrideImportContextForTests(null);
   await db.close();
 });
 
