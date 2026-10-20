@@ -35,6 +35,10 @@ export type FeedRow = {
   refId: string;
   dealId: string | null;
   data: unknown;
+  /** Только для kind='message': текст сообщения (удалённое — null), состояние удаления и доставки (O7a). */
+  text: string | null;
+  deleted: boolean;
+  deliveryStatus: string | null;
 };
 
 export type FeedQuery = {
@@ -56,8 +60,10 @@ export async function readFeed(sql: Sql, viewer: Viewer, q: FeedQuery): Promise<
       UNION ALL
       SELECT m.id, chain.depth + 1 FROM clients m JOIN chain ON m.merged_into_id = chain.id WHERE chain.depth < 8
     )
-    SELECT ev.id, ev.kind, ev.at, ev.actor_id, u.name AS actor_name, ev.ref_type, ev.ref_id, ev.deal_id, ev.data
+    SELECT ev.id, ev.kind, ev.at, ev.actor_id, u.name AS actor_name, ev.ref_type, ev.ref_id, ev.deal_id, ev.data,
+           mm.body AS text, COALESCE(mm.is_deleted, FALSE) AS deleted, mm.status AS delivery_status
       FROM client_events ev LEFT JOIN users u ON u.id = ev.actor_id
+      LEFT JOIN messenger_messages mm ON ev.kind = 'message' AND ev.ref_type = 'messenger_message' AND mm.id = ev.ref_id
      WHERE ev.client_id IN (SELECT id FROM chain)
        AND ${scopeSql(viewer, 'client_event', 'card.read')}
        AND ev.kind = ANY(${q.kinds}::text[])

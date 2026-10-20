@@ -20,6 +20,8 @@ export type FeedItem = {
   refId: string;
   dealId: string | null;
   data: Record<string, unknown>;
+  /** Сообщение мессенджера: текст (null — вложение без подписи или удалено), удалено ли, статус доставки. */
+  message?: { text: string | null; deleted: boolean; status: string | null };
 };
 
 export type FeedPage = { items: FeedItem[]; next: string | null };
@@ -67,6 +69,7 @@ export async function listFeed(viewer: Viewer, clientId: string, opts: FeedOptio
       refId: r.refId,
       dealId: r.dealId,
       data,
+      ...(r.kind === 'message' ? { message: { text: r.text, deleted: r.deleted, status: r.deliveryStatus } } : {}),
     });
   }
   const last = page[page.length - 1];

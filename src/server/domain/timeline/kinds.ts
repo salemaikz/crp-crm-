@@ -44,6 +44,9 @@ export const EVENT_KINDS = {
   // повторной загрузки), `deferred` — итог отложен; в ленту они не идут.
   'import.row': { group: 'system', dataKeys: ['importId', 'rowNo', 'action', 'outcomeKey'] },
   'client.created': { group: 'system', dataKeys: ['sourceKind', 'importId'] },
+  // Мессенджер (O7a): текст берётся из messenger_messages при чтении ленты; в data — только коды и признаки
+  message: { group: 'messages', dataKeys: ['direction', 'msgType', 'hasAttachment'] },
+  'messenger.link_opened': { group: 'messages', dataKeys: ['templateKey'] },
 } as const satisfies Record<string, KindSpec>;
 
 export type EventKind = keyof typeof EVENT_KINDS;

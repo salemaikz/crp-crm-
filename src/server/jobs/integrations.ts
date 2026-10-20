@@ -2,19 +2,25 @@
 // разбирает payload чистым parse() плагина и отдаёт нормализованные события применителю своего вида плагина
 // (messenger — applyMessengerEvents, O7a). Нет применителя — нет обработчика: строка ждёт в retry no_handler.
 import type { NormalizedEvent, PluginId, PluginKind, PluginRegistry, InboxItem } from '@/integrations/contract';
-import { registry as defaultRegistry } from '@/integrations/registry';
+import { pluginDeps, registry as defaultRegistry } from '@/integrations/registry';
 import type { SystemActor } from '@/server/access';
 import { loadInboxItem } from '@/server/domain/integrations';
+import { applyMessengerEvents } from '@/server/domain/messenger';
 import type { QueueHandler, QueueOutcome } from '@/server/platform/jobs';
 
 export type InboxApplier = (
   actor: SystemActor,
-  input: { integrationId: string; pluginId: PluginId; kind: InboxItem['kind']; events: NormalizedEvent[] },
+  input: { integrationId: string; pluginId: PluginId; kind: InboxItem['kind']; events: NormalizedEvent[]; attempt: number },
 ) => Promise<QueueOutcome>;
 
 const KINDS: ReadonlySet<string> = new Set<InboxItem['kind']>(['message', 'status', 'channel', 'call']);
 
-export function webhookHandlers(registry: PluginRegistry = defaultRegistry, appliers: Partial<Record<PluginKind, InboxApplier>> = {}): Map<string, QueueHandler> {
+/** Применители по видам плагинов: мессенджер — события в чаты, ленту и задачи (O7a); телефония — O7b. */
+export const defaultAppliers: Partial<Record<PluginKind, InboxApplier>> = {
+  messenger: (actor, input) => applyMessengerEvents(actor, pluginDeps(), input),
+};
+
+export function webhookHandlers(registry: PluginRegistry = defaultRegistry, appliers: Partial<Record<PluginKind, InboxApplier>> = defaultAppliers): Map<string, QueueHandler> {
   const out = new Map<string, QueueHandler>();
   for (const plugin of registry.all()) {
     const hook = plugin.webhook;
@@ -33,7 +39,7 @@ export function webhookHandlers(registry: PluginRegistry = defaultRegistry, appl
         return { status: 'failed', error: 'parse_failed' };
       }
       if (events.length === 0) return { status: 'done' };
-      return apply(actor, { integrationId: row.integrationId, pluginId: plugin.id, kind, events });
+      return apply(actor, { integrationId: row.integrationId, pluginId: plugin.id, kind, events, attempt: item.attempt });
     });
   }
   return out;
