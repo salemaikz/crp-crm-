@@ -1,5 +1,6 @@
 // Политика безопасности из настроек `global.security` (CONFIG §6.16) — D-091, D-093.
 import { z } from 'zod';
+import { phone } from '@crm/core';
 import { getActiveConfig } from '../config/active';
 import { DEFAULT_SECURITY_POLICY, type SecurityPolicy } from './types';
 
@@ -16,6 +17,16 @@ const SecuritySchema = z
   })
   .passthrough();
 
+/** Раздел global.phone (CONFIG §6.3): правила нормализации номера при входе. */
+const PhoneSchema = z
+  .object({
+    country: z.literal('KZ'),
+    mobilePrefixes: z.array(z.string()),
+    reviewPrefixes: z.array(z.string()),
+    landlinePrefixes: z.array(z.string()),
+  })
+  .passthrough();
+
 let warned = false;
 function warnOnce(msg: string): void {
   if (warned) return;
@@ -26,6 +37,34 @@ function warnOnce(msg: string): void {
 /** Только для тестов: снова разрешить предупреждение. */
 export function resetPolicyWarning(): void {
   warned = false;
+}
+
+/** Раздел `global` активной ревизии или null, если настроек ещё нет (установка до `crmctl config apply`). */
+async function loadGlobal(load: () => Promise<unknown>): Promise<Record<string, unknown> | null> {
+  try {
+    const config = (await load()) as { global?: Record<string, unknown> } | null;
+    return config?.global ?? {};
+  } catch (e) {
+    if (e instanceof Error && e.name === 'ConfigMissingError') return null;
+    throw e;
+  }
+}
+
+/**
+ * Правила номеров из `global.phone` активной ревизии. Нет настроек или раздел не прошёл проверку —
+ * правила ядра по умолчанию (CONFIG §6.3): вход первого администратора не зависит от настроек.
+ */
+export async function readPhoneRules(load: () => Promise<unknown> = getActiveConfig): Promise<phone.PhoneRules> {
+  const g = await loadGlobal(load);
+  if (g === null) return phone.DEFAULT_PHONE_RULES;
+  if (g.phone === undefined) return phone.DEFAULT_PHONE_RULES;
+  const parsed = PhoneSchema.safeParse(g.phone);
+  if (!parsed.success) {
+    warnOnce('global.phone не прошёл проверку, действуют правила номеров по умолчанию');
+    return phone.DEFAULT_PHONE_RULES;
+  }
+  const { country, mobilePrefixes, reviewPrefixes, landlinePrefixes } = parsed.data;
+  return { country, mobilePrefixes, reviewPrefixes, landlinePrefixes };
 }
 
 /**

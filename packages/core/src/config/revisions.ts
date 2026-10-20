@@ -57,7 +57,13 @@ export function lastPresetDoc<T extends RevisionHead & { source: RevisionSource;
 
 /** Что отдаёт геттер настроек: проверенный набор и ревизии, из которых он собран. */
 export type ActiveConfig = {
-  global: { rev: number; hash: string; doc: GlobalConfigV1 };
+  /** Номер ревизии global (для аудита и Viewer.configRev). */
+  rev: number;
+  /**
+   * Ревизия и документ целиком (`doc`); поля документа продублированы на верхнем уровне
+   * (`global.org`, `global.roles`, `global.theme`, …) — так их читают потребители (доступ, вход, тема).
+   */
+  global: GlobalConfigV1 & { rev: number; hash: string; doc: GlobalConfigV1 };
   /** По ключу пространства (`spaces.key`). */
   spaces: Record<string, { spaceId: string; rev: number; hash: string; doc: SpaceConfigV1 }>;
   /** Версия схемы, к которой приведены документы (= CONFIG_SCHEMA_VERSION сборки). */

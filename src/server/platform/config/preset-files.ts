@@ -5,7 +5,10 @@ import { constants } from 'node:fs';
 import { mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { parseLayer, type PresetLayer } from '@crm/core/config';
+import { config as coreConfig } from '@crm/core';
+import type { PresetLayer } from '@crm/core/config';
+
+const { parseLayer } = coreConfig;
 
 /** Как `AssetKey` схемы (packages/core/src/config/schema/primitives.ts): имя файла без каталогов. */
 export const ASSET_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;

@@ -15,12 +15,15 @@
 // - клиент, контакты, номера, сделки, записи, звонки, заметки, лента, чаты — через карточку;
 // - задачи: own — исполнитель я и карточка видна; иначе охват роли; плюс задачи передачи;
 // - пишущее разрешение у роли «только чтение» — FALSE; у отношения — только из его списка действий.
-import { PERMISSION_INFO, consultantWindowDates, type ActiveRelation, type Permission, type Scope } from '@crm/core/access';
+import { access as coreAccess } from '@crm/core';
+import type { ActiveRelation, Permission, Scope } from '@crm/core/access';
 import type { Row, Sql } from '@/server/platform/db';
 import { ConflictError, NotFoundError } from './errors';
 import { assertIssued } from './registry';
 import { FALSE, Frag, TRUE, anyOf, constText, flatten, frag, ident, toTemplate } from './sqlFrag';
 import type { Actor, ScopedEntity, Viewer } from './types';
+
+const { PERMISSION_INFO, consultantWindowDates } = coreAccess;
 
 declare const FRAGMENT: unique symbol;
 

@@ -14,7 +14,7 @@
 | Файл | API | Зачем |
 |---|---|---|
 | `schema/v1.ts` | `GlobalConfigV1`, `SpaceConfigV1`, `ConfigSetV1` (Zod + типы) | схема CONFIG §6; все ключи обязательны, объекты `.strict()`; набор проверяется целиком |
-| `schema/roles.ts` | `RoleSlot` | конверт роли `{key, label, archived?}` + любые поля. **P4a подключит** схему роли и `roleValidator` (место помечено в `integrity.ts`) |
+| `../access/roles.ts` | `RoleSchema` | полная схема роли (права, отношения, `readOnly`, меню); `roleValidator` вызывается из `integrity.ts` с путём `global.roles[i]…` |
 | `schema/constants.ts` | `SOURCE_KINDS`, `FIELD_TYPES`, `CAP_KINDS`, `QUEUE_BUCKETS`, `REMINDER_PLACEHOLDERS`, … | закрытые списки (поведение в коде) |
 | `integrity.ts` | `checkConfigSet` (внутри схемы) | связи CONFIG §3.3: роли, поля, причины, команды, типы мероприятий, 7 видов итога, won/lost, шаги повторов, белый список подстановок |
 | `validate.ts` | `validateConfigSet(x): {ok, value} \| {ok:false, issues[{path, message}]}`, `assertConfigSet`, `ConfigInvalidError` | один вход проверки для пресета, UI, CLI, миграций |
@@ -238,8 +238,7 @@ UI (R2b) пишет так: берёт `ActiveConfig`, строит патч, `m
 
 ## 5. Чего не делать
 
-- Не добавлять значения по умолчанию в схему (`.default()`), `.passthrough()` и `.catchall()` (кроме
-  `RoleSlot` до P4a) — D-060, D-061.
+- Не добавлять значения по умолчанию в схему (`.default()`), `.passthrough()` и `.catchall()` — D-060, D-061.
 - Не писать дельты в `config_revisions`: только полный документ области.
 - Не вычислять `rev` как «совместимая + 1» и не читать «последнюю rev» без фильтра `schema_version`.
 - Не класть документ настроек, его фрагменты и секреты в аудит и логи.

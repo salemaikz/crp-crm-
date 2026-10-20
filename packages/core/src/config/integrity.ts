@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { OUTCOME_KINDS } from '../calling/spec/types.js';
 import type { GlobalConfigV1, SpaceConfigV1 } from './schema/v1.js';
 import { REMINDER_PLACEHOLDERS } from './schema/constants.js';
+import { validateRoles } from '../access/roleValidator';
 import { parseStep } from './steps.js';
 
 type SetInput = { global: GlobalConfigV1; spaces: Record<string, SpaceConfigV1> };
@@ -25,8 +26,8 @@ export function checkConfigSet(set: SetInput, ctx: z.RefinementCtx): void {
   };
   const g = set.global;
   const roles = keysOf(g.roles);
-  // P4a подключит: roleValidator (опасные сочетания охватов, readOnly, действия отношений) — здесь,
-  // с путём ['global', 'roles', i, …].
+  // Роли: опасные сочетания охватов, readOnly, действия отношений (roleValidator, ARCHITECTURE §5.1 п. 5)
+  for (const ri of validateRoles(g.roles)) issue(['global', 'roles', ...ri.path], `${ri.code}: ${ri.message}`);
 
   // --- пространства: ровно одно по умолчанию, у каждого есть документ, лишних документов нет
   const defaults = g.spaces.filter((s) => s.default);

@@ -20,7 +20,7 @@ import {
   TimeZone,
   uniqueArray,
 } from './primitives.js';
-import { RoleSlot } from './roles.js';
+import { RoleSchema } from '../../access/roles';
 import { CAP_KINDS, FIELD_TYPES, GLOBAL_FIELD_OBJECTS, LOCALES, QUEUE_BUCKETS, SOURCE_KINDS, SPACE_FIELD_OBJECTS } from './constants.js';
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
@@ -126,7 +126,7 @@ export const GlobalConfigV1 = obj({
   phone: Phone,
   dedup: Dedup,
   sources: keyedList(Source),
-  roles: keyedList(RoleSlot, { min: 1 }),
+  roles: keyedList(RoleSchema, { min: 1 }),
   team: obj({ fallbackOwnerRole: Key }),
   theme: Theme,
   spaces: keyedList(Space, { min: 1 }),
@@ -307,7 +307,6 @@ export const SpaceConfigV1 = obj({
   teams: keyedList(Team),
   handoff: obj({ acceptSlaWorkdays: int(1, 30), alarmTo: uniqueArray(Key) }),
   booking: Booking,
-  access: obj({ consultantWindow: obj({ fromDays: int(-30, 0), toDays: int(0, 365) }) }),
   reminders: Reminders,
   fields: keyedList(SpaceField),
   tasks: obj({ overdueAlertMinutes: int(1, 1440), inboundReplyMinutes: int(1, 1440), askNextStep: z.record(Key, z.boolean()) }),

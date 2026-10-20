@@ -24,9 +24,91 @@
       { "key": "import", "label": { "ru": "Импорт таблицы" }, "kind": "import", "allowPersonNames": true, "detailedReport": false, "rejectRules": [], "holdRules": [] }
     ],
     "roles": [
-      { "key": "lead", "label": { "ru": "Руководитель" } },
-      { "key": "manager", "label": { "ru": "Менеджер" } },
-      { "key": "observer", "label": { "ru": "Наблюдатель" } }
+      {
+        "key": "lead", "label": { "ru": "Руководитель" }, "readOnly": false,
+        "grants": [
+          { "perm": "card.read", "scope": "space" },
+          { "perm": "card.outcome", "scope": "space" },
+          { "perm": "card.edit", "scope": "space" },
+          { "perm": "card.assign", "scope": "space" },
+          { "perm": "card.return", "scope": "space" },
+          { "perm": "card.unblock", "scope": "space" },
+          { "perm": "card.export", "scope": "space" },
+          { "perm": "client.read", "scope": "space" },
+          { "perm": "client.edit", "scope": "space" },
+          { "perm": "client.edit_identity", "scope": "space" },
+          { "perm": "client.merge", "scope": "space" },
+          { "perm": "client.transfer", "scope": "space" },
+          { "perm": "client.propose", "scope": "space" },
+          { "perm": "deal.read", "scope": "space" },
+          { "perm": "deal.edit", "scope": "space" },
+          { "perm": "deal.purchase", "scope": "space" },
+          { "perm": "deal.move_back", "scope": "space" },
+          { "perm": "booking.read", "scope": "space" },
+          { "perm": "booking.create", "scope": "space" },
+          { "perm": "booking.attend", "scope": "space" },
+          { "perm": "booking.manage", "scope": "space" },
+          { "perm": "booking.walk_in", "scope": "space" },
+          { "perm": "note.write", "scope": "space" },
+          { "perm": "task.read", "scope": "space" },
+          { "perm": "task.write", "scope": "space" },
+          { "perm": "task.assign_others", "scope": "space" },
+          { "perm": "handoff.read", "scope": "space" },
+          { "perm": "handoff.accept", "scope": "space" },
+          { "perm": "handoff.assign", "scope": "space" },
+          { "perm": "pool.read", "scope": "space" },
+          { "perm": "distribution.manage", "scope": "space" },
+          { "perm": "import.run", "scope": "space" },
+          { "perm": "report.view", "scope": "space" },
+          { "perm": "report.export", "scope": "space" },
+          { "perm": "data.export_all", "scope": "space" },
+          { "perm": "settings.sales", "scope": "space" }
+        ],
+        "relations": [],
+        "fieldAccessDefault": "edit",
+        "menu": ["summary", "cards", "pool", "distribution", "bookings", "deals", "tasks", "reports", "import", "team", "settings"]
+      },
+      {
+        "key": "manager", "label": { "ru": "Менеджер" }, "readOnly": false,
+        "grants": [
+          { "perm": "card.read", "scope": "own" },
+          { "perm": "card.outcome", "scope": "own" },
+          { "perm": "card.edit", "scope": "own" },
+          { "perm": "client.read", "scope": "own" },
+          { "perm": "client.edit", "scope": "own" },
+          { "perm": "client.propose", "scope": "own" },
+          { "perm": "deal.read", "scope": "own" },
+          { "perm": "deal.edit", "scope": "own" },
+          { "perm": "deal.purchase", "scope": "own" },
+          { "perm": "booking.read", "scope": "own" },
+          { "perm": "booking.create", "scope": "own" },
+          { "perm": "booking.attend", "scope": "own" },
+          { "perm": "booking.walk_in", "scope": "own" },
+          { "perm": "note.write", "scope": "own" },
+          { "perm": "task.read", "scope": "own" },
+          { "perm": "task.write", "scope": "own" },
+          { "perm": "report.view", "scope": "own" }
+        ],
+        "relations": [],
+        "fieldAccessDefault": "edit",
+        "menu": ["queue", "bookings", "tasks", "deals", "my_day"]
+      },
+      {
+        "key": "observer", "label": { "ru": "Наблюдатель" }, "readOnly": true,
+        "grants": [
+          { "perm": "card.read", "scope": "space" },
+          { "perm": "client.read", "scope": "space" },
+          { "perm": "deal.read", "scope": "space" },
+          { "perm": "booking.read", "scope": "space" },
+          { "perm": "task.read", "scope": "space" },
+          { "perm": "handoff.read", "scope": "space" },
+          { "perm": "report.view", "scope": "space" },
+          { "perm": "report.export", "scope": "space" }
+        ],
+        "relations": [],
+        "fieldAccessDefault": "read",
+        "menu": ["dashboard", "reports", "cards", "deals"]
+      }
     ],
     "team": { "fallbackOwnerRole": "lead" },
     "theme": {
@@ -150,7 +232,6 @@
       "nextStep": { "taskAt": "nextWorkday@10:00" },
       "seedSeries": []
     },
-    "access": { "consultantWindow": { "fromDays": -1, "toDays": 30 } },
     "reminders": {
       "days": ["today", "tomorrow"],
       "templates": [{ "key": "default", "eventTypeKey": null, "text": { "ru": "Здравствуйте, {name}! Напоминаем о записи: {date} в {time}, {place}. Подтверждаете участие?" } }]

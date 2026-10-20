@@ -324,7 +324,6 @@ Zod + `superRefine` проверяют документ целиком:
 | `booking.noShow.callbackAt` | шаг | `nextWorkday@10:00` | то же | РОП |
 | `booking.attendance.autoNoShowWorkdays` | int 1–10 или `null` (выкл) | 2 | 2 (PLAN В-11) | РОП |
 | `booking.nextStep.taskAt` | шаг | `nextWorkday@10:00` | то же (задача «Записать на следующий шаг», D-049) | РОП |
-| `access.consultantWindow` | `{fromDays, toDays}` | `{-1, 30}` | `{-1, 30}` | CLI |
 | `reminders.days` | `('today'\|'tomorrow')[]` | оба | оба | РОП |
 | `reminders.templates[]` | `{key, eventTypeKey, text}` с подстановками только из белого списка `{name} {date} {time} {place}` | общий текст | текст PROCESS 5.4 | РОП |
 

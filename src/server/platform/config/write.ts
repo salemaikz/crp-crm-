@@ -1,19 +1,10 @@
 // Запись ревизий настроек (README §2.3): блокировка, expectedRev, проверка набора целиком, хэш,
 // полный документ области, аудит. Документ и его куски в аудит и логи не попадают.
-import {
-  CONFIG_SCHEMA_VERSION,
-  ConfigInvalidError,
-  GLOBAL_SCOPE,
-  configHash,
-  deepEqual,
-  lastPresetDoc,
-  nextRev,
-  validateConfigSet,
-  type ConfigMigration,
-  type Json,
-  type JsonObject,
-  type RevisionSource,
-} from '@crm/core/config';
+import { config as coreConfig } from '@crm/core';
+import type { ConfigMigration, Json, JsonObject, RevisionSource } from '@crm/core/config';
+
+// Ядро в production — один файл (D-101): значения берём только из корня '@crm/core'
+const { CONFIG_SCHEMA_VERSION, ConfigInvalidError, GLOBAL_SCOPE, configHash, deepEqual, lastPresetDoc, nextRev, validateConfigSet } = coreConfig;
 import { writeAudit, type AuditAction } from '../audit';
 import { getDb, isUniqueViolation, now as clock } from '../db';
 import { CONFIG_WRITE_LOCK_KEY } from '../db/locks';

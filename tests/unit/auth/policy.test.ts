@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSecurityPolicy } from '../../../src/server/platform/auth/policy';
+import { phone } from '@crm/core';
+import { readPhoneRules, readSecurityPolicy } from '../../../src/server/platform/auth/policy';
 import { DEFAULT_SECURITY_POLICY } from '../../../src/server/platform/auth/types';
 
 class ConfigMissingError extends Error {
@@ -23,4 +24,13 @@ test('невалидный раздел — умолчания; чужой сб�
   const p = await readSecurityPolicy(async () => ({ global: { security: { sessionDays: 9999 } } }));
   assert.deepEqual(p, DEFAULT_SECURITY_POLICY);
   await assert.rejects(readSecurityPolicy(async () => { throw new Error('сбой БД'); }), /сбой БД/);
+});
+
+test('правила номеров: нет настроек или раздела — ядро по умолчанию; свои префиксы берутся из global.phone', async () => {
+  assert.deepEqual(await readPhoneRules(async () => { throw new ConfigMissingError('нет'); }), phone.DEFAULT_PHONE_RULES);
+  assert.deepEqual(await readPhoneRules(async () => ({ global: {} })), phone.DEFAULT_PHONE_RULES);
+  assert.deepEqual(await readPhoneRules(async () => ({ global: { phone: { country: 'KZ', mobilePrefixes: ['700'] } } })), phone.DEFAULT_PHONE_RULES);
+  const own = { country: 'KZ', mobilePrefixes: ['700'], reviewPrefixes: ['701'], landlinePrefixes: ['71x'] };
+  assert.deepEqual(await readPhoneRules(async () => ({ global: { phone: own } })), own);
+  await assert.rejects(readPhoneRules(async () => { throw new Error('сбой БД'); }), /сбой БД/);
 });

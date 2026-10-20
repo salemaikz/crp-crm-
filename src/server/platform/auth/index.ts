@@ -19,7 +19,7 @@ export { attemptLogin, logoutEverywhere, changeOwnPassword, loginPhoneDigits, ma
 export { issueInvite, issuePasswordReset, inspectInvite, acceptInvite, revokePendingInvites, inviteLink } from './invites';
 export { checkOrigin, originCheckRequired, SAFE_METHODS, ORIGIN_EXEMPT_PREFIXES } from './csrf';
 export { sessionCookieSpec, sessionCookieNames } from './cookie';
-export { readSecurityPolicy } from './policy';
+export { readSecurityPolicy, readPhoneRules } from './policy';
 export {
   loginRequest,
   logoutRequest,

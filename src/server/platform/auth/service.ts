@@ -5,7 +5,7 @@ import { getDb } from '../db';
 import { rateLimit } from '../ratelimit';
 import { acceptInvite, inspectInvite } from './invites';
 import { attemptLogin, changeOwnPassword, logoutEverywhere, type ChangePasswordResult } from './login';
-import { readSecurityPolicy } from './policy';
+import { readPhoneRules, readSecurityPolicy } from './policy';
 import { revokeSessionByToken } from './session';
 import type { InvitePreview, LoginResult } from './types';
 
@@ -15,8 +15,9 @@ const INVITE_WINDOW_MS = 15 * 60_000;
 
 export async function loginRequest(input: { phone: string; password: string; next?: string | null; ip: string }): Promise<LoginResult> {
   const policy = await readSecurityPolicy();
+  const rules = await readPhoneRules();
   const db = await getDb();
-  return db.tx((sql) => attemptLogin(sql, input, policy, Date.now()));
+  return db.tx((sql) => attemptLogin(sql, input, policy, Date.now(), rules));
 }
 
 export async function logoutRequest(token: string | null): Promise<void> {

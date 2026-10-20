@@ -26,6 +26,9 @@ const stage = (key: string, kind: string, order: number): JsonObject => ({
   auto: null,
 });
 
+// Тело роли без прав: схема требует все поля, а права тестам настроек не нужны.
+const roleBody: JsonObject = { readOnly: false, grants: [], relations: [], fieldAccessDefault: 'edit', menu: [] };
+
 export function minimalGlobal(): JsonObject {
   return {
     org: {
@@ -50,8 +53,8 @@ export function minimalGlobal(): JsonObject {
       { key: 'manual', label: t('Вручную'), kind: 'manual', allowPersonNames: true, detailedReport: false, rejectRules: [], holdRules: [] },
     ],
     roles: [
-      { key: 'manager', label: t('Менеджер'), grants: [] },
-      { key: 'lead', label: t('Руководитель'), grants: [] },
+      { key: 'manager', label: t('Менеджер'), ...roleBody },
+      { key: 'lead', label: t('Руководитель'), ...roleBody },
     ],
     team: { fallbackOwnerRole: 'lead' },
     theme: {
@@ -134,7 +137,6 @@ export function minimalSpace(): JsonObject {
       nextStep: { taskAt: 'nextWorkday@10:00' },
       seedSeries: [],
     },
-    access: { consultantWindow: { fromDays: -1, toDays: 30 } },
     reminders: { days: ['today', 'tomorrow'], templates: [{ key: 'default', eventTypeKey: null, text: t('{name}, ждём вас {date} в {time}') }] },
     fields: [],
     tasks: { overdueAlertMinutes: 60, inboundReplyMinutes: 15, askNextStep: {} },

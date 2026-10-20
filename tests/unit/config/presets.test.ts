@@ -10,7 +10,7 @@ import { assembleChain, loadLayer, validChain, LAYER_FILES } from './helpers';
 type Doc = Record<string, any>;
 
 function crp() {
-  const a = assembleChain(['base', 'kz', 'consulting-sales', 'crp'], true);
+  const a = assembleChain(['base', 'kz', 'consulting-sales', 'crp']);
   return { g: a.global as Doc, s: a.spaces.sales as Doc, a };
 }
 const byKey = (xs: Doc[], key: string): Doc => {
@@ -33,19 +33,24 @@ test('цепочки слоёв собираются и проходят схе�
     const r = validChain([...chain]);
     assert.ok(r.ok, `${chain.join(' → ')}: ${r.ok ? '' : JSON.stringify(r.issues)}`);
   }
-  const full = validChain(['base', 'kz', 'consulting-sales', 'crp'], true);
+  const full = validChain(['base', 'kz', 'consulting-sales', 'crp']);
   assert.ok(full.ok, full.ok ? '' : JSON.stringify(full.issues));
 });
 
-test('накладка клиента без раздела ролей не проходит: ссылки на роли висят до P4a', () => {
-  const r = validChain(['base', 'kz', 'consulting-sales', 'crp']);
-  assert.equal(r.ok, false);
-  assert.ok(!r.ok && r.issues.every((i) => /нет роли/.test(i.message)), JSON.stringify(!r.ok && r.issues));
+test('роли: base даёт lead, manager, observer с правами; накладка ЦРП архивирует их и добавляет свои', () => {
+  const b = loadLayer('base').global as Doc;
+  assert.deepEqual(b.roles.map((r: Doc) => r.key), ['lead', 'manager', 'observer']);
+  assert.ok(b.roles.every((r: Doc) => r.grants.length > 0));
+  assert.equal(byKey(b.roles, 'observer').readOnly, true);
+  const { g } = crp();
+  const active = g.roles.filter((r: Doc) => !r.archived).map((r: Doc) => r.key);
+  assert.deepEqual(active, ['operator', 'rop', 'consultant', 'director', 'marketing_head', 'marketer']);
+  assert.ok(g.roles.filter((r: Doc) => r.archived).every((r: Doc) => ['lead', 'manager', 'observer'].includes(r.key)));
 });
 
 test('сборка детерминирована: два прогона дают один документ', () => {
-  const a = JSON.stringify(assembleChain(['base', 'kz', 'consulting-sales', 'crp'], true));
-  const b = JSON.stringify(assembleChain(['base', 'kz', 'consulting-sales', 'crp'], true));
+  const a = JSON.stringify(assembleChain(['base', 'kz', 'consulting-sales', 'crp']));
+  const b = JSON.stringify(assembleChain(['base', 'kz', 'consulting-sales', 'crp']));
   assert.equal(a, b);
 });
 
@@ -140,7 +145,7 @@ test('снимок ЦРП: воронка продаж', () => {
 });
 
 test('снимок ЦРП: типы мероприятий, серия, консультации, направления', () => {
-  const { s } = crp();
+  const { s, g } = crp();
   const b = s.booking;
   const br = byKey(b.eventTypes, 'br');
   assert.deepEqual([br.behavior, br.short.ru, br.capacity, br.durationMin], ['group', 'БР', 30, 180]);
@@ -153,7 +158,9 @@ test('снимок ЦРП: типы мероприятий, серия, конс
   assert.equal(b.duty.defaultRole, 'rop');
   assert.deepEqual([b.horizonDays, b.groupOptions, b.consultStripDays], [28, 3, 7]);
   assert.equal(b.attendance.autoNoShowWorkdays, 2);
-  assert.deepEqual(s.access.consultantWindow, { fromDays: -1, toDays: 30 });
+  assert.equal(s.access, undefined, 'окно консультанта задано параметрами отношения booked_with_me, не ключом пространства');
+  const win = byKey(g.roles, 'consultant').relations.find((r: Doc) => r.key === 'booked_with_me');
+  assert.deepEqual(win.params, { fromDays: -1, toDays: 30 });
 });
 
 test('снимок ЦРП: напоминания, услуги, команды, передачи', () => {
