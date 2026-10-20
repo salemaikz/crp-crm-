@@ -34,31 +34,35 @@ SalemAI. Каждый клиент получает свою установку 
 
 ## Запуск локально
 
-> Каркас создаётся 21.10 (задача P1 в `docs/PLAN.md`). Если команды ниже
-> разойдутся с `package.json`, исправляется этот README.
-
-Нужно: Node 22, Docker (для Postgres 16), npm.
+Нужно: Node 22, npm, PostgreSQL 16 (локальный или в Docker).
 
 ```bash
 npm ci
-docker compose -f deploy/compose.dev.yml up -d db    # Postgres 16 на localhost:5432
-cp deploy/env/app.env.example .env.local             # только синтетические значения
-npm run db:migrate                                   # миграции из migrations/
-npm run seed:demo                                    # синтетика: номера +7 709 …, выдуманные компании
-npm run dev                                          # http://localhost:3000
-npm run worker                                       # фоновые задачи (раздача, сводки)
+createdb crm_dev                                     # пустая БД; пользователь с правом CREATE
+cp deploy/env/app.env.example .env.local             # DATABASE_URL, TEST_DATABASE_URL — только синтетика
+npm run db:migrate                                   # migrations/*.sql; учёт и sha256 в schema_migrations
+npm run dev                                          # http://localhost:3000, проверка: /api/health
 ```
+
+Без `DATABASE_URL` приложение не стартует: встроенной БД нет. В dev миграции
+накатываются при старте; в production их применяет выкладка (`db:migrate` под
+`MIGRATE_DATABASE_URL`). Применённый файл миграции не правится (D-059): `db:migrate`
+и `db:status` сообщат об изменении кодом 4.
 
 Проверки перед пушем:
 
 ```bash
-npx tsc --noEmit
+npm run typecheck
 npm run lint
-npm run test:unit
-npm run test:integration      # нужен Postgres 16 (TEST_DATABASE_URL)
-npm run test:isolation        # оператор не видит чужое
-npm run test:e2e              # Playwright, мобильные размеры
+npm run test:unit             # tests/unit и packages/core; test:unit:tz — дважды, TZ=UTC и Asia/Almaty
+TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/crm_test npm run test:integration
+npm run test:isolation        # оператор не видит чужое (появится с P4a)
+npm run test:e2e              # Playwright: iPhone 13 (WebKit) и Pixel 7 (Chromium)
+npm run build                 # next build --webpack
 ```
+
+Интеграционные тесты создают в `TEST_DATABASE_URL` временные схемы и удаляют их.
+Для e2e один раз: `npx playwright install webkit chromium`.
 
 Реальные данные клиентов на локальной машине и в ИИ-сессиях не используются.
 Только синтетика.
