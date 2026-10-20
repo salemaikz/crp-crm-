@@ -51,7 +51,6 @@ services:
     # HEALTHCHECK берётся из образа (/api/health)
 
   # Фоновые задачи (расписание, inbox/outbox): тот же образ, другая команда.
-  # Точка входа dist/worker.mjs появляется вместе с задачей воркера; до неё контейнер не стартует.
   worker:
     <<: *app-common
     command: ["node", "dist/worker.mjs"]
@@ -64,8 +63,8 @@ services:
     depends_on:
       db: { condition: service_healthy }
     healthcheck:
-      # Живость по процессу; heartbeat в БД добавит задача воркера
-      test: ["CMD", "node", "-e", "process.exit(require('fs').readFileSync('/proc/1/cmdline','utf8').includes('worker.mjs')?0:1)"]
+      # Файл живости, который воркер обновляет пульсом: свежий — здоров (scripts/worker/index.ts)
+      test: ["CMD", "node", "dist/worker.mjs", "--health"]
       interval: 30s
       timeout: 5s
       retries: 3

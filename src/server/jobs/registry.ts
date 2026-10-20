@@ -1,7 +1,11 @@
 // Реестр задач и очередей воркера (дизайн worker-design §6). Новая задача модуля — одна строка в jobDefinitions
-// (после влития модуля: distributeJob, части invariants и purge — см. §9 дизайна).
+// (distributeJob, части invariants и purge — по §9 дизайна).
 import type { ActiveConfig } from '@crm/core/config';
 import type { JobDefinition, JobInstance, QueueSpec } from '@/server/platform/jobs';
+import { countOwnerlessWorkingCards } from '@/server/domain/cards';
+import { purgeDeviceStatus } from '@/server/domain/calls';
+import { distributeJob } from '@/server/domain/distribution';
+import { purgeExpiredImportRows } from '@/server/domain/import';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import {
   configIntegrityJob,
@@ -14,13 +18,24 @@ import {
   type PurgePart,
 } from './platform';
 
-/** Части сверки `invariants`: сюда модули добавляют свои (C5 countOwnerlessWorkingCards, B4b). */
-export const invariantParts: InvariantPart[] = [];
-/** Части чистки `purge`: платформа + модули (device_status — C5, import_rows/ingest_batches — base). */
-export const purgeParts: PurgePart[] = [...platformPurgeParts];
+const DAY_MS = 86_400_000;
+
+/** Части сверки `invariants`: сюда модули добавляют свои (B4b — позже). */
+export const invariantParts: InvariantPart[] = [
+  // рабочие карточки без владельца (D-066); число нарушений, без id
+  { key: 'ownerless_cards', run: (actor) => countOwnerlessWorkingCards(actor) },
+];
+/** Части чистки `purge`: платформа + модули (ingest_batches — base, позже). */
+export const purgeParts: PurgePart[] = [
+  ...platformPurgeParts,
+  // статус устройств: seen_at старше 30 дней (worker-design §7)
+  { key: 'device_status', run: (actor, now) => purgeDeviceStatus(actor, now - 30 * DAY_MS) },
+  // строки импорта по сроку import.rowsRetentionDays каждого пространства (C4d §11)
+  { key: 'import_rows', run: async (actor, now) => (await purgeExpiredImportRows(actor, now)).deleted },
+];
 
 export function jobDefinitions(): JobDefinition[] {
-  return [eventsEnsureJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob];
+  return [eventsEnsureJob, distributeJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob];
 }
 
 /** Очереди: обработчики появятся с плагинами (O6) и push (P8b); без обработчика строки уходят в retry no_handler. */

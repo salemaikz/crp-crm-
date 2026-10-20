@@ -10,6 +10,32 @@ export const CONFIG_WRITE_LOCK_KEY = 72_026_102_002;
 /** Приём клиентов: проверка и добавление номеров, загрузка, ручное создание идут по одной (D-022). */
 export const INTAKE_LOCK_KEY = 72_026_102_003;
 
+/** Раздача: один тик или ручная выдача за раз на установку (distribution-design §3). */
+export const DISTRIBUTION_LOCK_KEY = 72_026_102_004;
+
+/** Применение импорта: один на установку (D-113). */
+export const IMPORT_APPLY_LOCK_KEY = 72_026_102_011;
+
+// Классы (первое int4) двухключевых блокировок `pg_*advisory_lock(класс, hashtext(ключ))`. Пространство
+// двухключевой формы не пересекается с bigint-ключами выше, но классы тоже держим различными.
+
+/** Пропуски звонков: на сотрудника, 12 одновременных дают ровно лимит. */
+export const SKIP_LOCK_CLASS = 72_026_105;
+
+/** Задачи воркера: `pg_try_advisory_lock(JOB_LOCK_CLASS, hashtext(runName))` на экземпляр задачи. */
+export const JOB_LOCK_CLASS = 72_026_106;
+
+/** Все ключи и классы: тест проверяет, что значения не повторяются. */
+export const ALL_LOCK_VALUES = {
+  MIGRATION_LOCK_KEY,
+  CONFIG_WRITE_LOCK_KEY,
+  INTAKE_LOCK_KEY,
+  DISTRIBUTION_LOCK_KEY,
+  IMPORT_APPLY_LOCK_KEY,
+  SKIP_LOCK_CLASS,
+  JOB_LOCK_CLASS,
+} as const;
+
 /** Сессионная advisory-блокировка, снятие. */
 export interface HeldLock {
   release(): Promise<void>;

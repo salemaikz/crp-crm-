@@ -6,9 +6,9 @@ import type { distribution as core } from '@crm/core';
 import { scopeSql, scoped } from '@/server/access/scope';
 import type { Permission } from '@/server/access/types';
 import type { Sql } from '@/server/platform/db';
+import { DISTRIBUTION_LOCK_KEY } from '@/server/platform/db/locks';
 import { assignRows } from './assign';
 import {
-  DISTRIBUTION_LOCK_KEY,
   type AssignLogKind,
   type AssignWritten,
   type DistributionActor,

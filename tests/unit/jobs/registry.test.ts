@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { time } from '@crm/core';
 import type { ActiveConfig } from '@crm/core/config';
-import { instancesFor, jobDefinitions, queueSpecs } from '../../../src/server/jobs/registry';
+import { systemActor } from '../../../src/server/access/systemActor';
+import { instancesFor, invariantParts, jobDefinitions, purgeParts, queueSpecs } from '../../../src/server/jobs/registry';
 import { slotFor } from '../../../src/server/platform/jobs/slot';
 import type { JobDefinition } from '../../../src/server/platform/jobs/types';
 
@@ -41,8 +42,21 @@ test('perSpace раскладывается по пространствам, о�
 
 test('в реестре есть events-ensure, purge, invariants; license — заглушка с запуском при старте', () => {
   const byName = new Map(jobDefinitions().map((d) => [d.name, d]));
-  for (const n of ['events-ensure', 'purge', 'invariants', 'license', 'config-integrity']) assert.ok(byName.has(n), n);
+  for (const n of ['events-ensure', 'distribute', 'purge', 'invariants', 'license', 'config-integrity']) assert.ok(byName.has(n), n);
   assert.equal(byName.get('license')!.runOnStart, true);
   assert.equal(byName.get('events-ensure')!.schedule({ global: {}, space: null })!.kind, 'daily');
   assert.deepEqual(queueSpecs().map((q) => q.name), ['webhook_inbox', 'push_outbox']);
+});
+
+test('distribute — по пространствам; части invariants и purge подключены', () => {
+  const byName = new Map(jobDefinitions().map((d) => [d.name, d]));
+  assert.equal(byName.get('distribute')!.perSpace, true);
+  assert.deepEqual(invariantParts.map((p) => p.key), ['ownerless_cards']);
+  assert.deepEqual(purgeParts.map((p) => p.key), ['sessions', 'invites', 'push_outbox', 'device_status', 'import_rows']);
+});
+
+test('имя экземпляра `distribute@sales` принимает systemActor (аудит пишет имя как есть)', () => {
+  assert.equal(systemActor('distribute@sales', 1).job, 'distribute@sales');
+  assert.throws(() => systemActor('Distribute@Sales'), /имя задачи/);
+  assert.throws(() => systemActor('a b'), /имя задачи/);
 });

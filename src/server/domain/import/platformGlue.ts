@@ -1,24 +1,18 @@
-// Мелкая связка с платформой, которой пока нет в платформе (дизайн C4d §17 п. 2): блокировка применения,
-// флаг FEATURE_IMPORT и HMAC ИИН. Когда platform заведёт IMPORT_APPLY_LOCK_KEY в db/locks.ts, 'IMPORT' в
-// FEATURES и iinHmac в platform/hmac.ts (общий с C3 и K2), этот файл удаляется, а импорты заменяются.
+// Мелкая связка с платформой (дизайн C4d §17 п. 2): флаг FEATURE_IMPORT и HMAC ИИН. Ключ блокировки применения
+// живёт в db/locks.ts, флаг 'IMPORT' заведён в platform/flags.ts. Когда iinHmac переедет в platform/hmac.ts
+// (общий с C3 и K2), а importEnabled заменится на isFeatureEnabled, этот файл удаляется.
 import { createHmac } from 'node:crypto';
-import { isDevOrTest, isProduction, readEnv, type Env } from '@/server/platform/env';
-export { INTAKE_LOCK_KEY } from '@/server/platform/db/locks';
+import { isProduction, readEnv, type Env } from '@/server/platform/env';
+import { isFeatureEnabled } from '@/server/platform/flags';
+export { IMPORT_APPLY_LOCK_KEY, INTAKE_LOCK_KEY } from '@/server/platform/db/locks';
 export { phoneHmac } from '@/server/platform/hmac';
-
-/** Одновременно применяется один импорт на установку (D-113). */
-export const IMPORT_APPLY_LOCK_KEY = 72_026_102_011;
 
 /**
  * FEATURE_IMPORT (D-116): '1' — вкл, '0' — выкл; не задан — включён только в development и test, как
  * остальные флаги модулей (platform/flags.ts). Любое другое значение — выключен (fail closed).
  */
 export function importEnabled(env: Env = process.env): boolean {
-  const raw = env.FEATURE_IMPORT?.trim();
-  if (raw === '1') return true;
-  if (raw === '0') return false;
-  if (raw === undefined || raw === '') return isDevOrTest(env);
-  return false;
+  return isFeatureEnabled('IMPORT', env);
 }
 
 const DEV_IIN_KEY = 'dev-only-iin-hmac-key';

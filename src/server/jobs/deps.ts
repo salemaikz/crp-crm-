@@ -18,8 +18,8 @@ export function makeRunnerDeps(log: JobLogger = consoleJobLogger): RunnerDeps {
     claim: async (runName, slotKey, now, max) => claim(await getDb(), runName, slotKey, now, max),
     finish: async (runId, status, stats, error, now) => finish(await getDb(), runId, status, stats, error, now),
     businessBlocked: async () => LOCKING_LICENSE_STATES.has(await currentLicenseState()),
-    // systemActor не принимает «@» в имени: `distribute@sales` → `distribute:sales`
-    actorFor: (runName, now) => systemActor(runName.replace('@', ':'), now),
+    // имя экземпляра (`distribute@sales`) идёт в аудит как есть: systemActor принимает «@»
+    actorFor: (runName, now) => systemActor(runName, now),
     log,
     clock: () => Date.now(),
     exit: (code) => process.exit(code),
