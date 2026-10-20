@@ -1,7 +1,7 @@
 // Нормализация одной записи партии (INTEGRATIONS 5.2, PROCESS 2.3): чистая функция от настроек, без БД.
 // Тот же путь, что у импорта: номера — core/phone, названия и формы — core/names, правила источника — core/dedup.
 // ПДн (названия, номера, ИИН) наружу не уходят: результат — только внутренняя структура для записи в БД.
-import { dedup, names, phone } from '@crm/core';
+import { dedup, fields, names, phone } from '@crm/core';
 import type { GlobalConfigV1 } from '@crm/core/config';
 import type { RawItem } from './envelope';
 import { emptyDropped, type DroppedFields, type InvalidCode } from './types';
@@ -20,6 +20,8 @@ export interface NormalizeCtx {
   source: Pick<SourceCfg, 'key' | 'allowPersonNames' | 'detailedReport' | 'rejectRules' | 'holdRules'>;
   /** Поля клиента, в которые можно писать из приёма (`ingest: true`, не в архиве). */
   fields: readonly FieldCfg[];
+  /** Ключи полей клиента для search_norm: `searchable`, текстовые, видимые всем ролям (D-123). */
+  searchable: readonly string[];
   iinHmac: (digits: string) => string;
 }
 
@@ -28,7 +30,12 @@ export class SourceUnknownError extends Error {
 }
 
 /** Настройки → контекст нормализации. Источника нет в настройках — приём закрыт (fail closed). */
-export function buildNormalizeCtx(global: GlobalConfigV1, sourceKey: string, iinHmac: (digits: string) => string): NormalizeCtx {
+export function buildNormalizeCtx(
+  global: GlobalConfigV1,
+  sourceKey: string,
+  iinHmac: (digits: string) => string,
+  searchable: readonly string[] = [],
+): NormalizeCtx {
   const source = global.sources.find((s) => s.key === sourceKey && !s.archived);
   if (!source) throw new SourceUnknownError('источник приёма не найден в настройках');
   const legalForms = global.org.legalForms.filter((f) => !f.archived);
@@ -50,6 +57,7 @@ export function buildNormalizeCtx(global: GlobalConfigV1, sourceKey: string, iin
     personIdRule: global.org.personIdRule,
     source,
     fields: global.fields.filter((f) => f.object === 'client' && f.ingest && !f.archived),
+    searchable,
     iinHmac,
   };
 }
@@ -70,10 +78,19 @@ export interface Prepared {
   nameNorm: string;
   /** Ключ формы из `org.legalForms` или пусто. */
   legalForm: string;
-  /** БИН (12 цифр) или пусто; у формы с `idIsPersonal` всегда пусто. */
+  /** БИН (12 цифр) или пусто; у формы с `idIsPersonal`, у `person` и при неизвестной форме всегда пусто. */
   orgId: string;
   /** HMAC ИИН; открытый ИИН дальше этой функции не живёт. */
   iinHmac: string | null;
+  /** Откуда `iinHmac`: из `orgId` (ИП, физлицо, неизвестная форма) или из `iin`. Для счётчика отброшенного. */
+  iinFrom: 'orgId' | 'iin' | null;
+  /** `iinHmac` — номер `orgId`, скрытый «по неуверенности»: форма не определена, а это мог быть БИН (D-141). */
+  orgIdUncertain: boolean;
+  /**
+   * Те же 12 цифр при `orgIdUncertain` — только как параметр поиска открытого БИН в базе (`org_id = ANY`):
+   * совпало — это БИН клиента базы, склейка не теряется. Не пишется, не логируется, в отчёт не идёт.
+   */
+  binProbe: string;
   phones: PreparedPhone[];
   region: string;
   address: string;
@@ -197,23 +214,42 @@ export function normalizeItem(raw: RawItem, ctx: NormalizeCtx): NormalizeResult 
   const rejected = dedup.evaluateRules(ctx.source.rejectRules, { legalForm: form?.key ?? '', region });
   if (rejected) return { status: 'rejected_rule', ruleCode: rejected.code };
 
-  // БИН / ИИН: у формы с `idIsPersonal` 12 цифр — ИИН, только HMAC (D-052)
+  // БИН / ИИН (D-052, D-141, D-181): 12 цифр, которые могут быть ИИН (форма с `idIsPersonal`, `kind: person`,
+  // форма не определена при наличии «личных» форм), — только HMAC. Явный `iin` сильнее неуверенного номера.
   let orgId = '';
   let iinHmac: string | null = null;
-  const rawOrg = cleanText(raw.orgId);
-  const orgDigits = names.normalizeBin(rawOrg);
-  if (rawOrg) {
-    if (form?.idIsPersonal) {
-      if (orgDigits && ctx.personIdRule === 'kz_iin_hmac') iinHmac = ctx.iinHmac(orgDigits);
-      else dropped.orgId++;
-    } else if (orgDigits && ctx.idRule === 'kz_bin') orgId = orgDigits;
-    else dropped.orgId++;
-  }
+  let iinFrom: Prepared['iinFrom'] = null;
+  let orgIdUncertain = false;
+  let binProbe = '';
   const rawIin = cleanText(raw.iin);
+  const iinDigits = rawIin ? names.normalizeBin(rawIin) : '';
+  const iinOk = !!iinDigits && ctx.personIdRule === 'kz_iin_hmac';
+  const rawOrg = cleanText(raw.orgId);
+  if (rawOrg) {
+    const digits = names.normalizeBin(rawOrg);
+    const nature = fields.orgIdNature(form?.key ?? '', kind, ctx.legalForms);
+    if (!digits) dropped.orgId++;
+    else if (nature === 'bin') {
+      if (ctx.idRule === 'kz_bin') orgId = digits;
+      else dropped.orgId++;
+    } else if (ctx.personIdRule !== 'kz_iin_hmac') dropped.orgId++;
+    else if (nature === 'personal') {
+      iinHmac = ctx.iinHmac(digits);
+      iinFrom = 'orgId';
+    } else if (iinOk) dropped.orgId++;
+    else {
+      iinHmac = ctx.iinHmac(digits);
+      iinFrom = 'orgId';
+      orgIdUncertain = true;
+      if (ctx.idRule === 'kz_bin') binProbe = digits;
+    }
+  }
   if (rawIin) {
-    const d = names.normalizeBin(rawIin);
-    if (ctx.personIdRule === 'kz_iin_hmac' && d) iinHmac ??= ctx.iinHmac(d);
-    else dropped.iin++;
+    if (!iinOk) dropped.iin++;
+    else if (iinHmac === null) {
+      iinHmac = ctx.iinHmac(iinDigits);
+      iinFrom = 'iin';
+    }
   }
 
   // Номера: рабочие, без повторов; заглушки и мусор отбрасываются
@@ -259,6 +295,9 @@ export function normalizeItem(raw: RawItem, ctx: NormalizeCtx): NormalizeResult 
       legalForm: form?.key ?? '',
       orgId,
       iinHmac,
+      iinFrom,
+      orgIdUncertain,
+      binProbe,
       phones,
       region,
       address: cleanText(raw.address),

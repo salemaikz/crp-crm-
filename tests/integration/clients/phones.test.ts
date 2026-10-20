@@ -4,7 +4,9 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addPhone, getClientCard, updatePhone } from '../../../src/server/domain/clients';
 import { phoneHmac } from '../../../src/server/platform/hmac';
-import type { TestDb } from '../../../src/server/platform/db/testing';
+import { testDatabaseUrl, type TestDb } from '../../../src/server/platform/db/testing';
+import { createPostgresDb } from '../../../src/server/platform/db/postgres';
+import { INTAKE_LOCK_KEY } from '../../../src/server/platform/db/locks';
 import { viewerOf } from '../../isolation/harness/actors';
 import { U, clientOf, phoneOf } from '../../isolation/harness/seed';
 import { closeClientsWorld, openClientsWorld } from './world';
@@ -221,4 +223,42 @@ test('номер чужого клиента и несуществующий: 40
   await assert.rejects(updatePhone(v, theirs?.id ?? '', { working: false }), { code: 'not_found' });
   await assert.rejects(updatePhone(v, 'ph-nope', { primary: true }), { code: 'not_found' });
   assert.equal((await phonesOf(clientOf('b', 1)))[0]?.isWorking, true);
+});
+
+/** Ждать, пока кто-то встанет в очередь за advisory-блокировкой (не дольше 5 с). */
+async function waitForAdvisoryWaiter(): Promise<void> {
+  for (let i = 0; i < 250; i++) {
+    const [r] = await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`;
+    if ((r?.n ?? 0) > 0) return;
+    await new Promise((res) => setTimeout(res, 20));
+  }
+  assert.fail('добавление номера не встало в очередь за блокировкой приёма');
+}
+
+test('добавление номера и приём, дописывающий того же клиента, не ждут друг друга: без 40P01 (D-126)', async () => {
+  const v = await viewerOf(U.opA);
+  const id = clientOf('a', 47);
+  const [{ schema } = { schema: '' }] = await db.sql<{ schema: string }>`SELECT current_schema() AS schema`;
+  // Второе соединение играет партию приёма: INTAKE_LOCK_KEY → UPDATE клиента (дописывание), как ingestBatch
+  const intake = await createPostgresDb(testDatabaseUrl(), { schema });
+  try {
+    let adding: Promise<unknown> = Promise.resolve();
+    await intake.withTx(async (conn) => {
+      await conn.sql`SET LOCAL lock_timeout = '5s'`;
+      await conn.sql`SELECT pg_advisory_xact_lock(${INTAKE_LOCK_KEY})`;
+      adding = addPhone(v, id, { opId: op(), phone: '+7 709 555 07 07' }).then(
+        (r) => r,
+        (e: unknown) => ({ error: e }),
+      );
+      // При старом порядке добавление уже держало бы строку клиента, и UPDATE ниже замкнул бы цикл
+      await waitForAdvisoryWaiter();
+      await conn.sql`UPDATE clients SET updated_at = updated_at + 1 WHERE id = ${id}`;
+    });
+    const r = (await adding) as { status?: string; error?: unknown };
+    assert.equal(r.error, undefined, String((r.error as { code?: string } | undefined)?.code ?? ''));
+    // лимит проверок сотрудника мог кончиться в тестах выше: важен ответ без ошибки, а не его вид
+    assert.ok(r.status === 'added' || r.status === 'review', r.status);
+  } finally {
+    await intake.close();
+  }
 });

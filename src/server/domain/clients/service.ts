@@ -3,6 +3,7 @@
 import { fields, names } from '@crm/core';
 import { BadRequestError, ConflictError, NotFoundError, type Viewer } from '@/server/access';
 import { getDb, isUniqueViolation, type Sql } from '@/server/platform/db';
+import { iinHmac } from '@/server/platform/hmac';
 import { listFeed, parseGroups, type FeedPage } from '../timeline';
 import { appendEvents, type NewEvent } from '../timeline/repo';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
@@ -11,6 +12,7 @@ import { FieldIssuesError } from './errors';
 import { SEARCH_LIMIT, LIST_LIMIT, decodeCursor, encodeCursor, type ListQuery, type PatchBody } from './input';
 import {
   lockClientForEdit,
+  lockIntake,
   selectCardHead,
   selectClient,
   selectClientList,
@@ -204,9 +206,16 @@ export function changeEvents(
   return [...sys.map(mk(true)), ...custom.map(mk(false))];
 }
 
+/** Правка затрагивает уникальные ключи клиента (БИН, ИИН) — её надо упорядочить с приёмом (D-126). */
+function touchesOrgKeys(body: PatchBody): boolean {
+  const sys = body.set.system ?? {};
+  return Object.hasOwn(sys, 'org_id') || Object.hasOwn(sys, 'legal_form');
+}
+
 /**
- * PATCH клиента (5.1). Порядок: блокировка с охватом → проверка значений (права на поля, типы) →
- * сверка `expect` → запись и события в одной транзакции. Нет изменений — ни записи, ни событий.
+ * PATCH клиента (5.1). Порядок: [блокировка приёма, если меняются БИН/форма] → блокировка с охватом →
+ * проверка значений (права на поля, типы) → сверка `expect` → запись и события в одной транзакции. Нет
+ * изменений — ни записи, ни событий. 12 цифр, которые могут быть ИИН, пишутся только как HMAC (D-181).
  */
 export async function updateClient(viewer: Viewer, id: string, body: PatchBody): Promise<ClientCardDto> {
   const cfg = await loadClientsConfig(viewer);
@@ -214,6 +223,9 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
   const db = await getDb();
   try {
     await db.tx(async (sql: Sql) => {
+      // Порядок блокировок един для всех путей: INTAKE_LOCK_KEY → строка клиента. Иначе правка, ждущая
+      // уникальный БИН незавершённой партии, и партия, дописывающая этого клиента, ждут друг друга.
+      if (touchesOrgKeys(body)) await lockIntake(sql);
       const row = await lockClientForEdit(sql, viewer, id);
       if (!row) return throwNotFoundOrForbidden(viewer, sql, 'client', id);
       const currentSystem: Record<string, unknown> = {
@@ -233,6 +245,8 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
         can: { identity: row.canIdentity, edit: true },
         legalForms: cfg.legalForms,
         ctx,
+        clientKind: row.kind,
+        ...(cfg.personIdRule === 'kz_iin_hmac' ? { personalIdHmac: (d: string) => iinHmac(d) } : {}),
       });
       const cv = fields.buildFieldValidator({ fields: cfg.fields, object: 'client', mode: 'user', viewer: fv, ctx }).validate(
         body.set.custom ?? {},
@@ -241,7 +255,7 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
       const issues = [...sys.errors, ...cv.errors];
       if (issues.length > 0) throw new FieldIssuesError(issues);
       assertExpected(body, currentSystem, row.custom);
-      if (sys.changes.length + cv.changes.length === 0) return;
+      if (sys.changes.length + cv.changes.length === 0 && sys.hiddenId === null) return;
 
       const col = (k: string): string | null => {
         const v = sys.columns[k];
@@ -261,6 +275,7 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
           email: col('email'),
           website: col('website'),
           nameNorm: newName === null ? null : names.normalizeCompanyName(newName, cfg.namesForms),
+          iinHmac: sys.hiddenId,
         },
         cv.next,
       );
@@ -269,7 +284,7 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
       await refreshSearchNorm(sql, viewer, id, cfg);
     });
   } catch (e) {
-    // Занятый БИН: уникальный индекс clients_org_uq. Транзакция откачена, событий нет.
+    // Занятый БИН или ИИН: уникальные индексы clients_org_uq, clients_iin_uq. Транзакция откачена, событий нет.
     if (isUniqueViolation(e)) throw new ConflictError();
     throw e;
   }

@@ -60,6 +60,8 @@ export function worldConfig(): { global: JsonObject; spaces: Record<string, Json
     { key: 'sole', label: t('ИП'), aliases: ['ИП', 'Индивидуальный предприниматель'], idIsPersonal: true },
   ];
   org.idRule = 'kz_bin';
+  // Как в пресете kz: ИИН — только HMAC (D-052)
+  org.personIdRule = 'kz_iin_hmac';
   g.phone = { country: 'KZ', mobilePrefixes: ['70', '77'], reviewPrefixes: [], landlinePrefixes: ['71', '72'] };
   g.roles = rolesLayer('clients/crp');
   (g.team as Record<string, unknown>).fallbackOwnerRole = 'rop';

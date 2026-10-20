@@ -47,8 +47,8 @@ test('новая запись: клиент, номера, карточка в �
   assert.equal(c.nameNorm, 'пример строй');
   assert.equal(c.website, 'https://example.kz');
   assert.deepEqual(c.custom, { okved: '41.20' });
-  assert.match(c.searchNorm, /пример строй/);
-  assert.match(c.searchNorm, /41\.20/);
+  // search_norm — как у правки в карточке (D-123): свёртка, части через « | »
+  assert.equal(c.searchNorm, `тоо пример строй | ${digitsOf(1)} | ${digitsOf(2)} | 41 20`);
   const phones = await db.sql<any>`SELECT digits, is_primary FROM client_phones WHERE client_id = ${c.id} ORDER BY digits`;
   assert.deepEqual(phones.map((p: any) => p.digits), [digitsOf(1), digitsOf(2)]);
   assert.equal(phones.filter((p: any) => p.isPrimary).length, 1);
@@ -249,4 +249,96 @@ test('ключ создаётся в нужном пространстве, ка
   const [c] = await db.sql<any>`SELECT cards.space_id FROM cards JOIN clients ON clients.id = cards.client_id WHERE clients.name = 'ТОО Источник А'`;
   assert.equal(c.spaceId, await spaceIdOf(db));
   await assert.rejects(createKey(systemActor('test', T0), { spaceKey: 'sales', sourceKey: 'manual', scopes: ['leads:write'], managed: 'cli' }), /не принимает лиды/);
+});
+
+// ---------- Ревью дня 2: ИИН, конфликт уникальности, форма в дедупе, строка поиска ----------
+
+/** Открытых 12 цифр нет ни в строке клиента, ни в отчётах партий. */
+async function assertNoOpen(digits: string) {
+  const dump = JSON.stringify([await db.sql`SELECT * FROM clients`, await db.sql`SELECT * FROM ingest_batches`, await db.sql`SELECT * FROM client_events`]);
+  assert.ok(!dump.includes(digits), `открытый номер ${digits} в БД`);
+}
+
+test('неизвестная форма или kind=person: 12 цифр только как HMAC, не в org_id и не в search_norm (D-141, D-181)', async () => {
+  const unknown = '880101300123';
+  const rep = await json(await post(brief, batch([{ name: 'Иванов Иван Иванович', orgId: unknown, phones: [ph(300)] }])));
+  assert.equal(rep.items[0].status, 'accepted');
+  const c = await client('Иванов Иван Иванович');
+  assert.equal(c.orgId, '');
+  assert.equal(c.iinHmac, iinHmac(unknown));
+  assert.ok(!c.searchNorm.includes(unknown));
+  const person = '880101300127';
+  await post(brief, batch([{ kind: 'person', name: 'Петров Пётр', legalForm: 'too', orgId: person, phones: [ph(301)] }]));
+  const p = await client('Петров Пётр');
+  assert.equal(p.kind, 'person');
+  assert.equal(p.orgId, '');
+  assert.equal(p.iinHmac, iinHmac(person));
+  await assertNoOpen(unknown);
+  await assertNoOpen(person);
+});
+
+test('неуверенный номер совпал с открытым БИН клиента базы — тот же клиент, второй раз номер не хранится (D-141)', async () => {
+  const bin = '123456789055';
+  await post(open, batch([{ name: 'ТОО Сигма', orgId: bin, phones: [ph(310)] }]));
+  const sigma = await client('ТОО Сигма');
+  const rep = await json(await post(open, batch([{ name: 'Совсем другое', orgId: bin, phones: [ph(311)], region: 'Город' }])));
+  assert.equal(rep.items[0].status, 'merged');
+  const after = await client('ТОО Сигма');
+  assert.equal(after.orgId, bin);
+  assert.equal(after.iinHmac, null);
+  assert.equal(after.region, 'Город');
+  assert.equal((await db.sql`SELECT 1 FROM client_phones WHERE client_id = ${sigma.id}`).length, 2);
+  // и наоборот: клиент, скрытый «по неуверенности», находится открытым БИН той же записи
+  const hidden = '123456789066';
+  await post(open, batch([{ name: 'Тау', orgId: hidden, phones: [ph(312)] }]));
+  const tau = await client('Тау');
+  assert.equal(tau.iinHmac, iinHmac(hidden));
+  const again = await json(await post(open, batch([{ name: 'ТОО Ипсилон', orgId: hidden, phones: [ph(313)] }])));
+  assert.equal(again.items[0].status, 'merged');
+});
+
+test('ТОО с ИИН, занятым ИП: партия не падает, клиент без iin_hmac с замечанием, соседняя запись принята (D-182)', async () => {
+  const iin = '770101300456';
+  await post(open, batch([{ name: 'ИП Кайратов', legalForm: 'ip', orgId: iin, phones: [ph(320)] }]));
+  const ip = await client('ИП Кайратов');
+  assert.equal(ip.iinHmac, iinHmac(iin));
+  const res = await post(open, batch([
+    { name: 'ТОО Гамма', orgId: '123456789077', iin, phones: [ph(321)] },
+    { name: 'ТОО Другая', phones: [ph(322)] },
+  ]));
+  assert.equal(res.status, 200);
+  const rep = await json(res);
+  assert.deepEqual(rep.items.map((i: any) => i.status), ['created', 'created']);
+  assert.equal(rep.droppedFields.iin, 1);
+  const gamma = await client('ТОО Гамма');
+  assert.equal(gamma.orgId, '123456789077');
+  assert.equal(gamma.iinHmac, null);
+  assert.ok(await client('ТОО Другая'));
+  // у ИП ничего не поменялось
+  assert.equal((await client('ИП Кайратов')).iinHmac, iinHmac(iin));
+  await assertNoOpen(iin);
+});
+
+test('«ТОО Омега» и «ИП Омега» с одним номером — спорная пара, а не склейка (D-142)', async () => {
+  await post(open, batch([{ name: 'ТОО Омега', phones: [ph(330)] }]));
+  const rep = await json(await post(open, batch([{ name: 'ИП Омега', phones: [ph(330)] }])));
+  assert.equal(rep.items[0].status, 'held_pair');
+  const too = await client('ТОО Омега');
+  const ip = await client('ИП Омега');
+  assert.equal(too.legalForm, 'too');
+  assert.equal(ip.legalForm, 'ip');
+  const [a, b] = too.id < ip.id ? [too.id, ip.id] : [ip.id, too.id];
+  assert.equal((await db.sql`SELECT 1 FROM dup_pairs WHERE a_client_id = ${a} AND b_client_id = ${b}`).length, 1);
+  // внутри одной партии — так же
+  const same = await json(await post(open, batch([{ name: 'ТОО Дзета', phones: [ph(331)] }, { name: 'ИП Дзета', phones: [ph(331)] }])));
+  assert.deepEqual(same.items.map((i: any) => i.status), ['created', 'held_pair']);
+});
+
+test('search_norm приёма: БИН ищется, дописывание пересчитывает строку той же функцией, что правка (D-123)', async () => {
+  const bin = '123456789088';
+  await post(open, batch([{ name: 'ТОО «Қазына»', orgId: bin, phones: [ph(340)] }]));
+  const c = await client('ТОО «Қазына»');
+  assert.equal(c.searchNorm, `тоо казына | ${bin} | ${digitsOf(340)}`);
+  await post(open, batch([{ name: 'Казына', orgId: bin, phones: [ph(341)], custom: { okved: 'Строительство' } }]));
+  assert.equal((await client('ТОО «Қазына»')).searchNorm, `тоо казына | ${bin} | ${digitsOf(340)} | ${digitsOf(341)} | строительство`);
 });

@@ -22,7 +22,8 @@ D-015, D-017, D-020, D-022, D-037, D-038, D-040, D-051, D-052, D-068, D-071…D-
 | `projectValues` | только видимые значения (строки списка) |
 | `canSeeFieldChange`, `visibleFieldRefs` | видимость события «поле было → стало» (D-125) |
 | `buildSearchNorm`, `parseSearchQuery`, `searchableKeys`, `foldForSearch` | поиск (D-123) |
-| `CLIENT_SYSTEM_FIELDS`, `CONTACT_SYSTEM_FIELDS`, `validateSystemPatch`, `reservedKeyIssues` | системные поля-колонки и их права (D-124) |
+| `CLIENT_SYSTEM_FIELDS`, `CONTACT_SYSTEM_FIELDS`, `validateSystemPatch`, `reservedKeyIssues` | системные поля-колонки и их права (D-124); 12 цифр, которые могут быть ИИН, — только `hiddenId` (HMAC), не `org_id` и не лента (D-181) |
+| `orgIdNature(form, kind, legalForms)` | `bin` / `personal` / `uncertain`: одно правило для правки клиента и приёма (D-141, D-181) |
 
 Ключи системных полей (они же ключи в API и в ленте): клиент — `name`, `legal_form`, `org_id`,
 `region`, `address`, `email`, `website`; контакт — `name`, `position`, `is_decision_maker`,
@@ -55,6 +56,9 @@ D-015, D-017, D-020, D-022, D-037, D-038, D-040, D-051, D-052, D-068, D-071…D-
 (403). Функция `throwNotFoundOrForbidden(viewer, sql, entity, id)` — в `clients/repo.ts`.
 **Порядок в каждой мутации: сначала блокировка с охватом, потом всё остальное** — иначе чужой
 id оставит след (строку `phone_probes`, задачу), и прогон изоляции упадёт на снимке таблиц.
+Исключение — блокировка приёма `INTAKE_LOCK_KEY`: где она нужна (добавление номера; правка с
+`org_id`/`legal_form`), она берётся **до** строки клиента — как в приёме (D-126). Она не оставляет
+следов, поэтому правилу «без следов до охвата» не мешает.
 
 ---
 
@@ -155,10 +159,10 @@ SELECT cl.…, cl.custom, (S(client,'client.edit_identity')) AS can_identity
 FROM clients cl WHERE cl.id = ${id} AND cl.merged_into_id IS NULL AND S(client,'client.edit') FOR UPDATE OF cl
 ```
 UPDATE после проверки — с тем же охватом: `UPDATE clients cl SET … WHERE cl.id = ${id} AND S(client,'client.edit')`.
-`custom` пишется целиком (`next` из валидатора) — строка заблокирована. Нарушение
-`clients_org_uq` (`isUniqueViolation`) → 409.
+`custom` пишется целиком (`next` из валидатора) — строка заблокирована. `iin_hmac = COALESCE(hiddenId,
+iin_hmac)` (D-181). Нарушение `clients_org_uq` или `clients_iin_uq` (`isUniqueViolation`) → 409.
 
-**4.7. Проверка номера (D-126)** — внутри транзакции после блокировки клиента:
+**4.7. Проверка номера (D-126)** — внутри транзакции; блокировка приёма — до блокировки клиента:
 ```sql
 SELECT pg_advisory_xact_lock(${INTAKE_LOCK_KEY});                                  -- D-022
 SELECT count(*)::int AS n FROM phone_probes WHERE user_id = ${me} AND day = ${viewer.today};  -- phone_probes_user_day_idx
@@ -232,24 +236,28 @@ DTO (`clients/types.ts`):
 
 ### 5.1. `PATCH` клиента — порядок в одной транзакции
 1. `cfg = loadClientsConfig(viewer)` (до транзакции).
-2. Блокировка 4.6; нет строки → `throwNotFoundOrForbidden`.
+2. В `set.system` есть `org_id` или `legal_form` → `pg_advisory_xact_lock(INTAKE_LOCK_KEY)` (D-126).
+   Затем блокировка 4.6; нет строки → `throwNotFoundOrForbidden`.
 3. Сверить `expect` с текущими значениями (системные — по колонкам, свои — по `custom`); ключи
    `expect` ≠ ключи `set` → 400; расхождение → `ConflictError`.
 4. `validateSystemPatch({object:'client', patch:set.system, current, can:{identity: row.can_identity,
-   edit: true}, legalForms})` и `buildFieldValidator({mode:'user', viewer: fv, object:'client'})
-   .validate(set.custom, row.custom)`; ошибки обоих → один 400 с `issues`.
-5. Нет изменений → вернуть карточку без записи.
+   edit: true}, legalForms, clientKind: row.kind, personalIdHmac})` и `buildFieldValidator({mode:'user',
+   viewer: fv, object:'client'}).validate(set.custom, row.custom)`; ошибки обоих → один 400 с `issues`.
+   `personalIdHmac` (= `iinHmac`) передаётся только при `org.personIdRule = kz_iin_hmac`; без него номер,
+   который может быть ИИН, — 400 `type` (D-181).
+5. Нет изменений и нет `hiddenId` → вернуть карточку без записи.
 6. `name` изменилось → `name_norm = names.normalizeCompanyName(name, cfg.namesForms)`.
 7. UPDATE 4.6 (`custom = next`, `updated_at = viewer.now`), затем `refreshSearchNorm`.
 8. По событию `field.changed` на каждое изменение (раздел 6). Всё в той же транзакции.
 
 ### 5.2. `POST` номера — порядок (D-126)
+0. `pg_advisory_xact_lock(INTAKE_LOCK_KEY)` — первой, как в приёме (обратный порядок давал 40P01).
 1. Блокировка клиента с охватом `client.edit` (4.6 без `can_identity`); нет → 404/403.
 2. `phone.parsePhone(phone, cfg.phoneRules)`: не номер или нерабочий → 400 `phone_invalid`.
 3. У этого клиента такой номер уже есть → `{status:'added', phone}` (повтор безопасен; проверка номера
    не считается — это свой клиент).
 4. `contactId` — контакт этого клиента, не в архиве, с охватом `contact`/`client.edit`, иначе 400 `contact`.
-5. 4.7: блокировка приёма, счётчик за сегодня, стоп-лист, `taken`, строка `phone_probes`.
+5. 4.7: счётчик за сегодня, стоп-лист, `taken`, строка `phone_probes` (блокировка приёма уже взята в п. 0).
 6. `n ≥ probesPerDay` или `stopped` или `taken` → задача РОП (`tasks`: `kind 'check'`, `source 'review'`,
    `assignee_user_id NULL`, `client_id = id`, `space_id = viewer.spaceId`, `title` = номер `+7…`,
    `source_key = 'add_phone:' || opId`, `ON CONFLICT DO NOTHING`), ответ `{status:'review'}`. В ленту

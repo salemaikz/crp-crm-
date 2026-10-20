@@ -16,6 +16,7 @@ import {
   resolveAccess,
   safeHttpUrl,
   searchableKeys,
+  orgIdNature,
   validateSystemPatch,
   visibleFieldRefs,
   type FieldDef,
@@ -293,4 +294,50 @@ test('системные поля: права, БИН, форма с личны�
   const ct = validateSystemPatch({ object: 'contact', patch: { is_decision_maker: true, name: 'Иванов' }, current: { is_decision_maker: false, name: '' }, can: { identity: false, edit: true } });
   assert.deepEqual(ct.columns, { is_decision_maker: true, name: 'Иванов' });
   assert.deepEqual(reservedKeyIssues([field('email'), field('niche'), field('name', { object: 'contact' })]).map((i) => i.key), ['email', 'name']);
+});
+
+test('системные поля: 12 цифр при личной, пустой форме или у физлица — только HMAC, не в org_id и не в ленту (D-181)', () => {
+  const forms = [
+    { key: 'llp', idIsPersonal: false },
+    { key: 'sole', idIsPersonal: true },
+  ];
+  const can = { identity: true, edit: true };
+  const hmac = (d: string) => `h(${d.length})`;
+  const iin = '880101300123';
+  const noForm = { name: 'Альфа', legal_form: '', org_id: '', email: '', website: '' };
+  // форма пуста, «личные» формы есть: номер мог быть ИИН — скрыт
+  const empty = validateSystemPatch({ object: 'client', patch: { org_id: iin }, current: noForm, can, legalForms: forms, personalIdHmac: hmac });
+  assert.equal(empty.ok, true);
+  assert.deepEqual(empty.columns, {});
+  assert.deepEqual(empty.changes, []);
+  assert.equal(empty.hiddenId, 'h(12)');
+  assert.ok(!JSON.stringify(empty).includes(iin));
+  // без функции HMAC — отказ, а не открытое хранение
+  assert.deepEqual(validateSystemPatch({ object: 'client', patch: { org_id: iin }, current: noForm, can, legalForms: forms }).errors, [{ key: 'org_id', code: 'type' }]);
+  // та же правка с явной очисткой формы у ТОО: открытый БИН очищается, номер скрыт
+  const cur = { name: 'ТОО Альфа', legal_form: 'llp', org_id: '123456789012', email: '', website: '' };
+  const cleared = validateSystemPatch({ object: 'client', patch: { legal_form: '', org_id: iin }, current: cur, can, legalForms: forms, personalIdHmac: hmac });
+  assert.deepEqual(cleared.columns, { legal_form: '', org_id: '' });
+  assert.equal(cleared.hiddenId, 'h(12)');
+  assert.ok(!JSON.stringify(cleared.changes).includes(iin));
+  // форма с личным номером
+  const sole = validateSystemPatch({ object: 'client', patch: { legal_form: 'sole', org_id: iin }, current: cur, can, legalForms: forms, personalIdHmac: hmac });
+  assert.equal(sole.hiddenId, 'h(12)');
+  assert.deepEqual(sole.columns, { legal_form: 'sole', org_id: '' });
+  // физлицо: даже при форме без личного номера
+  const person = validateSystemPatch({ object: 'client', patch: { org_id: iin }, current: { ...noForm, legal_form: 'llp' }, can, legalForms: forms, clientKind: 'person', personalIdHmac: hmac });
+  assert.equal(person.hiddenId, 'h(12)');
+  assert.deepEqual(person.columns, {});
+  // «личных» форм нет — номер при пустой форме считается БИН
+  const plain = validateSystemPatch({ object: 'client', patch: { org_id: '123456789013' }, current: noForm, can, legalForms: [forms[0]!], personalIdHmac: hmac });
+  assert.deepEqual(plain.columns, { org_id: '123456789013' });
+  assert.equal(plain.hiddenId, null);
+  // тот же открытый БИН при неизвестной форме не скрывается и не меняется
+  const same = validateSystemPatch({ object: 'client', patch: { org_id: '123456789012' }, current: { ...cur, legal_form: '' }, can, legalForms: forms, personalIdHmac: hmac });
+  assert.deepEqual(same.changes, []);
+  assert.equal(same.hiddenId, null);
+  assert.equal(orgIdNature('', undefined, forms), 'uncertain');
+  assert.equal(orgIdNature('nope', undefined, forms), 'uncertain');
+  assert.equal(orgIdNature('llp', 'person', forms), 'personal');
+  assert.equal(orgIdNature('llp', 'company', forms), 'bin');
 });

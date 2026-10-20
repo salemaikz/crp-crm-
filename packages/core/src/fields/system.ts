@@ -72,6 +72,14 @@ export interface SystemPatchInput {
   /** Формы собственности `global.org.legalForms` (для клиента). */
   legalForms?: readonly LegalFormRef[];
   ctx?: ValueContext;
+  /** Вид клиента: у `person` 12 цифр — всегда ИИН (D-052). */
+  clientKind?: 'company' | 'person';
+  /**
+   * HMAC ИИН (D-052, D-141, D-181). Номер, который может быть ИИН (форма с личным номером, вид `person`,
+   * форма не определена при наличии «личных» форм), в `org_id` не идёт: возвращается `hiddenId`.
+   * Нет функции — такой номер отклоняется (`type`): открыто ИИН не хранится никогда.
+   */
+  personalIdHmac?: (digits: string) => string;
 }
 
 export interface SystemPatchResult {
@@ -80,6 +88,26 @@ export interface SystemPatchResult {
   columns: Record<string, FieldValue>;
   changes: FieldChange[];
   errors: FieldIssue[];
+  /**
+   * HMAC номера, принятого как ИИН, — для колонки `iin_hmac`. В `columns` и `changes` (лента) его нет:
+   * ни открытый ИИН, ни его HMAC в событие не попадают.
+   */
+  hiddenId: string | null;
+}
+
+/** Чем считать 12 цифр при данной форме и виде клиента (D-141). */
+export type OrgIdNature = 'bin' | 'personal' | 'uncertain';
+
+/**
+ * `personal` — форма с личным номером или вид `person`; `bin` — известная форма без личного номера или
+ * «личных» форм в настройках нет; `uncertain` — форма не определена, а «личные» формы есть: номер мог
+ * быть ИИН, поэтому хранится как ИИН (считать неизвестную форму не личной D-141 отвергает).
+ */
+export function orgIdNature(formKey: unknown, kind: 'company' | 'person' | undefined, forms: readonly LegalFormRef[]): OrgIdNature {
+  if (kind === 'person') return 'personal';
+  const form = typeof formKey === 'string' && formKey ? forms.find((f) => f.key === formKey) : undefined;
+  if (form) return form.idIsPersonal ? 'personal' : 'bin';
+  return forms.some((f) => f.idIsPersonal) ? 'uncertain' : 'bin';
 }
 
 function asDef(spec: SystemFieldSpec, object: FieldObject): FieldDef {
@@ -114,6 +142,7 @@ export function validateSystemPatch(input: SystemPatchInput): SystemPatchResult 
   const forms = input.legalForms ?? [];
 
   const nextLegalForm = Object.hasOwn(input.patch, 'legal_form') ? input.patch.legal_form : input.current.legal_form;
+  let hiddenId: string | null = null;
 
   for (const key of Object.keys(input.patch)) {
     const spec = byKey.get(key);
@@ -131,12 +160,20 @@ export function validateSystemPatch(input: SystemPatchInput): SystemPatchResult 
       if (raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '')) value = null;
       else {
         const bin = typeof raw === 'string' ? normalizeBin(raw) : '';
-        const personal = forms.find((f) => f.key === nextLegalForm)?.idIsPersonal ?? false;
-        if (!bin || personal) {
+        if (!bin) {
           errors.push({ key, code: 'type' });
           continue;
         }
-        value = bin;
+        const nature = orgIdNature(nextLegalForm, input.clientKind, forms);
+        if (nature === 'bin' || (nature === 'uncertain' && bin === input.current.org_id)) value = bin;
+        else if (!input.personalIdHmac) {
+          errors.push({ key, code: 'type' });
+          continue;
+        } else {
+          // ИИН (или «по неуверенности»): только HMAC; открытый номер прежней формы очищается
+          hiddenId = input.personalIdHmac(bin);
+          value = null;
+        }
       }
     } else if (spec.type === 'legal_form') {
       if (raw === null || raw === undefined || raw === '') value = null;
@@ -178,5 +215,6 @@ export function validateSystemPatch(input: SystemPatchInput): SystemPatchResult 
       changes.push({ key: 'org_id', before: bin, after: null });
     }
   }
-  return { ok: errors.length === 0, columns: errors.length ? {} : columns, changes: errors.length ? [] : changes, errors };
+  const ok = errors.length === 0;
+  return { ok, columns: ok ? columns : {}, changes: ok ? changes : [], errors, hiddenId: ok ? hiddenId : null };
 }

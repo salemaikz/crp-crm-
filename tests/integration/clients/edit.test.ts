@@ -1,7 +1,8 @@
 // Правка полей клиента (5.1): события «было → стало», expect, права на поля, ссылки, название и поиск.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FieldIssuesError, getClientCard, updateClient, type PatchBody } from '../../../src/server/domain/clients';
+import { FieldIssuesError, getClientCard, listClients, parseListQuery, updateClient, type PatchBody } from '../../../src/server/domain/clients';
+import { iinHmac } from '../../../src/server/platform/hmac';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { viewerOf } from '../../isolation/harness/actors';
 import { FX, U, clientOf, phoneOf } from '../../isolation/harness/seed';
@@ -93,7 +94,7 @@ test('оператор не меняет название и БИН: forbidden; 
     { key: 'org_id', code: 'forbidden' },
   ]);
   const rop = await viewerOf(U.rop);
-  const c = await updateClient(rop, id, body({ system: { name: 'ТОО Новая Сова', org_id: '123456789012' }, custom: {} }, { system: { name: 'ТОО Синтетика Альфа 13', org_id: '' }, custom: {} }));
+  const c = await updateClient(rop, id, body({ system: { name: 'ТОО Новая Сова', legal_form: 'llp', org_id: '123456789012' }, custom: {} }, { system: { name: 'ТОО Синтетика Альфа 13', legal_form: '', org_id: '' }, custom: {} }));
   assert.equal(c.name, 'ТОО Новая Сова');
   assert.equal(c.orgId, '123456789012');
 });
@@ -103,7 +104,7 @@ test('переименование обновляет name_norm и search_norm (
   const rop = await viewerOf(U.rop);
   // secret — «только чтение» даже для РОП: значение пришло из приёма или импорта
   await db.sql`UPDATE clients SET custom = custom || ${db.json({ secret: 'скрытое слово' }) as never} WHERE id = ${id}`;
-  await updateClient(rop, id, body({ system: { name: 'ТОО «Қазына Ай»', org_id: '210987654321' }, custom: { segment: 'Оптовик' } }, { system: { name: 'ТОО Синтетика Альфа 14', org_id: '' }, custom: { segment: null } }));
+  await updateClient(rop, id, body({ system: { name: 'ТОО «Қазына Ай»', legal_form: 'llp', org_id: '210987654321' }, custom: { segment: 'Оптовик' } }, { system: { name: 'ТОО Синтетика Альфа 14', legal_form: '', org_id: '' }, custom: { segment: null } }));
   const [row] = await db.sql<{ nameNorm: string; searchNorm: string }>`SELECT name_norm, search_norm FROM clients WHERE id = ${id}`;
   assert.equal(row?.nameNorm, 'казына ай');
   assert.ok(row?.searchNorm.includes('казына ай'), row?.searchNorm);
@@ -168,23 +169,65 @@ test('варианты списков: архивный вариант нель�
   assert.deepEqual(c.fields.values.tags, ['vip', 'new']);
 });
 
-test('форма собственности: неизвестная отвергается, у ИП БИН не принимается, смена на ИП очищает БИН', async () => {
+test('форма собственности: неизвестная отвергается, смена на ИП очищает БИН', async () => {
   const id = clientOf('a', 19);
   const rop = await viewerOf(U.rop);
   assert.deepEqual(await issuesOf(updateClient(rop, id, body({ system: { legal_form: 'nope' }, custom: {} }, { system: { legal_form: '' }, custom: {} }))), [{ key: 'legal_form', code: 'option' }]);
-  assert.deepEqual(await issuesOf(updateClient(rop, id, body({ system: { legal_form: 'sole', org_id: '123456789012' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }))), [{ key: 'org_id', code: 'type' }]);
   await updateClient(rop, id, body({ system: { legal_form: 'llp', org_id: '111122223333' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }));
   const c = await updateClient(rop, id, body({ system: { legal_form: 'sole' }, custom: {} }, { system: { legal_form: 'llp' }, custom: {} }));
   assert.equal(c.legalForm, 'sole');
   assert.equal(c.orgId, '');
 });
 
+/** Строка клиента, события и поиск: открытого ИИН нигде нет, HMAC — только в iin_hmac (D-181). */
+async function assertIinHidden(id: string, iin: string) {
+  const [row] = await db.sql<{ orgId: string; iinHmac: string | null; searchNorm: string }>`SELECT org_id, iin_hmac, search_norm FROM clients WHERE id = ${id}`;
+  assert.equal(row?.orgId, '');
+  assert.equal(row?.iinHmac, iinHmac(iin));
+  assert.ok(!row?.searchNorm.includes(iin), row?.searchNorm);
+  const all = await db.sql<{ data: unknown }>`SELECT data FROM client_events WHERE client_id = ${id}`;
+  for (const e of all) {
+    assert.ok(!JSON.stringify(e.data).includes(iin), 'ИИН в ленте');
+    assert.ok(!JSON.stringify(e.data).includes(iinHmac(iin)), 'HMAC ИИН в ленте');
+  }
+  const rop = await viewerOf(U.rop);
+  assert.deepEqual((await listClients(rop, parseListQuery(new URLSearchParams(`q=${iin}`)))).items, []);
+  assert.equal((await getClientCard(rop, id)).orgId, '');
+}
+
+test('12 цифр при пустой форме, форме ИП и у физлица — только HMAC: не в org_id, не в поиске, не в ленте (D-181)', async () => {
+  const rop = await viewerOf(U.rop);
+  // пустая форма: номер мог быть ИИН — скрыт «по неуверенности»
+  const empty = clientOf('a', 23);
+  await updateClient(rop, empty, body({ system: { org_id: '880101300123' }, custom: {} }, { system: { org_id: '' }, custom: {} }));
+  await assertIinHidden(empty, '880101300123');
+  // явная очистка формы у ТОО с БИН: БИН очищается (событие с прежним БИН), новый номер скрыт
+  const cleared = clientOf('a', 24);
+  await updateClient(rop, cleared, body({ system: { legal_form: 'llp', org_id: '444455556666' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }));
+  await updateClient(rop, cleared, body({ system: { legal_form: '', org_id: '880101300124' }, custom: {} }, { system: { legal_form: 'llp', org_id: '444455556666' }, custom: {} }));
+  await assertIinHidden(cleared, '880101300124');
+  // форма ИП
+  const sole = clientOf('a', 25);
+  await updateClient(rop, sole, body({ system: { legal_form: 'sole', org_id: '880101300125' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }));
+  await assertIinHidden(sole, '880101300125');
+  // физлицо: даже с формой без личного номера
+  const person = clientOf('a', 26);
+  await db.sql`UPDATE clients SET kind = 'person', legal_form = 'llp' WHERE id = ${person}`;
+  await updateClient(rop, person, body({ system: { org_id: '880101300126' }, custom: {} }, { system: { org_id: '' }, custom: {} }));
+  await assertIinHidden(person, '880101300126');
+  // тот же ИИН у другого клиента — 409, а не второй клиент с этим ИИН
+  await assert.rejects(
+    updateClient(rop, clientOf('a', 27), body({ system: { org_id: '880101300123' }, custom: {} }, { system: { org_id: '' }, custom: {} })),
+    { code: 'conflict' },
+  );
+});
+
 test('занятый БИН — 409, транзакция откачена: ни полей, ни событий', async () => {
   const rop = await viewerOf(U.rop);
-  await updateClient(rop, clientOf('a', 20), body({ system: { org_id: '555566667777' }, custom: {} }, { system: { org_id: '' }, custom: {} }));
+  await updateClient(rop, clientOf('a', 20), body({ system: { legal_form: 'llp', org_id: '555566667777' }, custom: {} }, { system: { legal_form: '', org_id: '' }, custom: {} }));
   const id = clientOf('a', 21);
   await assert.rejects(
-    updateClient(rop, id, body({ system: { org_id: '555566667777', region: 'Павлодар' }, custom: { segment: 'не запишется' } }, { system: { org_id: '', region: '' }, custom: { segment: null } })),
+    updateClient(rop, id, body({ system: { legal_form: 'llp', org_id: '555566667777', region: 'Павлодар' }, custom: { segment: 'не запишется' } }, { system: { legal_form: '', org_id: '', region: '' }, custom: { segment: null } })),
     { code: 'conflict' },
   );
   const c = await getClientCard(rop, id);
