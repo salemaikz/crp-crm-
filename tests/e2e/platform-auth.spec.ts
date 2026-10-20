@@ -11,6 +11,8 @@ test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
 const PASSWORD = 'Надёжный-пароль-77';
 const sql = DB_URL ? postgres(DB_URL, { max: 2 }) : (null as never);
+// Корень «/» перенаправляет на главную роли. У сотрудника без роли в настройках меню пусто, и главная — «Мой аккаунт».
+const HOME = '/account';
 const now = () => Date.now();
 const uniquePhone = () => `7701555${String(Math.floor(Math.random() * 9000) + 1000)}`;
 const pretty = (p: string) => `8 ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7, 9)} ${p.slice(9)}`;
@@ -49,7 +51,7 @@ test('вход по телефону: «8 701…», cookie HttpOnly и Lax, по
   await expect(page.getByLabel('Номер телефона')).toHaveAttribute('inputmode', 'tel');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await loginVia(page, u.phone, PASSWORD);
-  await page.waitForURL('/');
+  await page.waitForURL(HOME);
   const cookie = (await context.cookies()).find((c) => c.name === 'crm_sid' || c.name === '__Host-crm_sid');
   expect(cookie?.httpOnly).toBe(true);
   expect(cookie?.sameSite).toBe('Lax');
@@ -73,7 +75,7 @@ test('приглашение: адрес без #, пароль дважды, в
   await page.getByLabel('Новый пароль').fill('Новый-пароль-66');
   await page.getByLabel('Повторите пароль').fill('Новый-пароль-66');
   await page.getByRole('button', { name: 'Сохранить и войти' }).click();
-  await page.waitForURL('/');
+  await page.waitForURL(HOME);
   const other = await (await browser.newContext()).newPage();
   await other.goto(`/invite#${token}`);
   await expect(other.locator('p[role="alert"]')).toContainText('Ссылка недействительна');
@@ -84,9 +86,9 @@ test('«выйти везде»: вторая сессия при следующ
   const a = await (await browser.newContext()).newPage();
   const b = await (await browser.newContext()).newPage();
   await loginVia(a, u.phone, PASSWORD);
-  await a.waitForURL('/');
+  await a.waitForURL(HOME);
   await loginVia(b, u.phone, PASSWORD);
-  await b.waitForURL('/');
+  await b.waitForURL(HOME);
   await a.goto('/account');
   await a.getByRole('button', { name: 'Выйти на всех устройствах' }).click();
   await a.getByRole('button', { name: 'Выйти на всех устройствах' }).click();
