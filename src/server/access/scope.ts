@@ -159,8 +159,10 @@ function bookingPred(v: Viewer, perm: Permission, a: Access, X: Frag): Frag {
     );
   }
   if (relOf(a.rels, 'duty_today') && v.spaceId !== null) {
+    // Явка дежурного — только по живой записи, как и у консультанта; список гостей видит и отменённых.
+    const live = perm === 'booking.attend' ? frag`${X}.status IN ${LIVE_BOOKING} AND ` : frag``;
     parts.push(
-      frag`(EXISTS (SELECT 1 FROM event_duty acc_db JOIN events acc_eb ON acc_eb.id = acc_db.event_id WHERE acc_db.event_id = ${X}.event_id AND acc_db.user_id = ${me} AND acc_eb.event_date = ${v.today} AND acc_eb.space_id = ${v.spaceId}))`,
+      frag`(${live}EXISTS (SELECT 1 FROM event_duty acc_db JOIN events acc_eb ON acc_eb.id = acc_db.event_id WHERE acc_db.event_id = ${X}.event_id AND acc_db.user_id = ${me} AND acc_eb.event_date = ${v.today} AND acc_eb.space_id = ${v.spaceId}))`,
     );
   }
   return anyOf(parts);
