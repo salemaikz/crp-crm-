@@ -40,10 +40,18 @@ export interface DaySnapshot {
   bookings: readonly SlotBooking[];
 }
 
-/** План дня: по графику — для консультантов с графиком, по часам настроек — без. */
+/**
+ * План дня: по графику — для консультантов с графиком, по часам настроек — без.
+ * Праздник гасит и недельный график консультанта; пробить его может только явное исключение
+ * `custom` на эту дату (РОП сознательно открыл окно). `off` и так даёт выходной.
+ */
 export function planFor(snap: DaySnapshot, c: Consultant): DayPlan {
   if (!c.usesSchedule) return defaultHoursDay(snap.date, snap.hours, snap.isWorkday);
   const data = snap.schedules.get(c.id) ?? { schedule: [], exceptions: [] };
+  if (snap.isWorkday && !snap.isWorkday(snap.date)) {
+    const opened = data.exceptions.some((e) => e.day === snap.date && e.kind === 'custom');
+    if (!opened) return { working: false, windows: [] };
+  }
   return effectiveDay(snap.date, data.schedule, data.exceptions);
 }
 

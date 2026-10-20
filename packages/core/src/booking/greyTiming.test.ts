@@ -54,3 +54,18 @@ test('следующий прогон сегодня или null после по
   assert.equal(nextGreyRunAt(T('2026-10-22', '07:00'), schedule, TZ), T('2026-10-22', '09:00'));
   assert.equal(nextGreyRunAt(T('2026-10-22', '18:00'), schedule, TZ), null);
 });
+
+test('шаг не делит отрезок: после последнего реального прогона — too_late, как и nextGreyRunAt', () => {
+  const odd = { first: '09:00', last: '17:50', stepMin: 30 }; // последний прогон 17:30
+  assert.equal(greyTiming('2026-10-22', T('2026-10-22', '17:20'), odd, TZ), 'next_run');
+  assert.equal(nextGreyRunAt(T('2026-10-22', '17:20'), odd, TZ), T('2026-10-22', '17:30'));
+  assert.equal(greyTiming('2026-10-22', T('2026-10-22', '17:40'), odd, TZ), 'too_late');
+  assert.equal(nextGreyRunAt(T('2026-10-22', '17:40'), odd, TZ), null);
+});
+
+test('праздничная дата: first_run не обещается, консультанта назначат вручную', () => {
+  const isWorkday = (d: string) => d !== '2026-10-26';
+  assert.equal(greyTiming('2026-10-26', T('2026-10-22', '14:00'), schedule, TZ, isWorkday), 'too_late');
+  assert.equal(greyTiming('2026-10-26', T('2026-10-26', '08:00'), schedule, TZ, isWorkday), 'too_late');
+  assert.equal(greyTiming('2026-10-27', T('2026-10-22', '14:00'), schedule, TZ, isWorkday), 'first_run');
+});
