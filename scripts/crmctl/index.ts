@@ -13,6 +13,8 @@ import { CrmctlError, type Deps } from './types';
 import { update } from './update';
 import { stubVerifier } from './verify';
 import { runConfig } from './config';
+import { backupMain } from './backup';
+import { restoreMain } from './restore';
 
 type Command = (deps: Deps, args: ParsedArgs) => Promise<number>;
 
@@ -30,10 +32,12 @@ export const commands: Record<string, Command> = {
 
 /**
  * Команды со своим разбором аргументов: получают argv без имени команды и сами печатают справку.
- * config — настройки (P5), backup/restore — копии (O3, подключаются при влитии).
+ * config — настройки (P5), backup/restore — копии и восстановление (O3).
  */
 export const rawCommands: Record<string, (argv: string[]) => Promise<number>> = {
   config: runConfig,
+  backup: (argv) => backupMain(argv),
+  restore: (argv) => restoreMain(argv),
 };
 
 export const USAGE = `crmctl — сопровождение установки CRM
@@ -45,6 +49,8 @@ export const USAGE = `crmctl — сопровождение установки C
   status
   health          код выхода 0 — приложение здорово
   config …        настройки и пресеты (crmctl config --help)
+  backup …        копии БД (crmctl backup --help)
+  restore …       восстановление копии (crmctl restore --help)
 
 Пакет — каталог или .tar.zst. Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;
 

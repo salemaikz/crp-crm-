@@ -1,0 +1,67 @@
+name: Restore drill
+
+# Учебное восстановление на синтетике (DEPLOY 6.3): раз в сутки и вручную.
+# Боевых данных и ключей здесь нет: БД создаётся заново, ключи age одноразовые.
+on:
+  schedule:
+    - cron: '30 21 * * *' # 02:30 по Алматы
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restore-drill
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    name: учебное восстановление (синтетика)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ADMIN_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      OPS_TOOLS_REQUIRED: '1'
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Установка age и rsync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y age rsync
+          age --version
+      - name: Тесты копий
+        run: node --import tsx --test --test-concurrency=1 "tests/integration/ops/backup*.test.ts"
+      - name: Учебное восстановление
+        run: deploy/backup/drill.sh drill-report
+      - name: Время восстановления в сводку прогона
+        if: always()
+        run: |
+          if [ -f drill-report/summary.md ]; then cat drill-report/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Отчёты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-drill-report
+          path: drill-report/
+          retention-days: 30
