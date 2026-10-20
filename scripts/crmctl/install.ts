@@ -11,6 +11,7 @@ import { applyGrants, ensureRoles, runMigrate } from './db';
 import { probeHost, waitHealthy } from './health';
 import { loadImages } from './images';
 import { openPackage, isDirectory } from './manifest';
+import { ensureFrameCsp } from './nginxCsp';
 import { ensureEnvFiles, ensureProxyTrust, envValue } from './secrets';
 import { composeFile, readState, writeProjectEnv, writeState } from './state';
 import { CrmctlError, type Deps } from './types';
@@ -67,6 +68,8 @@ export async function install(deps: Deps, args: ParsedArgs): Promise<number> {
   }
   // Секрет доверенного прокси: в новом app.env он уже есть; в app.env прежней попытки — дописывается (D-155)
   await ensureProxyTrust(deps);
+  // CSP frame-src окна чата Wazzup: только при FEATURE_WAZZUP=1 в app.env (D-270)
+  await ensureFrameCsp(deps);
   const composeSrc = path.join(dir, 'compose');
   if (!(await isDirectory(composeSrc))) throw new CrmctlError('В пакете нет каталога compose/');
   await mkdir(path.dirname(composeFile(paths)), { recursive: true });

@@ -42,9 +42,12 @@ server {
     client_max_body_size 10m;
 
     # Заголовки безопасности. CSP: Next 16 вставляет inline-скрипты гидратации, поэтому 'unsafe-inline';
-    # переход на nonce — отдельная задача. frame-src для Wazzup добавляется только при включённой интеграции (INTEGRATIONS §4).
+    # переход на nonce — отдельная задача. frame-src по умолчанию закрыт; домен окна чата Wazzup дописывает файл
+    # /etc/crm/nginx-csp.d/frame.conf (crmctl install/update) ТОЛЬКО при FEATURE_WAZZUP=1 (INTEGRATIONS §3.2, D-270).
+    set $crm_frame_src "'none'";
+    include /etc/crm/nginx-csp.d/*.conf;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src $crm_frame_src" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
