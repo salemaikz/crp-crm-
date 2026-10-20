@@ -4,7 +4,7 @@
 import { newId, now, type Sql } from './db';
 import { jsonParam } from './db/core';
 
-export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key';
+export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution';
 
 /**
  * Реестр имён действий. Имя — «<сущность>.<глагол_snake>» в два сегмента, первый совпадает с
@@ -39,6 +39,9 @@ export const AUDIT_ACTIONS = [
   // C3: ключи приёма; значение ключа и его хэш в журнал не попадают, только prefix
   'ingest_key.create',
   'ingest_key.revoke',
+  // C6a: раздача (без ПДн в meta)
+  'distribution.issue',
+  'distribution.participant',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
