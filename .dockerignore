@@ -1,0 +1,29 @@
+# Контекст сборки: только то, что нужно сборке образа (ARCHITECTURE §8.2)
+.git
+.github
+.claude
+.next
+.next-*
+node_modules
+dist
+coverage
+playwright-report
+test-results
+tests
+docs
+**/*.map
+*.tsbuildinfo
+next-env.d.ts
+# Секреты и окружения не попадают в слои
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.age
+license-private*
+release-private*
+stage-private*
+backup-recipients.secret*
+.DS_Store
+*.log

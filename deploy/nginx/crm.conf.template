@@ -1,0 +1,76 @@
+# nginx для CRM: TLS, CSP, HSTS, журнал без query string и Referer (DEPLOY §3.1).
+# Шаблон для образа nginx (envsubst: CRM_DOMAIN, INGEST_PUBLIC) и для nginx на хосте
+# (там подставьте значения и upstream 127.0.0.1:3100 вместо app:3000).
+
+# Журнал без query string (в ней бывают токены приглашений) и без Referer
+log_format crm '$remote_addr [$time_local] "$request_method $uri" $status $body_bytes_sent "$http_user_agent" rt=$request_time';
+
+upstream crm_app {
+    server app:3000;
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    server_name ${CRM_DOMAIN};
+    access_log /var/log/nginx/access.log crm;
+    # certbot webroot, если используется
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${CRM_DOMAIN};
+
+    ssl_certificate     /etc/nginx/tls/fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    server_tokens off;
+    access_log /var/log/nginx/access.log crm;
+    client_max_body_size 10m;
+
+    # Заголовки безопасности. CSP: Next 16 вставляет inline-скрипты гидратации, поэтому 'unsafe-inline';
+    # переход на nonce — отдельная задача. frame-src для Wazzup добавляется только при включённой интеграции (INTEGRATIONS §4).
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    proxy_hide_header X-Powered-By;
+
+    set $ingest_public "${INGEST_PUBLIC}";
+
+    # Приём лидов закрыт снаружи, пока INGEST_PUBLIC=0 (второй рубеж — в приложении по X-Via-Proxy)
+    location /api/ingest/ {
+        if ($ingest_public != "1") { return 404; }
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        # Метка «пришло через прокси»: по ней приложение закрывает ingest при INGEST_PUBLIC=0
+        proxy_set_header X-Via-Proxy 1;
+        proxy_read_timeout 60s;
+        proxy_pass http://crm_app;
+    }
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        # Метка «пришло через прокси»: по ней приложение закрывает ingest при INGEST_PUBLIC=0
+        proxy_set_header X-Via-Proxy 1;
+        proxy_read_timeout 60s;
+        proxy_pass http://crm_app;
+    }
+}

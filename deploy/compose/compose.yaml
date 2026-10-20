@@ -1,0 +1,166 @@
+# Compose-проект «crm» (DEPLOY §3.1, ARCHITECTURE §8.1).
+# Запуск:  docker compose -f deploy/compose/compose.yaml up -d
+# Окружение: /etc/crm/app.env и /etc/crm/db.env (root, 0600), образцы рядом: *.env.example.
+# Внешнюю сеть crm_ingest создаёт install.sh (docker network create crm_ingest), не этот файл:
+# пересоздание проекта CRM не должно отключать чужой проект. Источник лидов здесь не описан.
+name: crm
+
+x-app-common: &app-common
+  image: crm-app:${CRM_VERSION:-dev}
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+    args:
+      BUILD_ID: ${CRM_BUILD_ID:-dev}
+  env_file: ${CRM_APP_ENV_FILE:-/etc/crm/app.env}
+  init: true
+  volumes:
+    # Лицензия: только чтение (LICENSE_PATH в app.env указывает сюда)
+    - ${CRM_LICENSE_DIR:-/var/lib/crm/license}:/var/lib/crm/license:ro
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+    - /app/.next/cache:size=64m,uid=1000,gid=1000
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  # Веб-приложение. Один процесс: лимиты входа хранятся в памяти (D-032).
+  app:
+    <<: *app-common
+    command: ["node", "server.js"]
+    environment:
+      NODE_OPTIONS: --max-old-space-size=1024
+    mem_limit: ${APP_MEM_LIMIT:-1536m}
+    ports:
+      # Единственный опубликованный порт, только на loopback хоста: Docker обходит ufw
+      - "127.0.0.1:${APP_HOST_PORT:-3100}:3000"
+    networks:
+      crm_internal: {}
+      crm_egress: {}
+      crm_ingest:
+        # Псевдоним, по которому источник лидов ходит на приём: http://crm-app:3000
+        aliases: [crm-app]
+    depends_on:
+      db: { condition: service_healthy }
+    # HEALTHCHECK берётся из образа (/api/health)
+
+  # Фоновые задачи (расписание, inbox/outbox): тот же образ, другая команда.
+  # Точка входа dist/worker.mjs появляется вместе с задачей воркера; до неё контейнер не стартует.
+  worker:
+    <<: *app-common
+    command: ["node", "dist/worker.mjs"]
+    environment:
+      NODE_OPTIONS: --max-old-space-size=384
+    mem_limit: ${WORKER_MEM_LIMIT:-512m}
+    networks:
+      crm_internal: {}
+      crm_egress: {}
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      # Живость по процессу; heartbeat в БД добавит задача воркера
+      test: ["CMD", "node", "-e", "process.exit(require('fs').readFileSync('/proc/1/cmdline','utf8').includes('worker.mjs')?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Разовая накатка SQL под crm_owner: docker compose run --rm migrate (его вызывает crmctl update)
+  migrate:
+    <<: *app-common
+    restart: "no"
+    profiles: [tools]
+    command: ["node", "dist/migrate.mjs"]
+    environment:
+      NODE_OPTIONS: --max-old-space-size=256
+    mem_limit: 384m
+    networks:
+      crm_internal: {}
+    depends_on:
+      db: { condition: service_healthy }
+
+  db:
+    image: postgres:16
+    env_file: ${CRM_DB_ENV_FILE:-/etc/crm/db.env}
+    environment:
+      POSTGRES_USER: crm_owner
+      POSTGRES_DB: crm
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-1536MB}
+      - -c
+      - max_connections=50
+      - -c
+      - log_parameter_max_length=0
+      - -c
+      - log_parameter_max_length_on_error=0
+      - -c
+      - timezone=UTC
+    volumes:
+      - crm_pg:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    # Портов наружу нет; сеть только внутренняя (без маршрута в интернет)
+    networks:
+      crm_internal: {}
+    mem_limit: ${DB_MEM_LIMIT:-3g}
+    shm_size: 256m
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm_owner -d crm"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # TLS-терминация внутри compose — для стенда и установок без nginx на хосте.
+  # На боевом сервере по DEPLOY §3.1 nginx стоит на хосте (шаблон тот же), профиль не включаем.
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: [edge]
+    environment:
+      CRM_DOMAIN: ${CRM_DOMAIN:?задайте CRM_DOMAIN}
+      INGEST_PUBLIC: ${INGEST_PUBLIC:-0}
+      NGINX_ENVSUBST_FILTER: ^(CRM_DOMAIN|INGEST_PUBLIC)$
+    volumes:
+      - ../nginx/crm.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${CRM_TLS_DIR:-/etc/crm/tls}:/etc/nginx/tls:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      crm_egress: {}
+      crm_internal: {}
+    mem_limit: 128m
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      app: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+networks:
+  # Без маршрута наружу: БД, app и worker общаются здесь
+  crm_internal:
+    internal: true
+  # Исходящие соединения app/worker (интеграции, DEPLOY: ARCHITECTURE §8); БД сюда не подключена
+  crm_egress: {}
+  # Внешняя: создаёт install.sh. Источник лидов видит в ней только crm-app:3000
+  crm_ingest:
+    external: true
+    name: crm_ingest
+
+volumes:
+  crm_pg:
+    name: crm_pg
