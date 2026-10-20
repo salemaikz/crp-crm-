@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as core from './index';
 
 test('корневой экспорт: пространства имён модулей и рабочая связка', () => {
-  assert.deepEqual(Object.keys(core).sort(), ['booking', 'calling', 'dedup', 'distribution', 'imports', 'names', 'phone', 'time']);
+  assert.deepEqual(Object.keys(core).sort(), ['booking', 'calling', 'dedup', 'distribution', 'fields', 'imports', 'names', 'phone', 'time']);
   assert.equal(typeof core.calling.applyOutcome, 'function');
   const cal = core.time.createWorkCalendar({
     timezone: 'Asia/Almaty',
