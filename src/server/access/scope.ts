@@ -155,7 +155,7 @@ function bookingPred(v: Viewer, perm: Permission, a: Access, X: Frag): Frag {
   if (bw && perm === 'booking.attend' && v.spaceId !== null) {
     const w = consultantWindowDates(v.today, bw.params);
     parts.push(
-      frag`(${X}.space_id = ${v.spaceId} AND ${X}.kind = 'individual' AND ${X}.booking_date BETWEEN ${w.from} AND ${w.to} AND EXISTS (SELECT 1 FROM resources acc_rb WHERE acc_rb.id = ${X}.resource_id AND acc_rb.user_id = ${me}))`,
+      frag`(${X}.space_id = ${v.spaceId} AND ${X}.kind = 'individual' AND ${X}.status IN ${LIVE_BOOKING} AND ${X}.booking_date BETWEEN ${w.from} AND ${w.to} AND EXISTS (SELECT 1 FROM resources acc_rb WHERE acc_rb.id = ${X}.resource_id AND acc_rb.user_id = ${me}))`,
     );
   }
   if (relOf(a.rels, 'duty_today') && v.spaceId !== null) {

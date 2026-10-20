@@ -77,6 +77,10 @@ test('Checkbox, Alert, Stat, ProgressBar, Card, TextLink', () => {
   assert.match(render(h(ProgressBar, { value: Number.NaN, label: 'План' })), /aria-valuenow="0"/);
   assert.match(render(h(Card, { as: 'article', interactive: true }, 'x')), /^<article class="k-card k-card--p-md k-card--interactive">/);
   assert.match(render(h(TextLink, { href: '/a' }, 'Ссылка')), /class="k-link"/);
+  assert.doesNotMatch(render(h(TextLink, { href: '/a' }, 'x')), /rel=/);
+  assert.match(render(h(TextLink, { href: 'https://example.kz/x' }, 'x')), /rel="noopener noreferrer"/);
+  assert.match(render(h(TextLink, { href: '//example.kz', target: '_blank', rel: 'author' }, 'x')), /rel="author noopener noreferrer"/);
+  assert.doesNotMatch(render(h(TextLink, { href: 'mailto:a@example.kz' }, 'x')), /rel=/);
 });
 
 test('Table: подписи для мобильных карточек, пустое состояние', () => {

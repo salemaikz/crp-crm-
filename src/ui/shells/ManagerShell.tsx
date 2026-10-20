@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { ToastProvider } from '@/ui/kit';
+import { ManagerNavLink } from './ManagerNavLink';
 
 export type ManagerNavItem = { href: string; label: string; current?: boolean };
 
@@ -30,15 +31,9 @@ export function ManagerShell({ brand, navLabel, nav, account, children }: Props)
           </div>
           <nav aria-label={navLabel} className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:overflow-visible md:pb-4">
             {nav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={item.current ? 'page' : undefined}
-                className="inline-flex min-h-11 items-center rounded-lg px-3 whitespace-nowrap aria-[current=page]:font-semibold"
-                style={item.current ? { background: 'var(--brand-tint)', color: 'var(--brand-ink)' } : undefined}
-              >
+              <ManagerNavLink key={item.href} href={item.href} current={item.current}>
                 {item.label}
-              </Link>
+              </ManagerNavLink>
             ))}
           </nav>
         </aside>

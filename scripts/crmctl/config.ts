@@ -41,6 +41,8 @@ export type ConfigCtx = {
   openDb: () => Promise<() => Promise<void>>;
   env: Record<string, string | undefined>;
   productVersion: () => Promise<string>;
+  /** Только для тестов: вызывается после расчёта слияния и до записи (имитация правки из UI в этот момент). */
+  beforeWrite?: () => Promise<void>;
 };
 
 const USAGE = `Использование: crmctl config <подкоманда>
@@ -168,12 +170,15 @@ async function cmdApplyOrDiff(p: Parsed, ctx: ConfigCtx, mode: 'apply' | 'diff')
   const areas = await areasOf(Object.keys(assembled.spaces));
   const docs: { global?: Json; spaces: Record<string, Json> } = { spaces: {} };
   const presetDocs: { global?: Json; spaces: Record<string, Json> } = { spaces: {} };
+  // Ревизии, от которых считалось слияние: writeConfig сверит их под блокировкой записи (D-082)
+  const expectedRev: Record<string, number> = {};
   let changed = 0;
   io.out(`Слои: ${assembled.layers.map((l) => `${l.key}@${l.version}`).join(', ')}`);
   for (const a of areas) {
     const next = a.kind === 'global' ? assembled.global : assembled.spaces[a.name];
     if (next === undefined) continue; // пространство есть в БД, но не в пресете — не трогаем
     const cur = await currentOf(a);
+    expectedRev[a.name] = cur?.rev ?? 0;
     let doc: Json = next;
     let res: PresetUpdateResult | null = null;
     if (cur) {
@@ -208,10 +213,8 @@ async function cmdApplyOrDiff(p: Parsed, ctx: ConfigCtx, mode: 'apply' | 'diff')
     io.err('CRM_ASSETS_DIR не задан: некуда копировать ассеты слоёв');
     return 1;
   }
-  if (assetsDir) {
-    const r = await installAssets(assets, assetsDir);
-    io.out(`Ассеты: скопировано ${r.copied.length}, без изменений ${r.same.length}`);
-  }
+  await ctx.beforeWrite?.();
+  // Сначала настройки: если запись отклонена (конфликт, проверка), том ассетов остаётся как был
   const res = await writeConfig({
     docs,
     presetDocs,
@@ -219,7 +222,13 @@ async function cmdApplyOrDiff(p: Parsed, ctx: ConfigCtx, mode: 'apply' | 'diff')
     note: `layers: ${assembled.layers.map((l) => `${l.key}@${l.version}`).join(', ')}`,
     authorId: null,
     project: true,
+    expectedRev,
   });
+  // Копирование атомарно по файлам (временный файл и rename); повтор apply достроит недостающее
+  if (assetsDir) {
+    const r = await installAssets(assets, assetsDir);
+    io.out(`Ассеты: скопировано ${r.copied.length}, без изменений ${r.same.length}`);
+  }
   for (const w of res.written) io.out(`записано ${w.scope}: rev ${w.rev}`);
   if (res.unchanged.length > 0) io.out(`без изменений: ${res.unchanged.join(', ')}`);
   return 0;
