@@ -6,10 +6,10 @@ import { SEED_TZ } from './seed';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 
-/** Слой пресета с разделом ролей: 'clients/crp' → presets/clients/crp/roles.json. */
+/** Роли слоя пресета: 'clients/crp' → presets/clients/crp/preset.json (без заглушек архивации ролей base). */
 export function rolesLayer(preset: string): unknown {
-  const doc = JSON.parse(readFileSync(join(ROOT, 'presets', preset, 'roles.json'), 'utf8')) as { global: { roles: unknown } };
-  return doc.global.roles;
+  const doc = JSON.parse(readFileSync(join(ROOT, 'presets', preset, 'preset.json'), 'utf8')) as { global: { roles: unknown } };
+  return (doc.global.roles as Array<Record<string, unknown>>).filter((r) => 'grants' in r);
 }
 
 export function configDoc(preset = 'clients/crp', rev = 1): unknown {

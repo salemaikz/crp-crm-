@@ -143,9 +143,12 @@ test('поля: роли в доступе, варианты только у с�
   );
 });
 
-test('роли до P4a: конверт key + label, прочие поля не проверяются', () => {
+test('роли: полная схема роли и roleValidator с путём в наборе', () => {
   assert.deepEqual(issuesAfter(at('global.roles[key=manager].grants', [{ perm: 'card.read', scope: 'own' }])), []);
   expectIssue(at('global.roles[key=manager].label', 'строка'), 'roles.0.label');
+  expectIssue(at('global.roles[key=manager].grants', [{ perm: 'nope.read', scope: 'own' }]), 'roles.0.grants.0.perm');
+  expectIssue(at('global.roles[key=manager].grants', [{ perm: 'card.assign', scope: 'own' }]), 'scope_too_narrow');
+  expectIssue(at('global.roles[key=manager].grants', [{ perm: 'card.read', scope: 'own' }, { perm: 'card.read', scope: 'space' }]), 'duplicate_grant');
 });
 
 test('assertConfigSet бросает ConfigInvalidError со списком', () => {

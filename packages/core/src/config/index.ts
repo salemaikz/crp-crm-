@@ -14,6 +14,5 @@ export { placeholdersOf } from './integrity.js';
 export * from './schema/constants.js';
 export { GlobalConfigV1, SpaceConfigV1, ConfigSetV1, GlobalField, SpaceField } from './schema/v1.js';
 export { KEY_RE, Key, I18n, type I18nText } from './schema/primitives.js';
-export { RoleSlot, type RoleSlotV1 } from './schema/roles.js';
 export type { ConfigMigration, ConfigScopeKind } from './migrations/index.js';
 export { CONFIG_MIGRATIONS } from './migrations/index.js';
