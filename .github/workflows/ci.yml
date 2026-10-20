@@ -88,6 +88,9 @@ jobs:
         run: scripts/ci/apply-grants.sh
       - name: Интеграционные тесты
         run: npm run test:integration
+      # Прогон изоляции по манифестам модулей (ARCHITECTURE §5.3): чужое = 404, без утечек в ответе
+      - name: Изоляция
+        run: npm run test:isolation
       - name: Сборка (webpack)
         run: npx next build --webpack
       - name: Нет .map в сборке
