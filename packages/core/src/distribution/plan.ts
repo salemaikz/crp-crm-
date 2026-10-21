@@ -9,6 +9,7 @@
 //  - режим top_up (держать не больше K новых).
 
 import { capRemaining } from './cap';
+import { twinGroupHolders } from './groups';
 import { isInDistributionWindow } from './schedule';
 import type {
   DistributionCalendar,
@@ -43,37 +44,6 @@ export interface AllocationOptions {
 
 const totalIssued = (p: Participant) => Object.values(p.issuedToday).reduce<number>((a, n) => a + Math.max(0, n ?? 0), 0);
 
-/** Группы «двойников» (union-find): id карточки → ключ группы. */
-function twinGroups(pool: readonly PoolLead[]): Map<string, string> {
-  const parent = new Map<string, string>();
-  const find = (x: string): string => {
-    let r = x;
-    for (;;) {
-      const p = parent.get(r);
-      if (p === undefined || p === r) break;
-      r = p;
-    }
-    // сжатие пути
-    let c = x;
-    while (c !== r) {
-      const next = parent.get(c) ?? r;
-      parent.set(c, r);
-      c = next;
-    }
-    return r;
-  };
-  for (const l of pool) if (!parent.has(l.id)) parent.set(l.id, l.id);
-  for (const l of pool) {
-    for (const t of l.twins ?? []) {
-      if (!parent.has(t)) parent.set(t, t);
-      const a = find(l.id);
-      const b = find(t);
-      if (a !== b) parent.set(a, b);
-    }
-  }
-  return new Map([...parent.keys()].map((id) => [id, find(id)]));
-}
-
 /**
  * Разложить пул по операторам. Правила:
  *  - карточка идёт тому, у кого меньше открытых; при равенстве — у кого меньше выдано сегодня, затем по id;
@@ -100,25 +70,9 @@ export function planAllocation(
   const byOperator: Record<UserId, string[]> = Object.fromEntries(ops.map((o) => [o.userId, []]));
   const plan: AllocationPlan = { byOperator, heldBack: [], blocked: [], overCap: [] };
 
-  const groups = twinGroups(pool);
-  // Владелец, уже известный для группы по БД (heldBy любой карточки группы).
-  const groupHolder = new Map<string, UserId>();
-  for (const l of pool) {
-    const g = groups.get(l.id);
-    if (l.heldBy && g && !groupHolder.has(g)) groupHolder.set(g, l.heldBy);
-  }
+  // Группы двойников и их держатели по БД (heldBy любой карточки группы) — общая функция с импортом «Записей» (D-330).
   // Члены группы закреплены за РАЗНЫМИ операторами: делить пару нельзя, а резерв места один — вся группа ждёт РОП.
-  const groupConflict = new Set<string>();
-  {
-    const seenHolder = new Map<string, UserId>();
-    for (const l of pool) {
-      const g = groups.get(l.id);
-      if (!g || !l.heldBy) continue;
-      const prev = seenHolder.get(g);
-      if (prev === undefined) seenHolder.set(g, l.heldBy);
-      else if (prev !== l.heldBy) groupConflict.add(g);
-    }
-  }
+  const { groupOf: groups, holderOf: groupHolder, conflict: groupConflict } = twinGroupHolders(pool.map((l) => ({ id: l.id, twins: l.twins, holders: l.heldBy ? [l.heldBy] : [] })));
   const groupOwner = new Map<string, UserId>();
   // Сколько карточек группы ещё предстоит раздать (заблокированные не считаются) и итог по группе.
   const groupLeft = new Map<string, number>();

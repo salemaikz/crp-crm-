@@ -16,6 +16,7 @@ import {
 import { bookingImportKey, compileBookingProfile, parseBookingSheet, parseEventDate, parseEventTime, type BookingProfile, type ParsedBookingRow } from './bookingRows';
 import { generateSyntheticBookings } from './syntheticBookings';
 import { normalizers, testHash } from './testProfile';
+import { planAllocation } from '../distribution/plan';
 
 const hmac = (s: string) => createHash('sha256').update(`k:${s}`).digest('hex').slice(0, 16);
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -578,6 +579,98 @@ test('пара в одном файле: двойники из пула с ра�
   ]);
   assert.equal(out.counts.byFlag.owner_from_pair, 1);
   assert.equal(out.counts.byGroup.review, 0);
+});
+
+test('цепочка пар через свободного двойника (X–Y–Z): X уходит держателю группы, как в раздаче (D-330)', () => {
+  const x = cand('c1', { state: 'new', ownerUserId: null, phones: [digitsOf(PH[0] as string)] });
+  const ready = { state: 'new', ownerUserId: null, holdReason: '' };
+  for (const status of ['distinct', 'open'] as const) {
+    const pairs = [
+      { aClientId: 'c1', bClientId: 'y1', status },
+      { aClientId: 'y1', bClientId: 'z1', status },
+    ];
+    const partnerCards = [
+      { cardId: 'card-c1', clientId: 'c1', ...ready },
+      { cardId: 'card-y1', clientId: 'y1', ...ready },
+      { cardId: 'card-z1', clientId: 'z1', state: 'callback', ownerUserId: 'op-2', holdReason: '' },
+    ];
+    const r = preview({ rows: [row()], candidates: [x], participants: ['op-1', 'op-2'] }, { pairs, partnerCards }).out.rows[0]!;
+    assert.deepEqual([r.action, r.transition, r.ownerAfter, r.authorUserId, r.flags], ['create', 'to_agreed', 'op-2', 'op-1', ['owner_from_pair']], status);
+    // раздача на тех же данных отдаёт группу тому же оператору
+    const plan = planAllocation(
+      [{ userId: 'op-1', status: 'working', open: 0, issuedToday: {} }, { userId: 'op-2', status: 'working', open: 0, issuedToday: {} }],
+      [{ id: 'c1', twins: ['y1'] }, { id: 'y1', twins: ['c1'], heldBy: 'op-2' }],
+      { dailyCap: 100, capIncludes: ['auto'] },
+    );
+    assert.deepEqual(plan.byOperator['op-2'], ['c1', 'y1'], status);
+  }
+});
+
+test('группа двойников с двумя держателями — на разбор; блокировка дальнего участника группу не держит (как в раздаче)', () => {
+  const x = cand('c1', { state: 'new', ownerUserId: null, phones: [digitsOf(PH[0] as string)] });
+  const ready = { state: 'new', ownerUserId: null, holdReason: '' };
+  const base = [
+    { cardId: 'card-c1', clientId: 'c1', ...ready },
+    { cardId: 'card-y1', clientId: 'y1', ...ready },
+  ];
+  // X–Y свободны; у X напарник у op-2, у Y — у op-3: группу держат двое
+  const split = preview(
+    { rows: [row()], candidates: [x], participants: ['op-1', 'op-2', 'op-3'] },
+    {
+      pairs: [
+        { aClientId: 'c1', bClientId: 'y1', status: 'distinct' },
+        { aClientId: 'c1', bClientId: 'a1', status: 'distinct' },
+        { aClientId: 'y1', bClientId: 'z1', status: 'open' },
+      ],
+      partnerCards: [
+        ...base,
+        { cardId: 'card-a1', clientId: 'a1', state: 'agreed', ownerUserId: 'op-2', holdReason: '' },
+        { cardId: 'card-z1', clientId: 'z1', state: 'retry', ownerUserId: 'op-3', holdReason: '' },
+      ],
+    },
+  ).out.rows[0]!;
+  assert.deepEqual([split.transition, split.ownerAfter, split.flags, split.groups], ['none', null, ['pair_hold'], ['review']]);
+  // Y заблокирован своей парой с «Не звонить»: раздача Y не выдаёт, но X раздаёт — импорт так же отдаёт X автору
+  const far = preview(
+    { rows: [row()], candidates: [x], participants: ['op-1'] },
+    {
+      pairs: [
+        { aClientId: 'c1', bClientId: 'y1', status: 'distinct' },
+        { aClientId: 'y1', bClientId: 'z1', status: 'open' },
+      ],
+      partnerCards: [...base, { cardId: 'card-z1', clientId: 'z1', state: 'do_not_call', ownerUserId: 'op-3', holdReason: '' }],
+    },
+  ).out.rows[0]!;
+  assert.deepEqual([far.ownerAfter, far.flags], ['op-1', ['owner_from_author']]);
+});
+
+test('цепочка в одном файле: X получил владельца строкой выше — W через свободного Y уходит ему же, а не своему автору', () => {
+  const x = cand('c1', { nameNorm: 'альфа', state: 'new', ownerUserId: null, phones: [digitsOf(PH[0] as string)] });
+  const wc = cand('c3', { nameNorm: 'гамма', state: 'new', ownerUserId: null, phones: [digitsOf(PH[2] as string)] });
+  const ready = { state: 'new', ownerUserId: null, holdReason: '' };
+  const out = preview(
+    {
+      rows: [row(), row({ name: NAMES[2] as string, phone: PH[2] as string, op: 'Оператор-02' })],
+      candidates: [x, wc],
+      authorMap: { 'Оператор-01': 'op-1', 'Оператор-02': 'op-2' },
+      participants: ['op-1', 'op-2'],
+    },
+    {
+      pairs: [
+        { aClientId: 'c1', bClientId: 'y1', status: 'distinct' },
+        { aClientId: 'c3', bClientId: 'y1', status: 'open' },
+      ],
+      partnerCards: [
+        { cardId: 'card-c1', clientId: 'c1', ...ready },
+        { cardId: 'card-y1', clientId: 'y1', ...ready },
+        { cardId: 'card-c3', clientId: 'c3', ...ready },
+      ],
+    },
+  ).out;
+  assert.deepEqual(out.rows.map((r) => [r.ownerAfter, r.flags]), [
+    ['op-1', ['owner_from_author']],
+    ['op-1', ['owner_from_pair']],
+  ]);
 });
 
 // ---------- генератор и разбор вместе ----------

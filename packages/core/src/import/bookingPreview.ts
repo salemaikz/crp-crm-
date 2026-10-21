@@ -2,6 +2,7 @@
 // Чистая функция без БД: кандидаты, мероприятия, записи клиентов, прошлые загрузки и карта авторов приходят
 // параметрами, «сейчас» и «сегодня» — тоже. В результате только id, коды и числа — без имён и номеров.
 
+import { twinGroupHolders, type TwinGroupItem } from '../distribution/groups';
 import { pairEffect, type PairLimitStatus, type PairPartnerCard } from '../distribution/pairs';
 import { normalizeLabel } from './answer';
 import { authorDecision, matchBookingClient, type AuthorMap, type BookingClientKeys, type BookingMatchBy } from './bookingMatch';
@@ -135,7 +136,10 @@ export interface BookingPreviewInput {
   authorMap: AuthorMap;
   /** Активные участники раздачи пространства: автору из них отдаётся карточка без владельца (D-222). */
   participants: ReadonlySet<string>;
-  /** Спорные пары кандидатов и карточки напарников (PROCESS 7.6): пара не делится и импортом. */
+  /**
+   * Спорные пары кандидатов и свободных напарников по цепочке (группа двойников) и карточки всех их напарников
+   * (PROCESS 7.6, D-330): пара не делится и импортом.
+   */
   pairs?: readonly BookingPairInfo[];
   partnerCards?: readonly BookingPartnerCard[];
   /** Местный день установки 'YYYY-MM-DD' и «сейчас». */
@@ -260,23 +264,47 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
   const cardAfter = new Map<string, { state: string; ownerUserId: string | null }>();
   const lines = new Map<string, BookingEventLine>();
 
+  /** Карточка клиента-напарника с учётом строк выше по файлу (владелец и «Договорились»). */
+  const partnerAfter = (clientId: string): PairPartnerCard | undefined => {
+    const y = partnerOf.get(clientId);
+    const after = y ? cardAfter.get(y.cardId) : undefined;
+    return y && after ? { ...y, ...after } : y;
+  };
+
   /**
-   * Что спорные пары дают карточке без владельца (правило раздачи D-174): напарник берётся с учётом строк выше по
-   * файлу — двойник, получивший владельца строкой выше, уже «держит» пару. Разные держатели — пара уже разделена,
-   * импорт её не чинит и не углубляет: на разбор.
+   * Что спорные пары дают карточке без владельца — правило раздачи (D-174, D-330) с учётом строк выше по файлу:
+   *  - пару самой карточки блокирует «Не звонить» или задержка напарника → на разбор (раздача её тоже не выдаёт);
+   *  - иначе группа двойников: обход по цепочке через свободных напарников в пуле (`twin`), как пул раздачи, и
+   *    держатели всех её участников (`distribution.twinGroupHolders` — та же функция, что в плане раздачи).
+   *    Один держатель — карточка ему; несколько — пара уже разделена, импорт её не чинит и не углубляет: на разбор.
+   * Блокировка дальнего участника группы карточку не держит: раздача такую карточку тоже выдаёт, а заблокированный
+   * двойник после решения РОП пойдёт к её владельцу.
    */
   const pairRuleOf = (clientId: string): 'blocked' | { heldBy: string } | null => {
-    const holders = new Set<string>();
-    let blocked = false;
-    for (const p of pairsOf.get(clientId) ?? []) {
-      const y = partnerOf.get(p.other);
-      const after = y ? cardAfter.get(y.cardId) : undefined;
-      const effect = pairEffect(y && after ? { ...y, ...after } : y, p.status);
-      if (effect === 'blocked') blocked = true;
-      else if (effect !== null && effect !== 'twin') holders.add(effect.heldBy);
+    for (const p of pairsOf.get(clientId) ?? []) if (pairEffect(partnerAfter(p.other), p.status) === 'blocked') return 'blocked';
+    const items: TwinGroupItem[] = [];
+    const seen = new Set<string>([clientId]);
+    const queue = [clientId];
+    for (let i = 0; i < queue.length; i++) {
+      const c = queue[i] as string;
+      const twins: string[] = [];
+      const holders: string[] = [];
+      for (const p of pairsOf.get(c) ?? []) {
+        const effect = pairEffect(partnerAfter(p.other), p.status);
+        if (effect === 'twin') {
+          twins.push(p.other);
+          if (!seen.has(p.other)) {
+            seen.add(p.other);
+            queue.push(p.other);
+          }
+        } else if (effect !== null && effect !== 'blocked') holders.push(effect.heldBy);
+      }
+      items.push({ id: c, twins, holders });
     }
-    if (blocked || holders.size > 1) return 'blocked';
-    const [heldBy] = holders;
+    const g = twinGroupHolders(items);
+    const key = g.groupOf.get(clientId) as string;
+    if (g.conflict.has(key)) return 'blocked';
+    const heldBy = g.holderOf.get(key);
     return heldBy === undefined ? null : { heldBy };
   };
 

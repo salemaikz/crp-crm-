@@ -20,8 +20,8 @@ import {
 } from './repo';
 import type { DistributionActor, GetPool, PoolCandidate, PoolHoldKind, PoolItem, PoolPage, PoolSummary } from './types';
 
-/** Сколько кругов дочитываем двойников за пределом выборки (цепочки пар). */
-const TWIN_ROUNDS = 4;
+/** Сколько кругов дочитываем двойников за пределом выборки (цепочки пар) — та же глубина, что у импорта (ядро). */
+const TWIN_ROUNDS = distribution.TWIN_ROUNDS;
 /** Сколько первых готовых карточек пула учитываем в сводке `pair_blocked`. */
 const SUMMARY_SAMPLE = 1000;
 

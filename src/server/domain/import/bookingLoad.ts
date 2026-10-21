@@ -2,7 +2,7 @@
 // состояние БД (клиенты с карточкой в пространстве РОП, мероприятия, записи, прошлые загрузки, участники раздачи)
 // → imports.buildBookingPreview → отпечаток. Бизнес-таблицы не меняются; вызывается при предпросмотре и внутри
 // транзакции применения, где вход читается заново — уже под блокировками.
-import { dedup, imports, time } from '@crm/core';
+import { dedup, distribution, imports, time } from '@crm/core';
 import type { Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db/core';
 import * as bookingRepo from './bookingRepo';
@@ -21,7 +21,7 @@ export interface BookingInputs {
   clientBookings: imports.ClientBookingInfo[];
   prior: Map<string, imports.PriorBooking>;
   participants: Set<string>;
-  /** Спорные пары кандидатов и карточки напарников (PROCESS 7.6, D-330). */
+  /** Спорные пары кандидатов и их групп двойников по цепочке, карточки всех напарников (PROCESS 7.6, D-330). */
   pairs: imports.BookingPairInfo[];
   partnerCards: imports.BookingPartnerCard[];
 }
@@ -104,11 +104,40 @@ export async function loadBookingInputs(sql: Sql, ctx: ImportContext, viewer: Vi
   const priorRows = await bookingRepo.selectPriorBookings(viewer, sql, { spaceId: ctx.spaceId, keys: rows.map(keyOf) });
   const prior = new Map(priorRows.map((p) => [p.importKey, { bookingId: p.bookingId, stateKey: p.stateKey }]));
   const participants = new Set((await repo.selectParticipants(sql, ctx.spaceId, ctx.participantRoles)).map((p) => p.userId));
-  // Пары не делятся и импортом (PROCESS 7.6): пары кандидатов и карточки напарников — как в раздаче (D-174)
-  const pairs = await bookingRepo.selectPairsOfClients(sql, candidates.map((c) => c.clientId));
-  const partnerIds = new Set(pairs.flatMap((p) => [p.aClientId, p.bClientId]));
-  const partnerCards = await bookingRepo.selectPartnerCards(sql, { spaceId: ctx.spaceId, clientIds: [...partnerIds] });
+  const { pairs, partnerCards } = await loadPairGroups(sql, ctx.spaceId, candidates.map((c) => c.clientId));
   return { candidates, events, clientBookings, prior, participants, pairs, partnerCards };
+}
+
+/**
+ * Пары не делятся и импортом (PROCESS 7.6, D-174, D-330): пары кандидатов, затем по цепочке пары свободных напарников
+ * в пуле (`pairEffect` = `twin`) — как `classifyCandidates` раздачи, — и карточки всех напарников. Ядро строит из них
+ * группу двойников; карточки группы блокируются при применении вместе с кандидатами (`lockSetOf`).
+ */
+async function loadPairGroups(sql: Sql, spaceId: string, clientIds: readonly string[]): Promise<Pick<BookingInputs, 'pairs' | 'partnerCards'>> {
+  const pairs = new Map<string, imports.BookingPairInfo>();
+  const cards = new Map<string, imports.BookingPartnerCard>();
+  const seen = new Set<string>();
+  let frontier = [...new Set(clientIds)];
+  for (let round = 0; round < distribution.TWIN_ROUNDS && frontier.length > 0; round++) {
+    frontier.forEach((c) => seen.add(c));
+    const found = await bookingRepo.selectPairsOfClients(sql, frontier);
+    const partners = new Set<string>();
+    for (const p of found) {
+      pairs.set(`${p.aClientId}|${p.bClientId}|${p.status}`, p);
+      for (const c of [p.aClientId, p.bClientId]) if (!cards.has(c)) partners.add(c);
+    }
+    for (const c of await bookingRepo.selectPartnerCards(sql, { spaceId, clientIds: [...partners] })) cards.set(c.clientId, c);
+    // Следующий круг — свободные напарники в пуле: через них пара продолжается цепочкой
+    const next = new Set<string>();
+    for (const p of found) {
+      for (const c of [p.aClientId, p.bClientId]) {
+        const card = cards.get(c);
+        if (!seen.has(c) && card && distribution.pairEffect(card, p.status) === 'twin') next.add(c);
+      }
+    }
+    frontier = [...next];
+  }
+  return { pairs: [...pairs.values()], partnerCards: [...cards.values()].sort((a, b) => a.cardId.localeCompare(b.cardId)) };
 }
 
 export async function computeBookingPreview(

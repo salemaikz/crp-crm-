@@ -6,3 +6,4 @@ export * from './plan';
 export * from './demand';
 export * from './absence';
 export * from './pairs';
+export * from './groups';
