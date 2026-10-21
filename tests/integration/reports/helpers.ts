@@ -9,6 +9,8 @@ export { actAs, closeWorld, openDistributionWorld as openWorld, seedPool, viewer
 
 /** Часы и настройки сводки: лимит 40, порог просрочки 60 мин, норма 10 звонков в час. */
 export function enterReportsConfig(clock: Clock, over: { overdueAlertMinutes?: number; callsPerHourTarget?: number | null } = {}): void {
+  // отчёты за период — за FEATURE_REPORTS (D-295); тесты идут как стенд: флаг включён, выключенный проверяется отдельно
+  process.env.FEATURE_REPORTS = '1';
   const distribution = testConfig();
   overrideDistributionDepsForTests(makeDeps(clock, distribution));
   overrideReportsDepsForTests({

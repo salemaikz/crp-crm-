@@ -4,6 +4,8 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as exportRoute from '../../../src/app/api/reports/[key]/export/route';
 import * as journalRoute from '../../../src/app/api/export/journal/route';
+import * as reportRoute from '../../../src/app/api/reports/[key]/route';
+import * as directorRoute from '../../../src/app/api/reports/director/route';
 import { getExportJournal } from '../../../src/server/domain/reports';
 import { limitsFor, readSpreadsheet } from '../../../src/server/platform/files';
 import type { TestDb } from '../../../src/server/platform/db/testing';
@@ -160,4 +162,29 @@ test('журнал: администратор видит всё, директо
   assert.equal((await call(U.rop)).status, 403);
   assert.equal((await call(null)).status, 401);
   assert.equal((await call(U.admin, '?before=bad')).status, 400);
+});
+
+test('FEATURE_REPORTS=0 (бой до приёмки, D-295): отчёт, его CSV и панель директора — 404 без записи в журнал; журнал выгрузок работает', async () => {
+  const prev = process.env.FEATURE_REPORTS;
+  process.env.FEATURE_REPORTS = '0';
+  try {
+    const before = (await journal()).length;
+    actAs(U.rop);
+    const report = await reportRoute.GET(new Request(`http://crm.test/api/reports/operators?${RANGE}`), { params: Promise.resolve({ key: 'operators' }) });
+    assert.equal(report.status, 404);
+    assert.equal((await get(U.rop, 'operators', `format=csv&${RANGE}`, { 'sec-fetch-site': 'same-origin' })).status, 404);
+    assert.equal((await get(U.director, 'revenue', `format=csv&${RANGE}`)).status, 404);
+    actAs(U.director);
+    assert.equal((await directorRoute.GET(new Request('http://crm.test/api/reports/director'), { params: Promise.resolve({}) })).status, 404);
+    assert.equal((await journal()).length, before, 'журнал не пишется');
+    // журнал выгрузок — контроль полной выгрузки, он за флагом не стоит
+    actAs(U.director);
+    assert.equal((await journalRoute.GET(new Request('http://crm.test/api/export/journal'), { params: Promise.resolve({}) })).status, 200);
+  } finally {
+    if (prev === undefined) delete process.env.FEATURE_REPORTS;
+    else process.env.FEATURE_REPORTS = prev;
+  }
+  actAs(U.rop);
+  const on = await reportRoute.GET(new Request(`http://crm.test/api/reports/operators?${RANGE}`), { params: Promise.resolve({ key: 'operators' }) });
+  assert.equal(on.status, 200, 'флаг снова включён — отчёт работает');
 });

@@ -2,7 +2,7 @@
 // SQL — в periodRepo.ts, сборка — в operators/funnel/revenue/attendance/reasons.
 import { calling, time } from '@crm/core';
 import { getDb } from '@/server/platform/db';
-import { requireSpaceReports } from './access';
+import { requirePeriodReports } from './access';
 import { reportsDeps } from './deps';
 import { CLOSING_KINDS, ISSUE_KINDS } from './definitions';
 import { addFunnel, emptyFunnel, funnelBySourceRows, funnelOf, funnelRow } from './funnel';
@@ -15,7 +15,7 @@ import { buildRevenueReport } from './revenue';
 import { type FunnelReport, type GetReport, type PeriodInput, type ReportOf, type ReportQuery } from './reportTypes';
 
 export const getReport: GetReport = async <Q extends ReportQuery>(viewer: Parameters<GetReport>[0], q: Q): Promise<ReportOf<Q['key']>> => {
-  const spaceId = requireSpaceReports(viewer);
+  const spaceId = requirePeriodReports(viewer);
   const deps = reportsDeps();
   const now = deps.now();
   const cfg = await deps.config(spaceId, now);
@@ -87,7 +87,7 @@ export const getReport: GetReport = async <Q extends ReportQuery>(viewer: Parame
 
 /** Период по умолчанию (текущая неделя в поясе установки) и «сегодня»: для маршрута и страницы. */
 export async function getDefaultPeriod(viewer: Parameters<GetReport>[0]): Promise<{ period: PeriodInput; today: string; timeZone: string }> {
-  const spaceId = requireSpaceReports(viewer);
+  const spaceId = requirePeriodReports(viewer);
   const deps = reportsDeps();
   const cfg = await deps.config(spaceId, deps.now());
   const timeZone = cfg.distribution.timeZone;

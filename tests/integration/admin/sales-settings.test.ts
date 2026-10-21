@@ -16,6 +16,8 @@ let db: TestDb;
 let spaceId = '';
 
 before(async () => {
+  // экран настроек — за FEATURE_SALES_SETTINGS (D-295); тесты идут как стенд: флаг включён, выключенный — отдельный тест
+  process.env.FEATURE_SALES_SETTINGS = '1';
   db = await createTestDb();
   await seedIsolation(db.sql);
 });
@@ -199,3 +201,23 @@ test('Origin обязателен для мутаций', async () => {
   assert.equal(r.status, 403);
 });
 
+
+test('FEATURE_SALES_SETTINGS=0 (бой до приёмки, D-295): чтение, правка и праздники — 404, настройки не меняются', async () => {
+  const prev = process.env.FEATURE_SALES_SETTINGS;
+  process.env.FEATURE_SALES_SETTINGS = '0';
+  try {
+    const before = (await revRows('global')).length;
+    assert.equal((await salesGet(req('GET', SALES), ctx)).status, 404);
+    assert.equal((await patch({ expectedRev: { global: 1, space: 1 }, patch: { dailyCap: 41 } })).status, 404);
+    actAs(U.admin);
+    assert.equal((await holidaysGet(req('GET', HOL), ctx)).status, 404);
+    const put = await holidaysPut(req('PUT', HOL, { expectedRev: { global: 1 }, holidays: [] }), ctx);
+    assert.equal(put.status, 404);
+    assert.equal((await revRows('global')).length, before);
+  } finally {
+    if (prev === undefined) delete process.env.FEATURE_SALES_SETTINGS;
+    else process.env.FEATURE_SALES_SETTINGS = prev;
+  }
+  actAs(U.rop);
+  assert.equal((await salesGet(req('GET', SALES), ctx)).status, 200, 'флаг снова включён — экран работает');
+});

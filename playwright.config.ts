@@ -41,6 +41,9 @@ export default defineConfig({
       // Ключи HMAC номеров и ИИН: в production без них итог звонка отвечает 500 (fail closed). Только синтетика.
       CRM_PHONE_HMAC_KEY: process.env.CRM_PHONE_HMAC_KEY || 'e2e-phone-hmac-key-synthetic-not-for-production',
       CRM_IIN_HMAC_KEY: process.env.CRM_IIN_HMAC_KEY || 'e2e-iin-hmac-key-synthetic-not-for-production',
+      // e2e идёт как стенд: флаги модулей, чьи экраны проверяются, включены (D-047, D-295; в production без значения — выкл)
+      FEATURE_REPORTS: process.env.FEATURE_REPORTS || '1',
+      FEATURE_SALES_SETTINGS: process.env.FEATURE_SALES_SETTINGS || '1',
     },
   },
 });

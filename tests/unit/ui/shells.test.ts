@@ -15,7 +15,7 @@ function rolesOf(preset: string): RoleConfig[] {
   return doc.global.roles.filter((r) => !r.archived);
 }
 
-const ALL = new Set(['KANBAN', 'IMPORT']);
+const ALL = new Set(['KANBAN', 'IMPORT', 'REPORTS', 'SALES_SETTINGS']);
 
 function menuOf(role: RoleConfig, opts: { isAdmin?: boolean; features?: ReadonlySet<string>; force?: ShellKind } = {}) {
   const viewer = testViewer({ userId: `u-${role.key}`, role, isAdmin: opts.isAdmin });
@@ -110,6 +110,29 @@ test('выключенный флаг скрывает модуль: Импор�
   const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
   assert.ok(menuOf(rop).items.some((i) => i.id === 'import'));
   assert.ok(!menuOf(rop, { features: new Set(['KANBAN']) }).items.some((i) => i.id === 'import'));
+});
+
+test('FEATURE_REPORTS выключен (D-295): нет «Панели директора»; «Отчёты» остаются только у права полной выгрузки', () => {
+  const off = new Set(['KANBAN', 'IMPORT', 'SALES_SETTINGS']);
+  const role = (k: string) => rolesOf('clients/crp').find((r) => r.key === k)!;
+  const dir = hrefs(menuOf(role('director'), { features: off }));
+  assert.ok(!dir.includes('/director'));
+  // полная выгрузка — право клиента на свои данные (D-055): её кнопка живёт на /reports и флагом не прячется
+  assert.ok(dir.includes('/reports') && dir.includes('/reports/exports'));
+  assert.ok(hrefs(menuOf(role('rop'), { features: off })).includes('/reports'));
+  // без права полной выгрузки пункта нет
+  assert.ok(!hrefs(menuOf(role('marketing_head'), { features: off })).includes('/reports'));
+  assert.ok(hrefs(menuOf(role('marketing_head'))).includes('/reports'));
+  // флаг включён — пункт «Отчёты» ровно один
+  assert.equal(hrefs(menuOf(role('director'))).filter((h) => h === '/reports').length, 1);
+});
+
+test('FEATURE_SALES_SETTINGS выключен (D-295): «Настройки» скрыты и у РОП, и у администратора', () => {
+  const off = new Set(['KANBAN', 'IMPORT', 'REPORTS']);
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  assert.ok(!hrefs(menuOf(rop, { features: off })).includes('/settings'));
+  const admin = buildMenu({ shell: 'manager', menu: [], can: () => false, isAdmin: true, features: off });
+  assert.ok(!hrefs(admin).includes('/settings'));
 });
 
 test('пункт скрыт, если роль его не включила в menu, даже при праве', () => {

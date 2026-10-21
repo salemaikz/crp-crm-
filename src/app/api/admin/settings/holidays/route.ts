@@ -1,6 +1,6 @@
 // GET — праздники и переносы (вместе с остальными настройками экрана); PUT — замена списка, только администратор.
 import { route } from '@/server/access';
-import { getSalesSettings, HolidaysInput, putHolidays } from '@/server/domain/admin';
+import { getSalesSettings, HolidaysInput, putHolidays, requireSalesSettingsFeature } from '@/server/domain/admin';
 import { readBody, withIssues } from '../_lib';
 
 export const GET = route({ perm: 'authenticated' }, async ({ viewer }) => {
@@ -9,5 +9,9 @@ export const GET = route({ perm: 'authenticated' }, async ({ viewer }) => {
 });
 
 export const PUT = route({ perm: 'admin' }, async ({ req, viewer }) =>
-  withIssues(async () => putHolidays(viewer, await readBody(req, HolidaysInput))),
+  withIssues(async () => {
+    // флаг выключен — 404 раньше разбора тела (D-295)
+    requireSalesSettingsFeature();
+    return putHolidays(viewer, await readBody(req, HolidaysInput));
+  }),
 );

@@ -2,7 +2,7 @@
 // 'report.view'; охват пространства проверяет сервис (оператору и руководителю отдела — 404). Директору — чтение.
 // Параметры в адресе: ?r=<отчёт>&from&to&users&source&group&by — ссылкой можно поделиться.
 import type { ReactNode } from 'react';
-import { BadRequestError, can, page } from '@/server/access';
+import { BadRequestError, NotFoundError, can, page } from '@/server/access';
 import {
   FULL_EXPORTS_PER_DAY,
   REPORT_KEYS,
@@ -11,9 +11,11 @@ import {
   getReport,
   getReportMeta,
   parseReportQuery,
+  periodReportsEnabled,
   type ReportKey,
 } from '@/server/domain/reports';
 import { isFeatureEnabled } from '@/server/platform/flags';
+import { DataExportOnly } from './DataExportOnly';
 import { ReportsScreen } from './ReportsScreen';
 import type { ExportActions, InitialReport, ReportData, ReportMeta, ReportQueryState } from './types';
 
@@ -22,6 +24,11 @@ type Props = { searchParams?: Promise<Record<string, string | string[] | undefin
 const first = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
 
 export default page<Props, ReactNode>({ perm: 'report.view' }, async ({ viewer, props }) => {
+  // FEATURE_REPORTS выключен (D-295): отчётов нет, полная выгрузка — есть (D-055); без её права — 404
+  if (!periodReportsEnabled()) {
+    if (!can(viewer, 'data.export_all')) throw new NotFoundError();
+    return <DataExportOnly journal={canSeeExportJournal(viewer)} fullLimit={FULL_EXPORTS_PER_DAY} />;
+  }
   const sp = (await props.searchParams) ?? {};
   const params: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(sp)) params[k] = first(v);

@@ -2,9 +2,10 @@
 // SQL здесь нет: читаем getActiveConfig, пишем writeConfig (source='ui', expectedRev, аудит `config.write`
 // пишет сама запись). Вызывается только из обёрток route()/page().
 import { can } from '@/server/access/viewer';
-import { ForbiddenError } from '@/server/access/errors';
+import { ForbiddenError, NotFoundError } from '@/server/access/errors';
 import type { Viewer } from '@/server/access/types';
 import { getActiveConfig } from '@/server/platform/config/active';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { ConfigConflictError, writeConfig } from '@/server/platform/config/write';
 import { config as coreConfig } from '@crm/core';
 import type { Json, JsonObject } from '@crm/core/config';
@@ -47,8 +48,14 @@ function viewOf(cfg: Active, viewer: Viewer): SalesSettingsView {
   };
 }
 
+/** Экран и API настроек продаж — за FEATURE_SALES_SETTINGS (D-295): выключен — модуля нет, 404 до проверки прав. */
+export function requireSalesSettingsFeature(): void {
+  if (!isFeatureEnabled('SALES_SETTINGS')) throw new NotFoundError();
+}
+
 /** Настройки для экрана. Нет права `settings.sales` и не администратор — 403. */
 export async function getSalesSettings(viewer: Viewer): Promise<SalesSettingsView> {
+  requireSalesSettingsFeature();
   if (!can(viewer, 'settings.sales') && !viewer.isAdmin) throw new ForbiddenError();
   return viewOf(await getActiveConfig(), viewer);
 }
@@ -69,6 +76,7 @@ const clone = (doc: unknown): JsonObject => structuredClone(doc) as JsonObject;
 
 /** Патч разрешённых путей. Пишутся только изменившиеся области. */
 export async function patchSalesSettings(viewer: Viewer, input: SalesPatchInput): Promise<SalesSettingsView> {
+  requireSalesSettingsFeature();
   const cfg = await getActiveConfig();
   const key = spaceKeyOf(cfg, viewer);
   if (!key) throw new SettingsNoSpaceError();
@@ -109,6 +117,7 @@ export async function patchSalesSettings(viewer: Viewer, input: SalesPatchInput)
 
 /** Праздники и переносы: только администратор, область global. Список заменяется целиком, в порядке дат. */
 export async function putHolidays(viewer: Viewer, input: HolidaysInput): Promise<SalesSettingsView> {
+  requireSalesSettingsFeature();
   if (!viewer.isAdmin) throw new ForbiddenError();
   const cfg = await getActiveConfig();
   const globalDoc = clone(cfg.global.doc);

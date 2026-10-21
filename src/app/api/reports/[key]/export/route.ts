@@ -1,5 +1,5 @@
 // Выгрузка отчёта за период (R3b §2.3, D-263): ?format=csv|xlsx и те же параметры, что у GET /api/reports/[key]. Право —
-// только `report.export` (охват пространства проверяет getReport). Порядок: Sec-Fetch-Site того же сайта → флаг XLSX →
+// только `report.export` (охват пространства проверяет getReport). Порядок: Sec-Fetch-Site того же сайта → флаг отчётов (D-295) → флаг XLSX →
 // отчёт → таблица → журнал (до отдачи тела) → файл. Работает при любой лицензии: выгрузка — не мутация (D-054).
 import { createTranslator } from 'next-intl';
 import { z } from 'zod';
@@ -13,6 +13,7 @@ import {
   getReport,
   getReportMeta,
   parseReportQuery,
+  periodReportsEnabled,
   toExportTable,
   writeExportLog,
   type ReportKey,
@@ -38,7 +39,8 @@ export const GET = route({ perm: 'report.export' }, async ({ req, params, viewer
     const site = req.headers.get('sec-fetch-site');
     if (site !== null && !SAME_SITE.has(site)) throw new ForbiddenError();
     const key = REPORT_KEYS.find((k) => k === params.key);
-    if (!key) throw new NotFoundError();
+    // FEATURE_REPORTS выключен — нет ни отчёта, ни его выгрузки (D-295)
+    if (!key || !periodReportsEnabled()) throw new NotFoundError();
     const sp = Object.fromEntries(new URL(req.url).searchParams);
     const format = Format.parse(sp.format ?? 'csv');
     delete sp.format;

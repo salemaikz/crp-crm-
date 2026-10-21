@@ -1,7 +1,7 @@
 // Панель директора (R4, D-265): текущая и прошлая неделя из тех же функций отчётов и сводки, что видит РОП.
 // Только чтение; собственного SQL нет. Охват пространства и `report.view` проверяют getReport и getSummary.
 import { time } from '@crm/core';
-import { requireSpaceReports } from './access';
+import { requirePeriodReports } from './access';
 import { reportsDeps } from './deps';
 import { getReport } from './get';
 import { previousWeek, weekOf } from './period';
@@ -17,7 +17,7 @@ export function stockDays(poolReady: number, capacityPerDay: number): number | n
 }
 
 export const getDirectorDashboard: GetDirectorDashboard = async (viewer) => {
-  requireSpaceReports(viewer);
+  requirePeriodReports(viewer);
   const deps = reportsDeps();
   const now = deps.now();
   const cfg = await deps.config(viewer.spaceId as string, now);
