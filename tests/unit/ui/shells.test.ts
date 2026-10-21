@@ -32,13 +32,13 @@ const hrefs = (m: { items: readonly { href: string }[] }) => m.items.map((i) => 
 
 // Снимки пунктов (href) по ролям пресетов base и ЦРП; отдельно от тестов, чтобы правка меню была видна в диффе.
 const SNAP = {
-  lead: ['/summary', '/distribution', '/cards', '/clients', '/bookings', '/deals', '/reports', '/settings', '/pool', '/tasks', '/import'],
-  manager: ['/call', '/clients', '/tasks', '/bookings', '/my-day'],
-  observer: ['/director', '/cards', '/clients', '/deals', '/reports', '/reports/exports'],
-  operator: ['/call', '/clients', '/tasks', '/bookings', '/archive', '/my-day'],
-  rop: ['/summary', '/distribution', '/cards', '/clients', '/bookings', '/deals', '/reports', '/settings', '/pool', '/tasks', '/import'],
-  consultant: ['/consultations', '/tasks', '/my-day'],
-  director: ['/director', '/cards', '/clients', '/deals', '/reports', '/reports/exports'],
+  lead: ['/summary', '/distribution', '/clients', '/bookings', '/deals', '/reports', '/settings', '/tasks', '/import'],
+  manager: ['/call', '/clients', '/tasks', '/bookings'],
+  observer: ['/director', '/clients', '/deals', '/reports', '/reports/exports'],
+  operator: ['/call', '/clients', '/tasks', '/bookings', '/archive'],
+  rop: ['/summary', '/distribution', '/clients', '/bookings', '/deals', '/reports', '/settings', '/tasks', '/import'],
+  consultant: ['/consultations', '/tasks'],
+  director: ['/director', '/clients', '/deals', '/reports', '/reports/exports'],
   marketing_head: ['/handoffs', '/clients', '/reports', '/tasks'],
   marketer: ['/handoffs', '/clients', '/tasks'],
 };
@@ -76,7 +76,7 @@ test('оператор: нижняя панель «Звонить / Клиен�
 test('РОП: восемь основных пунктов в порядке ТЗ, остальные после них', () => {
   const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
   const ids = menuOf(rop).items.map((i) => i.id);
-  assert.deepEqual(ids.slice(0, 8), ['summary', 'distribution', 'cards', 'clients', 'bookings', 'kanban', 'reports', 'settings']);
+  assert.deepEqual(ids.slice(0, 8), ['summary', 'distribution', 'clients', 'bookings', 'kanban', 'reports', 'settings', 'tasks']);
   assert.equal(menuOf(rop).bottomSlots, 4);
 });
 
@@ -144,8 +144,8 @@ test('FEATURE_SALES_SETTINGS выключен (D-295): «Настройки» с
 
 test('пункт скрыт, если роль его не включила в menu, даже при праве', () => {
   const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
-  const narrowed = { ...rop, menu: ['summary', 'cards'] };
-  assert.deepEqual(menuOf(narrowed).items.map((i) => i.id), ['summary', 'cards', 'clients']);
+  const narrowed = { ...rop, menu: ['summary', 'distribution'] };
+  assert.deepEqual(menuOf(narrowed).items.map((i) => i.id), ['summary', 'distribution', 'clients']);
 });
 
 test('пункт скрыт, если права нет, даже при ключе в menu', () => {

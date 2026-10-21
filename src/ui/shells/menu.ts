@@ -7,8 +7,8 @@ export type ShellKind = 'operator' | 'manager' | 'consultant' | 'duty';
 
 /** Идентификатор пункта: он же ключ подписи `shell.nav.<id>` и иконки. */
 export type MenuId =
-  | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive' | 'myDay'
-  | 'summary' | 'director' | 'exports' | 'distribution' | 'cards' | 'kanban' | 'reports' | 'settings' | 'pool' | 'import' | 'handoffs' | 'team' | 'transfer'
+  | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive'
+  | 'summary' | 'director' | 'exports' | 'distribution' | 'kanban' | 'reports' | 'settings' | 'import' | 'handoffs' | 'team' | 'transfer'
   | 'consultations' | 'duty' | 'integrations';
 
 export type MenuItem = { id: MenuId; href: string };
@@ -45,8 +45,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'clients', href: '/clients', perm: 'client.read' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'bookings', href: '/bookings', keys: ['bookings'], perm: 'booking.read' },
-      { id: 'archive', href: '/archive', keys: ['archive'], perm: 'card.read' },
-      { id: 'myDay', href: '/my-day', keys: ['my_day'], perm: 'card.read' },
+      { id: 'archive', href: '/archive', keys: ['archive'], perm: 'client.read' },
     ],
   },
   // РОП, директор, руководитель, наблюдатель, отдел маркетинга: ноутбук, боковая навигация
@@ -56,8 +55,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'summary', href: '/summary', keys: ['summary'], perm: 'report.view' },
       { id: 'director', href: '/director', keys: ['dashboard'], perm: 'report.view', feature: 'REPORTS' },
       { id: 'handoffs', href: '/handoffs', keys: ['handoffs'], perm: 'handoff.read', feature: 'PURCHASES' },
-      { id: 'distribution', href: '/distribution', keys: ['distribution'], perm: 'distribution.manage' },
-      { id: 'cards', href: '/cards', keys: ['cards'], perm: 'card.read' },
+      { id: 'distribution', href: '/distribution', keys: ['distribution', 'pool'], perm: 'pool.read' },
       { id: 'clients', href: '/clients', perm: 'client.read' },
       { id: 'bookings', href: '/bookings', keys: ['bookings'], perm: 'booking.read' },
       { id: 'kanban', href: '/deals', keys: ['deals'], perm: 'deal.read', feature: 'KANBAN' },
@@ -66,7 +64,6 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'reports', href: '/reports', keys: ['reports'], perm: 'data.export_all', unlessFeature: 'REPORTS' },
       { id: 'exports', href: '/reports/exports', keys: ['reports'], perm: 'export.journal', orAdmin: true },
       { id: 'settings', href: '/settings', keys: ['settings'], perm: 'settings.sales', orAdmin: true, feature: 'SALES_SETTINGS' },
-      { id: 'pool', href: '/pool', keys: ['pool'], perm: 'pool.read' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'import', href: '/import', keys: ['import'], perm: 'import.run', feature: 'IMPORT' },
       { id: 'transfer', href: '/team/transfer', keys: ['distribution'], perm: 'client.transfer', feature: 'BULK_TRANSFER' },
@@ -74,13 +71,12 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'integrations', href: '/integrations', adminOnly: true },
     ],
   },
-  // Консультант: свои консультации, задачи, день
+  // Консультант: свои консультации и задачи (день — группы «Сегодня / Завтра» на /consultations, D-313)
   consultant: {
     bottomSlots: 3,
     items: [
       { id: 'consultations', href: '/consultations', keys: ['consultations'], perm: 'booking.read', feature: 'BK_WIZARD' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
-      { id: 'myDay', href: '/my-day', keys: ['my_day'], perm: 'booking.read' },
     ],
   },
   // Дежурный по встрече: явка гостей на встрече (отношение duty_today), без ключей меню роли
@@ -93,6 +89,11 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
     ],
   },
 };
+
+/** Ключи `roles[].menu`, которые что-то включают в каталоге (страж: в пресетах нет мёртвых ключей). */
+export const MENU_KEYS: ReadonlySet<string> = new Set(
+  Object.values(SHELLS).flatMap((sh) => sh.items.flatMap((it) => it.keys ?? [])),
+);
 
 /** Какая оболочка у роли: по ключам её меню. Нет роли (например, администратор) — менеджерская. */
 export function shellKindOf(menu: readonly string[]): ShellKind {

@@ -147,8 +147,7 @@
           "queue",
           "bookings",
           "tasks",
-          "archive",
-          "my_day"
+          "archive"
         ]
       },
       {
@@ -300,7 +299,6 @@
         "fieldAccessDefault": "edit",
         "menu": [
           "summary",
-          "cards",
           "pool",
           "distribution",
           "bookings",
@@ -308,7 +306,6 @@
           "tasks",
           "reports",
           "import",
-          "team",
           "settings"
         ]
       },
@@ -360,8 +357,7 @@
         "fieldAccessDefault": "read",
         "menu": [
           "consultations",
-          "tasks",
-          "my_day"
+          "tasks"
         ]
       },
       {
@@ -418,7 +414,6 @@
         "menu": [
           "dashboard",
           "reports",
-          "cards",
           "deals"
         ]
       },

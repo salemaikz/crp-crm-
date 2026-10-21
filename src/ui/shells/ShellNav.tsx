@@ -2,8 +2,8 @@
 // Навигация оболочки: боковая колонка (ноутбук) и нижняя панель с «Ещё» (телефон). Текущий раздел
 // определяется по адресу, поэтому компоненты клиентские; подписи приходят готовыми из локали.
 import {
-  Archive, ArrowRightLeft, Bell, CalendarDays, ChartColumn, Ellipsis, Forward, Handshake, Headset, IdCard, Inbox, Kanban,
-  FileDown, Gauge, LayoutDashboard, ListChecks, Phone, PlugZap, Settings, Shuffle, Sun, Upload, UserCheck, User, UserCog, Users,
+  Archive, ArrowRightLeft, Bell, CalendarDays, ChartColumn, Ellipsis, Forward, Handshake, Headset, Kanban,
+  FileDown, Gauge, LayoutDashboard, ListChecks, Phone, PlugZap, Settings, Shuffle, Upload, UserCheck, User, UserCog, Users,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -15,9 +15,9 @@ import { currentHref, type MenuId } from './menu';
 export type NavEntry = { id: MenuId; href: string; label: string };
 
 const ICONS: Record<MenuId, LucideIcon> = {
-  call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive, myDay: Sun,
-  summary: LayoutDashboard, director: Gauge, exports: FileDown, distribution: Shuffle, cards: IdCard, kanban: Kanban, reports: ChartColumn,
-  settings: Settings, pool: Inbox, import: Upload, handoffs: ArrowRightLeft, team: UserCog, transfer: Forward,
+  call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive,
+  summary: LayoutDashboard, director: Gauge, exports: FileDown, distribution: Shuffle, kanban: Kanban, reports: ChartColumn,
+  settings: Settings, import: Upload, handoffs: ArrowRightLeft, team: UserCog, transfer: Forward,
   consultations: Headset, duty: UserCheck, integrations: PlugZap,
 };
 // Запасной значок на случай нового MenuId без записи выше
