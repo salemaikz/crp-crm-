@@ -40,6 +40,9 @@ const nextConfig: NextConfig = {
   transpilePackages: [CORE],
   // Трассировка standalone резолвит импорт по paths tsconfig и тянет исходник ядра — исключаем (D-101)
   outputFileTracingExcludes: { '**': ['packages/core/src/**', 'packages/core/build.mjs'] },
+  // Стенд на Vercel (D-318): при открытии БД сервер сверяет migrations/*.sql с учётом (assertMigrated), а трассировка
+  // этот каталог не видит — путь строится от process.cwd(). В образ его кладёт Dockerfile, поэтому только на Vercel.
+  ...(process.env.VERCEL === '1' ? { outputFileTracingIncludes: { '/**': ['./migrations/*.sql'] } } : {}),
   // postgres.js не бандлим: нативная загрузка на сервере
   serverExternalPackages: ['postgres'],
   webpack(config, { dev, isServer, nextRuntime }) {

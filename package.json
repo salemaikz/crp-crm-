@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "node packages/core/build.mjs && next build --webpack",
+    "vercel-build": "bash scripts/vercel/build.sh",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

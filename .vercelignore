@@ -1,0 +1,29 @@
+# Что не уходит на Vercel при выкладке из рабочей копии (vercel deploy). Сборке стенда не нужно (D-318, docs/ops/VERCEL.md).
+# Секреты и ключи — никогда, даже если лежат в рабочей копии
+.env
+.env.*
+*.env
+!*.env.example
+*.pem
+*.age
+*.key
+id_rsa*
+id_ecdsa*
+id_ed25519*
+license-private*
+release-private*
+stage-private*
+backup-recipients.secret*
+# Локальные секреты и журналы демо, сборки и отчёты
+.demo
+.next
+.next-*
+dist
+coverage
+playwright-report
+test-results
+*.log
+# Поставка на свой сервер (compose, nginx, systemd) и служебное агентов — на Vercel не нужны
+deploy
+.claude
+.github
