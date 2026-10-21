@@ -4,6 +4,7 @@
 // показываем предупреждение: выйти можно, но итоги останутся на телефоне до следующего входа. Итоги со свободным
 // текстом оператора (заметка, данные ЛПР) на телефоне не остаются (D-293): «Всё равно выйти» для них нет — либо
 // остаться до сети, либо удалить их с явным подтверждением потери.
+import { LogOut } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { finishLogout, flushDeviceOutbox } from '@/ui/call/logout';
@@ -15,7 +16,7 @@ type Phase =
   | { kind: 'unsent'; count: number; freeText: number }
   | { kind: 'confirm'; count: number; freeText: number };
 
-export function LogoutButton({ userId, className }: { userId: string; className?: string }) {
+export function LogoutButton({ userId, className, side }: { userId: string; className?: string; side?: boolean }) {
   const t = useTranslations('shell.logout');
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
 
@@ -75,7 +76,15 @@ export function LogoutButton({ userId, className }: { userId: string; className?
     );
   }
   return (
-    <Button variant="quiet" block className={className} disabled={phase.kind === 'busy'} onClick={() => void start()} data-testid="logout">
+    <Button
+      variant="danger-quiet"
+      block
+      className={side ? `justify-start gap-2 px-3 ${className ?? ''}` : className}
+      disabled={phase.kind === 'busy'}
+      onClick={() => void start()}
+      data-testid="logout"
+    >
+      {side ? <LogOut aria-hidden="true" /> : null}
       {phase.kind === 'busy' ? t('busy') : t('button')}
     </Button>
   );

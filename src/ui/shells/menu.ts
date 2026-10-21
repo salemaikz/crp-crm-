@@ -13,6 +13,17 @@ export type MenuId =
 
 export type MenuItem = { id: MenuId; href: string };
 
+/** Группа пункта в боковой колонке: подпись — `shell.group.<id>`. Порядок пунктов и права группы не меняют. */
+export type MenuGroup = 'work' | 'analytics' | 'manage';
+export const MENU_GROUPS: readonly MenuGroup[] = ['work', 'analytics', 'manage'];
+
+export const MENU_GROUP: Record<MenuId, MenuGroup> = {
+  call: 'work', clients: 'work', tasks: 'work', bookings: 'work', archive: 'work', summary: 'work', director: 'work',
+  distribution: 'work', handoffs: 'work', kanban: 'work', consultations: 'work', duty: 'work',
+  reports: 'analytics', exports: 'analytics',
+  settings: 'manage', import: 'manage', transfer: 'manage', team: 'manage', integrations: 'manage',
+};
+
 type CatalogItem = {
   id: MenuId;
   href: string;

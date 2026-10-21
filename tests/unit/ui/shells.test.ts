@@ -217,3 +217,20 @@ test('PURCHASES и BK_WIZARD выключены: «Передачи» и «Ко�
   assert.ok(!hrefs(c).includes('/consultations'));
   assert.equal(c.home, '/tasks');
 });
+
+// D-319: группы бокового меню и название установки
+test('группы меню: у каждого пункта каталога есть группа и подпись, группы не меняют пункты', async () => {
+  const { MENU_GROUP, MENU_GROUPS } = await import('../../../src/ui/shells/menu');
+  const shell = JSON.parse(readFileSync(join(ROOT, 'messages/ru/shell.json'), 'utf8')) as { nav: Record<string, string>; group: Record<string, string> };
+  for (const id of Object.keys(shell.nav)) if (id !== 'label') assert.ok(MENU_GROUP[id as keyof typeof MENU_GROUP], `группа для ${id}`);
+  for (const g of MENU_GROUPS) assert.ok(shell.group[g], `подпись группы ${g}`);
+  assert.equal(shell.nav.kanban, 'Сделки', 'подпись пункта совпадает с заголовком его страницы');
+});
+
+test('оболочка берёт название из org.productName, а не из локали', () => {
+  const src = readFileSync(join(ROOT, 'src/ui/shells/RoleShell.tsx'), 'utf8');
+  assert.match(src, /org\.productName/);
+  const shell = readFileSync(join(ROOT, 'src/ui/shells/AppShell.tsx'), 'utf8');
+  assert.match(shell, /data-shell=\{variant\}/);
+  assert.ok(!/px-4 py-4 md:px-8/.test(shell), 'оболочка не задаёт отступы страницы');
+});
