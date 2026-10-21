@@ -2,6 +2,7 @@
 // Чистая функция без БД: кандидаты, мероприятия, записи клиентов, прошлые загрузки и карта авторов приходят
 // параметрами, «сейчас» и «сегодня» — тоже. В результате только id, коды и числа — без имён и номеров.
 
+import { pairEffect, type PairLimitStatus, type PairPartnerCard } from '../distribution/pairs';
 import { normalizeLabel } from './answer';
 import { authorDecision, matchBookingClient, type AuthorMap, type BookingClientKeys, type BookingMatchBy } from './bookingMatch';
 import type { ParsedBookingRow } from './bookingRows';
@@ -49,8 +50,12 @@ export const BOOKING_ACTIONS: readonly BookingAction[] = [
 export type BookingGroup = 'errors' | 'client_not_found' | 'no_event' | 'author_unknown' | 'duplicate' | 'review';
 export const BOOKING_GROUPS: readonly BookingGroup[] = ['errors', 'client_not_found', 'no_event', 'author_unknown', 'duplicate', 'review'];
 
-/** Замечания к строке `create` (входят в отпечаток). */
-export type BookingFlag = 'owner_from_author' | 'card_unowned' | 'card_held' | 'author_unknown';
+/**
+ * Замечания к строке `create` (входят в отпечаток). `owner_from_pair` — владелец взят у напарника спорной пары,
+ * `pair_hold` — пару блокирует «Не звонить» или задержка напарника, либо её держат разные операторы (D-330).
+ */
+export type BookingFlag = 'owner_from_author' | 'owner_from_pair' | 'card_unowned' | 'card_held' | 'pair_hold' | 'author_unknown';
+export const BOOKING_FLAGS: readonly BookingFlag[] = ['owner_from_author', 'owner_from_pair', 'card_unowned', 'card_held', 'pair_hold', 'author_unknown'];
 
 export type BookingTransition = 'to_agreed' | 'none';
 
@@ -61,6 +66,8 @@ const AGREE_FROM: ReadonlySet<string> = new Set(['new', 'retry', 'callback']);
 /** Записи, занимающие место (D-131) и активные (ожидают мероприятия). */
 const OCCUPYING: ReadonlySet<string> = new Set(['registered', 'confirmed', 'attended', 'no_show']);
 const ACTIVE: ReadonlySet<string> = new Set(['registered', 'confirmed']);
+/** Замечания, с которыми строка `create` попадает в группу «на разбор». */
+const REVIEW_FLAGS: ReadonlySet<BookingFlag> = new Set(['card_unowned', 'card_held', 'pair_hold']);
 
 export interface BookingCard {
   cardId: string;
@@ -96,6 +103,19 @@ export interface ClientBookingInfo {
   startsAt: number;
 }
 
+/** Спорная пара кандидата (`dup_pairs` со статусом `open` или `distinct`). */
+export interface BookingPairInfo {
+  aClientId: string;
+  bClientId: string;
+  status: PairLimitStatus;
+}
+
+/** Карточка напарника в пространстве (D-174): по ней решается, кому отдать карточку без владельца. */
+export interface BookingPartnerCard extends PairPartnerCard {
+  cardId: string;
+  clientId: string;
+}
+
 /** Запись, загруженная раньше с этим ключом (в любом статусе). `stateKey` null — истории `import` нет. */
 export interface PriorBooking {
   bookingId: string;
@@ -115,6 +135,9 @@ export interface BookingPreviewInput {
   authorMap: AuthorMap;
   /** Активные участники раздачи пространства: автору из них отдаётся карточка без владельца (D-222). */
   participants: ReadonlySet<string>;
+  /** Спорные пары кандидатов и карточки напарников (PROCESS 7.6): пара не делится и импортом. */
+  pairs?: readonly BookingPairInfo[];
+  partnerCards?: readonly BookingPartnerCard[];
   /** Местный день установки 'YYYY-MM-DD' и «сейчас». */
   today: string;
   now: number;
@@ -207,7 +230,16 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
 
   const byAction = Object.fromEntries(BOOKING_ACTIONS.map((a) => [a, 0])) as Record<BookingAction, number>;
   const byGroup = Object.fromEntries(BOOKING_GROUPS.map((g) => [g, 0])) as Record<BookingGroup, number>;
-  const byFlag: Record<BookingFlag, number> = { owner_from_author: 0, card_unowned: 0, card_held: 0, author_unknown: 0 };
+  const byFlag = Object.fromEntries(BOOKING_FLAGS.map((f) => [f, 0])) as Record<BookingFlag, number>;
+  const pairsOf = new Map<string, { other: string; status: PairLimitStatus }[]>();
+  for (const p of input.pairs ?? []) {
+    for (const [me, other] of [[p.aClientId, p.bClientId], [p.bClientId, p.aClientId]] as const) {
+      const list = pairsOf.get(me) ?? [];
+      list.push({ other, status: p.status });
+      pairsOf.set(me, list);
+    }
+  }
+  const partnerOf = new Map((input.partnerCards ?? []).map((c) => [c.clientId, c]));
   let toAgreed = 0;
   /** Ключи строк, уже встретившихся выше в файле. */
   const seenKeys = new Set<string>();
@@ -227,6 +259,26 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
    */
   const cardAfter = new Map<string, { state: string; ownerUserId: string | null }>();
   const lines = new Map<string, BookingEventLine>();
+
+  /**
+   * Что спорные пары дают карточке без владельца (правило раздачи D-174): напарник берётся с учётом строк выше по
+   * файлу — двойник, получивший владельца строкой выше, уже «держит» пару. Разные держатели — пара уже разделена,
+   * импорт её не чинит и не углубляет: на разбор.
+   */
+  const pairRuleOf = (clientId: string): 'blocked' | { heldBy: string } | null => {
+    const holders = new Set<string>();
+    let blocked = false;
+    for (const p of pairsOf.get(clientId) ?? []) {
+      const y = partnerOf.get(p.other);
+      const after = y ? cardAfter.get(y.cardId) : undefined;
+      const effect = pairEffect(y && after ? { ...y, ...after } : y, p.status);
+      if (effect === 'blocked') blocked = true;
+      else if (effect !== null && effect !== 'twin') holders.add(effect.heldBy);
+    }
+    if (blocked || holders.size > 1) return 'blocked';
+    const [heldBy] = holders;
+    return heldBy === undefined ? null : { heldBy };
+  };
 
   const rows = input.rows.map((row): BookingPreviewRow => {
     const pr: BookingPreviewRow = {
@@ -250,7 +302,7 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
       const g = GROUP_OF[action];
       if (g) pr.groups.push(g);
       if (action === 'create') {
-        if (pr.flags.includes('card_unowned') || pr.flags.includes('card_held')) pr.groups.push('review');
+        if (pr.flags.some((f) => REVIEW_FLAGS.has(f))) pr.groups.push('review');
         if (pr.flags.includes('author_unknown')) pr.groups.push('author_unknown');
       }
       for (const grp of new Set(pr.groups)) byGroup[grp]++;
@@ -331,6 +383,7 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
     if (decision.userId === null) pr.flags.push('author_unknown');
 
     const canAgree = AGREE_FROM.has(card.state);
+    const pairRule = card.ownerUserId === null && client.holdReason === '' && canAgree ? pairRuleOf(client.clientId) : null;
     if (client.holdReason !== '') {
       pr.flags.push('card_held');
       pr.ownerAfter = card.ownerUserId;
@@ -341,6 +394,16 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
     } else if (card.ownerUserId !== null) {
       pr.transition = 'to_agreed';
       pr.ownerAfter = card.ownerUserId;
+    } else if (pairRule === 'blocked') {
+      // Пару блокирует «Не звонить» или задержка напарника (или её держат разные операторы): ждёт РОП, как в раздаче
+      pr.flags.push('pair_hold');
+    } else if (pairRule !== null) {
+      // Пара не делится: карточка уходит оператору напарника, автор остаётся автором записи (заслуга, D-042)
+      if (input.participants.has(pairRule.heldBy)) {
+        pr.transition = 'to_agreed';
+        pr.ownerAfter = pairRule.heldBy;
+        pr.flags.push('owner_from_pair');
+      } else pr.flags.push('card_unowned');
     } else if (decision.userId !== null && input.participants.has(decision.userId)) {
       pr.transition = 'to_agreed';
       pr.ownerAfter = decision.userId;

@@ -50,7 +50,7 @@ test('профиль «Записи»: у фильтров, действий, з
   for (const f of BOOKING_ROW_FILTERS) assert.ok(keys(b.filters).includes(f), `bookings.filters.${f}`);
   for (const a of BOOKING_ACTIONS) assert.ok(keys(b.action).includes(a), `bookings.action.${a}`);
   for (const g of BOOKING_GROUPS) assert.ok(keys((b.summary as Record<string, Record<string, unknown>>).tiles).includes(g), `bookings.summary.tiles.${g}`);
-  for (const k of ['owner_from_author', 'card_unowned', 'card_held', 'author_unknown']) assert.ok(keys(b.flag).includes(k), `bookings.flag.${k}`);
+  for (const k of imports.BOOKING_FLAGS) assert.ok(keys(b.flag).includes(k), `bookings.flag.${k}`);
   for (const k of ['bad_date', 'bad_time', 'unknown_event_type', 'no_client_key', 'bad_org_id', 'many_phones', 'phone_review', 'unknown_legal_form']) assert.ok(keys(b.issue).includes(k), `bookings.issue.${k}`);
   for (const k of ['bookingsCreated', 'cardsAgreed', 'ownersAssigned', 'authorChanged', 'clarifyClosed', 'skipped']) assert.ok(keys((b.result as Record<string, Record<string, unknown>>).counts).includes(k), `bookings.result.counts.${k}`);
   for (const k of BOOKING_EXPORT_HEADERS) assert.ok(keys(msg.exportBookings).includes(k), `exportBookings.${k}`);

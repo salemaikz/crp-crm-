@@ -134,6 +134,14 @@ SELECT c.id, c.name_norm, c.org_id, c.iin_hmac,
    (`by: 'phone_name'`), иначе `client_ambiguous` (общий номер бухгалтера у разных ТОО — не склеиваем).
 3. Никого → `client_not_found`.
 
+### 5.1а. Спорные пары кандидатов (PROCESS 7.6, D-038, D-174, D-330)
+
+Для кандидатов дочитываются пары `dup_pairs` со статусом `open|distinct` и карточки напарников в этом пространстве
+(`bookingRepo.selectPairsOfClients`, `selectPartnerCards`). Без охвата РОП, как в раздаче: это проверка инварианта
+«пара не делится», наружу уходят только коды замечаний строки. Ядро применяет к карточке без владельца то же
+правило, что пул раздачи (`distribution.pairEffect`, одна функция на оба места), с учётом строк выше по файлу:
+двойник, получивший владельца строкой выше, уже держит пару.
+
 ### 5.2. Мероприятия
 
 ```sql
@@ -209,7 +217,10 @@ SELECT b.import_key, b.id AS booking_id, b.client_id, h.state_key
 |---|---|---|---|
 | `new`/`retry`/`callback` с владельцем | `to_agreed` | владелец | — |
 | `agreed`/`client` | `none` (уже договорились: ещё одна запись) | владелец | — |
-| без владельца, `hold_reason = ''`, автор — участник раздачи | `to_agreed` | автор (`assign_log kind='import'`, D-222) | `owner_from_author` |
+| без владельца, `hold_reason = ''`, пару держит оператор напарника (§5.1а), он участник раздачи | `to_agreed` | оператор напарника (`assign_log kind='import'`), автор остаётся автором записи | `owner_from_pair` |
+| без владельца, `hold_reason = ''`, пару держит оператор, который не участник раздачи | `none` | `null` | `card_unowned` (на разбор) |
+| без владельца, `hold_reason = ''`, пара блокирована: напарник в «Не звонить» или задержан при `open`, либо напарники у разных операторов | `none` | `null` | `pair_hold` (на разбор) |
+| без владельца, `hold_reason = ''`, пара не ограничивает (нет пар, напарник в пуле или закрыт), автор — участник раздачи | `to_agreed` | автор (`assign_log kind='import'`, D-222) | `owner_from_author` |
 | уже переведена строкой `create` выше (тот же клиент на другой групповой вид) | `none` | владелец после той строки | — (или `card_unowned`) |
 | без владельца, автор не участник или неизвестен | `none` | `null` | `card_unowned` (на разбор) |
 | `hold_reason <> ''` (ИП до юриста, спорная пара) | `none` | без изменений | `card_held` (на разбор) |
@@ -261,13 +272,13 @@ SELECT b.import_key, b.id AS booking_id, b.client_id, h.state_key
 3. `imports … FOR UPDATE` (пространство) → нет → 404; `applied` → прежний итог; `failed` → 409.
 4. Блокеры §7 → 409 `blocked`.
 5. `pg_advisory_xact_lock(INTAKE_LOCK_KEY)` — приём не создаст клиента, совпадающего со строкой, посреди применения.
-6. Чтение кандидатов §5.1 (без блокировок) →
-   `SELECT id FROM cards WHERE id = ANY(${cardIds}) AND space_id = ${spaceId} AND ${scopeSql(...)} ORDER BY id FOR UPDATE` →
+6. Чтение кандидатов §5.1 и напарников §5.1а (без блокировок) →
+   `SELECT id FROM cards WHERE id = ANY(${cardIds ∪ partnerCardIds}) AND space_id = ${spaceId} AND (id = ANY(${partnerCardIds}) OR ${scopeSql(...)}) ORDER BY id FOR UPDATE` →
    `SELECT id FROM events WHERE id = ANY(${eventIds}) AND space_id = ${spaceId} ORDER BY id FOR UPDATE` →
    `SELECT id FROM bookings WHERE client_id = ANY(${clientIds}) AND space_id = ${spaceId} ORDER BY id FOR UPDATE`.
    Все карточки — раньше всех мероприятий, все мероприятия — раньше записей: мастер записи (карточка → мероприятие
    → записи клиента) ждёт, а не входит во взаимную блокировку.
-7. Пересчёт §5–§6 уже под блокировками. Пересчёт увидел карточку, мероприятие или клиента, которых нет среди
+7. Пересчёт §5–§6 уже под блокировками. Пересчёт увидел карточку (в том числе напарника пары), мероприятие или клиента, которых нет среди
    заблокированных в п. 6 (появились между чтением и блокировкой), → 409 `preview_stale`: следующий заход заблокирует
    их по порядку. Отпечаток ≠ запросу → 409 `preview_stale` + свежая сводка, откат.
 8. Запись по строкам `create` в порядке файла (§8.3), затем `changed_in_file` (только история).
@@ -280,7 +291,7 @@ SELECT b.import_key, b.id AS booking_id, b.client_id, h.state_key
 
 ### 8.3. Строка `create`
 
-1. `ownerAfter` отличается от владельца карточки (`owner_from_author`) → `repo.assignImportedOwner(sql, cardId,
+1. `ownerAfter` отличается от владельца карточки (`owner_from_author` или `owner_from_pair`) → `repo.assignImportedOwner(sql, cardId,
    version, userId, now)` (`UPDATE cards SET owner_user_id, assigned_at, version = version + 1 WHERE id = $1 AND
    version = $2 AND owner_user_id IS NULL AND hold_reason = ''`; 0 строк → ошибка, откат) + `assign_log`
    (`kind='import'`, `counts_to_cap=false`, `run_id = importId`, `actor_id` — РОП).
@@ -390,6 +401,9 @@ SELECT b.import_key, b.id AS booking_id, b.client_id, h.state_key
   карточка тронута → `kept_in_crm`; «Полный отказ» → `state_conflict`; ИП (задержан) → запись есть, карточка `new`;
   без владельца, автор — оператор → владелец, `assign_log kind='import'`; места кончились → `event_full`;
   отменённое и прошедшее мероприятие; клиент с карточкой только в другом пространстве → `client_not_found`;
+- спорные пары (`bookings-pairs.test.ts`, D-330): `distinct` с напарником у оператора → владелец — он
+  (`owner_from_pair`), автор записи прежний; `open` с «Не звонить» и два необработанных дубля → `pair_hold`, карточка
+  без владельца; напарник сменил оператора между предпросмотром и применением → 409 `preview_stale`;
 - отпечаток: запись из мастера между предпросмотром и применением → 409 `preview_stale`, ни одной записи;
 - параллель: два `apply` → один `busy`; `createBooking` из мастера по карточке строки во время применения ждёт и не
   ловит взаимную блокировку (оба завершаются, итог согласован);

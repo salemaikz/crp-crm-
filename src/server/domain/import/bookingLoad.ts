@@ -21,6 +21,9 @@ export interface BookingInputs {
   clientBookings: imports.ClientBookingInfo[];
   prior: Map<string, imports.PriorBooking>;
   participants: Set<string>;
+  /** Спорные пары кандидатов и карточки напарников (PROCESS 7.6, D-330). */
+  pairs: imports.BookingPairInfo[];
+  partnerCards: imports.BookingPartnerCard[];
 }
 
 export interface BookingComputation {
@@ -101,7 +104,11 @@ export async function loadBookingInputs(sql: Sql, ctx: ImportContext, viewer: Vi
   const priorRows = await bookingRepo.selectPriorBookings(viewer, sql, { spaceId: ctx.spaceId, keys: rows.map(keyOf) });
   const prior = new Map(priorRows.map((p) => [p.importKey, { bookingId: p.bookingId, stateKey: p.stateKey }]));
   const participants = new Set((await repo.selectParticipants(sql, ctx.spaceId, ctx.participantRoles)).map((p) => p.userId));
-  return { candidates, events, clientBookings, prior, participants };
+  // Пары не делятся и импортом (PROCESS 7.6): пары кандидатов и карточки напарников — как в раздаче (D-174)
+  const pairs = await bookingRepo.selectPairsOfClients(sql, candidates.map((c) => c.clientId));
+  const partnerIds = new Set(pairs.flatMap((p) => [p.aClientId, p.bClientId]));
+  const partnerCards = await bookingRepo.selectPartnerCards(sql, { spaceId: ctx.spaceId, clientIds: [...partnerIds] });
+  return { candidates, events, clientBookings, prior, participants, pairs, partnerCards };
 }
 
 export async function computeBookingPreview(
@@ -130,6 +137,8 @@ export async function computeBookingPreview(
     importKeyOf: bookingKeyOf(ctx.spaceId),
     authorMap,
     participants: inputs.participants,
+    pairs: inputs.pairs,
+    partnerCards: inputs.partnerCards,
     today,
     now,
     hidden: (bin) => `${HIDDEN}${iinHmac(bin)}`,

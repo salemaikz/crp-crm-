@@ -1,4 +1,5 @@
 // Пул раздачи: кандидаты с двойниками, владельцем двойника и блокировкой пары (D-174), страница пула для РОП.
+import { distribution } from '@crm/core';
 import { BadRequestError, type Viewer } from '@/server/access';
 import type { Permission } from '@/server/access/types';
 import { getDb, type Sql } from '@/server/platform/db';
@@ -19,23 +20,17 @@ import {
 } from './repo';
 import type { DistributionActor, GetPool, PoolCandidate, PoolHoldKind, PoolItem, PoolPage, PoolSummary } from './types';
 
-/** Состояния карточки напарника, при которых владелец «держит» пару (D-174). */
-const HOLDING_STATES: ReadonlySet<string> = new Set(['new', 'retry', 'callback', 'agreed', 'client']);
 /** Сколько кругов дочитываем двойников за пределом выборки (цепочки пар). */
 const TWIN_ROUNDS = 4;
 /** Сколько первых готовых карточек пула учитываем в сводке `pair_blocked`. */
 const SUMMARY_SAMPLE = 1000;
 
-const isReady = (c: PartnerCardRow) => c.ownerUserId === null && c.state === 'new' && c.holdReason === '';
-
-/** Правило одной строки таблицы D-174: что напарник Y (карточка) и пара дают кандидату. */
-export function pairEffect(y: PartnerCardRow | undefined, status: PairRow['status']): 'twin' | 'blocked' | { heldBy: string } | null {
-  if (!y) return null;
-  if (isReady(y)) return 'twin';
-  if (y.state === 'do_not_call' && status === 'open') return 'blocked';
-  if (y.ownerUserId !== null && HOLDING_STATES.has(y.state)) return { heldBy: y.ownerUserId };
-  if (y.ownerUserId === null && y.holdReason !== '' && status === 'open') return 'blocked';
-  return null;
+/**
+ * Правило одной строки таблицы D-174 — в ядре (`distribution.pairEffect`): его же применяет импорт «Записей», чтобы
+ * пара не делилась ни раздачей, ни загрузкой (PROCESS 7.6).
+ */
+export function pairEffect(y: PartnerCardRow | undefined, status: PairRow['status']): distribution.PairEffect {
+  return distribution.pairEffect(y, status);
 }
 
 /**

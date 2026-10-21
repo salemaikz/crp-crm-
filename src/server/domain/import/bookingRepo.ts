@@ -116,6 +116,42 @@ export async function selectPriorBookings(viewer: Viewer, sql: Sql, a: { spaceId
      WHERE b.space_id = ${a.spaceId} AND b.import_key = ANY(${[...a.keys]}::text[]) AND ${scopeSql(viewer, 'booking', 'booking.create')}`;
 }
 
+export interface PairOfClientRow {
+  aClientId: string;
+  bClientId: string;
+  status: 'open' | 'distinct';
+}
+
+/**
+ * Спорные пары кандидатов (`open|distinct`, PROCESS 7.6, D-174). Без охвата РОП, как в раздаче: это проверка
+ * инварианта «пара не делится», а не выдача данных — наружу уходят только коды замечаний и id сотрудника.
+ */
+export async function selectPairsOfClients(sql: Sql, clientIds: readonly string[]): Promise<PairOfClientRow[]> {
+  if (clientIds.length === 0) return [];
+  const ids = [...clientIds];
+  return sql<PairOfClientRow>`
+    SELECT p.a_client_id, p.b_client_id, p.status FROM dup_pairs p
+     WHERE p.status IN ('open','distinct') AND (p.a_client_id = ANY(${ids}::text[]) OR p.b_client_id = ANY(${ids}::text[]))
+     ORDER BY p.id`;
+}
+
+export interface PartnerCardRow {
+  cardId: string;
+  clientId: string;
+  ownerUserId: string | null;
+  state: string;
+  holdReason: string;
+}
+
+/** Карточки напарников в пространстве (по одной на клиента): владелец, состояние, задержка — правило D-174. */
+export async function selectPartnerCards(sql: Sql, a: { spaceId: string; clientIds: readonly string[] }): Promise<PartnerCardRow[]> {
+  if (a.clientIds.length === 0) return [];
+  return sql<PartnerCardRow>`
+    SELECT c.id AS card_id, c.client_id, c.owner_user_id, c.state, c.hold_reason FROM cards c
+     WHERE c.space_id = ${a.spaceId} AND c.client_id = ANY(${[...a.clientIds]}::text[])
+     ORDER BY c.id`;
+}
+
 export interface StaffRow {
   userId: string;
   name: string;
@@ -156,11 +192,17 @@ export async function countOpenClarify(sql: Sql, spaceId: string): Promise<numbe
 
 // ---------- Блокировки применения (D-251): карточки → мероприятия → записи клиентов ----------
 
-export async function lockCardsOf(viewer: Viewer, sql: Sql, a: { spaceId: string; cardIds: readonly string[] }): Promise<void> {
-  if (a.cardIds.length === 0) return;
+/**
+ * Карточки кандидатов (в охвате РОП) и карточки напарников спорных пар (без охвата: их не меняем, только держим
+ * неизменными до записи) — одним запросом по id, чтобы порядок блокировок D-251 был общим с раздачей.
+ */
+export async function lockCardsOf(viewer: Viewer, sql: Sql, a: { spaceId: string; cardIds: readonly string[]; partnerCardIds?: readonly string[] }): Promise<void> {
+  const partners = [...(a.partnerCardIds ?? [])];
+  if (a.cardIds.length + partners.length === 0) return;
   await scoped(sql)`
     SELECT c.id FROM cards c
-     WHERE c.id = ANY(${[...a.cardIds]}::text[]) AND c.space_id = ${a.spaceId} AND ${scopeSql(viewer, 'card', 'booking.create')}
+     WHERE c.id = ANY(${[...a.cardIds, ...partners]}::text[]) AND c.space_id = ${a.spaceId}
+       AND (c.id = ANY(${partners}::text[]) OR ${scopeSql(viewer, 'card', 'booking.create')})
      ORDER BY c.id FOR UPDATE OF c`;
 }
 

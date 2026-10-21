@@ -67,8 +67,9 @@ async function writeBookings(sql: Sql, ctx: ImportContext, viewer: Viewer, imp: 
     }
     if (!pr.clientId || !pr.cardId || !pr.eventId) throw new Error('create_without_target');
 
-    // 1. карточка без владельца получает автора записи (D-222): раньше записи, чтобы ответственным стал он
-    if (pr.flags.includes('owner_from_author')) {
+    // 1. карточка без владельца получает автора записи (D-222) или оператора напарника спорной пары (PROCESS 7.6):
+    // раньше записи, чтобы ответственным стал он
+    if (pr.flags.includes('owner_from_author') || pr.flags.includes('owner_from_pair')) {
       const locked = await lockCardScoped(sql, viewer, pr.cardId, 'card.assign');
       if (!locked || !pr.ownerAfter) throw new NotFoundError();
       if (!(await bookingRepo.assignImportedOwner(viewer, sql, { cardId: pr.cardId, version: locked.snapshot.version, userId: pr.ownerAfter, now }))) throw new Error('owner_changed');
@@ -150,7 +151,7 @@ export async function applyBookingImport(ctx: ImportContext, actor: ImportActor,
       // D-251: карточки (по id) → мероприятия (по id) → записи клиентов (по id), до пересчёта предпросмотра
       const rows = stored.map((r) => r.parsed as imports.ParsedBookingRow);
       const locked = lockSetOf(await loadBookingInputs(sql, ctx, viewer, rows));
-      await bookingRepo.lockCardsOf(viewer, sql, { spaceId: ctx.spaceId, cardIds: locked.cardIds });
+      await bookingRepo.lockCardsOf(viewer, sql, { spaceId: ctx.spaceId, cardIds: locked.cardIds, partnerCardIds: locked.partnerCardIds });
       await bookingRepo.lockEventsOf(viewer, sql, { spaceId: ctx.spaceId, eventIds: locked.eventIds });
       await bookingRepo.lockBookingsOfClients(viewer, sql, { spaceId: ctx.spaceId, clientIds: locked.clientIds });
 
