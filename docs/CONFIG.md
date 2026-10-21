@@ -397,6 +397,8 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `import.profiles[].ownerSlots` | `[{label, ranges: [[от, до], …]}]`, необязательный; нет = пусто | — | **пусто в пресете**: слоты задаёт установка (D-191) | CLI: `crmctl config set <пространство> 'import.profiles[key=operator_tables].ownerSlots' '[{"label":"Синий","ranges":[[3,202]]}]'` |
 | `import.profiles[].fieldTargets` | `{<поле импорта>: {object: client\|card, fieldKey}}`, необязательный | — | `head → client.head_name`, `activity → client.oked`, `niche → client.niche_other` | CLI |
 | `import.profiles[].noteMarkers` | `[{code, words[]}]`, необязательный | — | `dnc_request`: «не звонить», «не звоните», «удалить» | CLI |
+| `import.profiles[].kind` | `clients\|bookings`, необязательный; нет = `clients` | `clients` | профиль «Записи» (`bookings`) по `tests/fixtures/import/README.md` | CLI (D-324) |
+| `import.profiles[].valueMaps.eventType`, `import.profiles[].defaultEventTypeKey`, `import.profiles[].maxRows` | карта «ячейка → `booking.eventTypes[].key`» (только групповые виды), вид по умолчанию, предел строк (≤ 5 000, по умолчанию 2 000); только у `bookings`, необязательные | — | короткие и полные подписи групповых видов клиента | CLI (D-324, `docs/import-bookings-design.md` §3) |
 | `import.maxFileMb` | int | 10 | 10 | CLI |
 | `import.maxRows` | int | 20 000 | 20 000 | CLI |
 | `import.rowsRetentionDays` | int | 14 | 14 | CLI |
