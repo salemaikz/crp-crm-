@@ -17,11 +17,14 @@ export interface StageFacts {
 
 /**
  * Недостающее для этапа. Для `won` и `lost` не считается: у них свои формы (покупка, причина проигрыша).
- * Порядок кодов стабилен: запись, явка, следующий шаг, поля в порядке настроек.
+ * Порядок кодов стабилен: запись, явка, следующий шаг, поля в порядке настроек. `hiddenFields` — ключи полей сделки,
+ * скрытых роли зрителя.
  */
-export function missingFor(stage: Pick<DealStageInfo, 'kind' | 'requires'>, facts: StageFacts): MissingCode[] {
+export function missingFor(stage: Pick<DealStageInfo, 'kind' | 'requires'>, facts: StageFacts, hiddenFields: ReadonlySet<string> = new Set()): MissingCode[] {
   if (stage.kind !== 'open') return [];
   const req = stageRequirements(stage);
+  // Поле, скрытое роли: ни ключа, ни признака «заполнено» — как отказ сервера `stage_restricted` (D-323)
+  if (req.fields.some((k) => hiddenFields.has(k))) return ['restricted'];
   const out: MissingCode[] = [];
   if (req.booking && !facts.hasBooking) out.push('booking');
   if (req.attendance && !facts.hasAttendance) out.push('attendance');

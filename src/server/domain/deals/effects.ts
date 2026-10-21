@@ -11,6 +11,7 @@ import { bookingPipeline, configPipelineResolver, toDealStages, type PipelineRes
 import { findFeedById, findDealByRequest, lockDealById, type DealFullRow } from './repo.purchase';
 import { writeCancel, writeWin } from './purchase';
 import { pipelineOf } from './read';
+import { hiddenDealFieldKeys } from './fieldLabels';
 import { assertStageRequirements } from './requirements';
 import { wonStageOf } from './rules';
 import { loadDealsSettings } from './settings';
@@ -108,7 +109,7 @@ async function moveToStageFor(
   if (current && current.key === target.key) return 'same';
   if (current && current.order > target.order && scopeOf(viewer, 'deal.move_back') === null) throw new ForbiddenError();
   // Требования этапа — та же проверка, что у POST /api/deals/[id]/stage; шаг этого же итога засчитан (D-301)
-  await assertStageRequirements(sql, { dealId: deal.id, custom: deal.custom, stage: target, hasNextStep: args.hasNextStep, now: args.at });
+  await assertStageRequirements(sql, { dealId: deal.id, custom: deal.custom, stage: target, hasNextStep: args.hasNextStep, now: args.at, hiddenFields: await hiddenDealFieldKeys(viewer) });
   const ok = await updateDealStageScoped(viewer, sql, { id: deal.id, version: args.version, stageKey: target.key, at: args.at });
   if (!ok) await throwNotFoundOrConflict(viewer, sql, 'deal', deal.id);
   await insertDealFeed(sql, {

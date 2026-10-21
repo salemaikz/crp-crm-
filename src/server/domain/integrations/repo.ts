@@ -118,6 +118,26 @@ export async function setStatus(sql: Sql, id: string, status: string, now: numbe
   await sql`UPDATE integrations SET status = ${status}, updated_at = ${now} WHERE id = ${id}`;
 }
 
+/**
+ * Сколько живёт заявка «Включить» (D-322): провайдер отвечает за десятки секунд (два запроса по 10 с с повтором),
+ * а адрес, оставленный упавшим процессом, не должен держать подключение дольше этого срока.
+ */
+export const ENABLE_CLAIM_TTL_MS = 5 * 60_000;
+
+/**
+ * Первый шаг «Включить» (D-322): занять адрес вебхука, только если подключение выключено и нет живой заявки другого
+ * включения (адреса нет или он старше `ENABLE_CLAIM_TTL_MS`). Выключенное подключение с адресом бывает только во
+ * время включения: «Выключить», отзыв, новый ключ и неудачное включение адрес сбрасывают. false — к провайдеру не идём.
+ */
+export async function claimEnableToken(sql: Sql, a: { id: string; tokenHash: string; now: number }): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
+    UPDATE integrations SET webhook_token_hash = ${a.tokenHash}, updated_at = ${a.now}
+     WHERE id = ${a.id} AND NOT enabled
+       AND (webhook_token_hash IS NULL OR updated_at < ${a.now - ENABLE_CLAIM_TTL_MS})
+    RETURNING id`;
+  return rows.length > 0;
+}
+
 export async function setWebhookToken(sql: Sql, id: string, hash: string | null, now: number): Promise<void> {
   await sql`UPDATE integrations SET webhook_token_hash = ${hash}, updated_at = ${now} WHERE id = ${id}`;
 }

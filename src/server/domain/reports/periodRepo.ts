@@ -36,6 +36,10 @@ export interface CallsDayRow {
 /** Итоги, дозвоны и часы в работе по звонившему и местному дню (calls_stats_idx). Импорт не считается. */
 export async function callsByUserDay(viewer: Viewer, sql: Sql, a: PeriodArgs & { connectedKinds: readonly string[] }): Promise<CallsDayRow[]> {
   return scoped(sql)<CallsDayRow>`
+    WITH fs AS (
+      -- первый источник клиента один раз (нужен только при фильтре по источнику), а не подзапросом на звонок
+      SELECT DISTINCT ON (s.client_id) s.client_id, CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END AS src
+        FROM client_sources s WHERE ${a.sourceKey}::text IS NOT NULL ORDER BY s.client_id, s.first_seen_at, s.id)
     SELECT ca.user_id, to_char(to_timestamp(ca.occurred_at / 1000.0) AT TIME ZONE ${a.timeZone}::text, 'YYYY-MM-DD') AS day,
            count(*)::int AS outcomes,
            (count(*) FILTER (WHERE ca.outcome_kind = ANY(${[...a.connectedKinds]}::text[])))::int AS connects,
@@ -44,9 +48,7 @@ export async function callsByUserDay(viewer: Viewer, sql: Sql, a: PeriodArgs & {
      WHERE ca.space_id = ${a.spaceId} AND ca.user_id IS NOT NULL AND ca.via <> 'import'
        AND ca.occurred_at >= ${a.fromMs}::bigint AND ca.occurred_at < ${a.toMs}::bigint
        AND (${a.userIds}::text[] IS NULL OR ca.user_id = ANY(${a.userIds}::text[]))
-       AND (${a.sourceKey}::text IS NULL OR (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END
-                                               FROM client_sources s WHERE s.client_id = ca.client_id
-                                              ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
+       AND (${a.sourceKey}::text IS NULL OR ca.client_id IN (SELECT fs.client_id FROM fs WHERE fs.src = ${a.sourceKey}::text))
        AND ${scopeSql(viewer, 'call', 'card.read')}
      GROUP BY 1, 2`;
 }
@@ -209,7 +211,11 @@ export interface SourceStepRow {
 /** Шесть шагов воронки, сгруппированных по первому источнику клиента (client_sources_client_idx). Один запрос. */
 export async function funnelBySource(viewer: Viewer, sql: Sql, a: PeriodArgs & { connectedKinds: readonly string[]; issueKinds: readonly string[] }): Promise<SourceStepRow[]> {
   return scoped(sql)<SourceStepRow>`
-    WITH f AS (
+    WITH fs AS (
+      -- первый источник клиента один раз, а не подзапросом на каждую строку шага (docs/ops/load-q1c.md)
+      SELECT DISTINCT ON (s.client_id) s.client_id, CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END AS src
+        FROM client_sources s ORDER BY s.client_id, s.first_seen_at, s.id),
+    f AS (
       SELECT DISTINCT ON (ca.card_id) ca.card_id, ca.client_id, ca.user_id, ca.occurred_at
         FROM calls ca
        WHERE ca.space_id = ${a.spaceId} AND ca.lpr = 'yes' AND ca.applied = 'applied' AND ca.user_id IS NOT NULL
@@ -219,20 +225,20 @@ export async function funnelBySource(viewer: Viewer, sql: Sql, a: PeriodArgs & {
       SELECT DISTINCT ON (b.deal_id) b.deal_id, b.booked_by_user_id
         FROM bookings b WHERE b.space_id = ${a.spaceId} AND b.deal_id IS NOT NULL
        ORDER BY b.deal_id, b.created_at, b.id)
-    SELECT COALESCE((SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END FROM client_sources s
-                      WHERE s.client_id = (SELECT c.client_id FROM cards c WHERE c.id = al.card_id)
-                      ORDER BY s.first_seen_at, s.id LIMIT 1), '') AS src,
+    SELECT COALESCE(fs.src, '') AS src,
            'issued' AS step, count(DISTINCT al.card_id)::int AS n
       FROM assign_log al
+      LEFT JOIN cards ic ON ic.id = al.card_id
+      LEFT JOIN fs ON fs.client_id = ic.client_id
      WHERE al.space_id = ${a.spaceId} AND al.day BETWEEN ${a.from}::text AND ${a.to}::text AND al.to_user_id IS NOT NULL
        AND al.kind = ANY(${[...a.issueKinds]}::text[])
        AND (${a.userIds}::text[] IS NULL OR al.to_user_id = ANY(${a.userIds}::text[]))
      GROUP BY 1
     UNION ALL
-    SELECT COALESCE((SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END FROM client_sources s
-                      WHERE s.client_id = ca.client_id ORDER BY s.first_seen_at, s.id LIMIT 1), ''),
+    SELECT COALESCE(fs.src, ''),
            'connected', count(*)::int
       FROM calls ca
+      LEFT JOIN fs ON fs.client_id = ca.client_id
      WHERE ca.space_id = ${a.spaceId} AND ca.user_id IS NOT NULL AND ca.via <> 'import'
        AND ca.occurred_at >= ${a.fromMs}::bigint AND ca.occurred_at < ${a.toMs}::bigint
        AND ca.outcome_kind = ANY(${[...a.connectedKinds]}::text[])
@@ -240,18 +246,18 @@ export async function funnelBySource(viewer: Viewer, sql: Sql, a: PeriodArgs & {
        AND ${scopeSql(viewer, 'call', 'card.read')}
      GROUP BY 1
     UNION ALL
-    SELECT COALESCE((SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END FROM client_sources s
-                      WHERE s.client_id = f.client_id ORDER BY s.first_seen_at, s.id LIMIT 1), ''),
+    SELECT COALESCE(fs.src, ''),
            'lpr', count(*)::int
       FROM f
+      LEFT JOIN fs ON fs.client_id = f.client_id
      WHERE f.occurred_at >= ${a.fromMs}::bigint AND f.occurred_at < ${a.toMs}::bigint
        AND (${a.userIds}::text[] IS NULL OR f.user_id = ANY(${a.userIds}::text[]))
      GROUP BY 1
     UNION ALL
-    SELECT COALESCE((SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END FROM client_sources s
-                      WHERE s.client_id = b.client_id ORDER BY s.first_seen_at, s.id LIMIT 1), ''),
+    SELECT COALESCE(fs.src, ''),
            'booked', count(*)::int
       FROM bookings b
+      LEFT JOIN fs ON fs.client_id = b.client_id
      WHERE b.space_id = ${a.spaceId} AND b.booked_by_user_id IS NOT NULL AND b.moved_from_id IS NULL AND b.via <> 'import'
        AND NOT (b.status = 'cancelled' AND b.cancel_reason = 'operator_error')
        AND b.created_at >= ${a.fromMs}::bigint AND b.created_at < ${a.toMs}::bigint
@@ -259,20 +265,20 @@ export async function funnelBySource(viewer: Viewer, sql: Sql, a: PeriodArgs & {
        AND ${scopeSql(viewer, 'booking', 'booking.read')}
      GROUP BY 1
     UNION ALL
-    SELECT COALESCE((SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END FROM client_sources s
-                      WHERE s.client_id = b.client_id ORDER BY s.first_seen_at, s.id LIMIT 1), ''),
+    SELECT COALESCE(fs.src, ''),
            'attended', count(*)::int
       FROM bookings b
+      LEFT JOIN fs ON fs.client_id = b.client_id
      WHERE b.space_id = ${a.spaceId} AND b.booked_by_user_id IS NOT NULL
        AND b.booking_date BETWEEN ${a.from}::text AND ${a.to}::text AND NOT b.is_reserve AND b.status = 'attended'
        AND (${a.userIds}::text[] IS NULL OR b.booked_by_user_id = ANY(${a.userIds}::text[]))
        AND ${scopeSql(viewer, 'booking', 'booking.read')}
      GROUP BY 1
     UNION ALL
-    SELECT COALESCE((SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END FROM client_sources s
-                      WHERE s.client_id = d.client_id ORDER BY s.first_seen_at, s.id LIMIT 1), ''),
+    SELECT COALESCE(fs.src, ''),
            'purchased', count(*)::int
       FROM deals d LEFT JOIN fb ON fb.deal_id = d.id
+      LEFT JOIN fs ON fs.client_id = d.client_id
      WHERE d.space_id = ${a.spaceId} AND d.status = 'won' AND d.won_at >= ${a.fromMs}::bigint AND d.won_at < ${a.toMs}::bigint
        AND COALESCE(fb.booked_by_user_id, d.owner_user_id) IS NOT NULL
        AND (${a.userIds}::text[] IS NULL OR COALESCE(fb.booked_by_user_id, d.owner_user_id) = ANY(${a.userIds}::text[]))

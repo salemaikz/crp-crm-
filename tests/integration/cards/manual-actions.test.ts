@@ -3,7 +3,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestError, NotFoundError } from '../../../src/server/access';
-import { clearDnc, closeCard, reopenCard } from '../../../src/server/domain/cards';
+import { clearDnc, closeCard, reopenCard, reopenRecipients } from '../../../src/server/domain/cards';
 import { CardActionError } from '../../../src/server/domain/cards/errors';
 import { TeamError } from '../../../src/server/domain/team/errors';
 import { getClientCard, listClients, parseListQuery } from '../../../src/server/domain/clients';
@@ -180,4 +180,18 @@ test('виды списка: «Мои клиенты» — agreed/client у ме
   assert.ok(byOwner.items.some((i) => i.cardId === cardOf('a', 65)) && !byOwner.items.some((i) => i.cardId === cardOf('a', 64)));
   assert.throws(() => parseListQuery(new URLSearchParams('view=mine&owner=x')), BadRequestError);
   assert.throws(() => parseListQuery(new URLSearchParams('view=other')), BadRequestError);
+});
+
+test('«Вернуть в обзвон»: интерфейс предлагает ровно тех получателей, кого сервер принимает', async () => {
+  const rop = await viewerOf(U.rop);
+  const offered = (await reopenRecipients(rop)).map((r) => r.userId);
+  assert.ok(offered.includes(U.opA) && offered.includes(U.opB));
+  for (const bad of [U.director, U.consultant, U.disabled]) assert.ok(!offered.includes(bad), bad);
+  // каждый предложенный проходит ту же проверку, что и reopenCard (400 recipient не возникает)
+  for (const toUserId of offered) {
+    await setCard(db.sql, cardOf('a', 55), { state: 'written_off', owner: U.disabled });
+    const res = await reopenCard(rop, cardOf('a', 55), { opId: uuid(), version: await version(55), comment: 'Вернуть', toUserId });
+    assert.equal(res.state, 'callback', toUserId);
+    assert.equal((await card(55)).ownerUserId, toUserId);
+  }
 });

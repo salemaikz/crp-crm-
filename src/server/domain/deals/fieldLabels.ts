@@ -17,3 +17,9 @@ export async function stageFieldLabelsFor(
   const pipeline = settings.pipelines.find((p) => p.key === args.pipelineKey);
   return stageFieldLabels(pipeline, args.stageKeys, settings.fieldLabels, visible);
 }
+
+/** Ключи полей сделки, скрытых роли зрителя: требования этапа их не называют и по ним не отвечают (D-323). */
+export async function hiddenDealFieldKeys(viewer: Viewer): Promise<ReadonlySet<string>> {
+  const cfg = await loadClientsConfig(viewer);
+  return new Set(fields.hiddenKeys(cfg.fields, 'deal', fieldViewer(viewer, cfg)));
+}

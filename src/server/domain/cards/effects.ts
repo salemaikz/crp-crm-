@@ -1,10 +1,12 @@
 // Исполнитель `calling.Effects` (docs/calls-design.md §5). Порядок групп фиксирован: задачи → сделки → записи →
 // стоп-лист → журнал раздачи → уведомления → лента → аудит → пропуски; внутри группы — порядок ядра.
-// Карточку заблокировал и проверил вызывающий; охвата здесь нет.
+// Карточку заблокировал и проверил вызывающий; охвата здесь нет. При отмене записей (`cancel_future`) дни
+// консультаций клиента блокируются первыми, до задач и сделок (порядок D-251: карточка → день → записи → сделки →
+// задачи; D-301): автоназначение «серых» держит день и закрывает задачу `grey_unassigned:<id>` того же клиента.
 import { access as coreAccess, type calling } from '@crm/core';
 import type { RoleConfig } from '@crm/core/access';
 import { resolvers } from '@/server/access/context';
-import { applyBookingEffects } from '@/server/domain/booking/effects';
+import { applyBookingEffects, lockClientConsultDays } from '@/server/domain/booking/effects';
 import { applyDealEffects } from '@/server/domain/deals/effects';
 import { closeAutoTaskByKey, closeAutoTasks, ensureAutoTask, reassignOpenTasks } from '@/server/domain/tasks/auto';
 import { newId, type Sql } from '@/server/platform/db';
@@ -59,6 +61,9 @@ const digitsOf = (card: { phoneDigits: ReadonlyMap<string, string> }, phoneId: s
 export const applyCardEffects: ApplyCardEffects = async (tx, actor, card, effects, at, ctx) => {
   const me = actorUserId(actor);
   const opId = card.opId;
+
+  // --- дни консультаций (D-301): до строк задач, которые держит и прогон `grey-assign` ---
+  if (effects.bookings.some((e) => e.op === 'cancel_future')) await lockClientConsultDays(tx, { spaceId: card.spaceId, clientId: card.clientId, after: at });
 
   // --- задачи ---
   for (const e of effects.tasks) {

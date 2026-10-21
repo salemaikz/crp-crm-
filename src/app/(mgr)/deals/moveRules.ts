@@ -2,7 +2,7 @@
 // при переносе плитки в колонку. Последнее слово всё равно за сервером (`POST /api/deals/[id]/stage`).
 import type { BoardFieldDef, BoardStage, DealTile, DealsBoard, MissingCode } from '@/server/domain/deals/boardTypes';
 
-export type BlockReason = 'readonly' | 'back' | 'booking' | 'attendance' | 'field_forbidden';
+export type BlockReason = 'readonly' | 'back' | 'booking' | 'attendance' | 'field_forbidden' | 'restricted';
 
 export type MoveDecision =
   | { kind: 'noop' }
@@ -29,6 +29,7 @@ export function decideMove(ctx: Ctx, tile: Pick<DealTile, 'stageKey' | 'missing'
   if (!ctx.can.edit) return { kind: 'blocked', reason: 'readonly' };
   if (to.order < from.order && !ctx.can.moveBack) return { kind: 'blocked', reason: 'back' };
   const missing = tile.missing[to.key] ?? [];
+  if (missing.includes('restricted')) return { kind: 'blocked', reason: 'restricted' };
   if (missing.includes('booking')) return { kind: 'blocked', reason: 'booking' };
   if (missing.includes('attendance')) return { kind: 'blocked', reason: 'attendance' };
   const nextStep = missing.includes('next_step');

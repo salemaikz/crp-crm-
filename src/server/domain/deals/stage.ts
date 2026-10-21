@@ -21,6 +21,7 @@ import {
   loseDealScoped,
   type DealFullRow,
 } from './repo.purchase';
+import { hiddenDealFieldKeys } from './fieldLabels';
 import { assertStageRequirements } from './requirements';
 import { lostStageOf } from './rules';
 import { inDealsTx } from './tx';
@@ -93,7 +94,8 @@ export const moveDealStage: MoveDealStage = async (deps, viewer, input) => {
     // Назад — только с правом `deal.move_back` по роли (PROCESS 4.2)
     if (current && target.order < current.order && scopeOf(viewer, 'deal.move_back') === null) throw new ForbiddenError();
 
-    await assertStageRequirements(tx, { dealId: deal.id, custom: deal.custom, stage: target, hasNextStep: Boolean(input.nextStep), now });
+    const hiddenFields = await hiddenDealFieldKeys(viewer);
+    await assertStageRequirements(tx, { dealId: deal.id, custom: deal.custom, stage: target, hasNextStep: Boolean(input.nextStep), now, hiddenFields });
 
     const ok = await updateDealStageScoped(viewer, tx, { id: deal.id, version: input.version, stageKey: target.key, at: now });
     if (!ok) await throwNotFoundOrConflict(viewer, tx, 'deal', deal.id);

@@ -4,12 +4,13 @@
 // Сброс ставит время лицензии на показание часов — это откат времени лицензии назад. Поэтому он делается только
 // при эпизоде (часы позади больше допуска), только с хоста под root (crmctl) и всегда оставляет запись
 // license.clock_reset в аудите с величиной отката (часы) и тем, была ли блокировка. Root, переводящий часы назад,
-// получает этим то же, что правкой license_state в psql (остаток D-306, D-314), но со следом в журнале.
+// получает этим то же, что правкой license_state в psql (остаток D-306, D-314), но со следом в журнале и колоколом
+// каждому активному администратору (`license_clock_reset`, только числа): откат виден не только в аудите.
 import { license as coreLicense } from '@crm/core';
 import { writeAudit } from '../audit';
 import type { Db } from '../db';
 import type { LicenseEnv } from './env';
-import { lockLicenseRow, resetLicenseClockRow } from './repo';
+import { insertClockResetNotices, lockLicenseRow, resetLicenseClockRow } from './repo';
 
 const H = 3_600_000;
 
@@ -33,14 +34,16 @@ export async function resetLicenseClock(db: Db, env: Pick<LicenseEnv, 'clock'>):
     const episodeMs = since === null ? 0 : Math.max(0, (row.clockRealAt ?? since) - since);
     const wasLocked = episodeMs > coreLicense.CLOCK_BEHIND_LOCK_MS;
     await resetLicenseClockRow(sql, clock);
+    const rewindHours = Math.floor(rewindMs / H);
     await writeAudit(sql, {
       actorId: null,
       action: 'license.clock_reset',
       entity: 'license',
       entityId: row.installId,
-      meta: { rewindHours: Math.floor(rewindMs / H), episodeHours: Math.floor(episodeMs / H), wasLocked, by: 'crmctl' },
+      meta: { rewindHours, episodeHours: Math.floor(episodeMs / H), wasLocked, by: 'crmctl' },
       createdAt: clock,
     });
+    await insertClockResetNotices(sql, { rewindHours, wasLocked, at: clock });
     return { status: 'reset', rewindMs, wasLocked };
   });
 }

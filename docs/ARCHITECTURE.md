@@ -354,7 +354,7 @@ CREATE INDEX IF NOT EXISTS client_phones_digits_idx  ON client_phones (digits);
 CREATE INDEX IF NOT EXISTS client_phones_digits_trgm ON client_phones USING GIN (digits gin_trgm_ops); -- поиск по 5+ цифрам
 
 CREATE TABLE IF NOT EXISTS stop_list (
-  phone_hmac TEXT PRIMARY KEY,                 -- HMAC номера: переживает слияние и обезличивание
+  phone_hmac TEXT PRIMARY KEY,                 -- HMAC номера: переживает слияние и обезличивание; строку source='depersonalize' не снимает никто (D-321)
   reason_code TEXT NOT NULL, source TEXT NOT NULL CHECK (source IN ('outcome','manual','depersonalize','import')),
   created_by TEXT, created_at BIGINT NOT NULL
 );
@@ -889,7 +889,7 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
   - иначе — применить по машине состояний, `version+1`;
   - `occurredAt` ограничен окном `[получено − 72 ч, получено + 5 мин]`.
 - **Пропуск** — запрос с `opId` (PK `skips.id`); лимит дня считает сервер.
-- **Очередь** держится в памяти страницы (текущая и следующие 3 карточки), в
+- **Очередь** держится в памяти страницы (до 6 карточек: текущая и следующие, `DEPTH` в `CallScreen`), в
   IndexedDB не пишется. Без сети и без памяти страницы — экран «Нет сети,
   итоги сохранены».
 - **Выход** сначала отправляет outbox, затем очищает телефон: черновик,

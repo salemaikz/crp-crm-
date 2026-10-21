@@ -252,6 +252,7 @@ export const DEAL_DOMAIN_ERRORS = [
   'use_lose',
   'next_step_required',
   'stage_fields_required',
+  'stage_restricted',
   'reason_unknown',
   'reason_text_required',
   'service_type_locked',

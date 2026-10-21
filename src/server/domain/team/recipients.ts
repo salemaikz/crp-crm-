@@ -9,7 +9,7 @@ import { parseAccessConfig } from '@/server/access/viewer';
 import { getActiveConfig } from '@/server/platform/config/active';
 import type { Sql } from '@/server/platform/db';
 import { badRequest } from './errors';
-import { selectActiveMembers } from './transferRepo';
+import { selectActiveMembers, selectSpaceStaff } from './transferRepo';
 
 const { roleGrants } = coreAccess;
 
@@ -33,12 +33,16 @@ export async function loadTransferRoles(): Promise<TransferRoles> {
   return { outcome, fallbackOwnerRole: typeof fallback === 'string' && fallback !== '' ? fallback : null };
 }
 
-/** Проверка получателей обычной передачи: активны в пространстве, роль ведёт карточки. Иначе 400 `recipient`. */
+/** Кому можно передать карточку: активные сотрудники пространства, чья роль ведёт карточки. Единственный источник списка. */
+export async function listRecipients(tx: Sql, spaceId: string, roles: TransferRoles): Promise<{ userId: string; name: string }[]> {
+  const staff = await selectSpaceStaff(tx, spaceId);
+  return staff.filter((m) => m.active && roles.outcome.has(m.roleKey)).map((m) => ({ userId: m.userId, name: m.name }));
+}
+
+/** Проверка получателей обычной передачи: входят в `listRecipients`. Иначе 400 `recipient`. */
 export async function requireRecipients(tx: Sql, spaceId: string, userIds: readonly string[], roles: TransferRoles): Promise<void> {
-  const unique = [...new Set(userIds)];
-  const members = await selectActiveMembers(tx, { spaceId, userIds: unique });
-  const ok = new Set(members.filter((m) => roles.outcome.has(m.roleKey)).map((m) => m.userId));
-  if (unique.some((u) => !ok.has(u))) throw badRequest('recipient');
+  const ok = new Set((await listRecipients(tx, spaceId, roles)).map((m) => m.userId));
+  if (userIds.some((u) => !ok.has(u))) throw badRequest('recipient');
 }
 
 /**

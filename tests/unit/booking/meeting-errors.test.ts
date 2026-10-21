@@ -31,3 +31,8 @@ test('коды записи — из booking.errors, незнакомый код
   assert.equal(text('deal_version'), 'Сделка изменилась. Обновите страницу');
   assert.equal(text('something_new'), tb('conflict'));
 });
+
+test('этап требует поле, скрытое роли (D-323): свой текст без названий полей, а не «данные изменились»', () => {
+  assert.equal(text('stage_restricted'), td('errors.stage_restricted'));
+  assert.notEqual(text('stage_restricted'), tb('conflict'));
+});

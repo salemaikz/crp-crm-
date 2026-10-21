@@ -13,11 +13,12 @@ type Assignee = { userId: string; name: string };
 
 type Props = {
   cardId: string;
-  clientId: string;
   version: number;
   can: { closeFromMenu: boolean; reopen: boolean; unblock: boolean };
   phones: Array<{ id: string; e164: string; primary: boolean }>;
   reasons: { not_target: Reason[]; do_not_call: Reason[] };
+  /** Кому сервер примет карточку при возврате без владельца (один источник с проверкой на сервере). */
+  recipients: Assignee[];
 };
 
 /**
@@ -25,7 +26,7 @@ type Props = {
  * по `can.*` с сервера; версия карточки уходит с запросом, устаревшая — 409 и свежие данные. `opId` живёт до
  * успешного ответа или явного отказа сервера.
  */
-export function CardMenu({ cardId, clientId, version, can, phones, reasons }: Props) {
+export function CardMenu({ cardId, version, can, phones, reasons, recipients }: Props) {
   const t = useTranslations('clients');
   const router = useRouter();
   const toast = useToast();
@@ -53,12 +54,6 @@ export function CardMenu({ cardId, clientId, version, can, phones, reasons }: Pr
   const list = mode === 'not_target' || mode === 'do_not_call' ? reasons[mode] : [];
   const ready = mode === 'reopen' || mode === 'dnc_clear' ? comment.trim().length > 0 && (assignees === null || toUserId !== '') : list.length === 0 || reason !== '';
 
-  async function loadAssignees() {
-    const res = await fetch(`/api/tasks/assignees?clientId=${encodeURIComponent(clientId)}`).catch(() => null);
-    const data = (await res?.json().catch(() => null)) as { items?: Array<{ userId: string; name: string; me: boolean }> } | null;
-    setAssignees((data?.items ?? []).map((i) => ({ userId: i.userId, name: i.name })));
-  }
-
   async function submit() {
     if (!mode || busy || !ready) return;
     setBusy(true);
@@ -80,7 +75,7 @@ export function CardMenu({ cardId, clientId, version, can, phones, reasons }: Pr
     }
     // Нужен получатель: владельца нет или он отключён — выбор сотрудника и повторная отправка
     if (mode === 'reopen' && (data as { detail?: string } | null)?.detail === 'owner_required') {
-      await loadAssignees();
+      setAssignees(recipients);
       setError(t('menu.ownerRequired'));
       return;
     }

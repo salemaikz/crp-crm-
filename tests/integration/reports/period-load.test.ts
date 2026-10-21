@@ -2,7 +2,11 @@
 // каждый отчёт РОП не дольше 300 мс (дизайн §1.4: иначе architect даёт индексы).
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { calling } from '@crm/core';
 import { getReport } from '../../../src/server/domain/reports';
+import { ISSUE_KINDS } from '../../../src/server/domain/reports/definitions';
+import { funnelBySource } from '../../../src/server/domain/reports/periodRepo';
+import { legacyFunnelBySource } from './legacyFunnelBySource';
 import type { ReportQuery } from '../../../src/server/domain/reports/reportTypes';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { DAY, SEED_NOW, SPACE, U, closeWorld, enterReportsConfig, leaveReportsConfig, openWorld, seedPool, viewerOf } from './helpers';
@@ -93,4 +97,39 @@ test('на нагрузке отчёты не пустые и согласова
   const viewer = await viewerOf(U.rop);
   const ops = await getReport(viewer, { key: 'operators', period: PERIOD, filters: NO_FILTERS, grouping: 'total' });
   assert.equal(ops.totals.outcomes, 48_000 + 2); // все звонки периода: 48 000 синтетических и по одному вчерашнему у A и B из мира
+});
+
+test('воронка по источникам: CTE «первый источник» даёт то же, что прежний подзапрос на строку', async () => {
+  const viewer = await viewerOf(U.rop);
+  const args = {
+    spaceId: SPACE,
+    from: PERIOD.from,
+    to: PERIOD.to,
+    fromMs: Date.parse('2026-07-29T00:00:00+05:00'),
+    toMs: Date.parse('2026-10-29T00:00:00+05:00'),
+    timeZone: 'Asia/Almaty',
+    sourceKey: null,
+    connectedKinds: calling.CONNECTED_KINDS,
+    issueKinds: ISSUE_KINDS,
+  };
+  const key = (r: { src: string; step: string; n: number }) => `${r.step}|${r.src}|${r.n}`;
+  for (const userIds of [null, [U.opA, U.opB]]) {
+    const fresh = (await funnelBySource(viewer, db.sql, { ...args, userIds })).map(key).sort();
+    const legacy = (await legacyFunnelBySource(viewer, db.sql, { ...args, userIds })).map(key).sort();
+    assert.ok(fresh.length > 6, 'в выборке должны быть все шаги и несколько источников');
+    assert.deepEqual(fresh, legacy);
+  }
+});
+
+test('операторы с фильтром по источнику: число итогов совпадает с прямым подсчётом по первому источнику клиента', async () => {
+  const viewer = await viewerOf(U.rop);
+  const rep = await getReport(viewer, { key: 'operators', period: PERIOD, filters: { userIds: null, sourceKey: 'new_base' }, grouping: 'total' });
+  const [row] = await db.sql<{ n: number }>`
+    SELECT count(*)::int AS n FROM calls ca
+     WHERE ca.space_id = ${SPACE} AND ca.user_id IS NOT NULL AND ca.via <> 'import'
+       AND ca.occurred_at >= ${Date.parse('2026-07-29T00:00:00+05:00')}::bigint AND ca.occurred_at < ${Date.parse('2026-10-29T00:00:00+05:00')}::bigint
+       AND (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END FROM client_sources s
+             WHERE s.client_id = ca.client_id ORDER BY s.first_seen_at, s.id LIMIT 1) = 'new_base'`;
+  assert.ok(row && row.n > 1000);
+  assert.equal(rep.totals.outcomes, row.n);
 });
