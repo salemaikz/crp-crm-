@@ -6,10 +6,9 @@
 //
 // Режим стенда на Vercel (D-318): nginx и сети crm_ingest нет, каждый запрос приходит с края Vercel, который сам
 // перезаписывает X-Forwarded-For и X-Real-IP (https://vercel.com/docs/headers/request-headers). Там любой запрос —
-// 'proxy' (внешний), секрет не нужен; вне режима правила выше не меняются.
+// 'proxy' (внешний), секрет не нужен, а приём лидов закрыт целиком; вне режима правила выше не меняются.
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type { Watermark } from '@crm/core/license';
-import { buildWatermark, isVercelStand } from '../stand';
+import { currentBuild, isVercelStand, type StandBuild } from '../stand';
 
 type HeaderGetter = { get(name: string): string | null | undefined };
 type Env = Record<string, string | undefined>;
@@ -42,8 +41,8 @@ export function secretsEqual(presented: string, expected: string): boolean {
  */
 export type RequestPath = 'proxy' | 'direct' | 'forged';
 
-export function classifyRequest(headers: HeaderGetter, env: Env = process.env, watermark: Pick<Watermark, 'customer'> = buildWatermark()): RequestPath {
-  if (isVercelStand(env, watermark)) return 'proxy';
+export function classifyRequest(headers: HeaderGetter, env: Env = process.env, build: StandBuild = currentBuild()): RequestPath {
+  if (isVercelStand(env, build)) return 'proxy';
   const presented = headers.get(PROXY_SECRET_HEADER);
   const secret = proxySecret(env);
   if (secret && presented && secretsEqual(presented, secret)) return 'proxy';
@@ -55,8 +54,10 @@ export function classifyRequest(headers: HeaderGetter, env: Env = process.env, w
  * Пускать ли запрос на /api/ingest/ (второй рубеж за nginx, INTEGRATIONS §5.1): внутренний источник
  * ('direct') — да; через nginx — только при INGEST_PUBLIC=1; поддельная метка — нет никогда.
  */
-export function ingestReachable(headers: HeaderGetter, env: Env = process.env, watermark: Pick<Watermark, 'customer'> = buildWatermark()): boolean {
-  const path = classifyRequest(headers, env, watermark);
+export function ingestReachable(headers: HeaderGetter, env: Env = process.env, build: StandBuild = currentBuild()): boolean {
+  // Стенд на Vercel (D-318): приём закрыт при любом INGEST_PUBLIC — лиды извне принесли бы настоящие номера
+  if (isVercelStand(env, build)) return false;
+  const path = classifyRequest(headers, env, build);
   if (path === 'direct') return true;
   if (path === 'proxy') return env.INGEST_PUBLIC?.trim() === '1';
   return false;

@@ -1,7 +1,7 @@
 // Режим стенда на Vercel (D-318): когда включается, чем дополняет окружение, чему верит; вне режима — как прежде.
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyVercelStandDefaults, vercelStandActive } from '../../../src/server/platform/stand';
+import { applyVercelStandDefaults, standPhoneRejected, vercelStandActive } from '../../../src/server/platform/stand';
 import { DERIVED_SECRETS, deriveStandKey, driverDatabaseUrl, isVercelStand, vercelStandOverlay } from '../../../src/server/platform/stand/overlay';
 import { configuredAppOrigin } from '../../../src/server/platform/stand/origin';
 import { startupConfigProblems } from '../../../src/server/platform/env';
@@ -12,10 +12,14 @@ import { classifyRequest, ingestReachable } from '../../../src/server/platform/h
 import { phoneHmac } from '../../../src/server/platform/hmac';
 import { isFeatureEnabled } from '../../../src/server/platform/flags';
 import { standImportBlocked } from '../../../src/server/domain/import/platformGlue';
-import { buildDatabaseUrl, stepEnv } from '../../../scripts/vercel/stand-env';
+import { buildDatabaseUrl, buildMode, stepEnv } from '../../../scripts/vercel/stand-env';
 
-const GENERAL = { customer: null };
-const CLIENT = { customer: 'acme' };
+// Признак сборки стенда, который vercel-build вшивает в бандл; в tsx он читается из окружения процесса теста
+process.env.CRM_VERCEL_STAND_BUILD = '1';
+
+const GENERAL = { customer: null, standBuild: true };
+const UNMARKED = { customer: null, standBuild: false };
+const CLIENT = { customer: 'acme', standBuild: true };
 const MASTER = 'synthetic-demo-master-secret-0123456789abcdef'; // синтетика, 45 символов
 const h = (o: Record<string, string>) => ({ get: (n: string) => o[n.toLowerCase()] ?? null });
 
@@ -23,6 +27,7 @@ const h = (o: Record<string, string>) => ({ get: (n: string) => o[n.toLowerCase(
 const standEnv = (extra: Record<string, string | undefined> = {}): Record<string, string | undefined> => ({
   NODE_ENV: 'production',
   VERCEL: '1',
+  VERCEL_ENV: 'production',
   CRM_STAND: '1',
   VERCEL_PROJECT_PRODUCTION_URL: 'stand-demo.vercel.app',
   DATABASE_URL: 'postgres://u:p@ep-x-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require',
@@ -46,6 +51,8 @@ test('режим включается только при VERCEL=1 и CRM_STAND=
   assert.equal(isVercelStand({ CRM_STAND: '1' }, GENERAL), false);
   assert.equal(isVercelStand({ VERCEL: 'true', CRM_STAND: '1' }, GENERAL), false);
   assert.equal(isVercelStand({ VERCEL: '1', CRM_STAND: '0' }, GENERAL), false);
+  // Общая сборка без признака vercel-build (npm run build, CRM_CORE_BUNDLE=1) режим не включает
+  assert.equal(isVercelStand({ VERCEL: '1', CRM_STAND: '1' }, UNMARKED), false);
   // В тестах ядро — исходники без водяного знака: общая сборка
   assert.equal(vercelStandActive({ VERCEL: '1', CRM_STAND: '1' }), true);
 });
@@ -152,6 +159,15 @@ test('startupConfigProblems: сборка клиента с VERCEL=1 и CRM_STAN
   assert.ok(p.some((x) => x.includes('CRM_PROXY_SECRET')));
 });
 
+test('startupConfigProblems: сборка без признака стенда — прежние требования и подсказка', () => {
+  const p = startupConfigProblems(standEnv(), UNMARKED);
+  assert.ok(p.some((x) => x.includes('без признака стенда')));
+  assert.ok(p.some((x) => x.includes('CRM_PROXY_SECRET')));
+  const e = standEnv();
+  assert.equal(applyVercelStandDefaults(e, UNMARKED).active, false);
+  assert.equal(e.CRM_PHONE_HMAC_KEY, undefined);
+});
+
 test('startupConfigProblems в режиме: без CRM_DEMO_SECRET — отказ с подсказкой, CRM_PROXY_SECRET не нужен', () => {
   const e = standEnv({ CRM_DEMO_SECRET: undefined });
   applyVercelStandDefaults(e, GENERAL);
@@ -171,13 +187,16 @@ test('IP клиента: в режиме — X-Real-IP или первый X-For
   assert.equal(deriveClientIp(h({ 'x-real-ip': '203.0.113.7' }), quiet(e), 0, CLIENT), UNKNOWN_IP);
   assert.equal(deriveClientIp(h({ 'x-real-ip': '203.0.113.7' }), quiet({ ...e, CRM_STAND: undefined }), 0, GENERAL), UNKNOWN_IP);
   assert.equal(deriveClientIp(h({ 'x-real-ip': '203.0.113.7' }), quiet({ ...e, VERCEL: undefined }), 0, GENERAL), UNKNOWN_IP);
+  assert.equal(deriveClientIp(h({ 'x-real-ip': '203.0.113.7' }), quiet(e), 0, UNMARKED), UNKNOWN_IP);
 });
 
-test('приём лидов в режиме: каждый запрос внешний — только при INGEST_PUBLIC=1', () => {
+test('приём лидов в режиме закрыт при любом INGEST_PUBLIC; запросы внешние', () => {
   const e = applied();
   assert.equal(classifyRequest(h({}), e, GENERAL), 'proxy');
   assert.equal(ingestReachable(h({}), e, GENERAL), false);
-  assert.equal(ingestReachable(h({}), { ...e, INGEST_PUBLIC: '1' }, GENERAL), true);
+  assert.equal(ingestReachable(h({}), { ...e, INGEST_PUBLIC: '1' }, GENERAL), false);
+  // Вне режима — как раньше: прямой запрос без меток доходит
+  assert.equal(ingestReachable(h({}), { ...e, INGEST_PUBLIC: '1' }, UNMARKED), true);
   // Вне режима прямой запрос без меток — внутренний, как раньше
   assert.equal(classifyRequest(h({}), { ...e, CRM_STAND: undefined }, GENERAL), 'direct');
   assert.equal(classifyRequest(h({}), e, CLIENT), 'direct');
@@ -189,12 +208,39 @@ test('CSRF и cookie на стенде: адрес проекта, cookie __Host
   assert.equal(checkOrigin(h({ origin: 'https://evil.example.test' }), env), 'mismatch');
   assert.equal(checkOrigin(h({ origin: 'https://stand-demo.vercel.app' }), { ...env, CRM_STAND: undefined }), 'mismatch');
   assert.equal(sessionCookieSpec(env).name, '__Host-crm_sid');
+  // Без признака сборки стенда адрес по умолчанию не появляется
+  assert.equal(configuredAppOrigin(env, false), undefined);
+  process.env.CRM_VERCEL_STAND_BUILD = '0';
+  try {
+    assert.equal(checkOrigin(h({ origin: 'https://stand-demo.vercel.app' }), env), 'mismatch');
+  } finally {
+    process.env.CRM_VERCEL_STAND_BUILD = '1';
+  }
 });
 
 test('импорт файлов на стенде Vercel закрыт, вне режима — нет', () => {
   assert.equal(standImportBlocked(applied()), true);
   assert.equal(standImportBlocked({ ...applied(), CRM_STAND: undefined }), false);
   assert.equal(standImportBlocked({ NODE_ENV: 'production' }), false);
+});
+
+test('номера на стенде: только блок +7 709; вне режима — любые', () => {
+  const e = applied();
+  assert.equal(standPhoneRejected('77091000004', e, GENERAL), false);
+  assert.equal(standPhoneRejected('77015550123', e, GENERAL), true);
+  assert.equal(standPhoneRejected('77015550123', e, UNMARKED), false);
+  assert.equal(standPhoneRejected('77015550123', e, CLIENT), false);
+  assert.equal(standPhoneRejected('77015550123', { NODE_ENV: 'production' }, GENERAL), false);
+});
+
+test('режим сборки: stand только в Production, preview — без миграций и сида', () => {
+  assert.equal(buildMode(standEnv()), 'stand');
+  assert.equal(buildMode(standEnv({ VERCEL_ENV: 'preview' })), 'preview');
+  assert.equal(buildMode(standEnv({ VERCEL_ENV: undefined })), 'preview');
+  assert.equal(buildMode(standEnv({ CRM_STAND: undefined })), 'off');
+  assert.equal(buildMode(standEnv({ CRM_CUSTOMER_ID: 'acme' })), 'off');
+  const pr = stepEnv(standEnv({ VERCEL_ENV: 'preview' }));
+  assert.ok('problems' in pr && pr.problems.some((x) => x.includes('только в Production')));
 });
 
 test('шаги сборки: прямой адрес Neon той же базы, NODE_ENV=production, клиентская сборка — отказ', () => {
@@ -207,6 +253,7 @@ test('шаги сборки: прямой адрес Neon той же базы, 
   assert.ok('env' in r);
   if ('env' in r) {
     assert.equal(r.env.NODE_ENV, 'production');
+    assert.equal(r.env.CRM_VERCEL_STAND_BUILD, '1');
     assert.equal(r.env.MIGRATE_DATABASE_URL, r.env.DATABASE_URL);
     assert.ok(r.env.DATABASE_URL?.includes('ep-x.eu-central-1'));
     assert.ok(r.env.CRM_PHONE_HMAC_KEY);

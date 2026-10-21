@@ -1,10 +1,9 @@
 // Окружение установки: чтение переменных и проверки конфигурации (fail closed).
 // Нормативно: docs/CONFIG.md §7. Секреты читаются только здесь и в secrets/ (позже).
 // Источник: платформа LMS 2cd8a2b src/lib/env.ts (без режима демо: встроенной БД в продукте нет).
-import type { Watermark } from '@crm/core/license';
 import { appOrigin } from './auth/csrf';
 import { clientIpConfigProblem } from './http/clientIp';
-import { buildWatermark, isVercelStand, standRequested, vercelStandOverlay } from './stand';
+import { currentBuild, isVercelStand, standRequested, vercelStandOverlay, type StandBuild } from './stand';
 
 /** Окружение как словарь: совместимо с process.env, тестам можно передать любой объект. */
 export type Env = Record<string, string | undefined>;
@@ -58,17 +57,19 @@ export function migrateDatabaseUrl(e: Env = process.env): string {
  * Режим стенда на Vercel (D-318) вместо CRM_PROXY_SECRET требует то, без чего стенд не работает (база,
  * CRM_DEMO_SECRET для выведенных секретов); в сборке клиента просьба о нём — отказ запуска.
  */
-export function startupConfigProblems(e: Env = process.env, watermark: Pick<Watermark, 'customer'> = buildWatermark()): string[] {
+export function startupConfigProblems(e: Env = process.env, build: StandBuild = currentBuild()): string[] {
   const problems: string[] = [];
-  if (standRequested(e) && watermark.customer !== null) {
+  if (standRequested(e) && build.customer !== null) {
     problems.push('VERCEL=1 и CRM_STAND=1 в сборке клиента: режим стенда на Vercel только для общей сборки на синтетике (D-318). Уберите CRM_STAND из окружения');
+  } else if (standRequested(e) && !build.standBuild) {
+    problems.push('CRM_STAND=1 на Vercel, но сборка без признака стенда (preview-сборка или не npm run vercel-build): режим стенда не включён, действуют требования боевой установки (D-318, docs/ops/VERCEL.md)');
   }
-  const stand = isVercelStand(e, watermark);
+  const stand = isVercelStand(e, build);
   if (stand) problems.push(...vercelStandOverlay(e).problems);
   if (isProduction(e) && !appOrigin(e) && !(stand && problems.some((p) => p.startsWith('APP_ORIGIN')))) {
     problems.push('APP_ORIGIN не задан или не адрес http(s): без него любая мутация получает 403 (docs/CONFIG.md §7)');
   }
-  const ip = clientIpConfigProblem(e, watermark);
+  const ip = clientIpConfigProblem(e, build);
   if (ip) problems.push(ip);
   return problems;
 }

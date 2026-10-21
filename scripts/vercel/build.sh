@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Сборка на Vercel (npm run vercel-build, D-318, docs/ops/VERCEL.md).
-# Режим стенда (VERCEL=1, CRM_STAND=1, общая сборка): ядро → проверка базы (пустая или синтетика) → миграции →
-# синтетический сид → next build. Иначе — обычная сборка, как npm run build, без миграций и сида.
+# Режим стенда (VERCEL=1, CRM_STAND=1, VERCEL_ENV=production, общая сборка): ядро → проверка базы (пустая или
+# синтетика) → миграции → синтетический сид → next build с признаком стенда в бандле. Иначе (в т. ч. preview) —
+# обычная сборка, как npm run build, без миграций, сида и признака.
 # Только тестовый стенд на синтетике: реальные данные клиентов на Vercel не кладутся (D-008).
 # Секреты и адрес базы не печатаются: шаги получают их через stand-env.ts.
 set -euo pipefail
@@ -16,9 +17,16 @@ die() { printf '[vercel-build] Ошибка: %s\n' "$*" >&2; exit 1; }
 say "Ядро…"
 node packages/core/build.mjs
 
-MODE="$("$TSX" scripts/vercel/stand-env.ts mode)" || die "режим стенда в сборке клиента запрещён"
+# Код 1 и текст причины печатает сам stand-env.ts (например, CRM_STAND=1 в сборке клиента); иное — сбой tsx
+if ! MODE="$("$TSX" scripts/vercel/stand-env.ts mode)"; then
+  die "не удалось определить режим сборки: scripts/vercel/stand-env.ts завершился с ошибкой (причина выше)"
+fi
+# Признак стенда в бандле ставит только этот скрипт; заданный в переменных проекта не действует
+export CRM_VERCEL_STAND_BUILD=0
 
-if [ "$MODE" = "stand" ]; then
+if [ "$MODE" = "preview" ]; then
+  say "Preview-сборка (VERCEL_ENV=${VERCEL_ENV:-}): режим стенда не включается, миграций и сида нет — обычная сборка."
+elif [ "$MODE" = "stand" ]; then
   say "Режим стенда на Vercel: только синтетика (+7 709 …), не для данных клиентов."
   if [ -z "${DATABASE_URL:-}${POSTGRES_URL:-}" ]; then
     die "нет базы: подключите Neon Postgres к проекту (Storage → Neon, регион Frankfurt) и пересоберите (docs/ops/VERCEL.md)"
@@ -36,6 +44,7 @@ if [ "$MODE" = "stand" ]; then
   # Ядро — в бандле функций (запасной вариант D-028): функции Vercel получают только трассированные файлы, и ссылку
   # node_modules/@crm/core → packages/core трассировка может не положить (в образе её страхует Dockerfile)
   export CRM_CORE_BUNDLE=1
+  export CRM_VERCEL_STAND_BUILD=1
 else
   say "Обычная сборка: без миграций и сида."
 fi

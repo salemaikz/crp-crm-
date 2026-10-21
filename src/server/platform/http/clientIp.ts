@@ -13,8 +13,7 @@
 // Режим стенда на Vercel (D-318): IP — X-Real-IP или первый адрес X-Forwarded-For. Оба заголовка Vercel ставит на
 // краю сам и внешние значения не пропускает (https://vercel.com/docs/headers/request-headers), CRM_PROXY_SECRET не нужен.
 import { isIP } from 'node:net';
-import type { Watermark } from '@crm/core/license';
-import { buildWatermark, isVercelStand } from '../stand';
+import { currentBuild, isVercelStand, type StandBuild } from '../stand';
 import { classifyRequest, proxySecret } from './trustedProxy';
 
 export const UNKNOWN_IP = 'unknown';
@@ -40,9 +39,9 @@ export function trustedProxyHops(env: Env = process.env): number {
 }
 
 /** Источник IP не настроен в production — текст для оператора (отказ запуска, лог); иначе null. Вне production — null. */
-export function clientIpConfigProblem(env: Env = process.env, watermark: Pick<Watermark, 'customer'> = buildWatermark()): string | null {
+export function clientIpConfigProblem(env: Env = process.env, build: StandBuild = currentBuild()): string | null {
   if (env.NODE_ENV !== 'production') return null;
-  if (isVercelStand(env, watermark)) return null;
+  if (isVercelStand(env, build)) return null;
   if (proxySecret(env)) return null;
   const why = env.CRM_PROXY_SECRET?.trim()
     ? 'CRM_PROXY_SECRET задан, но не того формата (base64url, от 32 символов)'
@@ -64,8 +63,8 @@ function warnHourly(kind: string, text: string, nowMs: number): boolean {
 }
 
 /** Предупреждение о ненастроенном источнике IP: не чаще раза в час. true — записано сейчас. */
-export function warnClientIpConfig(env: Env = process.env, nowMs: number = Date.now(), watermark: Pick<Watermark, 'customer'> = buildWatermark()): boolean {
-  const problem = clientIpConfigProblem(env, watermark);
+export function warnClientIpConfig(env: Env = process.env, nowMs: number = Date.now(), build: StandBuild = currentBuild()): boolean {
+  const problem = clientIpConfigProblem(env, build);
   return problem ? warnHourly('config', problem, nowMs) : false;
 }
 
@@ -78,14 +77,14 @@ export function resetClientIpWarning(): void {
 }
 
 /** IP клиента по доверенной схеме (см. шапку файла) или UNKNOWN_IP. */
-export function deriveClientIp(headers: HeaderGetter, env: Env = process.env, nowMs: number = Date.now(), watermark: Pick<Watermark, 'customer'> = buildWatermark()): string {
-  if (isVercelStand(env, watermark)) {
+export function deriveClientIp(headers: HeaderGetter, env: Env = process.env, nowMs: number = Date.now(), build: StandBuild = currentBuild()): string {
+  if (isVercelStand(env, build)) {
     const first = (headers.get('x-forwarded-for') ?? '').split(',')[0];
     return normalizeIp(headers.get('x-real-ip')) ?? normalizeIp(first) ?? UNKNOWN_IP;
   }
-  const path = classifyRequest(headers, env, watermark);
+  const path = classifyRequest(headers, env, build);
   if (path !== 'proxy') {
-    const warned = warnClientIpConfig(env, nowMs, watermark);
+    const warned = warnClientIpConfig(env, nowMs, build);
     if (!warned && path === 'forged' && proxySecret(env)) warnHourly('forged', FORGED_TEXT, nowMs);
     return UNKNOWN_IP;
   }

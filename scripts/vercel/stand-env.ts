@@ -1,11 +1,12 @@
 // Окружение шагов сборки стенда на Vercel (D-318, docs/ops/VERCEL.md). Вызывает scripts/vercel/build.sh.
-//   tsx scripts/vercel/stand-env.ts mode            печатает stand | off; код 1 — просьба о стенде в сборке клиента
+//   tsx scripts/vercel/stand-env.ts mode            печатает stand | preview | off; код 1 — просьба о стенде в сборке клиента
+//                                                   (preview: CRM_STAND=1, но VERCEL_ENV не production — без миграций и сида)
 //   tsx scripts/vercel/stand-env.ts run -- <команда> выполнить команду в окружении стенда: NODE_ENV=production,
 //                                                   выведенные секреты (как у приложения), база для сборки
 // Значения секретов и адреса базы не печатаются никогда — только тексты проблем.
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { driverDatabaseUrl, isVercelStand, vercelStandOverlay } from '../../src/server/platform/stand/overlay';
+import { driverDatabaseUrl, isVercelStand, vercelStandOverlay, type StandBuild } from '../../src/server/platform/stand/overlay';
 import { standRequested } from '../../src/server/platform/stand/origin';
 
 type Env = Record<string, string | undefined>;
@@ -36,13 +37,23 @@ export function buildDatabaseUrl(e: Env, runtimeUrl: string): string {
   return runtimeUrl;
 }
 
+/** Сборка, которую делает vercel-build: клиент — из CRM_CUSTOMER_ID, признак стенда ставит сам build.sh. */
+const thisBuild = (e: Env): StandBuild => ({ customer: buildCustomer(e), standBuild: true });
+
+/** Режим сборки: stand — миграции, сид и признак стенда; preview — CRM_STAND=1 вне Production; off — обычная сборка. */
+export function buildMode(e: Env): 'stand' | 'preview' | 'off' {
+  if (!isVercelStand(e, thisBuild(e))) return 'off';
+  return e.VERCEL_ENV?.trim() === 'production' ? 'stand' : 'preview';
+}
+
 /** Окружение шага сборки или список проблем. */
 export function stepEnv(e: Env): { env: Env } | { problems: string[] } {
-  const watermark = { customer: buildCustomer(e) };
-  if (!isVercelStand(e, watermark)) return { problems: ['режим стенда на Vercel выключен: нужны VERCEL=1, CRM_STAND=1 и общая сборка'] };
+  const mode = buildMode(e);
+  if (mode === 'off') return { problems: ['режим стенда на Vercel выключен: нужны VERCEL=1, CRM_STAND=1 и общая сборка'] };
+  if (mode === 'preview') return { problems: [`VERCEL_ENV=${e.VERCEL_ENV?.trim() || '<пусто>'}: миграции и сид стенда — только в Production`] };
   const { set, problems } = vercelStandOverlay(e);
   if (problems.length > 0) return { problems };
-  const env: Env = { ...e, ...set, NODE_ENV: 'production' };
+  const env: Env = { ...e, ...set, NODE_ENV: 'production', CRM_VERCEL_STAND_BUILD: '1' };
   const db = buildDatabaseUrl(e, env.DATABASE_URL as string);
   env.DATABASE_URL = db;
   env.MIGRATE_DATABASE_URL = db;
@@ -56,7 +67,7 @@ function main(argv: string[]): number {
       console.error('Ошибка: CRM_STAND=1 в сборке клиента (CRM_CUSTOMER_ID задан). Режим стенда на Vercel — только общая сборка на синтетике (D-318).');
       return 1;
     }
-    console.log(isVercelStand(process.env, { customer: buildCustomer(process.env) }) ? 'stand' : 'off');
+    console.log(buildMode(process.env));
     return 0;
   }
   if (cmd === 'run' && rest[0] === '--' && rest.length > 1) {

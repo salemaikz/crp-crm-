@@ -4,17 +4,22 @@
 // секреты выводятся из одной переменной CRM_DEMO_SECRET. Явно заданные переменные не перезаписываются никогда,
 // кроме флагов интеграций: на стенде Vercel они выключены всегда.
 import { hkdfSync } from 'node:crypto';
-import type { Watermark } from '@crm/core/license';
 import { standDefaultOrigin, standRequested } from './origin';
 
 type Env = Record<string, string | undefined>;
 
 const has = (e: Env, name: string): boolean => (e[name]?.trim() ?? '') !== '';
 
-/** Режим стенда на Vercel: VERCEL=1, CRM_STAND=1 и общая сборка (без водяного знака клиента). */
-export function isVercelStand(e: Env, watermark: Pick<Watermark, 'customer'>): boolean {
-  return standRequested(e) && watermark.customer === null;
+/** Что сборка знает о себе: клиент из водяного знака ядра (null — общая) и признак сборки стенда (vercel-build). */
+export type StandBuild = { customer: string | null; standBuild: boolean };
+
+/** Режим стенда на Vercel: VERCEL=1, CRM_STAND=1, общая сборка (без водяного знака клиента) с признаком стенда. */
+export function isVercelStand(e: Env, build: StandBuild): boolean {
+  return standRequested(e) && build.customer === null && build.standBuild;
 }
+
+/** Номера стенда — только служебный блок +7 709 (канон 7709…): настоящие номера на стенд не попадают (D-008). */
+export const STAND_PHONE_PREFIX = '7709';
 
 /** Главный секрет стенда: от 32 символов (генератор: `openssl rand -base64 48`). */
 export const DEMO_SECRET_ENV = 'CRM_DEMO_SECRET';
