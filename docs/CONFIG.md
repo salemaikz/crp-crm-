@@ -398,7 +398,7 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `import.profiles[].fieldTargets` | `{<поле импорта>: {object: client\|card, fieldKey}}`, необязательный | — | `head → client.head_name`, `activity → client.oked`, `niche → client.niche_other` | CLI |
 | `import.profiles[].noteMarkers` | `[{code, words[]}]`, необязательный | — | `dnc_request`: «не звонить», «не звоните», «удалить» | CLI |
 | `import.profiles[].kind` | `clients\|bookings`, необязательный; нет = `clients` | `clients` | профиль «Записи» (`bookings`) по `tests/fixtures/import/README.md` | CLI (D-324) |
-| `import.profiles[].valueMaps.eventType`, `import.profiles[].defaultEventTypeKey`, `import.profiles[].maxRows` | карта «ячейка → `booking.eventTypes[].key`» (только групповые виды), вид по умолчанию, предел строк (≤ 5 000, по умолчанию 2 000); только у `bookings`, необязательные | — | короткие и полные подписи групповых видов клиента | CLI (D-324, `docs/import-bookings-design.md` §3) |
+| `import.profiles[].valueMaps.eventType`, `import.profiles[].defaultEventTypeKey`, `import.profiles[].maxRows` | карта «ячейка → `booking.eventTypes[].key`» (любой вид; строки индивидуальных видов распознаются и уходят в отчёт как `unsupported_type`, загружаются только групповые), вид по умолчанию, предел строк (≤ 5 000, по умолчанию 2 000); только у `bookings`, необязательные | — | короткие и полные подписи видов клиента (групповых и индивидуальных) | CLI (D-324, `docs/import-bookings-design.md` §3) |
 | `import.maxFileMb` | int | 10 | 10 | CLI |
 | `import.maxRows` | int | 20 000 | 20 000 | CLI |
 | `import.rowsRetentionDays` | int | 14 | 14 | CLI |
