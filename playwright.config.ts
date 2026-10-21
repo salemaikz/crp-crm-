@@ -43,6 +43,8 @@ export default defineConfig({
       CRM_IIN_HMAC_KEY: process.env.CRM_IIN_HMAC_KEY || 'e2e-iin-hmac-key-synthetic-not-for-production',
       // Подбор консультанта, график и «Мои консультации» (B5b/B5c) за флагом; в production без него выключены
       FEATURE_BK_WIZARD: '1',
+      // Покупки и передачи в отдел (B6/B6b) за флагом
+      FEATURE_PURCHASES: '1',
     },
   },
 });

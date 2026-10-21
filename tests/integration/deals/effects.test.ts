@@ -105,12 +105,12 @@ test('applyDealEffects: ensure_open, advance по записи, set_needs_rebook
   assert.equal((await dealRows(5)).length, 1);
 });
 
-test('ensure_open при воронке manual сделку не создаёт; операции покупки — B6', async () => {
+test('ensure_open при воронке manual сделку не создаёт; reassign_open — B9a', async () => {
   const resolve = async (): Promise<PipelineInfo[]> => [{ key: 'sales', createDealOn: 'manual', stages: PIPELINES[0]!.stages }];
   await db.tx((tx) => applyDealEffects(tx, actor, lockedCard(6), [{ op: 'ensure_open', stage: 'on_agreed', requestId: uuid() }], SEED_NOW, { resolve }));
   assert.equal((await dealRows(6)).length, 0);
   await assert.rejects(
-    db.tx((tx) => applyDealEffects(tx, actor, lockedCard(6), [{ op: 'win', dealId: null, serviceTypeKey: 'x', amountKzt: 1, requestId: uuid() }], SEED_NOW, { resolve })),
-    /B6/,
+    db.tx((tx) => applyDealEffects(tx, actor, lockedCard(6), [{ op: 'reassign_open', to: U.opB }], SEED_NOW, { resolve })),
+    /B9a/,
   );
 });

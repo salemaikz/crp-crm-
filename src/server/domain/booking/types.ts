@@ -215,7 +215,11 @@ export type BookingCardEvent =
   | calling.BookingCancelledEvent
   | calling.AttendanceCorrectedEvent
   | calling.AttendanceSweepEvent
-  | calling.AgreedSweepEvent;
+  | calling.AgreedSweepEvent
+  // B6 (D-248): покупка, её отмена и проигрыш сделки — тот же порт карточки
+  | calling.PurchaseEvent
+  | calling.PurchaseCancelledEvent
+  | calling.DealLostEvent;
 
 /**
  * Применить событие записи к карточке в транзакции `tx`: снимок → `calling.applyOutcome` → запись карточки
