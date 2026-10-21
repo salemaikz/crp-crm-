@@ -339,7 +339,7 @@ export async function archivedAtOfOutcomes(sql: Sql, spaceId: string, keys: read
 export async function countOwnerlessWorking(sql: Sql): Promise<number> {
   const rows = await sql<{ n: number }>`
     SELECT count(*)::int AS n FROM cards c
-     WHERE c.owner_user_id IS NULL AND c.state IN ('retry','callback')`;
+     WHERE c.owner_user_id IS NULL AND c.state IN ('retry','callback') AND c.hold_reason <> 'merged'`;
   return rows[0]?.n ?? 0;
 }
 

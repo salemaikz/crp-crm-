@@ -8,6 +8,7 @@ import { insertNote } from '@/server/domain/timeline/repo';
 import { writeAudit } from '@/server/platform/audit';
 import { getActiveConfig } from '@/server/platform/config/active';
 import { getDb, newId, type Sql } from '@/server/platform/db';
+import { loadTransferRoles, requireRecipients } from '@/server/domain/team/recipients';
 import { CardActionError } from './errors';
 import { applyCardEventLocked, runCardEvent } from './manual';
 import { lockCardScoped, userActiveInSpace } from './repo';
@@ -54,6 +55,8 @@ export async function reopenCard(viewer: Viewer, cardId: string, input: ReopenIn
         if (!ownerOk) {
           if (!input.toUserId) throw new BadRequestError('owner_required');
           if (!(await userActiveInSpace(tx, { spaceId: row.spaceId, userId: input.toUserId }))) throw new BadRequestError('user_inactive');
+          // Как в обычной передаче: получатель — сотрудник, чья роль ведёт карточки (не директор, не консультант)
+          await requireRecipients(tx, row.spaceId, [input.toUserId], await loadTransferRoles());
         }
         const ctx = await loadCallingContext(row.spaceId, now);
         if (!ownerOk && input.toUserId) {

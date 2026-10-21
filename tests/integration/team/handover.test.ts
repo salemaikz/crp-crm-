@@ -143,7 +143,10 @@ test('некому принять: карточки остаются за отк
   assert.deepEqual(await owner('cd-b-5').then((c) => [c.o, c.a, c.u]), [U.opA, null, ''], 'временный снят');
   const note = await db.sql<{ userId: string; params: { count: number } }>`SELECT user_id, params FROM notifications ORDER BY kind`;
   assert.deepEqual(note.map((n) => n.userId), [U.admin]);
-  assert.ok(note[0]!.params.count >= 97);
+  // число = оставшиеся рабочие + временные карточки, каждая один раз (без двойного счёта временных)
+  const left = (await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM cards WHERE owner_user_id = ${U.opB} AND state IN ('new','retry','callback','agreed','client') AND hold_reason <> 'merged'`)[0]!.n;
+  assert.ok(left >= 97);
+  assert.equal(note[0]!.params.count, left + res.handover.actingCards, 'без двойного счёта временных');
   assert.equal((await db.sql<{ a: string }>`SELECT assignee_user_id AS a FROM tasks WHERE id = 'tk-b-1'`)[0]!.a, U.opB, 'задачи остались');
   // ночная сверка найдёт такие карточки: рабочая без владельца здесь нет, но за отключённым они числятся
   assert.equal((await db.sql`SELECT 1 FROM change_snapshots`).length, 0);

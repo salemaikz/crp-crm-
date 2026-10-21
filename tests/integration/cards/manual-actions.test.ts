@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { BadRequestError, NotFoundError } from '../../../src/server/access';
 import { clearDnc, closeCard, reopenCard } from '../../../src/server/domain/cards';
 import { CardActionError } from '../../../src/server/domain/cards/errors';
+import { TeamError } from '../../../src/server/domain/team/errors';
 import { getClientCard, listClients, parseListQuery } from '../../../src/server/domain/clients';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { U, cardOf, clientOf } from '../../isolation/harness/seed';
@@ -114,6 +115,22 @@ test('«Вернуть в обзвон» без активного владел�
   assert.deepEqual([c.state, c.ownerUserId], ['callback', U.opB]);
   const log = await db.sql<{ kind: string }>`SELECT kind FROM assign_log WHERE card_id = ${cardOf('a', 55)} AND kind = 'transfer'`;
   assert.equal(log.length, 1);
+});
+
+test('«Вернуть в обзвон» без владельца: директор и консультант как получатель — 400 recipient, неизвестный id — 400, карточка не тронута', async () => {
+  await setCard(db.sql, cardOf('a', 55), { state: 'written_off', owner: U.disabled });
+  const rop = await viewerOf(U.rop);
+  const v = await version(55);
+  for (const toUserId of [U.director, U.consultant]) {
+    await assert.rejects(
+      reopenCard(rop, cardOf('a', 55), { opId: uuid(), version: v, comment: 'Вернуть', toUserId }),
+      (e: unknown) => e instanceof TeamError && e.code === 'bad_request' && e.detail === 'recipient',
+      toUserId,
+    );
+  }
+  await assert.rejects(reopenCard(rop, cardOf('a', 55), { opId: uuid(), version: v, comment: 'Вернуть', toUserId: 'u-no-such' }), BadRequestError);
+  const c = await card(55);
+  assert.deepEqual([c.state, c.ownerUserId, c.version], ['written_off', U.disabled, v]);
 });
 
 test('can: закрытие — оператору и РОП, возврат и снятие — только РОП; по состоянию карточки', async () => {

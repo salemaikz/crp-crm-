@@ -167,7 +167,7 @@ async function handoverSpace(tx: Sql, input: HandoverInput, spaceId: string, rol
       kind: 'staff_disabled_orphans',
       entityType: 'handover',
       entityId: opId,
-      counts: new Map([[input.actorId, out.left + out.actingMoved + acting.length]]),
+      counts: new Map([[input.actorId, out.left + acting.length]]),
       dedupe: () => `staff_disabled_orphans:${userId}:${spaceId}`,
       now,
     });
