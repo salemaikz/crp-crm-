@@ -1,10 +1,11 @@
 // Вход по телефону, приглашение, «выйти везде», CSRF. Сотрудник и ссылка создаются прямо в БД
 // приложения (E2E_DATABASE_URL — та же база, что у DATABASE_URL запущенного сервера); без неё тесты пропускаются.
-// Синтетика: номера 701 555 01 xx.
+// Синтетика: номера +7 709 … без коллизий в прогоне (support/phones.ts).
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { expect, test, type Page } from '@playwright/test';
+import { pretty, uniquePhone } from './support/phones';
 
 const DB_URL = process.env.E2E_DATABASE_URL;
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -14,12 +15,10 @@ const sql = DB_URL ? postgres(DB_URL, { max: 2 }) : (null as never);
 // Корень «/» перенаправляет на главную роли. У сотрудника без роли в настройках меню пусто, и главная — «Мой аккаунт».
 const HOME = '/account';
 const now = () => Date.now();
-const uniquePhone = () => `7701555${String(Math.floor(Math.random() * 9000) + 1000)}`;
-const pretty = (p: string) => `8 ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7, 9)} ${p.slice(9)}`;
 
 async function makeUser(opts: { password?: string | null } = {}): Promise<{ id: string; phone: string }> {
   const id = randomUUID();
-  const phone = uniquePhone();
+  const phone = await uniquePhone(sql);
   const hash = opts.password === null ? null : bcrypt.hashSync(opts.password ?? PASSWORD, 4);
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${id}, ${phone}, ${'Тест Тестов'}, ${hash}, ${now()})`;
   return { id, phone };
@@ -45,7 +44,7 @@ test.afterAll(async () => {
   await sql?.end();
 });
 
-test('вход по телефону: «8 701…», cookie HttpOnly и Lax, поле открывает цифровую клавиатуру', async ({ page, context }) => {
+test('вход по телефону: «8 709…», cookie HttpOnly и Lax, поле открывает цифровую клавиатуру', async ({ page, context }) => {
   const u = await makeUser();
   await page.goto('/login');
   await expect(page.getByLabel('Номер телефона')).toHaveAttribute('inputmode', 'tel');
@@ -98,7 +97,7 @@ test('«выйти везде»: вторая сессия при следующ
 });
 
 test('POST /api/auth/login с чужим Origin и без Origin — 403', async ({ request, baseURL }) => {
-  const body = { phone: '87015550101', password: 'x' };
+  const body = { phone: '87095550101', password: 'x' };
   const foreign = await request.post('/api/auth/login', { data: body, headers: { Origin: 'https://evil.test' } });
   expect(foreign.status()).toBe(403);
   const none = await request.post('/api/auth/login', { data: body, headers: { Origin: '' } });
