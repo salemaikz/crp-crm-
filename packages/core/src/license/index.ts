@@ -15,7 +15,14 @@ export { TEST_KEYS, buildWatermark, embeddedKeys, isTestKid, parseTrustedKeys, p
 export type { TrustedKeys, Watermark } from './keys';
 export { verifyLicense, verifyStoredCopy } from './verify';
 export type { Verdict, VerifyExpect } from './verify';
-export { CLOCK_BACKWARD_TOLERANCE_MS, CLOCK_JUMP_STEP_INTERVAL_MS, CLOCK_MAX_STEP_MS, advanceClock } from './clock';
-export type { ClockInput, ClockJump, ClockResult } from './clock';
+export {
+  CLOCK_BACKWARD_TOLERANCE_MS,
+  CLOCK_BEHIND_ALERT_EVERY_MS,
+  CLOCK_BEHIND_LOCK_MS,
+  CLOCK_JUMP_STEP_INTERVAL_MS,
+  CLOCK_MAX_STEP_MS,
+  advanceClock,
+} from './clock';
+export type { ClockAnchor, ClockBehind, ClockInput, ClockJump, ClockResult } from './clock';
 export { EXPIRING_DAYS, INVALID_GRACE_DAYS, LICENSE_STATUSES, LOCKING_ACCESS, evaluateLicense, hasFeature, missingAllowed } from './state';
 export type { EvaluateInput, Evaluation, LicenseAccess, LicenseStatus } from './state';

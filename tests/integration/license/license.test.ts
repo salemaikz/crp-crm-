@@ -18,7 +18,7 @@ import { currentLicenseState } from '../../../src/server/access/license';
 import { route } from '../../../src/server/access/wrappers';
 import { POST as resetPasswordPost } from '../../../src/app/api/team/staff/[id]/password-reset/route';
 import { invalidateLicenseCache, licenseJobHandler, readLicenseRow, readLicenseFile } from '../../../src/server/platform/license';
-import { overrideLicenseEnvForTests, resetLicenseEnvForTests } from '../../../src/server/platform/license/testing';
+import { forgetLicenseClockForTests, overrideLicenseEnvForTests, resetLicenseEnvForTests } from '../../../src/server/platform/license/testing';
 import { seedIsolation, SEED_NOW, U } from '../../isolation/harness/seed';
 import { actAs, enterSeedWorld } from '../../isolation/harness/actors';
 
@@ -34,6 +34,8 @@ let dir: string;
 let file: string;
 let installId: string;
 let clock = SEED_NOW;
+/** Монотонное время процесса: в тестах стоит, пока тест его не двигает (время идёт часами `clock`). */
+let mono = 0;
 
 function signed(p: Partial<LicensePayload> = {}, key = privateKey): string {
   const payload: LicensePayload = {
@@ -108,7 +110,7 @@ beforeEach(() => {
   enterSeedWorld();
   // Viewer берёт лицензию из настоящего пересчёта, а не из подмены прогона
   overrideAccessForTests({ license: currentLicenseState, now: () => clock });
-  overrideLicenseEnvForTests({ keys: KEYS, watermark: CLIENT, readFile: () => readLicenseFile(file), clock: () => clock });
+  overrideLicenseEnvForTests({ keys: KEYS, watermark: CLIENT, readFile: () => readLicenseFile(file), clock: () => clock, mono: () => mono });
   actAs(U.rop);
 });
 
@@ -242,9 +244,9 @@ test('скачок часов вперёд больше 48 ч: максимум 
   assert.equal((await row()).lastSeenAt, before + 48 * H);
   await state(far + H);
   assert.equal((await row()).lastSeenAt, before + 96 * H);
-  const jumps = await audit('license.clock_jump');
+  // Перевод назад из прошлого теста тоже в журнале (D-306); здесь — только шаги вперёд
+  const jumps = (await audit('license.clock_jump')).filter((m) => m.direction === 'forward');
   assert.equal(jumps.length, 2);
-  assert.equal(jumps[0]?.direction, 'forward');
   // Часы починили: лицензия снова считается по ним
   assert.equal(await state(before + H), 'valid');
 });
@@ -277,7 +279,8 @@ async function forge(f: Forge): Promise<void> {
 async function fresh(raw: string, at: number): Promise<void> {
   clock = at;
   await db.sql`UPDATE license_state SET license_raw = ${raw}, state = 'missing', invalid_since = NULL, reason = '',
-                      last_seen_at = ${at}, checked_at = ${at}`;
+                      last_seen_at = ${at}, checked_at = ${at},
+                      clock_real_at = NULL, clock_behind_since = NULL, clock_behind_last = NULL`;
 }
 
 test('сборка клиента без лицензии: license_raw = x и invalid_since в будущем — invalid, а не grace', async () => {
@@ -454,4 +457,84 @@ test('лицензия «на будущее» не затирает рабоч�
   for (let at = t + DAY; at <= t + 30 * DAY; at += DAY) await state(at);
   assert.equal(await state(t + 30 * DAY + H), 'valid');
   assert.equal((await row()).licenseRaw, next);
+});
+
+// ── Часы назад до срока, без правки БД (круг 3 красной команды, D-306) ────────────────────────────────────
+
+/** Перезапуск процесса: кэш состояния и опора монотонного времени процесса теряются. */
+function restart(): void {
+  invalidateLicenseCache();
+  forgetLicenseClockForTests();
+}
+
+test('часы на год назад за сутки до срока, без правки БД: 8 суток проверок раз в сутки с перезапусками — read_only', async () => {
+  const t = (await row()).lastSeenAt + H;
+  const lic = signed({ lid: 'lic-clock-1', expiresAt: t + DAY, graceDays: 0 });
+  await fresh(lic, t);
+  await put(lic);
+  assert.equal(await state(t), 'valid');
+  const seen: string[] = [];
+  for (let k = 1; k <= 8; k++) {
+    // Реальное время t + k сут, часы сервера — на год меньше; процесс перед проверкой перезапущен
+    restart();
+    seen.push(await state(t + k * DAY - 365 * DAY));
+  }
+  assert.equal(seen.at(-1), 'read_only', seen.join(','));
+  assert.equal(seen[1], 'read_only', `срок наступил по ходу часов: ${seen.join(',')}`);
+  assert.equal((await writeRoute(req(), ctx)).status, 423);
+  assert.equal((await readRoute(req('GET'), ctx)).status, 200);
+  assert.equal((await exportRoute(req(), ctx)).status, 200);
+  assert.equal(await resetPassword(), 200);
+  const back = (await audit('license.clock_jump')).filter((m) => m.direction === 'backward');
+  assert.ok(back.length >= 1, 'перевод часов назад — в журнале аудита');
+});
+
+test('часы позади дольше 48 ч: read_only с причиной clock при долгой лицензии; тревога раз в сутки; починили часы — valid', async () => {
+  const t = (await row()).lastSeenAt + H;
+  const lic = signed({ lid: 'lic-clock-2', expiresAt: t + 365 * DAY, graceDays: 30 });
+  await fresh(lic, t);
+  await put(lic);
+  assert.equal(await state(t), 'valid');
+  // Время записи журнала — по часам сервера (они позади), поэтому считаем записи, а не порядок
+  const backward = async () => (await audit('license.clock_jump')).filter((m) => m.direction === 'backward');
+  const prior = await backward();
+  const before = prior.length;
+  const lockedBefore = prior.filter((m) => m.locked === true).length;
+  const seen: string[] = [];
+  for (let k = 1; k <= 4; k++) {
+    restart();
+    seen.push(await state(t + k * DAY - 30 * DAY));
+  }
+  assert.deepEqual(seen, ['valid', 'valid', 'valid', 'read_only']);
+  assert.equal((await row()).reason, 'clock');
+  assert.equal((await row()).state, 'read_only');
+  assert.equal((await writeRoute(req(), ctx)).status, 423);
+  assert.equal((await exportRoute(req(), ctx)).status, 200);
+  assert.equal(await resetPassword(), 200, 'мутации безопасности D-054 работают');
+  const jumps = await backward();
+  assert.equal(jumps.length - before, 4, 'начало эпизода и раз в сутки');
+  assert.equal(jumps.filter((m) => m.locked === true).length - lockedBefore, 1, 'тревога о блокировке — одна, на 4-е сутки');
+  assert.ok((await audit('license.state_change')).some((m) => m.to === 'read_only' && m.reason === 'clock'));
+  // Часы починили (chrony): эпизод кончился, лицензия снова по часам
+  assert.equal(await state(t + 4 * DAY + H), 'valid');
+  const r = await row();
+  assert.deepEqual([r.clockBehindSince, r.clockBehindLast], [null, null]);
+});
+
+test('часы держат в одной точке без перезапуска: время лицензии идёт по монотонному времени процесса', async () => {
+  const t = (await row()).lastSeenAt + H;
+  const lic = signed({ lid: 'lic-clock-3', expiresAt: t + 2 * DAY, graceDays: 0 });
+  await fresh(lic, t);
+  await put(lic);
+  restart();
+  mono = 0;
+  assert.equal(await state(t), 'valid');
+  for (let h = 1; h <= 49; h++) {
+    mono = h * H;
+    await state(t - 365 * DAY);
+  }
+  assert.equal((await row()).lastSeenAt, t + 49 * H);
+  assert.equal(await state(t - 365 * DAY), 'read_only');
+  mono = 0;
+  restart();
 });

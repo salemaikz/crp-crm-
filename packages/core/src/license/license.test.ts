@@ -174,47 +174,61 @@ test('отсутствие лицензии → missing; invalid не по сб�
   assert.equal(ev({ verdict: bad, now: T0, previous: 'invalid', invalidSince: T0 + DAY_MS }).invalidSince, T0);
 });
 
+const WRONG_BUILD = { ok: false as const, reason: 'wrong_build' as const };
+
+/** Правило часов без опоры процесса и без эпизода «часы позади» (их — clock.test.ts). */
+const adv = (clock: number, lastSeenAt: number | null, lastStepAt: number | null) =>
+  advanceClock({ clock, lastSeenAt, lastStepAt, realAt: null, behind: null, mono: 0, anchor: null });
+
 test('правило часов: назад — не продлевает; вперёд — шаг 48 ч не чаще раза в час; обычный ход', () => {
   // Обычный ход
-  assert.deepEqual(advanceClock({ clock: T0 + H, lastSeenAt: T0, lastStepAt: T0 }), {
-    now: T0 + H,
-    lastSeenAt: T0 + H,
-    lastStepAt: T0 + H,
-    jump: 'none',
-    stepped: false,
-  });
+  const n = adv(T0 + H, T0, T0);
+  assert.deepEqual([n.now, n.lastSeenAt, n.lastStepAt, n.jump, n.stepped, n.locked], [T0 + H, T0 + H, T0 + H, 'none', false, false]);
   // Первая проверка
-  assert.equal(advanceClock({ clock: T0, lastSeenAt: null, lastStepAt: null }).lastSeenAt, T0);
-  // Назад на 40 дней: «сейчас» остаётся максимумом виденного
-  const back = advanceClock({ clock: T0 - 40 * DAY_MS, lastSeenAt: T0, lastStepAt: T0 });
-  assert.deepEqual([back.now, back.lastSeenAt, back.jump], [T0, T0, 'backward']);
+  assert.equal(adv(T0, null, null).lastSeenAt, T0);
+  // Назад на 40 дней: «сейчас» не меньше максимума виденного
+  const back = adv(T0 - 40 * DAY_MS, T0, T0);
+  assert.deepEqual([back.now, back.lastSeenAt, back.jump, back.alert], [T0, T0, 'backward', true]);
   // Дрейф на минуту — не тревога
-  assert.equal(advanceClock({ clock: T0 - 60_000, lastSeenAt: T0, lastStepAt: T0 }).jump, 'none');
+  assert.equal(adv(T0 - 60_000, T0, T0).jump, 'none');
   // Вперёд на 72 ч (сервер стоял): считаем по часам, максимум сдвигается на 48 ч; через минуту — догоняет
-  const fwd = advanceClock({ clock: T0 + 72 * H, lastSeenAt: T0, lastStepAt: T0 });
+  const fwd = adv(T0 + 72 * H, T0, T0);
   assert.deepEqual([fwd.now, fwd.lastSeenAt, fwd.jump, fwd.stepped], [T0 + 72 * H, T0 + CLOCK_MAX_STEP_MS, 'forward', true]);
-  const next = advanceClock({ clock: T0 + 72 * H + 60_000, lastSeenAt: fwd.lastSeenAt, lastStepAt: fwd.lastStepAt });
+  const next = adv(T0 + 72 * H + 60_000, fwd.lastSeenAt, fwd.lastStepAt);
   assert.deepEqual([next.lastSeenAt, next.jump], [T0 + 72 * H + 60_000, 'none']);
   // Часы ушли на год вперёд: шаг 48 ч, затем в течение часа шагов нет, через час — ещё 48 ч
   const year = T0 + 365 * DAY_MS;
-  const s1 = advanceClock({ clock: year, lastSeenAt: T0, lastStepAt: T0 });
-  const s2 = advanceClock({ clock: year + 59 * 60_000, lastSeenAt: s1.lastSeenAt, lastStepAt: s1.lastStepAt });
+  const s1 = adv(year, T0, T0);
+  const s2 = adv(year + 59 * 60_000, s1.lastSeenAt, s1.lastStepAt);
   assert.deepEqual([s2.lastSeenAt, s2.stepped, s2.jump], [T0 + 48 * H, false, 'forward']);
-  const s3 = advanceClock({ clock: year + H, lastSeenAt: s2.lastSeenAt, lastStepAt: s2.lastStepAt });
+  const s3 = adv(year + H, s2.lastSeenAt, s2.lastStepAt);
   assert.deepEqual([s3.lastSeenAt, s3.stepped], [T0 + 96 * H, true]);
   // После починки часов лицензия снова считается по ним: «сейчас» = максимум виденного (≈ +4 сут), а не год вперёд
-  const fixed = advanceClock({ clock: T0 + H, lastSeenAt: s3.lastSeenAt, lastStepAt: s3.lastStepAt });
+  const fixed = adv(T0 + H, s3.lastSeenAt, s3.lastStepAt);
   assert.equal(fixed.now, T0 + 96 * H);
 });
 
 test('перевод часов назад не возвращает лицензию из «только чтения»', () => {
   const v = verifyLicense(signWith(payload()), expect());
   const roAt = T0 + 40 * DAY_MS + H;
-  const c = advanceClock({ clock: T0, lastSeenAt: roAt, lastStepAt: roAt });
+  const c = adv(T0, roAt, roAt);
   assert.equal(ev({ verdict: v, now: c.now, previous: 'read_only', invalidSince: null }).access, 'read_only');
 });
 
-const WRONG_BUILD = { ok: false as const, reason: 'wrong_build' as const };
+test('часы позади дольше 48 ч (clockLocked): рабочая лицензия и льгота → read_only/clock; invalid и missing — как были', () => {
+  const v = verifyLicense(signWith(payload()), expect());
+  const ro = ev({ verdict: v, now: T0, previous: 'valid', invalidSince: null, clockLocked: true });
+  assert.deepEqual([ro.status, ro.access, ro.reason, ro.graceUntil, ro.license?.lid], ['read_only', 'read_only', 'clock', null, 'lic-0001']);
+  const grace = ev({ verdict: v, now: T0 + 31 * DAY_MS, previous: 'expired', invalidSince: null, clockLocked: true });
+  assert.deepEqual([grace.access, grace.reason], ['read_only', 'clock']);
+  const wb = ev({ verdict: WRONG_BUILD, now: T0 + H, previous: 'valid', invalidSince: null, clockLocked: true });
+  assert.deepEqual([wb.access, wb.reason], ['read_only', 'clock']);
+  const bad = ev({ verdict: { ok: false, reason: 'bad_signature' }, now: T0, previous: 'valid', invalidSince: null, clockLocked: true });
+  assert.deepEqual([bad.status, bad.access, bad.reason], ['invalid', 'invalid', 'bad_signature']);
+  const none = ev({ verdict: null, now: T0, previous: null, invalidSince: null, clockLocked: true, allowMissing: true });
+  assert.deepEqual([none.status, none.access], ['missing', 'valid']);
+  assert.equal(ev({ verdict: v, now: T0, previous: 'valid', invalidSince: null, clockLocked: false }).access, 'valid');
+});
 
 test('льгота wrong_build: до builtAt + 7 сут, строка license_state её не даёт и не продлевает (D-290)', () => {
   const B = T0 - 2 * DAY_MS;

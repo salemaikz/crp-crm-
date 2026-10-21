@@ -1,12 +1,32 @@
-// Правило часов лицензии (ARCHITECTURE §8.4, D-029, D-211).
-// «Сейчас» = max(часы, lastSeenAt): перевод часов назад не продлевает лицензию.
-// lastSeenAt за один шаг уходит вперёд не больше чем на 48 ч; больший скачок часов — тревога, и шаг
-// в этом режиме делается не чаще раза в час (lastStepAt), даже если состояние пересчитывают каждую минуту.
-// Так ложная дата в будущем не успевает «состарить» лицензию, пока администратор чинит часы.
+// Правило часов лицензии (ARCHITECTURE §8.4, D-029, D-211, D-212, D-306).
+// lastSeenAt — максимум виденного «сейчас» (license_state.last_seen_at); время лицензии назад не идёт.
+// Вперёд: lastSeenAt за один шаг уходит не больше чем на 48 ч; больший скачок часов — тревога, и шаг в этом режиме
+// делается не чаще раза в час (lastStepAt), даже если состояние пересчитывают каждую минуту. Так ложная дата в
+// будущем не успевает «состарить» лицензию, пока администратор чинит часы.
+// Назад (D-306): часы позади lastSeenAt больше чем на 10 минут — эпизод «часы позади». Время лицензии при этом не
+// стоит, а идёт по прошедшему времени, которое видно без часов: монотонное время процесса (performance.now(),
+// опора хранится в памяти процесса и приходит параметром) и ход самих часов от прошлого пересчёта (показание
+// пишется в БД, поэтому перезапуск процесса его не теряет). Эпизод дольше 48 ч по времени лицензии — «только
+// чтение» с причиной clock, пока часы не починят. Тревога — в начале эпизода и раз в сутки.
+// realAt — та же оценка, но без вклада шагов вперёд: после починки ушедших вперёд часов время лицензии стоит,
+// пока часы не догонят lastSeenAt (как до D-306), и блокировки нет — шаги вперёд уже «состарили» лицензию.
+// Отставание до 10 минут — дрейф: время ждёт часы, но не дольше допуска по монотонному времени.
+// Не закрыто (D-306): часы назад вместе с правкой license_state; часы, возвращаемые в одну точку перед каждым
+// пересчётом вместе с перезапуском процессов (опоры нет, ход часов нулевой).
+// Date.now() здесь не вызывается: часы и монотонное время — параметры.
 export const CLOCK_MAX_STEP_MS = 48 * 3_600_000;
 export const CLOCK_JUMP_STEP_INTERVAL_MS = 3_600_000;
-/** Отставание часов меньше этого — дрейф, а не перевод назад (тревоги нет). */
+/** Отставание часов меньше этого — дрейф, а не перевод назад (тревоги и эпизода нет, время ждёт часы). */
 export const CLOCK_BACKWARD_TOLERANCE_MS = 10 * 60_000;
+/** Часы позади дольше этого (по времени лицензии) — «только чтение», причина clock. */
+export const CLOCK_BEHIND_LOCK_MS = 48 * 3_600_000;
+/** Пока эпизод длится, тревога повторяется с этим шагом. */
+export const CLOCK_BEHIND_ALERT_EVERY_MS = 24 * 3_600_000;
+
+/** Опора процесса: монотонное время и оценка realAt на его прошлом пересчёте. Живёт в памяти процесса. */
+export type ClockAnchor = { mono: number; realAt: number };
+/** Эпизод «часы позади»: lastSeenAt в его начале и показание часов на прошлом пересчёте (оба — в БД). */
+export type ClockBehind = { since: number; lastClock: number };
 
 export type ClockInput = {
   /** Показание часов сервера. */
@@ -15,6 +35,15 @@ export type ClockInput = {
   lastSeenAt: number | null;
   /** Момент последнего шага lastSeenAt по часам (license_state.checked_at). */
   lastStepAt: number | null;
+  /** Оценка времени без шагов вперёд (license_state.clock_real_at); null — равна lastSeenAt. Больше lastSeenAt
+   *  не учитывается (обрезается до него). */
+  realAt: number | null;
+  /** Эпизод «часы позади» (license_state.clock_behind_since/clock_behind_last); null — эпизода нет. */
+  behind: ClockBehind | null;
+  /** Монотонное время процесса сейчас (performance.now()). */
+  mono: number;
+  /** Опора этого процесса с его прошлого пересчёта; null — первый пересчёт после старта. */
+  anchor: ClockAnchor | null;
 };
 
 export type ClockJump = 'none' | 'backward' | 'forward';
@@ -24,22 +53,68 @@ export type ClockResult = {
   now: number;
   lastSeenAt: number;
   lastStepAt: number;
+  realAt: number;
+  behind: ClockBehind | null;
   jump: ClockJump;
   /** В режиме скачка вперёд lastSeenAt сдвинут на 48 ч (не чаще раза в час). */
   stepped: boolean;
+  /** Сколько длится эпизод «часы позади» по времени лицензии; 0 — эпизода нет. */
+  behindForMs: number;
+  /** Эпизод дольше 48 ч: «только чтение», причина clock (evaluateLicense clockLocked). */
+  locked: boolean;
+  /** Записать тревогу license.clock_jump backward: начало эпизода или очередные сутки. */
+  alert: boolean;
+  /** Новая опора процесса. */
+  anchor: ClockAnchor;
 };
 
-export function advanceClock({ clock, lastSeenAt, lastStepAt }: ClockInput): ClockResult {
-  if (lastSeenAt === null) return { now: clock, lastSeenAt: clock, lastStepAt: clock, jump: 'none', stepped: false };
+export function advanceClock(input: ClockInput): ClockResult {
+  const { clock, lastSeenAt, lastStepAt, behind, mono, anchor } = input;
+  if (lastSeenAt === null) return calm(clock, clock, clock, clock, 'none', false, mono);
   const step = lastStepAt ?? lastSeenAt;
-  if (clock < lastSeenAt) {
-    const jump: ClockJump = lastSeenAt - clock > CLOCK_BACKWARD_TOLERANCE_MS ? 'backward' : 'none';
-    return { now: lastSeenAt, lastSeenAt, lastStepAt: step, jump, stepped: false };
+  const real0 = Math.min(input.realAt ?? lastSeenAt, lastSeenAt);
+  // Прошедшее по монотонному времени этого процесса сверх того, что уже учтено в БД (в том числе другими
+  // процессами): опора хранит realAt своего прошлого пересчёта, поэтому интервалы процессов не складываются
+  const byMono = anchor !== null && mono >= anchor.mono ? Math.max(0, anchor.realAt + (mono - anchor.mono) - real0) : 0;
+
+  if (lastSeenAt - clock > CLOCK_BACKWARD_TOLERANCE_MS) {
+    // Ход часов от прошлого пересчёта в эпизоде: виден и после перезапуска; скачок вперёд — не больше 48 ч
+    const byClock = behind !== null && clock >= behind.lastClock ? Math.min(clock - behind.lastClock, CLOCK_MAX_STEP_MS) : 0;
+    const realAt = real0 + Math.max(byMono, byClock);
+    const now = Math.max(lastSeenAt, realAt);
+    const since = behind?.since ?? lastSeenAt;
+    const behindForMs = now - since;
+    const alert = behind === null || Math.floor(behindForMs / CLOCK_BEHIND_ALERT_EVERY_MS) > Math.floor((lastSeenAt - since) / CLOCK_BEHIND_ALERT_EVERY_MS);
+    return {
+      now,
+      lastSeenAt: now,
+      lastStepAt: step,
+      realAt,
+      behind: { since, lastClock: clock },
+      jump: 'backward',
+      stepped: false,
+      behindForMs,
+      locked: behindForMs > CLOCK_BEHIND_LOCK_MS,
+      alert,
+      anchor: { mono, realAt },
+    };
   }
-  if (clock - lastSeenAt <= CLOCK_MAX_STEP_MS) return { now: clock, lastSeenAt: clock, lastStepAt: clock, jump: 'none', stepped: false };
+  // Дрейф назад в пределах допуска: время стоит, пока часы не догонят (как было). Но если часы стоят дольше
+  // допуска (их возвращают в одну точку), время идёт по монотонному с отставанием на допуск
+  if (clock < lastSeenAt) {
+    const realAt = real0 + byMono;
+    const now = Math.max(lastSeenAt, realAt - CLOCK_BACKWARD_TOLERANCE_MS);
+    return calm(now, now, step, realAt, 'none', false, mono);
+  }
+  if (clock - lastSeenAt <= CLOCK_MAX_STEP_MS) return calm(clock, clock, clock, clock, 'none', false, mono);
   // Скачок вперёд больше 48 ч: сервер стоял (законно) или часы ушли вперёд. Считаем по часам, но
   // максимум виденного двигаем на 48 ч и не чаще раза в час — после починки часов лицензия снова идёт по ним.
+  // realAt идёт только по монотонному времени: шаг вперёд в него не входит.
   const canStep = clock < step || clock - step >= CLOCK_JUMP_STEP_INTERVAL_MS;
-  if (!canStep) return { now: clock, lastSeenAt, lastStepAt: step, jump: 'forward', stepped: false };
-  return { now: clock, lastSeenAt: lastSeenAt + CLOCK_MAX_STEP_MS, lastStepAt: clock, jump: 'forward', stepped: true };
+  const seen = canStep ? lastSeenAt + CLOCK_MAX_STEP_MS : lastSeenAt;
+  return calm(clock, seen, canStep ? clock : step, Math.min(seen, real0 + byMono), 'forward', canStep, mono);
+}
+
+function calm(now: number, lastSeenAt: number, lastStepAt: number, realAt: number, jump: ClockJump, stepped: boolean, mono: number): ClockResult {
+  return { now, lastSeenAt, lastStepAt, realAt, behind: null, jump, stepped, behindForMs: 0, locked: false, alert: false, anchor: { mono, realAt } };
 }

@@ -1,4 +1,4 @@
-// Откуда сервер берёт ключи, водяной знак, файл лицензии и часы (D-211). В production — только из сборки
+// Откуда сервер берёт ключи, водяной знак, файл лицензии, часы и монотонное время (D-211, D-306). В production — только из сборки
 // ядра и окружения установки; подмена — только в тестах (testing.ts, в production бросает).
 import { readFile } from 'node:fs/promises';
 import { license as coreLicense } from '@crm/core';
@@ -16,6 +16,8 @@ export type LicenseEnv = {
   /** Текст файла лицензии; null — файла нет. */
   readFile: () => Promise<string | null>;
   clock: () => number;
+  /** Монотонное время процесса (performance.now()): переводом системных часов не сдвигается (D-306). */
+  mono: () => number;
 };
 
 export function licensePath(e: Env = process.env): string {
@@ -42,6 +44,7 @@ export function defaultLicenseEnv(e: Env = process.env): LicenseEnv {
     watermark: coreLicense.buildWatermark(),
     readFile: () => readLicenseFile(path),
     clock: () => Date.now(),
+    mono: () => performance.now(),
   };
 }
 

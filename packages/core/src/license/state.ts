@@ -6,6 +6,7 @@
 //                                         и не дальше срока подписанной копии в БД (D-290); строке
 //                                         license_state (state, invalid_since, last_seen_at) льгота не верит
 //   read_only                → read_only  мутации 423, кроме D-054; просмотр и выгрузка работают
+//                                         (в том числе причина clock: часы позади дольше 48 ч, D-306)
 //   invalid                  → invalid    как read_only
 //   missing                  → missing    как read_only
 // Общая сборка без водяного знака (dev, тесты, e2e, общий образ CI) — исключение: лицензии нет → valid.
@@ -44,13 +45,15 @@ export type EvaluateInput = {
   builtAt: number | null;
   /** Отсутствие лицензии не блокирует (только общая сборка — missingAllowed). */
   allowMissing?: boolean;
+  /** Часы позади дольше 48 ч (advanceClock locked, D-306): рабочая лицензия и льгота → «только чтение». */
+  clockLocked?: boolean;
 };
 
 export type Evaluation = {
   status: LicenseStatus;
   access: LicenseAccess;
   /** Код причины для журнала и status: '' — всё хорошо. */
-  reason: InvalidReason | 'expired' | 'missing' | '';
+  reason: InvalidReason | 'expired' | 'missing' | 'clock' | '';
   invalidSince: number | null;
   license: LicensePayload | null;
   /** До какого момента работает льгота (expired или invalid после рабочей), иначе null. */
@@ -62,7 +65,14 @@ export function missingAllowed(watermark: Watermark): boolean {
   return watermark.customer === null;
 }
 
-export function evaluateLicense({ verdict, now, previous, invalidSince, anchor, builtAt, allowMissing = false }: EvaluateInput): Evaluation {
+export function evaluateLicense(input: EvaluateInput): Evaluation {
+  const e = evaluateVerdict(input);
+  // Часы позади дольше 48 ч (D-306): работа и льгота — только после починки часов. Лицензии нет — как было
+  if (!input.clockLocked || input.verdict === null || (e.access !== 'valid' && e.access !== 'grace')) return e;
+  return { status: 'read_only', access: 'read_only', reason: 'clock', invalidSince: null, license: e.license, graceUntil: null };
+}
+
+function evaluateVerdict({ verdict, now, previous, invalidSince, anchor, builtAt, allowMissing = false }: EvaluateInput): Evaluation {
   if (verdict === null) {
     return { status: 'missing', access: allowMissing ? 'valid' : 'missing', reason: 'missing', invalidSince: null, license: null, graceUntil: null };
   }

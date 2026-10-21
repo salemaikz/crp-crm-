@@ -11,19 +11,25 @@ export type LicenseRow = {
   checkedAt: number;
   invalidSince: number | null;
   reason: string;
+  /** С D-306 — правило часов «часы позади»: оценка без шагов вперёд и эпизод (NULL — нет). */
+  clockRealAt: number | null;
+  clockBehindSince: number | null;
+  clockBehindLast: number | null;
 };
 
 /** Строка лицензии под блокировкой (вызывать внутри db.tx). */
 export async function lockLicenseRow(sql: Sql): Promise<LicenseRow | undefined> {
   const [row] = await sql<LicenseRow>`
-    SELECT license_raw, install_id, state, last_seen_at, checked_at, invalid_since, reason
+    SELECT license_raw, install_id, state, last_seen_at, checked_at, invalid_since, reason,
+           clock_real_at, clock_behind_since, clock_behind_last
       FROM license_state WHERE id = 1 FOR UPDATE`;
   return row;
 }
 
 export async function readLicenseRow(sql: Sql): Promise<LicenseRow | undefined> {
   const [row] = await sql<LicenseRow>`
-    SELECT license_raw, install_id, state, last_seen_at, checked_at, invalid_since, reason
+    SELECT license_raw, install_id, state, last_seen_at, checked_at, invalid_since, reason,
+           clock_real_at, clock_behind_since, clock_behind_last
       FROM license_state WHERE id = 1`;
   return row;
 }
@@ -43,6 +49,8 @@ export async function saveLicenseRow(sql: Sql, r: Omit<LicenseRow, 'installId'>)
   await sql`
     UPDATE license_state
        SET license_raw = ${r.licenseRaw}, state = ${r.state}, last_seen_at = ${r.lastSeenAt},
-           checked_at = ${r.checkedAt}, invalid_since = ${r.invalidSince}, reason = ${r.reason}
+           checked_at = ${r.checkedAt}, invalid_since = ${r.invalidSince}, reason = ${r.reason},
+           clock_real_at = ${r.clockRealAt}, clock_behind_since = ${r.clockBehindSince},
+           clock_behind_last = ${r.clockBehindLast}
      WHERE id = 1`;
 }
