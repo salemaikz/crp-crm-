@@ -28,6 +28,10 @@ html[data-logout-pending] .logout-lock {
   background: var(--canvas);
   color: var(--text);
 }
+/* Страница прежнего сотрудника на общем телефоне (D-292): до перезагрузки не видно ничего. */
+html[data-owner-changed] body > * {
+  display: none !important;
+}
 .logout-lock__box {
   max-width: 24rem;
   text-align: center;

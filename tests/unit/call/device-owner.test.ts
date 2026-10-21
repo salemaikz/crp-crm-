@@ -1,7 +1,7 @@
 // Общий телефон (D-291): при загрузке под B данные A удаляются или обезличиваются; итоги A остаются без названий.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { foreignKeys, sanitizeForeign, type ScanStorage } from '../../../src/ui/call/deviceOwner';
+import { DEVICE_OWNER_KEY, foreignKeys, markDeviceOwner, ownerChanged, sanitizeForeign, type ScanStorage } from '../../../src/ui/call/deviceOwner';
 import { createMemoryStore } from '../../../src/ui/call/outboxStore';
 
 function mem(): ScanStorage & { m: Map<string, string> } {
@@ -54,4 +54,23 @@ test('вход B после истёкшей сессии A: черновик, �
 
 test('нет хранилищ — уборка не бросает', async () => {
   await sanitizeForeign('uB', { storage: null, store: null });
+});
+
+test('метка владельца телефона (D-292): страница сотрудника, которого на телефоне сменили, устарела', () => {
+  const s = mem();
+  assert.equal(ownerChanged(s, 'uA'), false, 'метки нет — решает сервер');
+  markDeviceOwner(s, 'uA');
+  assert.equal(s.getItem(DEVICE_OWNER_KEY), 'uA');
+  assert.equal(ownerChanged(s, 'uA'), false);
+  markDeviceOwner(s, 'uB');
+  assert.equal(ownerChanged(s, 'uA'), true, 'вкладка A после входа B');
+  assert.equal(ownerChanged(s, 'uB'), false);
+  assert.deepEqual(foreignKeys(s, 'uB'), [], 'метка — не данные сотрудника, уборка её не трогает');
+  assert.equal(ownerChanged(null, 'uA'), false);
+});
+
+test('метка владельца: хранилище бросает — не падаем', () => {
+  const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); }, removeItem: () => undefined };
+  markDeviceOwner(broken, 'uA');
+  assert.equal(ownerChanged(broken, 'uA'), false);
 });

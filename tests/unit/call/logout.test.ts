@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStore } from '../../../src/ui/call/outboxStore';
-import { purgeDevice, flushForLogout } from '../../../src/ui/call/logout';
+import { countFreeText, purgeDevice, flushForLogout } from '../../../src/ui/call/logout';
 
 const outbox = (pending: number, over: { flushFails?: boolean; sends?: number } = {}) => {
   const calls: string[] = [];
@@ -69,4 +69,37 @@ test('«Всё равно выйти»: неотправленные итоги 
   assert.equal(left.length, 1);
   assert.equal(left[0]!.title, '');
   assert.equal(left[0]!.opId, 'o1');
+});
+
+const withText = (opId: string, userId: string) => ({
+  ...entry(opId, userId),
+  freeText: true,
+  request: { opId, note: '', lprInfo: { name: 'Берик Синтетик-ЛПР', phone: '+7 709 555 12 34', when: '' }, fields: {}, agreement: null } as never,
+});
+
+test('итоги со свободным текстом считаются отдельно; чужие не считаются', async () => {
+  const store = createMemoryStore();
+  await store.put(entry('o1', 'u1'));
+  await store.put(withText('o2', 'u1'));
+  await store.put(withText('o3', 'u2'));
+  assert.equal(await countFreeText(store, 'u1'), 1);
+});
+
+test('«Всё равно выйти» без подтверждения: итог с данными ЛПР не удаляется молча (решает оператор, D-293)', async () => {
+  const store = createMemoryStore();
+  await store.put(withText('o2', 'u1'));
+  await purgeDevice('u1', { storage: mem(), store });
+  assert.equal((await store.all('u1')).length, 1);
+});
+
+test('удаление подтверждено: итоги со свободным текстом удалены целиком, прочие остались без названия, чужие не тронуты', async () => {
+  const store = createMemoryStore();
+  await store.put(entry('o1', 'u1'));
+  await store.put(withText('o2', 'u1'));
+  await store.put(withText('o3', 'u2'));
+  await purgeDevice('u1', { storage: mem(), store, discardFreeText: true });
+  const left = await store.all('u1');
+  assert.deepEqual(left.map((e) => [e.opId, e.title]), [['o1', '']]);
+  assert.equal(JSON.stringify(left).includes('Берик'), false);
+  assert.equal((await store.all('u2')).length, 1);
 });

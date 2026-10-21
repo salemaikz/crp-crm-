@@ -3,7 +3,8 @@
 // Service worker здесь выключен: его поведение (метка выхода, оболочка из кэша) проверяют юнит-тесты sw.js, а маршруты
 // Playwright надёжно перехватывают запросы только без него. Синтетика: +7 709 …, «ТОО Синтетика …».
 import { expect, test, type Page } from '@playwright/test';
-import { DB_URL, callAndOutcome, callsOf, login, makeOperator, openCall, prepareDb, sql, type Operator } from './support/calling';
+import { DB_URL, callAndOutcome, callsOf, login, loginByRequest, makeOperator, openCall, prepareDb, sql, type Operator } from './support/calling';
+import { expectNoClientTraces } from './support/device';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 test.use({ serviceWorkers: 'block' });
@@ -137,7 +138,9 @@ test('сессия A истекла без выхода, вошёл B: черн�
   expect(await callsOf(b.id)).toHaveLength(0);
 });
 
-test('вкладка A под cookie B: сервер отвечает 409 wrong_user, итог A держится без названия и не пишется на B', async ({ page, context }) => {
+// Страницы B не открывались (вход запросом), поэтому метка владельца телефона вкладку A не перезагружает: остаётся
+// защита на сервере. Со страницей B вкладка A перезагружается сразу — сценарий «вторая вкладка» ниже.
+test('вкладка A под cookie B: сервер отвечает 409 wrong_user, итог A держится без названия и не пишется на B', async ({ page, context, baseURL }) => {
   const a = await makeOperator(2);
   const b = await makeOperator(1);
   await openCall(page, a);
@@ -149,9 +152,7 @@ test('вкладка A под cookie B: сервер отвечает 409 wrong_
     if (r.url().endsWith('/api/calls/outcomes')) statuses.push(r.status());
   });
 
-  const other = await context.newPage();
-  await login(other, b);
-  await other.close();
+  await loginByRequest(context, b, baseURL!);
   await context.unroute('**/api/calls/outcomes');
 
   // Вкладка A шлёт свой итог под cookie B: 409, страница перезагружается и становится страницей B
@@ -174,4 +175,72 @@ test('вкладка A под cookie B: сервер отвечает 409 wrong_
     return rows;
   });
   expect(held).toEqual([expect.objectContaining({ userId: a.id, title: '' })]);
+});
+
+/** B вернулся на вкладку A: страница снова видна, у неё фокус, сеть есть (как при переключении вкладок на телефоне). */
+async function comeBack(tab: Page): Promise<void> {
+  await tab.bringToFront();
+  await tab.evaluate(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('focus'));
+  });
+}
+
+/** Вкладка показывает экран B, а не A: ни названий, ни ЛПР A в видимом тексте и разметке. */
+async function expectTabOf(tab: Page, a: Operator, b: Operator): Promise<void> {
+  await expect(tab.getByTestId('call-card')).toContainText(b.names[0]!, { timeout: 20_000 });
+  const text = await tab.locator('body').innerText();
+  const html = await tab.content();
+  for (const n of a.names) {
+    expect(text).not.toContain(n);
+    expect(html).not.toContain(n);
+  }
+  expect(text).not.toContain('Асель Синтетик');
+}
+
+test('вторая вкладка A без неотправленных итогов: вошёл B — вкладка A прячется и становится страницей B, черновик A не пишется', async ({ page, context }) => {
+  const a = await makeOperator(2, { lpr: true });
+  const b = await makeOperator(1);
+  await openCall(page, a);
+  const tab2 = await context.newPage();
+  await tab2.goto('/call');
+  await expect(tab2.getByTestId('call-card')).toContainText(a.names[0]!);
+
+  // Сессия A истекла, в первой вкладке вошёл B и открыл «Звонить»
+  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
+  await login(page, b);
+  await page.goto('/call');
+  await expect(page.getByTestId('call-card')).toContainText(b.names[0]!);
+
+  await comeBack(tab2);
+  await expectTabOf(tab2, a, b);
+  // «Позвонить» во второй вкладке — это уже карточка B: «намерение звонка» A на телефон не пишется
+  await tab2.getByTestId('call-button').click();
+  await expect(tab2.getByTestId('outcome-sheet')).toBeVisible();
+  const keys = await tab2.evaluate(() => Object.keys(localStorage));
+  expect(keys).not.toContain(`crm.call.pending.${a.id}`);
+  expect(keys).toContain(`crm.call.pending.${b.id}`);
+  await expectNoClientTraces(tab2, a);
+  expect(await callsOf(a.id)).toHaveLength(0);
+  expect(await callsOf(b.id)).toHaveLength(0);
+});
+
+test('вкладка A, а B вошёл без открытия страниц (метки владельца нет): сервер отвечает 409 на чтение очереди, вкладка становится страницей B', async ({ page, context, baseURL }) => {
+  const a = await makeOperator(2, { lpr: true });
+  const b = await makeOperator(1);
+  await openCall(page, a);
+  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
+  // Вход B только запросом (cookie та же, что у вкладки): ни одна страница B не загружалась и метку не ставила
+  await loginByRequest(context, b, baseURL!);
+  expect(await page.evaluate(() => localStorage.getItem('crm.device.owner'))).not.toBe(b.id);
+
+  const reads: number[] = [];
+  page.on('response', (r) => {
+    if (/\/api\/calls\/(queue|today)/.test(r.url())) reads.push(r.status());
+  });
+  await comeBack(page);
+  await expect.poll(() => reads.includes(409), { timeout: 15_000 }).toBe(true);
+  await expectTabOf(page, a, b);
+  await expectNoClientTraces(page, a);
 });

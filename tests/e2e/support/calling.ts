@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
-import { expect, type Page } from '@playwright/test';
+import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 export const DB_URL = process.env.E2E_DATABASE_URL;
 export const PASSWORD = 'Надёжный-пароль-77';
@@ -79,6 +79,15 @@ export async function login(page: Page, op: Operator): Promise<void> {
   await page.getByLabel('Пароль', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Войти' }).click();
   await page.waitForURL((u) => u.pathname !== '/login');
+}
+
+/**
+ * Вход одним запросом, без открытия страниц: cookie контекста меняется, а метку владельца телефона (D-292) ни одна
+ * страница не ставит. Так проверяется защита на сервере (409 `wrong_user`) отдельно от метки.
+ */
+export async function loginByRequest(context: BrowserContext, op: Operator, origin: string): Promise<void> {
+  const res = await context.request.post('/api/auth/login', { headers: { origin }, data: { phone: pretty(op.phone), password: PASSWORD } });
+  expect(res.status()).toBe(200);
 }
 
 export async function openCall(page: Page, op: Operator): Promise<void> {

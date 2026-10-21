@@ -1,10 +1,13 @@
 // Автор итога и пропуска (D-291): заголовок X-Call-Author сверяется с сессией. Не совпал — 409 wrong_user, и ничего
 // не пишется (ни calls, ни карточка, ни статус устройства). Совпал — обычный итог; повтор того же opId от того же
-// автора идемпотентен. Нет заголовка — запрос от сессии как есть.
+// автора идемпотентен. Нет заголовка — запрос от сессии как есть. Чтения экрана «Звонить» (очередь, «Сегодня») с чужим
+// автором тоже 409 (D-292): вкладка прежнего сотрудника не получает карточки нового.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { POST as postOutcome } from '../../../src/app/api/calls/outcomes/route';
 import { POST as postSkip } from '../../../src/app/api/calls/skips/route';
+import { GET as getQueue } from '../../../src/app/api/calls/queue/route';
+import { GET as getToday } from '../../../src/app/api/calls/today/route';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { U } from '../../isolation/harness/seed';
 import { actAs } from '../../isolation/harness/actors';
@@ -82,4 +85,26 @@ test('без заголовка автора — итог от сессии ка
   const r = await call(postOutcome, '/api/calls/outcomes', U.opA, req);
   assert.equal(r.status, 200);
   assert.equal(await callsOf(req.opId), 1);
+});
+
+async function read(handler: typeof getQueue, path: string, as: string, headers: Record<string, string> = {}) {
+  actAs(as);
+  const res = await handler(new Request(`${ORIGIN}${path}`, { headers }), { params: Promise.resolve({}) });
+  return { status: res.status, json: (await res.json().catch(() => null)) as Record<string, unknown> | null };
+}
+
+test('очередь и «Сегодня» под сессией B с автором A: 409 wrong_user, карточек B в ответе нет, статус устройства не пишется', async () => {
+  for (const [handler, path] of [[getQueue, '/api/calls/queue?limit=4'], [getToday, '/api/calls/today']] as const) {
+    const r = await read(handler, path, U.opB, { 'x-call-author': U.opA, 'x-device-id': 'dev-author-read', 'x-outbox-pending': '0' });
+    assert.equal(r.status, 409, path);
+    assert.deepEqual(r.json, { error: 'wrong_user', code: 'wrong_user' }, path);
+  }
+  assert.equal(await devices('dev-author-read'), 0);
+});
+
+test('очередь и «Сегодня» под сессией автора и без заголовка — обычный ответ', async () => {
+  for (const [handler, path] of [[getQueue, '/api/calls/queue?limit=4'], [getToday, '/api/calls/today']] as const) {
+    assert.equal((await read(handler, path, U.opB, { 'x-call-author': U.opB })).status, 200, path);
+    assert.equal((await read(handler, path, U.opB)).status, 200, path);
+  }
 });

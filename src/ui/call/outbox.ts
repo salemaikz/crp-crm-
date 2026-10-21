@@ -45,6 +45,8 @@ export interface NewOutboxItem {
   kind: OutcomeKind;
   /** Окно отмены, мс. */
   undoMs: number;
+  /** Свободный текст оператора в запросе (freeText.ts, D-293). */
+  freeText?: boolean;
 }
 
 export interface FlushReport {
@@ -130,6 +132,7 @@ export class Outbox {
       createdAt: now,
       title: item.title,
       kind: item.kind,
+      ...(item.freeText === undefined ? {} : { freeText: item.freeText }),
     };
     await this.store.put(entry);
     this.entries.set(entry.opId, entry);
