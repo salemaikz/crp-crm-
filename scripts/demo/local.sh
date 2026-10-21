@@ -77,7 +77,7 @@ fi
 mkdir -p "$DEMO_DIR"
 chmod 700 "$DEMO_DIR"
 # .demo/ содержит секреты демо: не даём закоммитить, даже если .gitignore подправили
-if [ -d .git ] && ! git check-ignore -q "$DEMO_DIR/demo.env" 2>/dev/null; then
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ! git check-ignore -q "$DEMO_DIR/demo.env" 2>/dev/null; then
   die ".demo/ не закрыт в .gitignore — секреты демо могли бы попасть в репозиторий"
 fi
 
@@ -103,6 +103,7 @@ if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<ENVEOF
 # Локальные секреты демо-стенда: случайные, только для этого компьютера. Не коммитить.
 DATABASE_URL=${DB_URL}
+MIGRATE_DATABASE_URL=${DB_URL}
 DEMO_PG_PORT=${PG_PORT}
 DEMO_PG_PASSWORD=${PG_PASS:-}
 APP_ORIGIN=http://localhost:${APP_PORT}
@@ -128,6 +129,8 @@ set -a
 . "$ENV_FILE"
 set +a
 APP_PORT="$DEMO_APP_PORT"
+# Миграции и сид идут только в демо-базу: MIGRATE_DATABASE_URL из окружения оболочки (он приоритетнее) не используем
+export MIGRATE_DATABASE_URL="$DATABASE_URL"
 # Часы и пояс: приложение считает в поясе установки (Asia/Almaty) само, но TZ процесса не мешает
 unset NODE_OPTIONS
 
@@ -149,6 +152,12 @@ if [ -z "${DEMO_DATABASE_URL:-}" ]; then
   done
   docker exec "$CONTAINER" pg_isready -U crm -d crm >/dev/null 2>&1 || die "Postgres не поднялся (docker logs $CONTAINER)"
 fi
+
+# --- 4. Защита от чужой базы: внешняя БД — только с явным подтверждением и если в ней нет настоящих данных ---
+if [ "${DEMO_PG_PORT}" = "0" ] && [ "${DEMO_I_KNOW_THIS_IS_NOT_PROD:-}" != "1" ]; then
+  die "задана внешняя база (DEMO_DATABASE_URL). Это должна быть отдельная пустая БД для демо, не боевая. Подтвердите: DEMO_I_KNOW_THIS_IS_NOT_PROD=1"
+fi
+node_modules/.bin/tsx scripts/demo/precheck.ts || exit 1
 
 # --- 4. Миграции и синтетический сид ---
 say "Миграции…"
@@ -176,11 +185,14 @@ if ! running "$DEMO_DIR/worker.pid"; then
   echo $! >"$DEMO_DIR/worker.pid"
 fi
 
+# «Готово» только если отвечает именно наш процесс: иначе порт занят чужим приложением
 for _ in $(seq 1 60); do
-  curl -fsS "http://localhost:${APP_PORT}/api/health" >/dev/null 2>&1 && break
+  running "$DEMO_DIR/app.pid" || die "приложение не запустилось, возможно порт $APP_PORT занят (.demo/app.log)"
+  curl -fsS "http://localhost:${APP_PORT}/api/health" 2>/dev/null | grep -q '"status":"ok"' && break
   sleep 1
 done
-curl -fsS "http://localhost:${APP_PORT}/api/health" >/dev/null 2>&1 || die "приложение не отвечает (.demo/app.log)"
+sleep 1
+running "$DEMO_DIR/app.pid" && curl -fsS "http://localhost:${APP_PORT}/api/health" 2>/dev/null | grep -q '"status":"ok"' || die "приложение не отвечает (.demo/app.log)"
 
 # --- 6. Итог ---
 say ""
