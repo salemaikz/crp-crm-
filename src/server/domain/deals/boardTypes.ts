@@ -1,8 +1,11 @@
 // Доски (B8): сделки по этапам воронки и вид «Обзвон». Только типы — безопасно для браузера (`import type`).
 // Дизайн — docs/reports-plugins-design.md §4, решение D-266.
 
-/** Чего не хватает сделке для перехода на этап. `field:<ключ>` — незаполненное обязательное поле этапа. */
-export type MissingCode = 'booking' | 'attendance' | 'next_step' | `field:${string}`;
+/**
+ * Чего не хватает сделке для перехода на этап. `field:<ключ>` — незаполненное обязательное поле этапа. `restricted` —
+ * этап требует поле, скрытое роли зрителя: ставится независимо от значений, других кодов у этапа нет (D-323).
+ */
+export type MissingCode = 'booking' | 'attendance' | 'next_step' | 'restricted' | `field:${string}`;
 
 export interface BoardStage {
   key: string;

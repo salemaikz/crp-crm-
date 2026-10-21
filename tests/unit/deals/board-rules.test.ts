@@ -25,6 +25,15 @@ test('missingFor: порядок кодов стабилен, закрытые �
   assert.deepEqual(missingFor({ kind: 'lost', requires: req({ booking: true }) }, facts()), []);
 });
 
+test('missingFor (D-323): этап с полем, скрытым роли, — только «restricted», одинаково при пустом и заполненном поле', () => {
+  const stage = { kind: 'open' as const, requires: req({ booking: true, fields: ['a', 'secret'] }) };
+  const hidden = new Set(['secret']);
+  assert.deepEqual(missingFor(stage, facts(), hidden), ['restricted']);
+  assert.deepEqual(missingFor(stage, facts({ hasBooking: true, filled: ['a', 'secret'] }), hidden), ['restricted']);
+  // без скрытых полей — прежнее поведение
+  assert.deepEqual(missingFor(stage, facts({ filled: ['secret'] }), new Set()), ['booking', 'field:a']);
+});
+
 test('missingFor: пустая строка и пустой список — не заполнено (правило B6)', () => {
   const stage = { kind: 'open' as const, requires: req({ fields: ['a', 'b'] }) };
   assert.deepEqual(missingFor(stage, { hasBooking: false, hasAttendance: false, hasNextStep: false, custom: { a: '  ', b: [] } }), ['field:a', 'field:b']);
@@ -104,6 +113,7 @@ test('decideMove: нет записи или явки — блок; нет ша�
   assert.deepEqual(decideMove(ctx(), tile('n', { o: ['next_step', 'field:budget'] }), 'o'), { kind: 'panel', nextStep: true, fields: ['budget'] });
   assert.deepEqual(decideMove(ctx(), tile('n', { o: ['field:budget'] }), 'o'), { kind: 'panel', nextStep: false, fields: ['budget'] });
   assert.deepEqual(decideMove(ctx(), tile('n', { o: ['field:secret'] }), 'o'), { kind: 'blocked', reason: 'field_forbidden' });
+  assert.deepEqual(decideMove(ctx(), tile('n', { o: ['restricted'] }), 'o'), { kind: 'blocked', reason: 'restricted' });
   assert.deepEqual(decideMove(ctx(), tile('n', { o: [] }), 'o'), { kind: 'instant' });
 });
 
@@ -126,6 +136,8 @@ test('classifyMoveResponse: список полей 409 stage_fields_required; r
   assert.deepEqual(routeRefusal('use_purchase', []), { kind: 'purchase' });
   assert.deepEqual(routeRefusal('use_lose', []), { kind: 'lose' });
   assert.deepEqual(routeRefusal('deal_closed', []), { kind: 'toast' });
+  // D-323: этап с полем, скрытым роли, — сообщение, панели полей нет
+  assert.deepEqual(routeRefusal('stage_restricted', []), { kind: 'toast' });
 });
 
 test('dropKinds: перенос = итог; в «new» и в ту же колонку нельзя', () => {

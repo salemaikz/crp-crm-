@@ -96,8 +96,9 @@ function fieldDefsFor(stages: readonly DealStageInfo[], cfg: ClientsConfig | nul
   if (!cfg) return [];
   const fv = fieldViewer(viewer, cfg);
   const keys = new Set(stages.filter((s) => s.kind === 'open').flatMap((s) => s.requires.fields));
+  // Скрытое роли поле на доску не уходит ни ключом, ни подписью (D-323)
   return cfg.fields
-    .filter((d) => d.object === 'deal' && keys.has(d.key))
+    .filter((d) => d.object === 'deal' && keys.has(d.key) && fields.resolveAccess(d, fv) !== 'hidden')
     .map((d) => ({
       key: d.key,
       label: d.label.ru,
@@ -121,6 +122,8 @@ interface TileCtx {
   tz: string;
   canClient: boolean;
   withMissing: boolean;
+  /** Ключи полей сделки, скрытых роли зрителя (D-323). */
+  hiddenFields: ReadonlySet<string>;
 }
 
 function tileFields(row: DealRow, ctx: TileCtx): DealTileField[] {
@@ -146,7 +149,7 @@ function toTile(row: DealRow, ctx: TileCtx): DealTile {
   const missing: Record<string, DealTile['missing'][string]> = {};
   if (ctx.withMissing) {
     const facts = { hasBooking: row.hasBooking, hasAttendance: row.hasAttendance, hasNextStep: row.hasNextStep, custom: row.custom };
-    for (const s of ctx.stages) if (s.kind === 'open') missing[s.key] = missingFor(s, facts);
+    for (const s of ctx.stages) if (s.kind === 'open') missing[s.key] = missingFor(s, facts, ctx.hiddenFields);
   }
   return {
     id: row.id,
@@ -175,7 +178,8 @@ async function context(viewer: Viewer, pipelineKey: string | null) {
   const pipelines = await deps.pipelines(spaceId);
   const base = pickPipeline(pipelines, pipelineKey);
   const stages = withStageFields(base.stages, cfg?.fields ?? []);
-  const tile: TileCtx = { stages, cfg, viewer, now, tz, canClient: can(viewer, 'client.read'), withMissing: true };
+  const hiddenFields = new Set(cfg ? fields.hiddenKeys(cfg.fields, 'deal', fieldViewer(viewer, cfg)) : []);
+  const tile: TileCtx = { stages, cfg, viewer, now, tz, canClient: can(viewer, 'client.read'), withMissing: true, hiddenFields };
   return { spaceId, now, cfg, pipelines, pipeline: base, stages, tile };
 }
 

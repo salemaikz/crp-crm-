@@ -17,6 +17,7 @@ export const DEAL_HTTP_STATUS: Readonly<Record<DealDomainErrorCode, 400 | 409>> 
   use_lose: 400,
   next_step_required: 409,
   stage_fields_required: 409,
+  stage_restricted: 409,
   reason_unknown: 400,
   reason_text_required: 400,
   service_type_locked: 409,
