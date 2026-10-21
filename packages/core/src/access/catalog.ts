@@ -39,6 +39,7 @@ export const PERMISSIONS = [
   'report.view',
   'report.export',
   'data.export_all',
+  'export.journal',
   'settings.sales',
   'settings.fields',
 ] as const;
@@ -104,6 +105,8 @@ export const PERMISSION_INFO: Readonly<Record<Permission, PermissionInfo>> = {
   'report.view': { kind: 'read' },
   'report.export': { kind: 'export' },
   'data.export_all': { kind: 'export', minScope: 'space' },
+  // Журнал выгрузок (PROCESS 8.6, R3b §2.6): только чтение, разрешено ролям readOnly
+  'export.journal': { kind: 'read', minScope: 'space' },
   'settings.sales': { kind: 'write', minScope: 'space' },
   'settings.fields': { kind: 'write', minScope: 'space' },
 };

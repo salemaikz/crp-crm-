@@ -104,7 +104,7 @@ const config = [
       [{ name: 'postgres', message: 'SQL — только в репозиториях домена.' }],
       [
         msg(['@/server/platform/db', '@/server/platform/db/*'], 'Интерфейс не работает с БД напрямую.'),
-        msg(['@/server/domain/*/repo', '@/server/access/scope'], 'Репозитории и scopeSql — только для домена и доступа.'),
+        msg(['@/server/domain/*/repo', '@/server/domain/*/*Repo', '@/server/access/scope'], 'Репозитории и scopeSql — только для домена и доступа.'),
         msg([SYSTEM_ACTOR], 'SystemActor недоступен в src/app и src/ui.'),
       ],
     ),
@@ -114,7 +114,7 @@ const config = [
     files: ['scripts/**/*.ts'],
     rules: restrict(
       [],
-      [msg(['@/server/access/scope', '@/server/domain/*/repo'], 'Скрипты ходят в данные через домен и SystemActor.'), ACCESS_INTERNALS, ASSEMBLE_VIEWER],
+      [msg(['@/server/access/scope', '@/server/domain/*/repo', '@/server/domain/*/*Repo'], 'Скрипты ходят в данные через домен и SystemActor.'), ACCESS_INTERNALS, ASSEMBLE_VIEWER],
     ),
   },
 ];

@@ -301,14 +301,17 @@ SELECT a.id, a.created_at AS at, a.actor_id, u.name AS actor_name, a.action, a.m
 1. `rateLimit('fullexport:pw:'+userId, 5, 15 мин)` → `429 rate_limited`;
 2. `verifyPassword(password, hash)` (`platform/auth/password.ts`; хэш читает новая `readPasswordHash(sql, userId)`
    в `platform/auth/service.ts`) → неверно: `403 password_invalid`, аудит не пишется;
-3. успешных `export.full` этого сотрудника за местные сутки ≥ 3 → `429 export_limit`;
+3. завершённых (`export.full_done`) этого сотрудника за местные сутки ≥ 3 или начатых (`export.full`, с
+   оборванными) ≥ 10 → `429 export_limit` (D-294);
+3а. идёт выгрузка или есть живой билет другого сотрудника (бронь, D-294) → `429 busy`;
 4. билет — 32 байта CSPRNG (base64url); `Map` процесса: `sha256(билет) → {userId, expiresAt = now + 60 с}`;
    не больше 100 записей, просроченные вычищаются при каждой выдаче. Ответ `{ticket, expiresAt}`.
 
 **Шаг 2.** Скрытая форма `<form method="post" action="/api/export/full">` с полем `ticket` (браузер сам скачивает
 файл; `Origin` у формы есть — CSRF-проверка обёртки проходит). `route({perm:'data.export_all'})`:
-1. билет гасится сразу (удаление из `Map`); нет, просрочен или чужой `userId` → `404`;
-2. семафор процесса: одна полная выгрузка одновременно → иначе `429 busy`;
+1. нет, просрочен или чужой `userId` → билет гасится, `404`;
+2. семафор процесса: одна полная выгрузка одновременно, чужая бронь — тоже занято → `429 busy`, **билет не гасится**
+   (D-294); иначе захват и погашение билета — без `await` между проверкой и ними;
 3. счётчики строк (`count(*)` с теми же условиями охвата) → `writeExportLog({kind:'full', format:'zip', rows: сумма,
    filterKeys: [], periodDays: null})`;
 4. уведомление `export_full_done` (params `{}`, `dedupe_key = export_full:<id записи аудита>`) — активным
@@ -316,6 +319,8 @@ SELECT a.id, a.created_at AS at, a.actor_id, u.name AS actor_name, a.action, a.m
    `insertNotifications` модуля notify в режиме `ignore`;
 5. поток ZIP: одна тх `REPEATABLE READ READ ONLY`, `SET LOCAL statement_timeout = '600s'`; каждая таблица —
    курсор по 1000 строк (`sql\`…\`.cursor(1000)`) → `toExcelCsvLines` → `addFile`.
+6. после `finish()` — строка `export.full_done` (meta `{rows}`, время начала): только она идёт в лимит
+   завершённых (D-294); обрыв и предел 20 минут её не пишут.
 
 Состав архива `crm-full-<YYYYMMDD-HHmm>.zip`:
 
@@ -863,11 +868,11 @@ noreferrer"`). Ссылка не сохраняется (новая на каж�
 |---|---|
 | `PERMISSIONS` (ядро) | `export.journal` (read, minScope space) |
 | `AuditEntity` | `export`, `integration`, `messenger` |
-| `AUDIT_ACTIONS` | `export.report`, `export.full`, `export.guests`, `integration.connect`, `integration.crossborder`, `integration.enable`, `integration.disable`, `integration.revoke_webhook`, `integration.channel`, `messenger.open_chat` |
+| `AUDIT_ACTIONS` | `export.report`, `export.full`, `export.guests`, `export.full_done` (D-294), `integration.connect`, `integration.crossborder`, `integration.enable`, `integration.disable`, `integration.revoke_webhook`, `integration.channel`, `messenger.open_chat` |
 | `notifications.kind` (тексты `notify.json`) | `export_full_done`, `messenger_channel_down`, `messenger_flood`, `messenger_dnc_unknown`, `integration_inbox_failed` |
 | `EVENT_KINDS` | `message`, `messenger.link_opened` |
 | `OUTCOME_VIAS` | `manual_entry` |
-| Флаги | новых нет: `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_BEELINE` |
+| Флаги | `FEATURE_REPORTS` (§1, §2.3, §3) и `FEATURE_SALES_SETTINGS` (§5) — D-295; прежние: `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_BEELINE`. Полная выгрузка и журнал — без флага (D-055, D-295) |
 | Пресет ЦРП | директору `export.journal` |
 
 ---

@@ -103,7 +103,8 @@
           { "perm": "task.read", "scope": "space" },
           { "perm": "handoff.read", "scope": "space" },
           { "perm": "report.view", "scope": "space" },
-          { "perm": "report.export", "scope": "space" }
+          { "perm": "report.export", "scope": "space" },
+          { "perm": "export.journal", "scope": "space" }
         ],
         "relations": [],
         "fieldAccessDefault": "read",

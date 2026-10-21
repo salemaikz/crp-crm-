@@ -3,20 +3,20 @@
 // определяется по адресу, поэтому компоненты клиентские; подписи приходят готовыми из локали.
 import {
   Archive, ArrowRightLeft, Bell, CalendarDays, ChartColumn, Ellipsis, Handshake, Headset, IdCard, Inbox, Kanban,
-  LayoutDashboard, ListChecks, Phone, Settings, Shuffle, Sun, Upload, UserCheck, User, UserCog, Users,
+  FileDown, Gauge, LayoutDashboard, ListChecks, Phone, Settings, Shuffle, Sun, Upload, UserCheck, User, UserCog, Users,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { BottomSheet } from '@/ui/kit';
-import { isCurrentPath, type MenuId } from './menu';
+import { currentHref, type MenuId } from './menu';
 
 export type NavEntry = { id: MenuId; href: string; label: string };
 
 const ICONS: Record<MenuId, LucideIcon> = {
   call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive, myDay: Sun,
-  summary: LayoutDashboard, distribution: Shuffle, cards: IdCard, kanban: Kanban, reports: ChartColumn,
+  summary: LayoutDashboard, director: Gauge, exports: FileDown, distribution: Shuffle, cards: IdCard, kanban: Kanban, reports: ChartColumn,
   settings: Settings, pool: Inbox, import: Upload, handoffs: ArrowRightLeft, team: UserCog,
   consultations: Headset, duty: UserCheck,
 };
@@ -30,10 +30,11 @@ function iconOf(id: MenuId): LucideIcon {
 /** Боковая навигация: ноутбук. */
 export function SideNav({ label, items }: { label: string; items: readonly NavEntry[] }) {
   const pathname = usePathname();
+  const current = currentHref(pathname, items.map((i) => i.href));
   return (
     <nav aria-label={label} className="hidden flex-col gap-1 px-2 pb-4 md:flex">
       {items.map((item) => {
-        const active = isCurrentPath(pathname, item.href);
+        const active = item.href === current;
         const Icon = iconOf(item.id);
         return (
           <Link
@@ -71,7 +72,8 @@ export function BottomNav({ label, always, items, slots, more }: BottomProps) {
   const [open, setOpen] = useState(false);
   const shown = items.slice(0, slots);
   const rest = items.slice(slots);
-  const moreActive = rest.some((i) => isCurrentPath(pathname, i.href)) || isCurrentPath(pathname, more.account.href);
+  const current = currentHref(pathname, [...items.map((i) => i.href), more.account.href]);
+  const moreActive = rest.some((i) => i.href === current) || current === more.account.href;
   return (
     <>
       <nav
@@ -80,7 +82,7 @@ export function BottomNav({ label, always, items, slots, more }: BottomProps) {
         style={{ borderColor: 'var(--border)', background: 'var(--surface)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {shown.map((item) => {
-          const active = isCurrentPath(pathname, item.href);
+          const active = item.href === current;
           const Icon = iconOf(item.id);
           return (
             <Link
@@ -112,7 +114,7 @@ export function BottomNav({ label, always, items, slots, more }: BottomProps) {
             const Icon = iconOf(item.id);
             return (
               <li key={item.href}>
-                <Link href={item.href} className={sheetLink} aria-current={isCurrentPath(pathname, item.href) ? 'page' : undefined} onClick={() => setOpen(false)}>
+                <Link href={item.href} className={sheetLink} aria-current={item.href === current ? 'page' : undefined} onClick={() => setOpen(false)}>
                   <Icon size={20} aria-hidden="true" />
                   {item.label}
                 </Link>

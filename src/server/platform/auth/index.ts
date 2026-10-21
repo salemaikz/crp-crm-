@@ -27,4 +27,6 @@ export {
   changePasswordRequest,
   inspectInviteRequest,
   acceptInviteRequest,
+  readPasswordHash,
+  verifyUserPassword,
 } from './service';

@@ -10,7 +10,9 @@ import { listSheets, readXlsx } from './xlsx/read';
 
 export * from './types';
 export { readBodyLimited } from './body';
-export { csvCell, toExcelCsv } from './csvExport';
+export { csvCell, looksLikeFormula, toExcelCsv, toExcelCsvLines } from './csvExport';
+export { collectStream, createZipWriter, ZIP_MAX_TOTAL_BYTES, ZipWriteError, type ZipWriter, type ZipWriterOptions } from './zipWrite';
+export { writeXlsx, XLSX_MAX_CELL_CHARS, XLSX_MAX_ROWS, XlsxWriteError, type XlsxColumnType, type XlsxTable } from './xlsxWrite';
 
 /** Пределы одного чтения из жёстких пределов кода и настроек установки (их только сужают). */
 export function limitsFor(s: { maxFileMb: number; maxRows: number }): SpreadsheetLimits {

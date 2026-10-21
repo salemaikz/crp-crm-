@@ -4,7 +4,7 @@
 import { newId, now, type Sql } from './db';
 import { jsonParam } from './db/core';
 
-export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card';
+export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'export';
 
 /**
  * Реестр имён действий. Имя — «<сущность>.<глагол_snake>» в два сегмента, первый совпадает с
@@ -49,6 +49,12 @@ export const AUDIT_ACTIONS = [
   'license.install',
   'license.state_change',
   'license.clock_jump',
+  // R3b: журнал выгрузок (PROCESS 8.6). В meta — только kind, reportKey, format, rows, filterKeys, periodDays
+  'export.report',
+  'export.full',
+  'export.guests',
+  // D-294: полная выгрузка дописана до конца (лимит в сутки считает только такие); в meta — только rows
+  'export.full_done',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

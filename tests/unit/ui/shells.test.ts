@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { RoleConfig } from '@crm/core/access';
 import { can } from '../../../src/server/access/viewer';
 import { testViewer } from '../../../src/server/access/testing';
-import { buildMenu, isCurrentPath, shellKindOf, type ShellKind } from '../../../src/ui/shells/menu';
+import { buildMenu, currentHref, isCurrentPath, shellKindOf, type ShellKind } from '../../../src/ui/shells/menu';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 
@@ -15,7 +15,7 @@ function rolesOf(preset: string): RoleConfig[] {
   return doc.global.roles.filter((r) => !r.archived);
 }
 
-const ALL = new Set(['KANBAN', 'IMPORT']);
+const ALL = new Set(['KANBAN', 'IMPORT', 'REPORTS', 'SALES_SETTINGS']);
 
 function menuOf(role: RoleConfig, opts: { isAdmin?: boolean; features?: ReadonlySet<string>; force?: ShellKind } = {}) {
   const viewer = testViewer({ userId: `u-${role.key}`, role, isAdmin: opts.isAdmin });
@@ -34,11 +34,11 @@ const hrefs = (m: { items: readonly { href: string }[] }) => m.items.map((i) => 
 const SNAP = {
   lead: ['/summary', '/distribution', '/cards', '/clients', '/bookings', '/deals', '/reports', '/settings', '/pool', '/tasks', '/import'],
   manager: ['/call', '/clients', '/tasks', '/bookings', '/my-day'],
-  observer: ['/summary', '/cards', '/clients', '/deals', '/reports'],
+  observer: ['/director', '/cards', '/clients', '/deals', '/reports', '/reports/exports'],
   operator: ['/call', '/clients', '/tasks', '/bookings', '/archive', '/my-day'],
   rop: ['/summary', '/distribution', '/cards', '/clients', '/bookings', '/deals', '/reports', '/settings', '/pool', '/tasks', '/import'],
   consultant: ['/consultations', '/tasks', '/my-day'],
-  director: ['/summary', '/cards', '/clients', '/deals', '/reports'],
+  director: ['/director', '/cards', '/clients', '/deals', '/reports', '/reports/exports'],
   marketing_head: ['/handoffs', '/clients', '/reports', '/tasks'],
   marketer: ['/handoffs', '/clients', '/tasks'],
 };
@@ -49,7 +49,7 @@ test('base: меню по ролям', () => {
   assert.deepEqual(snap, {
     lead: { shell: 'manager', items: SNAP.lead, home: '/summary' },
     manager: { shell: 'operator', items: SNAP.manager, home: '/call' },
-    observer: { shell: 'manager', items: SNAP.observer, home: '/summary' },
+    observer: { shell: 'manager', items: SNAP.observer, home: '/director' },
   });
 });
 
@@ -60,7 +60,7 @@ test('crp: меню по ролям', () => {
     operator: { shell: 'operator', items: SNAP.operator, home: '/call' },
     rop: { shell: 'manager', items: SNAP.rop, home: '/summary' },
     consultant: { shell: 'consultant', items: SNAP.consultant, home: '/consultations' },
-    director: { shell: 'manager', items: SNAP.director, home: '/summary' },
+    director: { shell: 'manager', items: SNAP.director, home: '/director' },
     marketing_head: { shell: 'manager', items: SNAP.marketing_head, home: '/handoffs' },
     marketer: { shell: 'manager', items: SNAP.marketer, home: '/handoffs' },
   });
@@ -86,11 +86,11 @@ test('«Сотрудники» — только администратору, д
   assert.ok(hrefs(menuOf(rop, { isAdmin: true })).includes('/team'));
 });
 
-test('администратор без роли: только «Сотрудники», главная — она же', () => {
+test('администратор без роли: «Выгрузки», «Настройки» и «Сотрудники», главная — «Сотрудники»', () => {
   const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
   const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
-  assert.deepEqual(hrefs(m), ['/team']);
-  assert.equal(m.home, '/team');
+  assert.deepEqual(hrefs(m), ['/reports/exports', '/settings', '/team']); // «Выгрузки» и «Настройки» открыты администратору (orAdmin, R2b, M-1)
+  assert.equal(m.home, '/team', 'главная — не пункт orAdmin');
 });
 
 test('нет ни ролей, ни прав: пунктов нет, главная — личный кабинет', () => {
@@ -110,6 +110,29 @@ test('выключенный флаг скрывает модуль: Импор�
   const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
   assert.ok(menuOf(rop).items.some((i) => i.id === 'import'));
   assert.ok(!menuOf(rop, { features: new Set(['KANBAN']) }).items.some((i) => i.id === 'import'));
+});
+
+test('FEATURE_REPORTS выключен (D-295): нет «Панели директора»; «Отчёты» остаются только у права полной выгрузки', () => {
+  const off = new Set(['KANBAN', 'IMPORT', 'SALES_SETTINGS']);
+  const role = (k: string) => rolesOf('clients/crp').find((r) => r.key === k)!;
+  const dir = hrefs(menuOf(role('director'), { features: off }));
+  assert.ok(!dir.includes('/director'));
+  // полная выгрузка — право клиента на свои данные (D-055): её кнопка живёт на /reports и флагом не прячется
+  assert.ok(dir.includes('/reports') && dir.includes('/reports/exports'));
+  assert.ok(hrefs(menuOf(role('rop'), { features: off })).includes('/reports'));
+  // без права полной выгрузки пункта нет
+  assert.ok(!hrefs(menuOf(role('marketing_head'), { features: off })).includes('/reports'));
+  assert.ok(hrefs(menuOf(role('marketing_head'))).includes('/reports'));
+  // флаг включён — пункт «Отчёты» ровно один
+  assert.equal(hrefs(menuOf(role('director'))).filter((h) => h === '/reports').length, 1);
+});
+
+test('FEATURE_SALES_SETTINGS выключен (D-295): «Настройки» скрыты и у РОП, и у администратора', () => {
+  const off = new Set(['KANBAN', 'IMPORT', 'REPORTS']);
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  assert.ok(!hrefs(menuOf(rop, { features: off })).includes('/settings'));
+  const admin = buildMenu({ shell: 'manager', menu: [], can: () => false, isAdmin: true, features: off });
+  assert.ok(!hrefs(admin).includes('/settings'));
 });
 
 test('пункт скрыт, если роль его не включила в menu, даже при праве', () => {
@@ -141,4 +164,34 @@ test('isCurrentPath: точное совпадение и вложенные а�
   assert.ok(isCurrentPath('/clients/abc', '/clients'));
   assert.ok(!isCurrentPath('/clients-old', '/clients'));
   assert.ok(!isCurrentPath(null, '/clients'));
+});
+
+test('администратор без роли видит «Настройки» (orAdmin), оператор — нет (R2b)', () => {
+  const noRole = (isAdmin: boolean) => buildMenu({ shell: 'manager', menu: [], can: () => false, isAdmin, features: ALL });
+  assert.ok(hrefs(noRole(true)).includes('/settings'));
+  assert.ok(!hrefs(noRole(false)).includes('/settings'));
+});
+
+test('директор видит «Панель директора» вместо «Сводки», РОП — наоборот', () => {
+  const dir = rolesOf('clients/crp').find((r) => r.key === 'director')!;
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  assert.ok(hrefs(menuOf(dir)).includes('/director') && !hrefs(menuOf(dir)).includes('/summary'));
+  assert.ok(hrefs(menuOf(rop)).includes('/summary') && !hrefs(menuOf(rop)).includes('/director'));
+});
+
+test('«Выгрузки»: директору (export.journal) и администратору; РОП без права — нет', () => {
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  assert.ok(!hrefs(menuOf(rop)).includes('/reports/exports'));
+  const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
+  const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
+  assert.ok(hrefs(m).includes('/reports/exports'));
+});
+
+test('currentHref: из совпавших пунктов побеждает самый длинный href (/reports/exports)', () => {
+  const hrefs = ['/reports', '/reports/exports', '/clients'];
+  assert.equal(currentHref('/reports/exports', hrefs), '/reports/exports');
+  assert.equal(currentHref('/reports', hrefs), '/reports');
+  assert.equal(currentHref('/reports/x', hrefs), '/reports');
+  assert.equal(currentHref('/other', hrefs), null);
+  assert.equal(currentHref(null, hrefs), null);
 });

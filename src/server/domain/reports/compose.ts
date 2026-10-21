@@ -1,5 +1,6 @@
 // Чистая сборка сводки из строк репозитория: правила подсчёта проверяются юнит-тестом (PROCESS §10.1).
 import { distribution } from '@crm/core';
+import { ISSUE_KINDS as ISSUE_KIND_LIST, callsPerHour, isBelowTarget } from './definitions';
 import type { StaffRow } from './repo';
 import type { OperatorRow, OperatorStatus } from './types';
 
@@ -10,16 +11,8 @@ export function operatorStatus(row: Pick<StaffRow, 'pausedOn' | 'absentUntil'>, 
   return 'working';
 }
 
-/** Звонков в час = итоги / часы в работе, один знак после запятой; нет часов — null. */
-export function callsPerHour(outcomes: number, hours: number): number | null {
-  if (hours <= 0) return null;
-  return Math.round((outcomes / hours) * 10) / 10;
-}
-
-/** Мягкая отметка «ниже нормы»: только когда норма задана и у оператора есть часы в работе. */
-export function isBelowTarget(rate: number | null, target: number | null): boolean {
-  return target !== null && rate !== null && rate < target;
-}
+// «Звонков в час» и мягкая норма — общие определения отчётов.
+export { callsPerHour, isBelowTarget };
 
 export interface OperatorInputs {
   staff: readonly StaffRow[];
@@ -35,7 +28,7 @@ export interface OperatorInputs {
   devices: ReadonlyArray<{ userId: string; pending: number; lastSeenAt: number | null; lastFlushAt: number | null }>;
 }
 
-const ISSUE_KINDS: ReadonlySet<string> = new Set(['auto', 'manual', 'return', 'inbound', 'proposal']);
+const ISSUE_KINDS: ReadonlySet<string> = new Set(ISSUE_KIND_LIST);
 
 function indexBy<T extends { userId: string }>(rows: readonly T[]): Map<string, T> {
   return new Map(rows.map((r) => [r.userId, r]));

@@ -7,5 +7,10 @@ import { register } from 'node:module';
 
 register('./runner/hooks.mjs', import.meta.url);
 
+// Модули за флагом с записями манифеста проверяются включёнными, как на стенде (D-295): выключенный флаг дал бы 404
+// на всём, и прогон не увидел бы утечку. Выключенные флаги проверяют интеграционные тесты модулей.
+process.env.FEATURE_REPORTS ??= '1';
+process.env.FEATURE_SALES_SETTINGS ??= '1';
+
 const { defineIsolationRun } = await import('./runner/main');
 await defineIsolationRun();
