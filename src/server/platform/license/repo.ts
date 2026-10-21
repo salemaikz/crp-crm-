@@ -62,7 +62,7 @@ export async function saveLicenseRow(sql: Sql, r: Omit<LicenseRow, 'installId'>)
 }
 
 /**
- * Сброс правила часов (crmctl license clock-reset, D-314): время лицензии — показание часов, эпизода нет.
+ * Сброс правила часов (crmctl license-clock reset --yes, D-314): время лицензии — показание часов, эпизода нет.
  * Вызывать внутри db.tx после lockLicenseRow.
  */
 export async function resetLicenseClockRow(sql: Sql, at: number): Promise<void> {

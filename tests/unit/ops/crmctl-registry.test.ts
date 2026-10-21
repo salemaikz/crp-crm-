@@ -2,7 +2,7 @@
 // настоящая (ядро нового образа), а не заглушка (P10, D-211).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { USAGE, commands, defaultDeps, rawCommands, run } from '../../../scripts/crmctl';
@@ -65,4 +65,31 @@ test('каждая команда crmctl, которую называют RUNBOO
   assert.ok(named.has('license-clock') && named.has('update'), 'документы читаются');
   const missing = [...named].filter((c) => !commands[c] && !rawCommands[c]);
   assert.deepEqual(missing, [], 'операторские документы обещают незарегистрированные команды');
+});
+
+// Q2a, круг 2: комментарии в коде лицензии называли `crmctl license clock-reset`, а такой подкоманды нет — оператор,
+// взявший имя из кода, получал справку и код 2. Подкоманды license и license-clock сверяются с тем, что разбирают
+// scripts/crmctl/license.ts и license-clock.ts, во всём коде и операторских документах.
+test('подкоманды crmctl license и license-clock, названные в коде и документах, существуют', async () => {
+  const files: string[] = ['docs/ops/RUNBOOK.md', 'docs/DEPLOY.md', 'docs/ARCHITECTURE.md'];
+  const walk = async (dir: string): Promise<void> => {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (/\.(ts|tsx|mjs)$/.test(e.name)) files.push(p);
+    }
+  };
+  await walk('src');
+  await walk('scripts');
+  const text = (await Promise.all(files.map((p) => readFile(p, 'utf8')))).join('\n');
+  const parsed = async (p: string) => new Set([...(await readFile(p, 'utf8')).matchAll(/sub === '([a-z-]+)'/g)].map((m) => m[1] as string));
+  const known: Record<string, Set<string>> = {
+    license: await parsed('scripts/crmctl/license.ts'),
+    'license-clock': await parsed('scripts/crmctl/license-clock.ts'),
+  };
+  assert.ok(known.license!.has('install') && known['license-clock']!.has('reset'), 'разбор подкоманд найден');
+  const bad = [...text.matchAll(/crmctl (license(?:-clock)?) ([a-z][a-z-]*)/g)]
+    .filter((m) => !known[m[1] as string]!.has(m[2] as string))
+    .map((m) => m[0]);
+  assert.deepEqual([...new Set(bad)], [], 'названы несуществующие подкоманды');
 });
