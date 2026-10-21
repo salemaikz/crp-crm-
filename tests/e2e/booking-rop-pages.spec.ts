@@ -1,6 +1,8 @@
 // Кабинет РОП (B4, B5a): «Мероприятия» — дежурные и отмена; «Консультанты» — добавить и выключить.
 // Только синтетика (+7 709 …). БД — E2E_DATABASE_URL (та же, что у запущенного сервера).
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, prepareDb, seedGroupEvents, sql } from './support/calling';
@@ -12,6 +14,9 @@ const pretty = (p: string) => `8 ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7, 
 const noHScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
 test.beforeAll(() => prepareDb());
+
+// Тексты, которые меняются вместе с нейтральной формулировкой, — из локали: смена текста не ломает спек молча
+const bookingRu = JSON.parse(readFileSync(join(process.cwd(), 'messages', 'ru', 'booking.json'), 'utf8')) as { events: { noDuty: string } };
 
 async function makeStaff(role: string, name: string): Promise<{ id: string; phone: string }> {
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
@@ -42,7 +47,7 @@ test('РОП: мероприятия — назначить дежурного �
   await page.goto('/bookings/events');
   await expect(page.getByTestId('event-card')).toHaveCount(1);
   await expect(page.getByText('Мест: 0 из 30')).toBeVisible();
-  await expect(page.getByText('Дежурит РОП')).toBeVisible();
+  await expect(page.getByText(bookingRu.events.noDuty)).toBeVisible();
   expect(await noHScroll(page)).toBe(true);
 
   await page.getByRole('button', { name: 'Назначить дежурных' }).click();
