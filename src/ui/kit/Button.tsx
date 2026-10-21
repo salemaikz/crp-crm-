@@ -6,9 +6,10 @@ import { isExternalHref } from './href';
 
 /**
  * primary — ГЛАВНОЕ действие экрана: на экране она одна (правило минимализма). Остальные действия —
- * secondary (обводка) или quiet (текстовая). danger — необратимое действие, только вторым шагом.
+ * secondary (обводка) или quiet (текстовая, цвет акцента, не бренда). danger — необратимое действие, только вторым
+ * шагом; danger-quiet — то же, но тихое («Полный отказ», «Выйти»).
  */
-export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger' | 'danger-quiet';
 /** Все размеры не ниже цели нажатия 44 px. lg — крупные кнопки итога звонка. */
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
@@ -19,6 +20,8 @@ type BaseProps = {
   block?: boolean;
   /** Только иконка (обязателен aria-label). */
   iconOnly?: boolean;
+  /** Тихая кнопка первой в колонке: левый внутренний отступ снят, текст встаёт на край контента. */
+  flush?: boolean;
   className?: string;
   children?: ReactNode;
 };
@@ -43,14 +46,16 @@ export function buttonClass({
   size = 'md',
   block,
   iconOnly,
+  flush,
   className,
-}: Pick<BaseProps, 'variant' | 'size' | 'block' | 'iconOnly' | 'className'> = {}): string {
+}: Pick<BaseProps, 'variant' | 'size' | 'block' | 'iconOnly' | 'flush' | 'className'> = {}): string {
   return cn(
     'k-btn',
     `k-btn--${variant}`,
     size !== 'md' && `k-btn--${size}`,
     block && 'k-btn--block',
     iconOnly && 'k-btn--icon',
+    flush && 'k-btn--flush',
     className,
   );
 }
@@ -62,8 +67,8 @@ function isLink(props: ButtonProps): props is ButtonAsLink {
 /** Кнопка. С href рендерит ссылку (внутреннюю — через next/link). */
 export function Button(props: ButtonProps) {
   if (isLink(props)) {
-    const { variant, size, block, iconOnly, className, children, href, external, prefetch, ...rest } = props;
-    const cls = buttonClass({ variant, size, block, iconOnly, className });
+    const { variant, size, block, iconOnly, flush, className, children, href, external, prefetch, ...rest } = props;
+    const cls = buttonClass({ variant, size, block, iconOnly, flush, className });
     if (external || isExternalHref(href)) {
       return (
         <a href={href} className={cls} {...rest}>
@@ -77,9 +82,9 @@ export function Button(props: ButtonProps) {
       </Link>
     );
   }
-  const { variant, size, block, iconOnly, className, children, type = 'button', ...rest } = props;
+  const { variant, size, block, iconOnly, flush, className, children, type = 'button', ...rest } = props;
   return (
-    <button type={type} className={buttonClass({ variant, size, block, iconOnly, className })} {...rest}>
+    <button type={type} className={buttonClass({ variant, size, block, iconOnly, flush, className })} {...rest}>
       {children}
     </button>
   );

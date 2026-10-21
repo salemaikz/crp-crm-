@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
-import { Alert, PageHeader, Tabs } from '@/ui/kit';
+import { Alert, Button, Page, PageHeader, Tabs } from '@/ui/kit';
 import { JournalPanel } from './JournalPanel';
 import { OwnerlessPanel } from './OwnerlessPanel';
 import { ParticipantsPanel } from './ParticipantsPanel';
@@ -15,11 +15,20 @@ export function DistributionScreen({ data }: { data: DistributionData }) {
   const router = useRouter();
   const refresh = () => router.refresh();
   return (
-    <>
-      <PageHeader title={t('title')} lead={t('lead')} />
+    <Page width="wide">
+      <PageHeader
+        title={t('title')}
+        lead={t('lead')}
+        actions={
+          <Button variant="quiet" size="sm" href="/pairs">
+            {t('pool.pairsLink')}
+          </Button>
+        }
+      />
       {data.participants.length === 0 && <Alert tone="info">{t('participants.empty.description')}</Alert>}
       <Tabs
         label={t('tabs.label')}
+        variant="segmented"
         items={[
           { id: 'pool', label: t('tabs.pool'), count: data.pool.summary.ready, content: <PoolPanel data={data} onChanged={refresh} /> },
           { id: 'participants', label: t('tabs.participants'), count: data.participants.length, content: <ParticipantsPanel data={data} onChanged={refresh} /> },
@@ -28,6 +37,6 @@ export function DistributionScreen({ data }: { data: DistributionData }) {
           { id: 'journal', label: t('tabs.journal'), content: <JournalPanel data={data} /> },
         ]}
       />
-    </>
+    </Page>
   );
 }

@@ -35,7 +35,7 @@ export function GroupStep({ offer, expanded, onPick }: Props) {
     <div className="flex flex-col gap-3">
       {currentLine}
       <div className="flex flex-col gap-1">
-        <p className="text-xs uppercase tracking-wide text-[var(--text-2)]">{t('nearest')}</p>
+        <p className="text-sm text-[var(--text-2)]">{t('nearest')}</p>
         <p className="text-lg font-semibold">{when}</p>
         {where && <p className="text-sm">{where}</p>}
         <div>
@@ -46,7 +46,7 @@ export function GroupStep({ offer, expanded, onPick }: Props) {
         {t(current ? 'moveOn' : 'bookOn', { when })}
       </Button>
       {rest.length > 0 && !more && !expanded && (
-        <Button variant="quiet" onClick={() => setMore(true)}>
+        <Button variant="secondary" block onClick={() => setMore(true)}>
           {t('otherDate')}
         </Button>
       )}

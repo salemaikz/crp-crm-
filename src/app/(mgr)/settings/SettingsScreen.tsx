@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Alert, Button, PageHeader } from '@/ui/kit';
+import { Alert, Button, Page, PageHeader } from '@/ui/kit';
 import { send } from './api';
 import { HolidaysEditor } from './HolidaysEditor';
 import { SalesSettingsForm } from './SalesSettingsForm';
@@ -36,7 +36,7 @@ export function SettingsScreen({ initial }: { initial: SalesSettingsView }) {
   };
 
   return (
-    <>
+    <Page width="form">
       <PageHeader title={t('title')} lead={t('lead')} />
       <div className="flex flex-col gap-8">
         {conflict && (
@@ -50,6 +50,6 @@ export function SettingsScreen({ initial }: { initial: SalesSettingsView }) {
         <SalesSettingsForm key={`s${epoch}`} data={data} justSaved={justSaved === 'sales'} onSaved={accept('sales')} onConflict={() => setConflict(true)} />
         <HolidaysEditor key={`h${epoch}`} data={data} justSaved={justSaved === 'holidays'} onSaved={accept('holidays')} onConflict={() => setConflict(true)} />
       </div>
-    </>
+    </Page>
   );
 }

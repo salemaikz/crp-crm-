@@ -3,7 +3,7 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { NotFoundError, page } from '@/server/access';
 import { bookingDeps, getDutyEvent, isBookingDomainError, listGuests, pickLabel } from '@/server/domain/booking';
-import { PageHeader } from '@/ui/kit';
+import { Page, PageHeader } from '@/ui/kit';
 import { DutyBoard } from './_guests/DutyBoard';
 
 type Props = { params: Promise<{ eventId: string }> };
@@ -28,9 +28,9 @@ export default page<Props, ReactNode>({ perm: 'booking.attend', target: 'object'
   const type = settings.catalog.eventTypes.find((x) => x.key === event.eventTypeKey);
   const typeLabel = type ? pickLabel(type.short, locale) : event.eventTypeKey;
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-4">
+    <Page width="list">
       <PageHeader title={t('title')} />
       <DutyBoard event={event} guests={guests} typeLabel={typeLabel} />
-    </main>
+    </Page>
   );
 });

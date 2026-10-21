@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Alert, Badge, Button, Checkbox, EmptyState, Modal, Select, Stat, Table, TextLink, type TableColumn } from '@/ui/kit';
+import { Alert, Badge, Button, Checkbox, EmptyState, Modal, Select, Stat, StatGrid, Table, type TableColumn } from '@/ui/kit';
 import { call } from './api';
 import { formatDateTime } from './format';
 import type { DistributionData, IssueResultData, PoolHoldKind, PoolItemRow, PoolPageData } from './types';
@@ -22,6 +22,7 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
   const [result, setResult] = useState<IssueResultData | null>(null);
   const summary = data.pool.summary;
   const operators = data.participants.filter((p) => p.status === 'working');
+  const held = HOLD_KINDS.filter((k) => summary.held[k] > 0);
 
   const toggle = (item: PoolItemRow, on: boolean) => {
     const copy = new Set(selected);
@@ -65,6 +66,7 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
     {
       key: 'select',
       header: t('pool.columns.select'),
+      width: '48px',
       cell: (i) => (
         <Checkbox
           label=""
@@ -91,24 +93,26 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
   ];
 
   return (
-    <>
-      <div className="flex flex-wrap gap-4">
+    <div className="flex flex-col gap-[var(--space-stack)]">
+      <StatGrid aria-label={t('pool.summary.label')}>
         <Stat value={summary.ready} label={t('pool.summary.ready')} />
         <Stat value={summary.roomToday} label={t('pool.summary.room')} />
         <Stat value={summary.overCap} label={t('pool.summary.overCap')} tone={summary.overCap > 0 ? 'danger' : 'default'} />
-      </div>
-      <ul aria-label={t('pool.held.title')} className="flex flex-wrap gap-2">
-        {HOLD_KINDS.filter((k) => summary.held[k] > 0).map((k) => (
-          <li key={k}>
-            <Badge tone="warning">
-              {t(`pool.held.${k}`)}: {summary.held[k]}
-            </Badge>
-          </li>
-        ))}
-      </ul>
-      <TextLink href="/pairs">{t('pool.pairsLink')}</TextLink>
+      </StatGrid>
+      {held.length > 0 && (
+        <ul aria-label={t('pool.held.title')} className="flex flex-wrap gap-2">
+          {held.map((k) => (
+            <li key={k}>
+              <Badge tone="warning">
+                {t(`pool.held.${k}`)}: {summary.held[k]}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* Над таблицей: слева «Выбрано: N», справа «Раздать выбранные» (неактивная — нейтральная). Ссылка на пары — в шапке экрана */}
       {data.canIssue && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <span aria-live="polite">{t('pool.selected', { count: selected.size })}</span>
           <Button disabled={selected.size === 0} onClick={() => setOpen(true)}>
             {t('pool.issue')}
@@ -166,6 +170,6 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 }

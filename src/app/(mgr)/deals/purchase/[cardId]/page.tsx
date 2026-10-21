@@ -5,7 +5,7 @@ import { NotFoundError, page } from '@/server/access';
 import { pickLabel } from '@/server/domain/booking';
 import { dealsDeps, getPurchaseForm } from '@/server/domain/deals';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { Alert, Button, Card, PageHeader } from '@/ui/kit';
+import { Alert, Button, Card, Page, PageHeader } from '@/ui/kit';
 import { PurchaseForm } from '../../_components/PurchaseForm';
 
 type Props = { params: Promise<{ cardId: string }> };
@@ -33,7 +33,7 @@ export default page<Props, ReactNode>({ perm: 'deal.purchase', target: 'object' 
     return key;
   };
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-4">
+    <Page width="form">
       <PageHeader title={t('purchase.title')} lead={form.clientName} />
       {form.allowed ? (
         <PurchaseForm
@@ -53,6 +53,6 @@ export default page<Props, ReactNode>({ perm: 'deal.purchase', target: 'object' 
           </div>
         </Card>
       )}
-    </main>
+    </Page>
   );
 });

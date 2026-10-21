@@ -69,7 +69,7 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
   const num = (key: keyof OperatorMetrics, header: string): TableColumn<OpRow> => ({
     key,
     header,
-    align: 'right',
+    numeric: true,
     cell: (r) => fmtInt(Number(r[key] ?? 0)),
   });
   cols.push(
@@ -81,15 +81,15 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
     num('consults', t('cols.consults')),
     num('attended', t('cols.attended')),
     num('noShow', t('cols.noShow')),
-    { key: 'attendanceRate', header: t('cols.attendanceRate'), align: 'right', cell: (r) => <Percent value={r.attendanceRate} /> },
+    { key: 'attendanceRate', header: t('cols.attendanceRate'), numeric: true, cell: (r) => <Percent value={r.attendanceRate} /> },
     num('purchases', t('cols.purchases')),
-    { key: 'purchaseSumKzt', header: t('cols.purchaseSum'), align: 'right', cell: (r) => <Money value={r.purchaseSumKzt} /> },
+    { key: 'purchaseSumKzt', header: t('cols.purchaseSum'), numeric: true, cell: (r) => <Money value={r.purchaseSumKzt} /> },
     num('skips', t('cols.skips')),
     num('workedHours', t('cols.workedHours')),
     {
       key: 'callsPerHour',
       header: t('cols.callsPerHour'),
-      align: 'right',
+      numeric: true,
       // Мягкая цель: серая отметка рядом с числом, без красного и без блокировок (PROCESS 10.2)
       cell: (r) => (
         <span className="flex flex-wrap items-center justify-end gap-2">
@@ -101,7 +101,7 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
   );
   return (
     <div className={WRAP}>
-      <Table caption={t('caption')} columns={cols} rows={rows} rowKey={(r) => r.id} dense stackOnMobile={false} />
+      <Table caption={t('caption')} captionHidden columns={cols} rows={rows} rowKey={(r) => r.id} dense stackOnMobile={false} />
       {data.callsPerHourTarget !== null && <p className="mt-2 text-sm text-[var(--text-2)]">{t('target', { target: data.callsPerHourTarget })}</p>}
     </div>
   );
@@ -119,7 +119,7 @@ function FunnelTable({ data, labels }: { data: FunnelData; labels: ReportLabels 
       (s): TableColumn<FunnelRow> => ({
         key: s,
         header: t(`steps.${s}`),
-        align: 'right',
+        numeric: true,
         cell: (r) => (
           <span className="flex flex-col items-end">
             {fmtInt(r.counts[s])}
@@ -131,7 +131,7 @@ function FunnelTable({ data, labels }: { data: FunnelData; labels: ReportLabels 
   ];
   return (
     <div className={WRAP}>
-      <Table caption={t('caption')} columns={cols} rows={rows} rowKey={(r) => r.key} dense stackOnMobile={false} />
+      <Table caption={t('caption')} captionHidden columns={cols} rows={rows} rowKey={(r) => r.key} dense stackOnMobile={false} />
       <p className="mt-2 text-sm text-[var(--text-2)]">{t('hint')}</p>
     </div>
   );
@@ -142,8 +142,8 @@ function FunnelTable({ data, labels }: { data: FunnelData; labels: ReportLabels 
 function RevenueTable({ data, labels }: { data: RevenueData; labels: ReportLabels }) {
   const t = useTranslations('reports.revenue');
   const rows: RevenueRow[] = [...data.rows, { serviceTypeKey: '__total', ...data.total }];
-  const money = (key: keyof RevenueRow, header: string): TableColumn<RevenueRow> => ({ key, header, align: 'right', cell: (r) => <Money value={Number(r[key])} /> });
-  const num = (key: keyof RevenueRow, header: string): TableColumn<RevenueRow> => ({ key, header, align: 'right', cell: (r) => fmtInt(Number(r[key])) });
+  const money = (key: keyof RevenueRow, header: string): TableColumn<RevenueRow> => ({ key, header, numeric: true, cell: (r) => <Money value={Number(r[key])} /> });
+  const num = (key: keyof RevenueRow, header: string): TableColumn<RevenueRow> => ({ key, header, numeric: true, cell: (r) => fmtInt(Number(r[key])) });
   const cols: TableColumn<RevenueRow>[] = [
     {
       key: 'type',
@@ -160,7 +160,7 @@ function RevenueTable({ data, labels }: { data: RevenueData; labels: ReportLabel
   ];
   return (
     <div className={WRAP}>
-      <Table caption={t('caption')} columns={cols} rows={rows} rowKey={(r) => r.serviceTypeKey} dense stackOnMobile={false} />
+      <Table caption={t('caption')} captionHidden columns={cols} rows={rows} rowKey={(r) => r.serviceTypeKey} dense stackOnMobile={false} />
     </div>
   );
 }
@@ -177,7 +177,7 @@ function AttendanceTable({ data, labels }: { data: AttendanceData; labels: Repor
     return r.name || r.key;
   };
   const rows: AttRow[] = [...data.rows, { key: '__total', name: null, ...data.total, isTotal: true }];
-  const num = (key: keyof AttendanceRow, header: string): TableColumn<AttRow> => ({ key, header, align: 'right', cell: (r) => fmtInt(Number(r[key])) });
+  const num = (key: keyof AttendanceRow, header: string): TableColumn<AttRow> => ({ key, header, numeric: true, cell: (r) => fmtInt(Number(r[key])) });
   const cols: TableColumn<AttRow>[] = [
     { key: 'name', header: t(`key.${data.by}`), primary: true, cell: (r) => <strong>{r.isTotal ? t('total') : nameOf(r)}</strong> },
     num('booked', t('cols.booked')),
@@ -185,12 +185,12 @@ function AttendanceTable({ data, labels }: { data: AttendanceData; labels: Repor
     num('noShow', t('cols.noShow')),
     num('unmarked', t('cols.unmarked')),
     num('cancelled', t('cols.cancelled')),
-    { key: 'rate', header: t('cols.rate'), align: 'right', cell: (r) => <Percent value={r.rate} /> },
+    { key: 'rate', header: t('cols.rate'), numeric: true, cell: (r) => <Percent value={r.rate} /> },
     num('purchases', t('cols.purchases')),
   ];
   return (
     <div className={WRAP}>
-      <Table caption={t('caption')} columns={cols} rows={rows} rowKey={(r) => r.key} dense stackOnMobile={false} />
+      <Table caption={t('caption')} captionHidden columns={cols} rows={rows} rowKey={(r) => r.key} dense stackOnMobile={false} />
     </div>
   );
 }
@@ -204,12 +204,12 @@ function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabel
   const cols: TableColumn<ReasonRow>[] = [
     { key: 'group', header: t('cols.group'), primary: true, cell: (r) => <strong>{t(`groups.${r.group}`)}</strong> },
     { key: 'reason', header: t('cols.reason'), cell: reasonLabel },
-    { key: 'count', header: t('cols.count'), align: 'right', cell: (r) => fmtInt(r.count) },
-    { key: 'share', header: t('cols.share'), align: 'right', cell: (r) => <Percent value={r.share} /> },
+    { key: 'count', header: t('cols.count'), numeric: true, cell: (r) => fmtInt(r.count) },
+    { key: 'share', header: t('cols.share'), numeric: true, cell: (r) => <Percent value={r.share} /> },
   ];
   return (
     <div className={WRAP}>
-      <Table caption={t('caption')} columns={cols} rows={data.rows} rowKey={(r) => `${r.group}|${r.reasonCode}`} dense stackOnMobile={false} />
+      <Table caption={t('caption')} captionHidden columns={cols} rows={data.rows} rowKey={(r) => `${r.group}|${r.reasonCode}`} dense stackOnMobile={false} />
     </div>
   );
 }

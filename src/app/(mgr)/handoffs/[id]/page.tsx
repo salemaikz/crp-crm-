@@ -6,7 +6,7 @@ import { pickLabel } from '@/server/domain/booking';
 import { dealsDeps } from '@/server/domain/deals';
 import { getHandoff } from '@/server/domain/handoffs';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { Badge, Button, Card, PageHeader } from '@/ui/kit';
+import { Badge, Button, Card, Page, PageHeader } from '@/ui/kit';
 import { HandoffActions } from '../_components/HandoffActions';
 
 type Props = { params: Promise<{ id: string }> };
@@ -34,7 +34,7 @@ export default page<Props, ReactNode>({ perm: 'handoff.read', target: 'object' }
   const live = h.status === 'pending' || h.status === 'accepted';
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-4">
+    <Page width="form">
       <PageHeader title={h.clientName} lead={t('page.title')} />
       <div className="flex flex-col gap-4">
         <Card as="section" data-testid="handoff-summary">
@@ -80,6 +80,6 @@ export default page<Props, ReactNode>({ perm: 'handoff.read', target: 'object' }
           </Button>
         </div>
       </div>
-    </main>
+    </Page>
   );
 });

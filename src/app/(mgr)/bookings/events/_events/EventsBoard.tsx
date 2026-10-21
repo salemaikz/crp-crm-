@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Alert, Badge, Button, Card, EmptyState, Modal, ToastProvider, useToast } from '@/ui/kit';
+import { ACTION_SEPARATE, ActionBar, Alert, Badge, Button, Card, EmptyState, Modal, ToastProvider, useToast } from '@/ui/kit';
 import { call, newKey } from '../../api';
 import { DutySheet } from './DutySheet';
 import type { EventBoardItem, Person } from './types';
@@ -69,7 +69,7 @@ function Board({ events: initial, candidates, today, typeLabels, now }: Props) {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <div className="font-medium">
-                    {e.startTime} · {typeLabels[e.eventTypeKey] ?? e.eventTypeKey}
+                    <span className="k-num">{e.startTime}</span> · {typeLabels[e.eventTypeKey] ?? e.eventTypeKey}
                     {e.location ? ` · ${e.location}` : ''}
                   </div>
                   <div className="text-sm text-[var(--text-2)]">
@@ -79,7 +79,7 @@ function Board({ events: initial, candidates, today, typeLabels, now }: Props) {
                 </div>
                 <Badge tone={e.duty.length > 0 ? 'info' : 'neutral'}>{e.duty.length > 0 ? e.duty.map((d) => d.name).join(', ') : t('noDuty')}</Badge>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <ActionBar className="mt-3">
                 {e.eventDate === today && (
                   <Button href={`/duty/${e.id}`} variant="secondary" size="sm">
                     {t('toDuty')}
@@ -89,11 +89,11 @@ function Board({ events: initial, candidates, today, typeLabels, now }: Props) {
                   {t('setDuty')}
                 </Button>
                 {e.startsAt > now && (
-                  <Button variant="quiet" size="sm" onClick={() => setCancelFor(e)}>
+                  <Button variant="danger-quiet" size="sm" className={ACTION_SEPARATE} onClick={() => setCancelFor(e)}>
                     {t('cancel')}
                   </Button>
                 )}
-              </div>
+              </ActionBar>
             </Card>
           ))}
         </section>

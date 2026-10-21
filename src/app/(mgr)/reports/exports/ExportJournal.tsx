@@ -1,6 +1,7 @@
 'use client';
 
 // Таблица журнала выгрузок: кто, когда, что, сколько строк; фильтры — только названиями. «Показать ещё» — через API.
+import { FileDown } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Alert, Button, EmptyState, Table, type TableColumn } from '@/ui/kit';
@@ -36,7 +37,22 @@ export function ExportJournal({ initial, timeZone, showBack }: { initial: Journa
     }
   };
 
-  if (rows.length === 0) return <EmptyState title={t('empty')} />;
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon={<FileDown />}
+        title={t('empty')}
+        description={t('emptyHint')}
+        action={
+          showBack ? (
+            <Button variant="secondary" href="/reports">
+              {t('openReports')}
+            </Button>
+          ) : undefined
+        }
+      />
+    );
+  }
 
   const what = (r: JournalRow): string => {
     const kind = t(`kind.${r.kind}`);

@@ -15,6 +15,8 @@ export type OverlayProps = {
   description?: ReactNode;
   /** Нижняя панель действий (одна главная кнопка + при необходимости вторичные). */
   footer?: ReactNode;
+  /** Ссылка «назад» над заголовком (вместо кнопки внизу). */
+  back?: ReactNode;
   /** false — закрыть можно только кнопками внутри (Esc и фон не закрывают). */
   dismissible?: boolean;
   className?: string;
@@ -35,6 +37,7 @@ export function Overlay({
   closeLabel,
   description,
   footer,
+  back,
   dismissible = true,
   className,
   children,
@@ -82,11 +85,12 @@ export function Overlay({
       {open && (
         <div className="k-overlay__panel">
           {variant === 'sheet' && <span className="k-overlay__handle" aria-hidden="true" />}
+          {back && <div className="k-overlay__back">{back}</div>}
           <div className="k-overlay__head">
             <h2 id={titleId} className="k-overlay__title">
               {title}
             </h2>
-            <button type="button" className="k-btn k-btn--quiet k-btn--icon" aria-label={closeLabel} onClick={onClose}>
+            <button type="button" className="k-btn k-btn--quiet k-btn--icon k-overlay__close" aria-label={closeLabel} onClick={onClose}>
               <X aria-hidden="true" />
             </button>
           </div>

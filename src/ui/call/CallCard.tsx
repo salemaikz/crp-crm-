@@ -6,7 +6,7 @@ import { Phone } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { formatKzPhone } from '@/shared/tel';
 import { useChannelModes } from '@/ui/channels';
-import { Badge, Button, Card, TextLink, type BadgeTone } from '@/ui/kit';
+import { ActionBar, Badge, Button, Card, DataList, type BadgeTone } from '@/ui/kit';
 import { dialAction } from './dial';
 import type { CallConfig, QueueCard, QueuePhone } from './types';
 
@@ -69,8 +69,13 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
           {card.name}
         </h1>
         <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-          {card.lpr === 'yes' ? t('card.lprYes') : card.lpr === 'no' ? t('card.lprNo') : t('card.lprUnknown')}
-          {card.isTarget === 'yes' ? ` · ${t('card.target')}` : ''}
+          {/* «ЛПР: выяснен» не повторяем, если ниже уже стоит строка с именем ЛПР */}
+          {[
+            card.lpr === 'yes' ? (card.decisionMaker ? '' : t('card.lprYes')) : card.lpr === 'no' ? t('card.lprNo') : t('card.lprUnknown'),
+            card.isTarget === 'yes' ? t('card.target') : '',
+          ]
+            .filter((x) => x !== '')
+            .join(' · ')}
         </p>
         {card.decisionMaker && (
           <p className="text-sm break-words" data-testid="call-lpr">
@@ -95,14 +100,7 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
           </blockquote>
         )}
         {rows.length > 0 && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-            {rows.map((r) => (
-              <div key={r.key} className="contents">
-                <dt style={{ color: 'var(--text-3)' }}>{r.label}</dt>
-                <dd className="break-words">{r.text}</dd>
-              </div>
-            ))}
-          </dl>
+          <DataList className="text-sm" items={rows.map((r) => ({ key: r.key, label: r.label, value: r.text }))} />
         )}
       </Card>
 
@@ -129,7 +127,7 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
         {others.map((p) => (
           <Button key={p.id} {...dialProps(p)} variant="secondary" block onClick={() => onCall(p)} data-testid="call-second">
             <Phone aria-hidden="true" />
-            {t('call.second', { phone: formatKzPhone(p.digits) })}
+            <span className="k-nowrap">{t('call.second', { phone: formatKzPhone(p.digits) })}</span>
           </Button>
         ))}
         {hasPendingCall && (
@@ -139,14 +137,14 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <TextLink href={`/clients/${card.clientId}`} className="inline-flex min-h-11 items-center">
+      <ActionBar equal>
+        <Button variant="quiet" href={`/clients/${card.clientId}`}>
           {t('card.open')}
-        </TextLink>
+        </Button>
         <Button variant="quiet" onClick={onSkip} disabled={!canSkip} data-testid="call-skip">
           {t('card.skip')}
         </Button>
-      </div>
+      </ActionBar>
     </section>
   );
 }

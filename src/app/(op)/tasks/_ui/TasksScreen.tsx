@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Field, PageHeader, Select, Tabs, TextLink, ToastProvider } from '@/ui/kit';
+import { Alert, Button, Field, Page, PageHeader, Select, Tabs, ToastProvider } from '@/ui/kit';
 import { call, type ErrorKey } from './api';
 import { NewTaskSheet } from './NewTaskSheet';
 import { TaskListView } from './TaskListView';
@@ -78,7 +78,7 @@ function TasksBody({ initial, can, staff, meId, timeZone }: Props) {
   );
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-4 lg:py-6">
+    <Page width="list">
       <PageHeader
         title={t('title')}
         lead={t('lead')}
@@ -92,13 +92,14 @@ function TasksBody({ initial, can, staff, meId, timeZone }: Props) {
         }
       />
       {(can.callbacks || can.remind) && (
-        <nav className="flex flex-wrap gap-4" aria-label={t('title')}>
-          {can.callbacks && <TextLink href="/call">{t('links.callbacks')}</TextLink>}
-          {can.remind && <TextLink href="/bookings">{t('links.remind')}</TextLink>}
+        <nav className="flex flex-wrap gap-x-2" aria-label={t('title')}>
+          {can.callbacks && <Button variant="quiet" size="sm" flush href="/call">{t('links.callbacks')}</Button>}
+          {can.remind && <Button variant="quiet" size="sm" href="/bookings">{t('links.remind')}</Button>}
         </nav>
       )}
       <Tabs
         label={t('tabs.label')}
+        variant="segmented"
         value={view}
         onChange={(id) => setView(id as TaskView)}
         items={tabs.map((v) => ({
@@ -123,12 +124,12 @@ function TasksBody({ initial, can, staff, meId, timeZone }: Props) {
       {creating !== null && (
         <NewTaskSheet
           open
-        client={creating?.client ?? null}
-        timeZone={timeZone}
-        onClose={() => setCreating(null)}
+          client={creating?.client ?? null}
+          timeZone={timeZone}
+          onClose={() => setCreating(null)}
           onCreated={() => void load()}
         />
       )}
-    </main>
+    </Page>
   );
 }

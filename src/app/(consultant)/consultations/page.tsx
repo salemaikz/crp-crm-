@@ -6,7 +6,7 @@ import { booking } from '@crm/core';
 import { page } from '@/server/access';
 import { bookingDeps, listMyConsultations, pickLabel, type MyConsultation } from '@/server/domain/booking';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { Badge, Card, EmptyState, PageHeader } from '@/ui/kit';
+import { Badge, Card, EmptyState, Page, PageHeader } from '@/ui/kit';
 
 const HORIZON_DAYS = 30;
 const LOOKBACK_DAYS = 30;
@@ -68,7 +68,7 @@ export default page<object, ReactNode>({ perm: 'booking.read', target: 'section'
 
   const shown = groups.filter((g) => g.items.length > 0);
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-4">
+    <Page width="list">
       <PageHeader title={t('title')} />
       {shown.length === 0 ? (
         <EmptyState title={t('empty')} />
@@ -84,6 +84,6 @@ export default page<object, ReactNode>({ perm: 'booking.read', target: 'section'
           ))}
         </div>
       )}
-    </main>
+    </Page>
   );
 });

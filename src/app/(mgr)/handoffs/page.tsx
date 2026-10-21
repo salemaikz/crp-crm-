@@ -6,7 +6,7 @@ import { pickLabel } from '@/server/domain/booking';
 import { dealsDeps } from '@/server/domain/deals';
 import { listHandoffs, type HandoffView } from '@/server/domain/handoffs';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { Badge, EmptyState, List, ListItem, PageHeader, Tabs } from '@/ui/kit';
+import { Badge, EmptyState, List, ListItem, Page, PageHeader, Tabs } from '@/ui/kit';
 
 // «Передачи» (B6b, §7.4): вкладки «Ждут» / «В работе» / «Закрытые». Охват — отношения главы отдела и исполнителя,
 // роли РОП и директора; в строке нет суммы покупки и телефонов.
@@ -48,7 +48,7 @@ export default page<object, ReactNode>({ perm: 'handoff.read', target: 'section'
   const by = (...s: HandoffView['status'][]) => items.filter((h) => s.includes(h.status));
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-4">
+    <Page width="list">
       <PageHeader title={t('title')} />
       <Tabs
         label={t('tabs.label')}
@@ -58,6 +58,6 @@ export default page<object, ReactNode>({ perm: 'handoff.read', target: 'section'
           { id: 'closed', label: t('tabs.closed'), count: by('declined', 'cancelled').length, content: body(by('declined', 'cancelled')) },
         ]}
       />
-    </main>
+    </Page>
   );
 });

@@ -3,7 +3,7 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { page } from '@/server/access';
 import { bookingDeps, listDutyEvents, pickLabel } from '@/server/domain/booking';
-import { EmptyState, List, ListItem, PageHeader } from '@/ui/kit';
+import { EmptyState, List, ListItem, Page, PageHeader } from '@/ui/kit';
 
 // «Дежурство» (B4): сегодняшние мероприятия, где вы дежурите (РОП видит все). Одно мероприятие — сразу на него.
 export default page<object, ReactNode>({ perm: 'booking.attend', target: 'section' }, async ({ viewer }) => {
@@ -15,7 +15,7 @@ export default page<object, ReactNode>({ perm: 'booking.attend', target: 'sectio
   const locale = await getLocale();
   const labels = Object.fromEntries((settings?.catalog.eventTypes ?? []).map((x) => [x.key, pickLabel(x.short, locale)]));
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-4">
+    <Page width="list">
       <PageHeader title={t('title')} />
       {events.length === 0 ? (
         <EmptyState title={t('empty')} />
@@ -31,6 +31,6 @@ export default page<object, ReactNode>({ perm: 'booking.attend', target: 'sectio
           ))}
         </List>
       )}
-    </main>
+    </Page>
   );
 });

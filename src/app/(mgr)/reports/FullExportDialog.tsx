@@ -68,7 +68,7 @@ export function FullExportDialog({ limit }: { limit: number }) {
 
   return (
     <>
-      <Button variant="secondary" onClick={() => setOpen(true)}>
+      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
         {t('button')}
       </Button>
       {started && (

@@ -64,12 +64,20 @@
   .k-btn--secondary:hover {
     --btn-bg: var(--canvas);
   }
+  /* Второстепенное не красится брендом: у клиента с красным брендом красной остаётся только главная кнопка (D-319) */
   .k-btn--quiet {
     --btn-bg: transparent;
-    --btn-fg: var(--brand-ink);
+    --btn-fg: var(--accent-ink);
   }
   .k-btn--quiet:hover {
-    --btn-bg: var(--brand-tint);
+    --btn-bg: var(--accent-tint);
+  }
+  .k-btn--danger-quiet {
+    --btn-bg: transparent;
+    --btn-fg: var(--danger);
+  }
+  .k-btn--danger-quiet:hover {
+    --btn-bg: var(--danger-tint);
   }
   .k-btn--danger {
     --btn-bg: var(--surface);
@@ -99,10 +107,19 @@
   .k-btn--icon.k-btn--sm {
     width: var(--tap-min);
   }
+  /* Тихая кнопка первой в колонке: текст встаёт на край контента. Стоит после размеров и с двойным классом:
+     сокращённое padding у --sm/--lg иначе перекрывает отступ слева */
+  .k-btn.k-btn--flush {
+    justify-content: flex-start;
+    padding-inline-start: 0;
+  }
+  /* Неактивная кнопка любого вида нейтральная: не бледный цвет бренда, а канва с серым текстом */
   .k-btn:disabled,
   .k-btn[aria-disabled='true'] {
+    --btn-bg: var(--canvas);
+    --btn-fg: var(--text-3);
+    --btn-line: var(--border);
     cursor: not-allowed;
-    opacity: 0.55;
   }
   .k-spinner {
     width: 1.1em;
@@ -119,7 +136,7 @@
   }
 
   .k-link {
-    color: var(--brand-ink);
+    color: var(--accent-ink);
     font-weight: 600;
     text-decoration: underline;
     text-underline-offset: 3px;
@@ -159,6 +176,283 @@
     max-width: 760px;
   }
 
+  /* ---------- Страница: единственный владелец боковых отступов и ширины (D-319) ---------- */
+  .k-page {
+    --page-w: var(--page-w-list);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-section);
+    width: 100%;
+    max-width: calc(var(--page-w) + 2 * var(--gutter));
+    margin-inline: auto;
+    padding: var(--page-top) var(--gutter) calc(var(--space-section) + var(--bottom-nav-h));
+  }
+  .k-page--focus {
+    --page-w: var(--page-w-focus);
+  }
+  .k-page--form {
+    --page-w: var(--page-w-form);
+  }
+  .k-page--wide {
+    --page-w: var(--page-w-wide);
+  }
+  .k-page--full {
+    max-width: none;
+  }
+  /* Боковое меню: страница прижата влево, заголовок любой страницы стоит на одном месте */
+  @media (min-width: 768px) {
+    [data-shell='side'] .k-page {
+      margin-inline-start: 0;
+    }
+  }
+
+  /* ---------- Раздел и шапка карточки: заголовок слева, действия справа ---------- */
+  .k-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-gap);
+    min-width: 0;
+  }
+  .k-section__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-gap);
+    min-height: var(--tap-min);
+  }
+  .k-section__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .k-section__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-inline-start: auto;
+  }
+  .k-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-gap);
+    min-height: var(--tap-min);
+    margin-bottom: var(--space-gap);
+  }
+
+  /* ---------- Ряд кнопок ---------- */
+  .k-actionbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .k-actionbar--end {
+    justify-content: flex-end;
+  }
+  /* Равные кнопки: одна ширина у каждой; при трёх и больше на телефоне главная занимает строку целиком */
+  .k-actionbar--equal > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  @media (max-width: 767.98px) {
+    .k-actionbar--equal:has(> :nth-child(3)) > :first-child {
+      flex-basis: 100%;
+    }
+  }
+  /* Опасное действие уходит на противоположный край */
+  .k-actionbar > .k-actionbar__separate {
+    margin-inline-start: auto;
+  }
+
+  /* ---------- Плитки счётчиков ---------- */
+  .k-statgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-gap);
+  }
+  .k-statgrid > .k-stat {
+    padding: var(--space-card);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+  /* strip: равные колонки без рамок внутри одной карточки */
+  .k-statgrid--strip {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: var(--space-card);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+  .k-statgrid--strip > .k-stat {
+    padding: 0 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+  }
+  /* Длинные значения (дата): на телефоне две строки по две колонки */
+  @media (max-width: 767.98px) {
+    .k-statgrid--wrap2 {
+      grid-auto-flow: row;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      row-gap: var(--space-gap);
+    }
+    .k-statgrid--wrap2 > .k-stat:nth-child(odd) {
+      border-inline-start: 0;
+    }
+  }
+  .k-statgrid--strip .k-stat__value {
+    font-size: 22px;
+  }
+  .k-statgrid--strip > .k-stat + .k-stat {
+    border-inline-start: 1px solid var(--border);
+  }
+
+  /* ---------- Пары «подпись — значение» ---------- */
+  .k-datalist {
+    display: grid;
+    grid-template-columns: min(40%, 200px) minmax(0, 1fr);
+    gap: 8px var(--space-gap);
+    margin: 0;
+  }
+  .k-datalist dt {
+    color: var(--text-2);
+    font-size: 14px;
+  }
+  .k-datalist dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .k-datalist__empty {
+    color: var(--text-3);
+  }
+
+  /* ---------- Сетка формы и строка фильтров ---------- */
+  .k-formgrid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--space-stack) var(--space-gap);
+    align-items: start;
+  }
+  .k-formgrid > * {
+    grid-column: span 12;
+  }
+  @media (min-width: 768px) {
+    .k-formgrid > .k-field--w-xs {
+      grid-column: span 3;
+    }
+    .k-formgrid > .k-field--w-sm {
+      grid-column: span 4;
+    }
+    .k-formgrid > .k-field--w-md {
+      grid-column: span 6;
+    }
+  }
+  /* Ширина поля — это ширина контрола: метка и подсказка остаются на ширину формы и не сжимаются в столбик */
+  .k-field--w-xs > :is(.k-input, .k-input-group) {
+    max-width: var(--field-w-xs);
+  }
+  .k-field--w-sm > :is(.k-input, .k-input-group) {
+    max-width: var(--field-w-sm);
+  }
+  .k-field--w-md > :is(.k-input, .k-input-group) {
+    max-width: var(--field-w-md);
+  }
+  /* В сетке формы ширину задаёт колонка */
+  .k-formgrid > .k-field > :is(.k-input, .k-input-group) {
+    max-width: none;
+  }
+  .k-filterbar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--space-gap);
+    align-items: end;
+  }
+  @media (max-width: 767.98px) {
+    .k-filterbar {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  /* ---------- Переключатель видов страницы (соединённая группа) ---------- */
+  /* Рамка группы — внутренней тенью, а промежуток до неё — прозрачной рамкой сегмента: сегмент нажимается
+     на всю высоту группы, цель касания 44 px (а не 44 минус отступ рамки) */
+  .k-segmented {
+    display: inline-flex;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 0;
+    border-radius: var(--radius-control);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    scrollbar-width: none;
+  }
+  .k-segmented > .k-chip {
+    flex: 1 0 auto;
+    justify-content: center;
+    min-height: var(--tap-min);
+    border: 3px solid transparent;
+    border-radius: var(--radius-control);
+    background: transparent;
+    background-clip: padding-box;
+    /* перенесённая на телефоне подпись — по центру, как у соседей в одну строку */
+    text-align: center;
+  }
+  /* Заливка — только внутри прозрачной рамки: шорткат background из .k-chip:hover и .k-chip[aria-pressed]
+     (та же специфичность, ниже в файле) сбрасывает background-clip, поэтому он задан здесь заново */
+  .k-segmented > .k-chip:hover {
+    background-color: var(--canvas);
+    background-clip: padding-box;
+  }
+  /* Выбранный отступает от рамки группы так же, как остальные: border-color из .k-chip[aria-pressed] сброшен */
+  .k-segmented > .k-chip[aria-pressed='true'],
+  .k-segmented > .k-chip[aria-selected='true'],
+  .k-segmented > .k-chip[aria-current='page'] {
+    border-color: transparent;
+    background-color: var(--brand);
+    background-clip: padding-box;
+    color: var(--on-brand);
+  }
+  /* Фокус внутри группы: overflow-x: auto режет всё за её краем. Кольцо лежит в прозрачной рамке сегмента
+     (offset −3 px) на фоне группы; у выбранного там тот же фон, поэтому кольцо — цветом текста на бренде
+     внутри заливки (--ring темы может совпадать с --brand) */
+  .k-segmented > .k-chip:focus-visible {
+    outline-offset: -3px;
+  }
+  .k-segmented > .k-chip:is([aria-pressed='true'], [aria-selected='true'], [aria-current='page']):focus-visible {
+    outline: 2px solid var(--on-brand);
+    outline-offset: -7px;
+  }
+  .k-tabs__list.k-segmented {
+    gap: 0;
+    padding: 0;
+  }
+  @media (max-width: 767.98px) {
+    .k-segmented {
+      display: flex;
+    }
+    .k-segmented > .k-chip {
+      flex: 1 1 0;
+    }
+  }
+
+  /* Числа, телефоны и даты в обычном тексте не переносятся */
+  .k-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .k-nowrap {
+    white-space: nowrap;
+  }
+
   /* ---------- Бейдж состояния: цвет + значок + текст ---------- */
   .k-badge {
     --b-fg: var(--text-2);
@@ -179,6 +473,20 @@
   .k-badge__icon {
     display: var(--status-icon-display, inline-flex);
     align-items: center;
+  }
+  .k-badge__dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  /* Счётчик: число без значка */
+  .k-badge--count {
+    min-width: 28px;
+    justify-content: center;
+    padding-inline: 8px;
+    font-variant-numeric: tabular-nums;
   }
   .k-badge__icon svg {
     width: 14px;
@@ -217,6 +525,15 @@
     overflow-x: auto;
     padding-block: 2px;
     scrollbar-width: none;
+  }
+  /* Лента чипов выходит к краю экрана: последний чип не обрезается на линии отступа */
+  @media (max-width: 767.98px) {
+    .k-page > .k-chips,
+    .k-page-header > .k-chips,
+    .k-page-header__tabs > .k-chips {
+      margin-inline: calc(-1 * var(--gutter));
+      padding-inline: var(--gutter);
+    }
   }
   .k-chip {
     display: inline-flex;
@@ -555,6 +872,26 @@
   .k-table [data-align='center'] {
     text-align: center;
   }
+  .k-table [data-numeric],
+  .k-table [data-nowrap] {
+    white-space: nowrap;
+  }
+  .k-table [data-numeric] {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .k-table--sticky-first th:first-child,
+  .k-table--sticky-first td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface);
+    box-shadow: 1px 0 0 var(--border);
+  }
+  .k-table tfoot td {
+    border-top: 2px solid var(--border-strong);
+    font-weight: 700;
+  }
   .k-table__empty {
     padding: 24px;
     text-align: center;
@@ -695,14 +1032,20 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding-block: var(--space-card);
   }
   .k-page-header__row {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-gap);
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
+  }
+  .k-page-header__heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
   }
   .k-page-header__title {
     margin: 0;
@@ -712,13 +1055,20 @@
     line-height: 1.15;
   }
   .k-page-header__lead {
-    margin: 4px 0 0;
+    margin: 0;
     color: var(--text-2);
   }
+  /* Действия в одной строке с h1; на телефоне, если не помещаются, уходят под заголовок к правому краю */
   .k-page-header__actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
     gap: 8px;
+    margin-inline-start: auto;
+  }
+  .k-page-header__tabs {
+    min-width: 0;
   }
 
   /* ---------- Диалог и нижний лист (нативный <dialog>) ---------- */
@@ -792,6 +1142,13 @@
     align-items: center;
     justify-content: space-between;
   }
+  .k-overlay__close {
+    --btn-fg: var(--text-2);
+    margin-inline-end: -8px;
+  }
+  .k-overlay__back {
+    margin-bottom: 4px;
+  }
   .k-overlay__title {
     margin: 0;
     font-family: var(--font-display);
@@ -806,6 +1163,7 @@
     flex: 1;
     min-height: 0;
     margin-top: var(--space-gap);
+    padding-bottom: 8px;
     overflow-y: auto;
   }
   .k-overlay__footer {
@@ -824,7 +1182,7 @@
   /* ---------- Тосты ---------- */
   .k-toasts {
     position: fixed;
-    inset: auto 0 max(12px, env(safe-area-inset-bottom)) 0;
+    inset: auto 0 calc(var(--bottom-nav-h) + 12px) 0;
     z-index: var(--z-toast);
     display: flex;
     flex-direction: column;
@@ -832,6 +1190,12 @@
     align-items: center;
     padding-inline: 12px;
     pointer-events: none;
+  }
+  /* На ноутбуке с боковым меню тосты стоят по центру области страницы, а не экрана */
+  @media (min-width: 768px) {
+    :root:has([data-shell='side']) .k-toasts {
+      padding-inline-start: calc(var(--sidebar-w) + 12px);
+    }
   }
   .k-toast {
     display: flex;

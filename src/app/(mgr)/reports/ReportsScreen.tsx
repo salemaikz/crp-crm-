@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState } from 'react';
-import { Alert, Checkbox, Chip, ChipGroup, Field, PageHeader, Select } from '@/ui/kit';
+import { Alert, Checkbox, Field, FilterBar, Page, PageHeader, Segmented, Select } from '@/ui/kit';
 import { loadReport, queryString, type LoadFailure } from './api';
 import { periodProblem } from './dates';
 import { ExportBar } from './ExportBar';
@@ -71,19 +71,16 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
   const sourceKeys = Object.keys(meta.labels.sources);
 
   return (
-    <>
-      <PageHeader title={t('page.title')} lead={t('page.lead')} />
-      <ExportBar actions={actions} query={query} disabled={periodProblem(query.from, query.to, meta.today)} />
-      <ChipGroup label={t('page.tabsLabel')} className="mb-4">
-        {REPORT_KEYS.map((k) => (
-          <Chip key={k} active={query.key === k} onClick={() => set({ key: k })}>
-            {t(`tabs.${k}`)}
-          </Chip>
-        ))}
-      </ChipGroup>
-      <section aria-label={t('filters.label')} className="mb-4 flex flex-col gap-4">
+    <Page width="wide">
+      <PageHeader
+        title={t('page.title')}
+        lead={t('page.lead')}
+        actions={<ExportBar actions={actions} query={query} disabled={periodProblem(query.from, query.to, meta.today)} />}
+        tabs={<Segmented label={t('page.tabsLabel')} items={REPORT_KEYS.map((k) => ({ id: k, label: t(`tabs.${k}`), active: query.key === k }))} onSelect={(k) => set({ key: k as ReportKey })} />}
+      />
+      <section aria-label={t('filters.label')} className="flex flex-col gap-4">
         <PeriodPicker from={query.from} to={query.to} today={meta.today} onChange={(r) => set(r)} />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:max-w-3xl">
+        <FilterBar>
           <Field label={t('filters.source')}>
             <Select name="source" value={query.source} onChange={(e) => set({ source: e.target.value })}>
               <option value="">{t('filters.sourceAll')}</option>
@@ -124,7 +121,7 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
               </Select>
             </Field>
           )}
-        </div>
+        </FilterBar>
         {meta.staff.length > 0 && (
           <details>
             <summary className="cursor-pointer py-2">
@@ -147,6 +144,6 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
           </Alert>
         )}
       </div>
-    </>
+    </Page>
   );
 }

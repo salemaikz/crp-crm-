@@ -1,6 +1,6 @@
 'use client';
 
-// Выгрузки с экрана отчётов (R3b): CSV и XLSX текущего отчёта — обычные ссылки на скачивание (навигация своего сайта,
+// Выгрузки с экрана отчётов (R3b), стоят в действиях шапки страницы (D-319): CSV и XLSX текущего отчёта — обычные ссылки на скачивание (навигация своего сайта,
 // `Sec-Fetch-Site: same-origin`, D-263); полная выгрузка — диалог с паролем; журнал — для администратора и директора.
 import { useTranslations } from 'next-intl';
 import { Button } from '@/ui/kit';
@@ -20,23 +20,23 @@ export function ExportBar({ actions, query, disabled }: Props) {
   const t = useTranslations('reports');
   if (!actions.csv && !actions.full && !actions.journal) return null;
   return (
-    <section aria-label={t('export.label')} className="mb-4 flex flex-wrap items-start gap-2">
+    <>
       {actions.csv && !disabled && (
-        <Button variant="secondary" href={exportHref(query, 'csv')} external download aria-label={`${t('export.label')} ${t('export.csv')}`}>
+        <Button variant="secondary" size="sm" href={exportHref(query, 'csv')} external download aria-label={`${t('export.label')} ${t('export.csv')}`}>
           {t('export.csv')}
         </Button>
       )}
       {actions.xlsx && !disabled && (
-        <Button variant="secondary" href={exportHref(query, 'xlsx')} external download aria-label={`${t('export.label')} ${t('export.xlsx')}`}>
+        <Button variant="secondary" size="sm" href={exportHref(query, 'xlsx')} external download aria-label={`${t('export.label')} ${t('export.xlsx')}`}>
           {t('export.xlsx')}
         </Button>
       )}
       {actions.full && <FullExportDialog limit={actions.fullLimit} />}
       {actions.journal && (
-        <Button variant="quiet" href="/reports/exports">
+        <Button variant="quiet" size="sm" href="/reports/exports">
           {t('journal.link')}
         </Button>
       )}
-    </section>
+    </>
   );
 }

@@ -5,7 +5,7 @@ import { page } from '@/server/access';
 import { bookingDeps, getMyConsultation, isBookingDomainError, pickLabel } from '@/server/domain/booking';
 import { stageFieldLabelsFor } from '@/server/domain/deals';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { Button, Card, PageHeader } from '@/ui/kit';
+import { Button, Page, PageHeader } from '@/ui/kit';
 import { MeetingPanel } from '../_meeting/MeetingPanel';
 
 type Props = { params: Promise<{ bookingId: string }> };
@@ -38,11 +38,12 @@ export default page<Props, ReactNode>({ perm: 'booking.read', target: 'object' }
   const dir = settings?.catalog.directions.find((d) => d.key === b.directionKey);
   const when = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${b.bookingDate}T12:00:00Z`));
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-4">
-      <PageHeader title={view.clientName || t('client')} lead={`${when}, ${b.startTime} · ${t('duration', { minutes: b.durationMin })}${dir ? ` · ${pickLabel(dir.label, locale)}` : ''}`} />
-      <div className="flex flex-col gap-4">
-        <Card as="section">
-          <div className="flex flex-wrap gap-2">
+    <Page width="form">
+      <PageHeader
+        title={view.clientName || t('client')}
+        lead={`${when}, ${b.startTime} · ${t('duration', { minutes: b.durationMin })}${dir ? ` · ${pickLabel(dir.label, locale)}` : ''}`}
+        actions={
+          <>
             <Button href={`/clients/${encodeURIComponent(b.clientId)}`} variant="secondary" size="sm">
               {t('toClient')}
             </Button>
@@ -51,8 +52,10 @@ export default page<Props, ReactNode>({ perm: 'booking.read', target: 'object' }
                 {t('toDeal')}
               </Button>
             )}
-          </div>
-        </Card>
+          </>
+        }
+      />
+      <div className="flex flex-col gap-4">
         <MeetingPanel
           bookingId={b.id}
           version={b.version}
@@ -64,6 +67,6 @@ export default page<Props, ReactNode>({ perm: 'booking.read', target: 'object' }
           fieldLabels={Object.fromEntries(Object.entries(labels).map(([k, l]) => [k, pickLabel(l, locale)]))}
         />
       </div>
-    </main>
+    </Page>
   );
 });

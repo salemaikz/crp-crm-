@@ -12,10 +12,17 @@ export function useTaskLabel(): (task: Pick<TaskRow, 'source' | 'title'>) => str
   return (task) => (task.source === 'manual' && task.title ? task.title : t(`source.${task.source}`));
 }
 
-type Props = { task: TaskRow; timeZone: string; showAssignee: boolean; onOpen: (task: TaskRow) => void };
+type Props = {
+  task: TaskRow;
+  timeZone: string;
+  showAssignee: boolean;
+  onOpen: (task: TaskRow) => void;
+  /** Строка стоит в группе «Просрочено»: слово не повторяем, срок и так красный. */
+  inOverdueGroup?: boolean;
+};
 
 /** Строка задачи: подпись, клиент, срок, исполнитель (в «Команде»), комментарии. Просрочка — цвет + значок + слово. */
-export function TaskRowItem({ task, timeZone, showAssignee, onOpen }: Props) {
+export function TaskRowItem({ task, timeZone, showAssignee, onOpen, inOverdueGroup }: Props) {
   const t = useTranslations('tasks');
   const label = useTaskLabel()(task);
   const overdue = task.status === 'open' && task.bucket === 'overdue';
@@ -39,7 +46,7 @@ export function TaskRowItem({ task, timeZone, showAssignee, onOpen }: Props) {
         </span>
       }
       trailing={
-        overdue ? (
+        overdue && !inOverdueGroup ? (
           <Badge tone="danger" icon={<AlertTriangle aria-hidden="true" size={14} />}>
             {t('row.overdue')}
           </Badge>

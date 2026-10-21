@@ -4,13 +4,14 @@ import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import type { Viewer } from '@/server/access';
 import { unreadCount } from '@/server/domain/notify';
+import { getActiveConfigOrNull } from '@/server/platform/config/active';
 import { ChannelModesProvider } from '@/ui/channels';
 import { loadChannelModes } from '@/ui/channels/loadModes';
 import { AppShell } from './AppShell';
 import { loadLicenseBanner } from './loadBanner';
 import { loadMenu } from './loadMenu';
 import { foreignOutboxTtlMs } from './outboxTtl';
-import type { ShellKind } from './menu';
+import { MENU_GROUP, MENU_GROUPS, type ShellKind } from './menu';
 
 type Props = {
   viewer: Viewer;
@@ -22,7 +23,7 @@ type Props = {
 };
 
 export async function RoleShell({ viewer, force, bellCount, children }: Props) {
-  const [t, tc, menu, unread, modes, outboxTtlMs, banner] = await Promise.all([
+  const [t, tc, menu, unread, modes, outboxTtlMs, config, banner] = await Promise.all([
     getTranslations('shell'),
     getTranslations('common.app'),
     loadMenu(viewer, force),
@@ -30,6 +31,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
     // как звонить и писать (D-268): кнопки «Позвонить» и «WhatsApp» читают режим из контекста
     loadChannelModes(viewer),
     foreignOutboxTtlMs(),
+    getActiveConfigOrNull(),
     loadLicenseBanner(viewer),
   ]);
   const bannerView = banner
@@ -41,11 +43,15 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
         dismissLabel: t('license.dismiss'),
       }
     : null;
-  const items = menu.items.map((i) => ({ ...i, label: t(`nav.${i.id}`) }));
+  const items = menu.items.map((i) => ({ ...i, label: t(`nav.${i.id}`), group: MENU_GROUP[i.id] }));
+  const groups = Object.fromEntries(MENU_GROUPS.map((g) => [g, t(`group.${g}`)])) as Record<(typeof MENU_GROUPS)[number], string>;
+  // Название — из настроек установки (org.productName); нет настроек — запасное из локали
+  const brand = config?.global.org.productName?.ru?.trim() || tc('name');
   return (
     <AppShell
       variant={menu.shell === 'operator' ? 'bottom' : 'side'}
-      brand={tc('name')}
+      brand={brand}
+      groups={groups}
       navLabel={t('nav.label')}
       items={items}
       bottomSlots={menu.bottomSlots}

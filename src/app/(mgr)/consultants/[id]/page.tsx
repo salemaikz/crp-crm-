@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { page } from '@/server/access';
 import { bookingDeps, getConsultant, getSchedule, isBookingDomainError } from '@/server/domain/booking';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { PageHeader } from '@/ui/kit';
+import { Page, PageHeader } from '@/ui/kit';
 import { ScheduleEditor } from './_schedule/ScheduleEditor';
 
 type Props = { params: Promise<{ id: string }> };
@@ -18,10 +18,10 @@ export default page<Props, ReactNode>({ perm: 'booking.manage', target: 'section
   try {
     const [consultant, schedule] = await Promise.all([getConsultant(deps, viewer, id), getSchedule(deps, viewer, id)]);
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-6">
+      <Page width="form">
         <PageHeader title={t('title', { name: consultant.name })} />
         <ScheduleEditor resourceId={consultant.id} initial={schedule} />
-      </main>
+      </Page>
     );
   } catch (e) {
     if (isBookingDomainError(e) && e.code === 'consultant_not_found') notFound();

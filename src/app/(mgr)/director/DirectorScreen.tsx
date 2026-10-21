@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState } from 'react';
 import { fmtDec, fmtInt, formatDay } from '../reports/format';
 import { FUNNEL_STEPS } from '../reports/types';
-import { Alert, Button, Card, EmptyState, PageHeader, Stat, Table, type TableColumn } from '@/ui/kit';
+import { Alert, Button, EmptyState, Page, PageHeader, Section, Stat, StatGrid, Table, type TableColumn } from '@/ui/kit';
 import type { DirectorData, DirectorProps, RevenueRow } from './types';
 
 type Failure = 'forbidden' | 'unauthorized' | 'network' | 'generic';
@@ -65,114 +65,111 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
       primary: true,
       cell: (r) => <strong>{r.serviceTypeKey === '' ? tr('noType') : (labels.serviceTypes[r.serviceTypeKey] ?? r.serviceTypeKey)}</strong>,
     },
-    { key: 'purchases', header: tr('cols.purchases'), align: 'right', cell: (r) => fmtInt(r.purchases) },
-    { key: 'sum', header: tr('cols.sum'), align: 'right', cell: (r) => money(r.sumKzt) },
+    { key: 'purchases', header: tr('cols.purchases'), numeric: true, cell: (r) => fmtInt(r.purchases) },
+    { key: 'sum', header: tr('cols.sum'), numeric: true, cell: (r) => money(r.sumKzt) },
   ];
   const stock = data.stock;
   const updated = new Intl.DateTimeFormat('ru-RU', { timeZone: data.week.timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(data.generatedAt));
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader
         title={t('title')}
         lead={`${t('lead', { from: formatDay(data.week.from), to: formatDay(data.week.to) })} · ${t('updatedAt', { time: updated })}`}
         actions={
-          <Button variant="primary" onClick={() => void refresh()} disabled={busy} aria-busy={busy}>
+          <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={busy} aria-busy={busy}>
             <RefreshCw aria-hidden="true" size={18} /> {t('refresh')}
           </Button>
         }
       />
       {error && <Alert tone="warning">{t(`errors.${error}`)}</Alert>}
-      <section aria-label={t('tilesLabel')} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <Card>
-          <Stat
-            value={t('tiles.calls.value', { outcomes: fmtInt(data.calls.outcomes), connects: fmtInt(data.calls.connects) })}
-            label={t('tiles.calls.title')}
-            hint={
-              <>
-                {t('tiles.calls.hint')}
-                <br />
-                {prev(fmtInt(data.calls.prevOutcomes))}
-              </>
-            }
-          />
-        </Card>
-        <Card>
-          <Stat
-            value={t('tiles.bookings.value', { groups: fmtInt(data.bookings.groups), consults: fmtInt(data.bookings.consults) })}
-            label={t('tiles.bookings.title')}
-            hint={t('tiles.bookings.hint')}
-          />
-        </Card>
-        <Card>
-          <Stat
-            value={t('tiles.attendance.value', { attended: fmtInt(att.attended), total: fmtInt(att.attended + att.noShow) })}
-            label={`${t('tiles.attendance.title')}: ${percent(att.rate)}`}
-            hint={t('tiles.attendance.hint', { noShow: fmtInt(att.noShow) })}
-          />
-        </Card>
-        <Card>
-          <Stat
-            value={t('tiles.purchases.value', { count: fmtInt(data.purchases.count) })}
-            label={t('tiles.purchases.title')}
-            hint={
-              <>
-                {t('tiles.purchases.hint', { sum: money(data.purchases.sumKzt) })}
-                <br />
-                {prev(`${fmtInt(data.purchases.prevCount)} · ${money(data.purchases.prevSumKzt)}`)}
-              </>
-            }
-          />
-        </Card>
-        <Card>
-          <Stat
-            value={stock.days === null ? t('tiles.stock.none') : t('tiles.stock.value', { days: fmtDec(stock.days) })}
-            label={t('tiles.stock.title')}
-            hint={t('tiles.stock.hint', { ready: fmtInt(stock.poolReady), capacity: fmtInt(stock.capacityPerDay) })}
-          />
-        </Card>
-      </section>
+      <StatGrid aria-label={t('tilesLabel')}>
+        <Stat
+          value={t('tiles.calls.value', { outcomes: fmtInt(data.calls.outcomes), connects: fmtInt(data.calls.connects) })}
+          label={t('tiles.calls.title')}
+          hint={
+            <>
+              {t('tiles.calls.hint')}
+              <br />
+              {prev(fmtInt(data.calls.prevOutcomes))}
+            </>
+          }
+        />
+        <Stat
+          value={t('tiles.bookings.value', { groups: fmtInt(data.bookings.groups), consults: fmtInt(data.bookings.consults) })}
+          label={t('tiles.bookings.title')}
+          hint={t('tiles.bookings.hint')}
+        />
+        <Stat
+          value={t('tiles.attendance.value', { attended: fmtInt(att.attended), total: fmtInt(att.attended + att.noShow) })}
+          label={`${t('tiles.attendance.title')}: ${percent(att.rate)}`}
+          hint={t('tiles.attendance.hint', { noShow: fmtInt(att.noShow) })}
+        />
+        <Stat
+          value={t('tiles.purchases.value', { count: fmtInt(data.purchases.count) })}
+          label={t('tiles.purchases.title')}
+          hint={
+            <>
+              {t('tiles.purchases.hint', { sum: money(data.purchases.sumKzt) })}
+              <br />
+              {prev(`${fmtInt(data.purchases.prevCount)} · ${money(data.purchases.prevSumKzt)}`)}
+            </>
+          }
+        />
+        <Stat
+          value={stock.days === null ? t('tiles.stock.none') : t('tiles.stock.value', { days: fmtDec(stock.days) })}
+          label={t('tiles.stock.title')}
+          hint={t('tiles.stock.hint', { ready: fmtInt(stock.poolReady), capacity: fmtInt(stock.capacityPerDay) })}
+        />
+      </StatGrid>
 
-      <h2 className="mt-6 mb-3 text-lg font-semibold">{t('funnel.title')}</h2>
-      <Card>
-        <ol className="flex flex-wrap gap-x-6 gap-y-3" aria-label={t('funnel.title')}>
+      {/* Каждая «подробнее» стоит в шапке своего блока, а не рядом внизу страницы */}
+      <Section
+        title={t('funnel.title')}
+        actions={
+          <>
+            <Button variant="quiet" size="sm" href={moreHref('funnel', data)}>
+              {t('more')}
+            </Button>
+            <Button variant="quiet" size="sm" href={moreHref('operators', data)}>
+              {t('moreOperators')}
+            </Button>
+            <Button variant="quiet" size="sm" href={moreHref('attendance', data)}>
+              {t('moreAttendance')}
+            </Button>
+          </>
+        }
+      >
+        <StatGrid variant="strip" aria-label={t('funnel.title')}>
           {FUNNEL_STEPS.map((step) => (
-            <li key={step} className="min-w-24">
-              <Stat value={fmtInt(data.funnel.counts[step])} label={tf(`steps.${step}`)} hint={step === 'issued' ? undefined : percent(data.funnel.rates[step])} />
-            </li>
+            <Stat key={step} value={fmtInt(data.funnel.counts[step])} label={tf(`steps.${step}`)} hint={step === 'issued' ? undefined : percent(data.funnel.rates[step])} />
           ))}
-        </ol>
-        <div className="mt-3">
-          <Button variant="quiet" href={moreHref('funnel', data)}>
-            {t('more')}
-          </Button>
-        </div>
-      </Card>
+        </StatGrid>
+      </Section>
 
-      <h2 className="mt-6 mb-3 text-lg font-semibold">{t('revenue.title')}</h2>
-      {revenueRows.length === 0 ? (
-        <EmptyState title={t('revenue.empty')} />
-      ) : (
-        <div className="min-w-0">
-          <Table caption={tr('caption')} columns={cols} rows={revenueRows} rowKey={(r) => r.serviceTypeKey} dense stackOnMobile={false} />
-        </div>
-      )}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="quiet" href={moreHref('revenue', data)}>
-          {t('more')}
-        </Button>
-        <Button variant="quiet" href={moreHref('operators', data)}>
-          {t('moreOperators')}
-        </Button>
-        <Button variant="quiet" href={moreHref('attendance', data)}>
-          {t('moreAttendance')}
-        </Button>
-        {canExport && (
-          <Button variant="secondary" href={`/api/reports/revenue/export?from=${data.week.from}&to=${data.week.to}&format=csv`} external download>
-            {t('export.revenue')}
-          </Button>
+      <Section
+        title={t('revenue.title')}
+        actions={
+          <>
+            <Button variant="quiet" size="sm" href={moreHref('revenue', data)}>
+              {t('more')}
+            </Button>
+            {canExport && (
+              <Button variant="secondary" size="sm" href={`/api/reports/revenue/export?from=${data.week.from}&to=${data.week.to}&format=csv`} external download>
+                {t('export.revenue')}
+              </Button>
+            )}
+          </>
+        }
+      >
+        {revenueRows.length === 0 ? (
+          <EmptyState title={t('revenue.empty')} />
+        ) : (
+          <div className="min-w-0">
+            <Table caption={tr('caption')} captionHidden columns={cols} rows={revenueRows} rowKey={(r) => r.serviceTypeKey} dense stackOnMobile={false} />
+          </div>
         )}
-      </div>
-    </>
+      </Section>
+    </Page>
   );
 }

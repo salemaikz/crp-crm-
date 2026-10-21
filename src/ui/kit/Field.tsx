@@ -22,6 +22,8 @@ type Props = {
   optionalLabel?: ReactNode;
   /** id поля; по умолчанию — из id или name дочернего контрола. */
   id?: string;
+  /** Ширина поля по токенам `--field-w-*`: число — xs, дата и время — sm, выбор и короткий текст — md. */
+  width?: 'xs' | 'sm' | 'md' | 'full';
   className?: string;
   /** Ровно один контрол: <Input>, <Select>, <Textarea>, <PasswordInput>. */
   children: ReactElement<ControlProps>;
@@ -31,7 +33,7 @@ type Props = {
  * Поле формы: метка + контрол + подсказка + ошибка (с иконкой, не только цветом).
  * Сам проставляет контролу id, aria-invalid и aria-describedby.
  */
-export function Field({ label, hint, error, required, optionalLabel, id, className, children }: Props) {
+export function Field({ label, hint, error, required, optionalLabel, id, width = 'full', className, children }: Props) {
   const child = Children.only(children);
   const own = isValidElement(child) ? child.props : {};
   const fieldId = id ?? own.id ?? (own.name ? `field-${own.name}` : undefined);
@@ -47,7 +49,7 @@ export function Field({ label, hint, error, required, optionalLabel, id, classNa
   });
 
   return (
-    <div className={cn('k-field', className)}>
+    <div className={cn('k-field', width !== 'full' && `k-field--w-${width}`, className)}>
       <label htmlFor={fieldId} className="k-field__label">
         {label}
         {required && (

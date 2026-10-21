@@ -10,9 +10,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { BottomSheet } from '@/ui/kit';
-import { currentHref, type MenuId } from './menu';
+import { MENU_GROUPS, currentHref, type MenuGroup, type MenuId } from './menu';
 
-export type NavEntry = { id: MenuId; href: string; label: string };
+export type NavEntry = { id: MenuId; href: string; label: string; group: MenuGroup };
 
 const ICONS: Record<MenuId, LucideIcon> = {
   call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive,
@@ -27,29 +27,50 @@ function iconOf(id: MenuId): LucideIcon {
   return ICONS[id] ?? FALLBACK_ICON;
 }
 
-/** Боковая навигация: ноутбук. */
-export function SideNav({ label, items }: { label: string; items: readonly NavEntry[] }) {
+const sideLink =
+  'inline-flex min-h-11 items-center gap-2 rounded-lg px-3 whitespace-nowrap aria-[current=page]:font-semibold';
+const activeStyle = { background: 'var(--brand-tint)', color: 'var(--brand-ink)' } as const;
+
+/** Боковая навигация: ноутбук. Пункты по группам с короткой подписью; пустая группа не показывается. */
+export function SideNav({ label, items, groups }: { label: string; items: readonly NavEntry[]; groups: Record<MenuGroup, string> }) {
   const pathname = usePathname();
   const current = currentHref(pathname, items.map((i) => i.href));
   return (
     <nav aria-label={label} className="hidden flex-col gap-1 px-2 pb-4 md:flex">
-      {items.map((item) => {
-        const active = item.href === current;
-        const Icon = iconOf(item.id);
+      {MENU_GROUPS.map((g) => {
+        const inGroup = items.filter((i) => i.group === g);
+        if (inGroup.length === 0) return null;
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            aria-current={active ? 'page' : undefined}
-            className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 whitespace-nowrap aria-[current=page]:font-semibold"
-            style={active ? { background: 'var(--brand-tint)', color: 'var(--brand-ink)' } : undefined}
-          >
-            <Icon size={18} aria-hidden="true" />
-            {item.label}
-          </Link>
+          <div key={g} role="group" aria-label={groups[g]} className="flex flex-col gap-1">
+            <p className="px-3 pt-3 pb-1 text-xs font-semibold" style={{ color: 'var(--text-3)' }}>
+              {groups[g]}
+            </p>
+            {inGroup.map((item) => {
+              const active = item.href === current;
+              const Icon = iconOf(item.id);
+              return (
+                <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} className={sideLink} style={active ? activeStyle : undefined}>
+                  <Icon size={18} aria-hidden="true" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
         );
       })}
     </nav>
+  );
+}
+
+/** «Мой аккаунт» внизу боковой колонки: пункт меню по левому краю со значком. */
+export function AccountLink({ href, label }: { href: string; label: string }) {
+  const pathname = usePathname();
+  const active = currentHref(pathname, [href]) === href;
+  return (
+    <Link href={href} aria-current={active ? 'page' : undefined} className={sideLink} style={active ? activeStyle : undefined}>
+      <User size={18} aria-hidden="true" />
+      {label}
+    </Link>
   );
 }
 
@@ -63,7 +84,7 @@ type BottomProps = {
   more: { label: string; closeLabel: string; account: { href: string; label: string }; logout: ReactNode };
 };
 
-const slot = 'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 text-xs aria-[current=page]:font-semibold';
+const slot = 'flex min-h-11 min-w-0 flex-1 basis-0 flex-col items-center justify-center gap-0.5 px-1 py-1 text-xs aria-[current=page]:font-semibold';
 const sheetLink = 'flex min-h-11 items-center gap-3 rounded-lg px-2 aria-[current=page]:font-semibold';
 
 /** Нижняя панель телефона: первые пункты и «Ещё» (остальные пункты и личный кабинет). */
@@ -79,7 +100,7 @@ export function BottomNav({ label, always, items, slots, more }: BottomProps) {
       <nav
         aria-label={label}
         className={`fixed inset-x-0 bottom-0 z-30 flex border-t ${always ? '' : 'md:hidden'}`}
-        style={{ borderColor: 'var(--border)', background: 'var(--surface)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+        style={{ borderColor: 'var(--border)', background: 'var(--surface)', height: 'var(--bottom-nav-h)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {shown.map((item) => {
           const active = item.href === current;
@@ -137,7 +158,7 @@ export function BottomNav({ label, always, items, slots, more }: BottomProps) {
 /** Колокольчик уведомлений: место под P8a; бейдж скрыт, пока счётчик 0. */
 export function NotificationBell({ href, label, count }: { href: string; label: string; count: number }) {
   return (
-    <Link href={href} aria-label={count > 0 ? `${label}: ${count}` : label} className="relative inline-flex min-h-11 min-w-11 items-center justify-center">
+    <Link href={href} aria-label={count > 0 ? `${label}: ${count}` : label} className="relative -mr-3 inline-flex min-h-11 min-w-11 items-center justify-center md:mr-0">
       <Bell size={20} aria-hidden="true" />
       {count > 0 ? (
         <span

@@ -2,7 +2,8 @@ import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { BadRequestError, page } from '@/server/access';
 import { CARD_STATES, listClients, parseListQuery, type ClientList } from '@/server/domain/clients';
-import { Badge, Button, Chip, ChipGroup, EmptyState, Input, List, ListItem } from '@/ui/kit';
+import { Search } from 'lucide-react';
+import { Badge, Button, Chip, ChipGroup, EmptyState, Input, List, ListItem, Page, PageHeader, Segmented } from '@/ui/kit';
 import { can } from '@/server/access';
 import { ProposeSheet } from './_ui/ProposeSheet';
 import { formatDateTime, formatPhone } from './_ui/format';
@@ -47,34 +48,36 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'section' }
   const view = sp.get('view') === 'mine' ? 'mine' : 'all';
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-4 lg:py-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">{t('list.title')}</h1>
-        {can(viewer, 'client.propose') && <ProposeSheet />}
-      </div>
-      <ChipGroup label={t('list.view')} className="mb-3">
-        <Chip href={hrefWith(sp, (p) => p.delete('view'))} active={view === 'all'}>
-          {t('list.viewAll')}
-        </Chip>
-        <Chip href={hrefWith(sp, (p) => p.set('view', 'mine'))} active={view === 'mine'}>
-          {t('list.viewMine')}
-        </Chip>
-        <Chip href="/archive" active={false}>
-          {t('list.viewArchive')}
-        </Chip>
-      </ChipGroup>
-      <form method="get" action="/clients" role="search" className="mb-3 flex flex-col gap-2 sm:flex-row">
+    <Page width="list">
+      <PageHeader
+        title={t('list.title')}
+        actions={can(viewer, 'client.propose') ? <ProposeSheet /> : undefined}
+        tabs={
+          <Segmented
+            label={t('list.view')}
+            items={[
+              { id: 'all', label: t('list.viewAll'), href: hrefWith(sp, (p) => p.delete('view')), active: view === 'all' },
+              { id: 'mine', label: t('list.viewMine'), href: hrefWith(sp, (p) => p.set('view', 'mine')), active: view === 'mine' },
+              { id: 'archive', label: t('list.viewArchive'), href: '/archive' },
+            ]}
+          />
+        }
+      />
+      <form method="get" action="/clients" role="search" className="flex flex-col gap-1">
         {states.map((s) => (
           <input key={s} type="hidden" name="state" value={s} />
         ))}
         {view === 'mine' && <input type="hidden" name="view" value="mine" />}
-        <Input name="q" type="search" defaultValue={q} placeholder={t('list.searchPlaceholder')} aria-label={t('list.search')} maxLength={100} className="sm:flex-1" />
-        <Button type="submit" variant="primary">
-          {t('list.searchSubmit')}
-        </Button>
+        {/* Поиск — поле со значком отправки внутри (Enter тоже отправляет), без второй полноширинной кнопки */}
+        <div className="k-input-group">
+          <Input name="q" type="search" defaultValue={q} placeholder={t('list.searchPlaceholder')} aria-label={t('list.search')} maxLength={100} />
+          <button type="submit" className="k-input-group__btn" aria-label={t('list.searchSubmit')}>
+            <Search aria-hidden="true" />
+          </button>
+        </div>
+        <p className="text-sm text-[var(--text-2)]">{list.hint === 'short' ? t('list.shortQuery') : t('list.searchHint')}</p>
       </form>
-      <p className="mb-3 text-sm text-[var(--text-2)]">{list.hint === 'short' ? t('list.shortQuery') : t('list.searchHint')}</p>
-      <ChipGroup label={t('list.stateFilter')} className="mb-4">
+      <ChipGroup label={t('list.stateFilter')}>
         <Chip href={hrefWith(sp, (p) => p.delete('state'))} active={states.length === 0}>
           {t('list.stateAll')}
         </Chip>
@@ -110,12 +113,12 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'section' }
         </List>
       )}
       {list.next && (
-        <div className="mt-4">
+        <div>
           <Button href={hrefWith(sp, (p) => p.set('cursor', list.next ?? ''))} variant="secondary">
             {t('list.more')}
           </Button>
         </div>
       )}
-    </main>
+    </Page>
   );
 });

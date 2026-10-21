@@ -37,7 +37,7 @@ test('вход → очередь → Позвонить → шторка → «
   await expect(sheet).toBeHidden();
   await expect(page.getByText('Сохранено')).toBeVisible();
   await expect(cardTitle(page)).toHaveText(op.names[1]!);
-  await expect(page.getByTestId('call-today')).toContainText('1 итог');
+  await expect(page.getByTestId('call-today')).toContainText(/1\s*итог/);
 
   // Итог дошёл до сервера после окна отмены
   await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 20_000 }).toBe(1);
@@ -64,7 +64,7 @@ test('«Отменить» за 5 секунд: итог не доходит д�
   // Окно отмены давно прошло бы — на сервере итога нет
   await page.waitForTimeout(8_000);
   expect(await callsOf(op.id)).toHaveLength(0);
-  await expect(page.getByTestId('call-today')).toContainText('0 итогов');
+  await expect(page.getByTestId('call-today')).toContainText(/0\s*итогов/);
 });
 
 test('шторка и отмеченное в ней переживают перезапуск; закрытая шторка открывается кнопкой «Указать итог»', async ({ page }) => {
@@ -111,7 +111,7 @@ test('«Пропустить»: карточка уходит в конец оч
   await openCall(page, op);
   await page.getByTestId('call-skip').click();
   await expect(cardTitle(page)).toHaveText(op.names[1]!);
-  await expect(page.getByTestId('call-today')).toContainText('пропусков 1 из');
+  await expect(page.getByTestId('call-today')).toContainText(/1\/\d+\s*пропусков/);
   await expect.poll(async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM skips WHERE user_id = ${op.id}`)[0]!.n).toBe(1);
 });
 
@@ -195,7 +195,7 @@ test('«Договорились»: ЛПР и ниша → «Записать к
   expect(card!.state).toBe('agreed');
 
   // Строка «Сегодня» — с сервера: итог, дозвон и запись
-  await expect(page.getByTestId('call-today')).toContainText('1 запись');
+  await expect(page.getByTestId('call-today')).toContainText(/1\s*запись/);
 });
 
 test('«Запишу позже»: итог «Договорились» без записи и задача «записать» на следующий рабочий день', async ({ page }) => {
@@ -239,8 +239,8 @@ test('«Сегодня» берётся с сервера: итоги с дру�
               SELECT ${randomUUID()}, c.space_id, c.id, c.client_id, ${op.id}, 'ui', '', 'agreed', 'agreed', 'applied', ${t}, ${t}, 1 FROM cards c WHERE c.id = ${op.cardIds[1]!}`;
   }
   await openCall(page, op);
-  await expect(page.getByTestId('call-today')).toContainText('2 итога');
-  await expect(page.getByTestId('call-today')).toContainText('2 дозвона');
+  await expect(page.getByTestId('call-today')).toContainText(/2\s*итога/);
+  await expect(page.getByTestId('call-today')).toContainText(/2\s*дозвона/);
 });
 
 test('колокольчик показывает число непрочитанных уведомлений', async ({ page }) => {

@@ -20,11 +20,13 @@ type Props = {
   /** Управляемый режим. */
   value?: string;
   onChange?: (id: string) => void;
+  /** segmented — соединённая группа для переключения видов страницы; chips — чипы-фильтры (по умолчанию). */
+  variant?: 'chips' | 'segmented';
   className?: string;
 };
 
 /** Вкладки-чипы (очередь: Все / Перезвоны / Повторы / Новые) (WAI-ARIA tabs): стрелки ←/→, Home/End. */
-export function Tabs({ items, label, defaultTab, value, onChange, className }: Props) {
+export function Tabs({ items, label, defaultTab, value, onChange, variant = 'chips', className }: Props) {
   const baseId = useId();
   const [inner, setInner] = useState(defaultTab ?? items[0]?.id);
   const active = value ?? inner;
@@ -52,7 +54,7 @@ export function Tabs({ items, label, defaultTab, value, onChange, className }: P
 
   return (
     <div className={cn('k-tabs', className)}>
-      <div role="tablist" aria-label={label} className="k-tabs__list">
+      <div role="tablist" aria-label={label} className={cn('k-tabs__list', variant === 'segmented' && 'k-segmented')}>
         {items.map((item, i) => {
           const selected = item.id === active;
           return (

@@ -2,7 +2,10 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 import { cn } from './cn';
 
-type Props = HTMLAttributes<HTMLElement> & {
+type Props = Omit<HTMLAttributes<HTMLElement>, 'title'> & {
+  /** Заголовок карточки (h2) слева; действия — справа в той же строке. */
+  title?: ReactNode;
+  actions?: ReactNode;
   as?: 'div' | 'article' | 'section' | 'aside' | 'li';
   /** solid — рамка 1 px; dashed — пунктир (место под добавление). */
   tone?: 'solid' | 'dashed';
@@ -13,7 +16,7 @@ type Props = HTMLAttributes<HTMLElement> & {
 };
 
 /** Карточка: плоская поверхность с рамкой, тени нет. */
-export function Card({ as: Tag = 'div', tone = 'solid', padding = 'md', interactive, className, children, ...rest }: Props) {
+export function Card({ as: Tag = 'div', title, actions, tone = 'solid', padding = 'md', interactive, className, children, ...rest }: Props) {
   return (
     <Tag
       className={cn(
@@ -25,6 +28,12 @@ export function Card({ as: Tag = 'div', tone = 'solid', padding = 'md', interact
       )}
       {...rest}
     >
+      {(title || actions) && (
+        <div className="k-card__head">
+          {title ? <h2 className="k-section__title">{title}</h2> : <span />}
+          {actions && <div className="k-section__actions">{actions}</div>}
+        </div>
+      )}
       {children}
     </Tag>
   );

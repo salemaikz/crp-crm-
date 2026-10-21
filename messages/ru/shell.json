@@ -8,7 +8,7 @@
     "archive": "Архив",
     "summary": "Сводка",
     "distribution": "Раздача",
-    "kanban": "Канбан",
+    "kanban": "Сделки",
     "reports": "Отчёты",
     "settings": "Настройки",
     "import": "Импорт",
@@ -20,6 +20,11 @@
     "director": "Панель директора",
     "exports": "Выгрузки",
     "integrations": "Интеграции"
+  },
+  "group": {
+    "work": "Работа",
+    "analytics": "Аналитика",
+    "manage": "Управление"
   },
   "more": "Ещё",
   "close": "Закрыть",

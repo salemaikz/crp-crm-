@@ -4,7 +4,8 @@
 // под выбранным итогом — только обязательные для него поля. Итог без обязательных полей ставится одним нажатием.
 import { useFormatter, useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { BottomSheet, Button, Checkbox, Chip, ChipGroup, Field, Input, Select, Textarea } from '@/ui/kit';
+import { ArrowLeft, Check } from 'lucide-react';
+import { BottomSheet, Button, Checkbox, Chip, ChipGroup, Field, Input, Segmented, Select, Textarea } from '@/ui/kit';
 import type { BookingWizardProps } from '@/app/(op)/bookings/_wizard/BookingWizard';
 import { BookingPanel } from './BookingPanel';
 import { resolvePreset } from './callback';
@@ -73,6 +74,14 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
       closeLabel={t('sheet.close')}
       title={booking ? t('booking.title') : t('sheet.title')}
       description={`${pending.call.title} · ${pending.call.phoneMasked}`}
+      back={
+        booking && selected ? (
+          <Button variant="quiet" size="sm" flush onClick={onBookingBack} data-testid="booking-back">
+            <ArrowLeft aria-hidden="true" />
+            {t('sheet.back')}
+          </Button>
+        ) : undefined
+      }
       footer={
         selected &&
         !booking &&
@@ -97,21 +106,24 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
           cardId={pending.call.cardId}
           submit={submitBooking}
           onDone={onBooked}
-          onBack={onBookingBack}
           onLater={() => onLater(selected, fieldValues)}
         />
       ) : (
         <div className="flex flex-col gap-4" data-testid="outcome-sheet">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <ChipGroup label={t('sheet.lprLabel')} className="items-center">
+          {/* ЛПР «Да / Нет» — две равные доли; «Целевой» — отдельный флажок-чип справа */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className="text-sm font-semibold">{t('sheet.lpr')}</span>
-              <Chip active={d.lpr === 'yes'} onClick={() => onChange({ lpr: d.lpr === 'yes' ? '' : 'yes' })} data-testid="lpr-yes">
-                {t('sheet.yes')}
-              </Chip>
-              <Chip active={d.lpr === 'no'} onClick={() => onChange({ lpr: d.lpr === 'no' ? '' : 'no' })} data-testid="lpr-no">
-                {t('sheet.no')}
-              </Chip>
-            </ChipGroup>
+              <Segmented
+                label={t('sheet.lprLabel')}
+                className="min-w-0 flex-1 sm:max-w-56"
+                items={[
+                  { id: 'yes', label: t('sheet.yes'), active: d.lpr === 'yes', testId: 'lpr-yes' },
+                  { id: 'no', label: t('sheet.no'), active: d.lpr === 'no', testId: 'lpr-no' },
+                ]}
+                onSelect={(id) => onChange({ lpr: d.lpr === id ? '' : (id as 'yes' | 'no') })}
+              />
+            </div>
             <Chip active={d.target} onClick={() => onChange({ target: !d.target })} data-testid="target-chip">
               {t('sheet.target')}
             </Chip>
@@ -122,19 +134,20 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('sheet.outcomes')}>
+          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2" role="group" aria-label={t('sheet.outcomes')}>
             {config.outcomes.map((o) => (
               <button
                 key={o.key}
                 type="button"
-                className="k-btn k-btn--secondary text-left aria-pressed:bg-[var(--brand-tint)] aria-pressed:border-[var(--brand)]"
-                style={{ borderLeft: `6px solid ${o.color}`, justifyContent: 'flex-start' }}
+                className="k-btn k-btn--secondary text-left aria-pressed:border-[var(--ring)] aria-pressed:shadow-[inset_0_0_0_1px_var(--ring)]"
+                style={{ borderLeft: `6px solid ${o.color}`, justifyContent: 'space-between' }}
                 aria-pressed={o.key === d.outcomeKey}
                 data-testid={`outcome-${o.kind}`}
                 data-outcome={o.key}
                 onClick={() => choose(o)}
               >
-                {o.label}
+                <span>{o.label}</span>
+                {o.key === d.outcomeKey && <Check aria-hidden="true" />}
               </button>
             ))}
           </div>

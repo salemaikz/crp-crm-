@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { BadRequestError, page } from '@/server/access';
 import { archiveReasonLabels } from '@/server/domain/cards';
 import { listClients, parseListQuery, type ClientList } from '@/server/domain/clients';
-import { Badge, Button, EmptyState, List, ListItem } from '@/ui/kit';
+import { Badge, Button, EmptyState, List, ListItem, Page } from '@/ui/kit';
 import { formatDate, formatPhone } from '../clients/_ui/format';
 import { stateTone } from '../clients/_ui/stateTone';
 
@@ -29,7 +29,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'section' }
   const reasons = await archiveReasonLabels(viewer);
   const tz = viewer.timeZone;
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-4 lg:py-6">
+    <Page width="list">
       <h1 className="mb-1 text-2xl font-semibold">{t('archive.title')}</h1>
       <p className="mb-4 text-sm text-[var(--text-2)]">{t('archive.lead')}</p>
       {list.items.length === 0 ? (
@@ -61,6 +61,6 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'section' }
           </Button>
         </div>
       )}
-    </main>
+    </Page>
   );
 });

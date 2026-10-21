@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { Badge, Button, type BadgeTone } from '@/ui/kit';
+import { ActionBar, Badge, Button, type BadgeTone } from '@/ui/kit';
 import type { GuestRow } from './types';
 
 const TONE: Record<string, BadgeTone> = { registered: 'info', confirmed: 'success', attended: 'success', no_show: 'danger' };
@@ -32,16 +32,16 @@ export function GuestItem({ guest: g, started, busy, onMark }: Props) {
         </div>
         <Badge tone={TONE[g.status] ?? 'neutral'}>{ts(g.status)}</Badge>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      {/* «Пришёл / Не пришёл» — две равные половины строки; главная кнопка экрана одна, в липком футере */}
+      <ActionBar equal={unmarked}>
         {unmarked && (
           <>
-            <Button variant="primary" size="sm" disabled={busy} onClick={() => onMark(g, 'attended')}>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => onMark(g, 'attended')}>
               {t('attended')}
             </Button>
             <Button variant="secondary" size="sm" disabled={busy || !started} onClick={() => onMark(g, 'no_show')}>
               {t('noShow')}
             </Button>
-            {!started && <span className="text-xs text-[var(--text-2)]">{t('notStarted')}</span>}
           </>
         )}
         {g.status === 'no_show' && (
@@ -54,7 +54,8 @@ export function GuestItem({ guest: g, started, busy, onMark }: Props) {
             {t('fixNoShow')}
           </Button>
         )}
-      </div>
+      </ActionBar>
+      {unmarked && !started && <span className="text-xs text-[var(--text-2)]">{t('notStarted')}</span>}
     </li>
   );
 }
