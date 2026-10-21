@@ -3,6 +3,8 @@
 import { useTranslations } from 'next-intl';
 import { useEffect, useState, type FormEvent } from 'react';
 import { formatPhoneInput } from '@/shared/phoneMask';
+import { markDeviceOwner } from '@/ui/call/deviceOwner';
+import { browserStorage } from '@/ui/call/logoutPending';
 import { buttonClass, errorClass, inputClass } from '../fieldStyles';
 
 type ErrorKey = 'invalid' | 'validation' | 'network' | null;
@@ -42,7 +44,10 @@ export function LoginForm() {
         body: JSON.stringify({ phone, password, ...(next ? { next } : {}) }),
       });
       if (res.ok) {
-        const data = (await res.json()) as { next: string };
+        const data = (await res.json()) as { next: string; userId?: string };
+        // Метка владельца телефона (D-292) — до перехода: вкладки прежнего сотрудника прячутся сразу, какой бы ни была
+        // первая страница после входа
+        if (data.userId) markDeviceOwner(browserStorage(), data.userId);
         window.location.assign(data.next); // полная загрузка: cookie уже стоит
         return;
       }

@@ -134,6 +134,8 @@ test.describe('пути выхода', () => {
     // Сессия A истекла без выхода (удалена в БД), на этом же телефоне входит B
     await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
     await context.setOffline(false);
+    // Сеть вернулась, сессии A нет: страница A сама прячется и уходит на вход (D-292)
+    await page.waitForURL(/\/login/);
     await login(page, b);
     await page.goto('/call');
     await expect(page.getByTestId('call-card')).toBeVisible();

@@ -5,9 +5,14 @@
 // - отказы сервера (в них названия компаний) — удаляются;
 // - неотправленные итоги — остаются (терять итог нельзя), но без названия компании: только id и коды запроса.
 //   Их outbox B не читает (хранилище отдаёт записи по userId), уходят они только под A и с заголовком автора A.
-// Открытая вкладка A при этом не перезагружается сама: её сотрудника сверяет метка владельца телефона (D-292, ниже).
+// Итоги другого сотрудника со свободным текстом (заметка, ЛПР) старше `calling.offlineWindowHours` удаляются: телефон
+// сообщает серверу о потере (журнал) и только после ответа удаляет их (D-293 п. 2).
+// Открытая вкладка A при этом не перезагружается сама: её сотрудника сверяет метка владельца телефона и сервер (D-292).
+import { ensureDeviceId } from './device';
+import { entryHasFreeText } from './freeText';
 import type { OutboxStore } from './outboxStore';
 import type { StorageLike } from './tally';
+import type { OutboxEntry } from './types';
 
 /**
  * Метка владельца телефона (D-292): id сотрудника, чья страница последней пришла с сервера. Внутренний id, не ПДн.
@@ -54,6 +59,66 @@ export function leaveForeignPage(opts: { reload: boolean }): void {
   if (opts.reload) window.location.reload();
 }
 
+/**
+ * Чья сессия у cookie, по ответу сервера (D-292): `same` — сотрудника страницы; `other` — вошёл другой (409
+ * `wrong_user`); `gone` — сессии нет (истекла, «выйти везде», сотрудник отключён); `unknown` — нет сети или сбой.
+ */
+export type PageSession = 'same' | 'other' | 'gone' | 'unknown';
+
+/** Сверка сессии вкладки: заголовок X-Call-Author с сотрудником страницы, как у запросов экрана «Звонить». */
+export async function checkPageSession(userId: string, fetchImpl: typeof fetch = (...a) => fetch(...a)): Promise<PageSession> {
+  try {
+    const res = await fetchImpl('/api/device/session', { cache: 'no-store', credentials: 'same-origin', headers: { 'X-Call-Author': userId } });
+    if (res.ok) return 'same';
+    if (res.status === 401) return 'gone';
+    if (res.status === 409) return 'other';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** Срок итогов другого сотрудника на телефоне (D-293 п. 2) и как сообщить серверу о потере. */
+export interface ExpireForeign {
+  now: number;
+  /** `calling.offlineWindowHours` в мс. */
+  ttlMs: number;
+  /** Записать потерю на сервере до удаления. false — не удалять, попробовать при следующей загрузке. */
+  report(authorId: string, opIds: string[]): Promise<boolean>;
+}
+
+/** Сколько opId в одном сообщении о потере (предел маршрута). */
+const EXPIRE_CHUNK = 100;
+
+/** Итоги других сотрудников со свободным текстом, пролежавшие на телефоне дольше срока: по авторам. */
+export function expiredForeign(entries: readonly OutboxEntry[], userId: string, now: number, ttlMs: number): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const e of entries) {
+    if (e.userId === userId || !entryHasFreeText(e) || now - e.createdAt < ttlMs) continue;
+    out.set(e.userId, [...(out.get(e.userId) ?? []), e.opId]);
+  }
+  return out;
+}
+
+/** Сообщение о потере: POST /api/device/outbox-expired (запись журнала под сессией телефона). */
+export function createExpiredReporter(store: OutboxStore, fetchImpl: typeof fetch = (...a) => fetch(...a)): ExpireForeign['report'] {
+  return async (authorId, opIds) => {
+    try {
+      const deviceId = await ensureDeviceId(store);
+      const res = await fetchImpl('/api/device/outbox-expired', {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Device-Id': deviceId },
+        body: JSON.stringify({ authorId, opIds }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+}
+
 /** localStorage с перебором ключей. */
 export interface ScanStorage extends StorageLike {
   readonly length: number;
@@ -75,8 +140,11 @@ export function foreignKeys(storage: ScanStorage, userId: string): string[] {
   return out;
 }
 
-/** Убрать с телефона данные других сотрудников. Ошибки хранилища не бросает: это уборка, а не условие работы. */
-export async function sanitizeForeign(userId: string, deps: { storage: ScanStorage | null; store: OutboxStore | null }): Promise<void> {
+/**
+ * Убрать с телефона данные других сотрудников. Ошибки хранилища не бросает: это уборка, а не условие работы.
+ * `expire` — удалить их итоги со свободным текстом старше срока (D-293 п. 2); без него итоги только обезличиваются.
+ */
+export async function sanitizeForeign(userId: string, deps: { storage: ScanStorage | null; store: OutboxStore | null; expire?: ExpireForeign }): Promise<void> {
   if (deps.storage) {
     try {
       for (const k of foreignKeys(deps.storage, userId)) deps.storage.removeItem(k);
@@ -85,12 +153,33 @@ export async function sanitizeForeign(userId: string, deps: { storage: ScanStora
     }
   }
   if (!deps.store) return;
+  const store = deps.store;
+  let foreign: OutboxEntry[] = [];
   try {
-    for (const e of await deps.store.allExcept(userId)) {
-      if (e.title !== '') await deps.store.put({ ...e, title: '' });
+    foreign = await store.allExcept(userId);
+    for (const e of foreign) {
+      if (e.title === '') continue;
+      // Запись перечитывается: другая уборка (вторая вкладка) могла её уже удалить — не воскрешаем
+      const cur = await store.get(e.opId);
+      if (cur && cur.title !== '') await store.put({ ...cur, title: '' });
     }
-    await deps.store.clearRejectedExcept(userId);
+    await store.clearRejectedExcept(userId);
   } catch {
     // IndexedDB недоступна
+    return;
+  }
+  if (!deps.expire) return;
+  const { now, ttlMs, report } = deps.expire;
+  for (const [author, opIds] of expiredForeign(foreign, userId, now, ttlMs)) {
+    for (let i = 0; i < opIds.length; i += EXPIRE_CHUNK) {
+      const chunk = opIds.slice(i, i + EXPIRE_CHUNK);
+      // Сначала журнал на сервере, потом удаление: без ответа сервера итог остаётся до следующей загрузки
+      if (!(await report(author, chunk).catch(() => false))) return;
+      try {
+        for (const id of chunk) await store.remove(id);
+      } catch {
+        return;
+      }
+    }
   }
 }

@@ -18,14 +18,16 @@ export type AppShellProps = {
   more: { label: string; closeLabel: string };
   /** Сотрудник: нужен кнопке «Выйти», чтобы отправить его неотправленные итоги. */
   userId: string;
+  /** Срок итогов другого сотрудника на телефоне, мс (D-293); null — не удалять. */
+  outboxTtlMs: number | null;
   children: ReactNode;
 };
 
-export function AppShell({ variant, brand, navLabel, items, bottomSlots, account, bell, more, userId, children }: AppShellProps) {
+export function AppShell({ variant, brand, navLabel, items, bottomSlots, account, bell, more, userId, outboxTtlMs, children }: AppShellProps) {
   const side = variant === 'side';
   return (
     <div className={`flex min-h-dvh flex-col ${side ? 'md:flex-row' : ''}`} style={{ background: 'var(--canvas)', color: 'var(--text)' }}>
-      <DeviceOwnerGuard userId={userId} />
+      <DeviceOwnerGuard userId={userId} outboxTtlMs={outboxTtlMs} />
       <aside
         className={`border-b ${side ? 'md:w-60 md:shrink-0 md:border-r md:border-b-0' : ''}`}
         style={{ borderColor: 'var(--border)', background: 'var(--surface)', paddingTop: 'env(safe-area-inset-top)' }}

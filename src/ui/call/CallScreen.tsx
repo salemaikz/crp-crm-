@@ -147,8 +147,9 @@ function CallScreenInner({ config }: { config: CallConfig }) {
           const known = [...have, ...fetched];
           const exclude = [...new Set([...r.outbox.cardIds(), ...known.map((c) => c.cardId)])];
           const res = await r.api.queue({ limit: Math.min(PAGE, DEPTH - known.length), exclude, group: grp });
+          // Сессии нет: страница прячется и перезагружается — сервер уведёт на вход, карточки из памяти не видны
           if (res.status === 401) {
-            router.replace('/login');
+            leave();
             return;
           }
           // На телефоне вошёл другой сотрудник: его очередь этой странице не отдаётся (D-292)
@@ -178,7 +179,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
         refillLock.current = false;
       }
     },
-    [router, setQueue, leave],
+    [setQueue, leave],
   );
 
   const loadRejected = useCallback(async () => {
@@ -191,7 +192,9 @@ function CallScreenInner({ config }: { config: CallConfig }) {
     const r = rtRef.current;
     if (!r) return;
     const res = await r.api.today();
-    if (isWrongUser(res)) leave();
+    // Вошёл другой сотрудник или сессии больше нет (истекла, «выйти везде»): экран сотрудника не показываем ни секунды —
+    // очередь из памяти убирается, страница прячется и перезагружается (сервер отдаст вход или страницу текущей сессии)
+    if (isWrongUser(res) || res.status === 401) leave();
     else if (res.data) setServerToday(res.data);
   }, [leave]);
 

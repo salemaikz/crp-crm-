@@ -13,7 +13,8 @@ export const POST = publicRoute({ reason: 'invite', origin: 'check' }, async ({ 
   const r = await acceptInviteRequest({ ...body.data, ip: deriveClientIp(req.headers) });
   if (r.ok) {
     await setSessionCookie(r.session);
-    return json(200, { next: '/' });
+    // userId — метка владельца телефона (D-292), как у входа
+    return json(200, { next: '/', userId: r.userId });
   }
   if (r.error === 'rate_limited') return rateLimited(r.retryAfterMs);
   if (r.error === 'invalid_token') return json(404, { error: 'invalid_token' });

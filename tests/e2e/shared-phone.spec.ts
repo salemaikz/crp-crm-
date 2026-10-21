@@ -2,8 +2,9 @@
 // уходит под чужой сессией; после смены сотрудника данные прежнего обезличены. Нужна БД e2e (E2E_DATABASE_URL).
 // Service worker здесь выключен: его поведение (метка выхода, оболочка из кэша) проверяют юнит-тесты sw.js, а маршруты
 // Playwright надёжно перехватывают запросы только без него. Синтетика: +7 709 …, «ТОО Синтетика …».
+import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
-import { DB_URL, callAndOutcome, callsOf, login, loginByRequest, makeOperator, openCall, prepareDb, sql, type Operator } from './support/calling';
+import { DB_URL, PASSWORD, callAndOutcome, callsOf, login, loginByRequest, makeOperator, openCall, prepareDb, sql, type Operator } from './support/calling';
 import { expectNoClientTraces } from './support/device';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -118,6 +119,8 @@ test('сессия A истекла без выхода, вошёл B: черн�
 
   await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
   await context.setOffline(false);
+  // Сеть вернулась, сессии A нет: страница A сама прячется и уходит на вход (D-292)
+  await page.waitForURL(/\/login/);
   await login(page, b);
   await page.goto('/call');
   await expect(page.getByTestId('call-card')).toBeVisible();
@@ -243,4 +246,157 @@ test('вкладка A, а B вошёл без открытия страниц (
   await expect.poll(() => reads.includes(409), { timeout: 15_000 }).toBe(true);
   await expectTabOf(page, a, b);
   await expectNoClientTraces(page, a);
+});
+
+// ---- Возврат на вкладку вне «Звонить» и истёкшая сессия (D-292, красная команда, круг 2) ------------------------------
+
+/** Возврат на вкладку как при переключении на телефоне: видимость, фокус, показ. Событие `online` — только если просили. */
+async function returnTo(tab: Page, opts: { online?: boolean } = {}): Promise<void> {
+  await tab.bringToFront();
+  await tab.evaluate((online) => {
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    if (online) window.dispatchEvent(new Event('online'));
+  }, opts.online === true);
+}
+
+/** На экране вкладки нет ни названий клиентов A, ни его ЛПР (видимый текст). */
+async function expectHiddenFrom(tab: Page, a: Operator): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const text = await tab.locator('body').innerText().catch(() => '');
+        return a.names.some((n) => text.includes(n)) || text.includes('Асель Синтетик');
+      },
+      { timeout: 8_000 },
+    )
+    .toBe(false);
+}
+
+test('вкладка A на карточке клиента, B вошёл через /login?next=/account: вкладка A прячется, черновик и счётчик A удалены', async ({ page, context }) => {
+  const a = await makeOperator(2, { lpr: true });
+  const b = await makeOperator(1);
+  await openCall(page, a);
+  // Счётчик A (итог ушёл) и черновик A (шторка по второй карточке) на телефоне
+  await callAndOutcome(page, 'no_answer');
+  await expect.poll(async () => (await callsOf(a.id)).length, { timeout: 30_000 }).toBe(1);
+  await page.getByTestId('call-button').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeVisible();
+  const keysA = await page.evaluate(() => Object.keys(localStorage));
+  expect(keysA).toContain(`crm.call.pending.${a.id}`);
+  expect(keysA).toContain(`crm.call.tally.${a.id}`);
+
+  const tab2 = await context.newPage();
+  await tab2.goto(`/clients/${a.clientIds[0]}`);
+  await expect(tab2.locator('body')).toContainText(a.names[0]!);
+  await expect(tab2.locator('body')).toContainText('Асель Синтетик');
+
+  // Сессия A истекла; в первой вкладке B входит, и первая его страница — не оболочка, а /account
+  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
+  await page.goto('/login?next=/account');
+  await page.getByLabel('Номер телефона').fill(`8 ${b.phone.slice(1, 4)} ${b.phone.slice(4, 7)} ${b.phone.slice(7, 9)} ${b.phone.slice(9)}`);
+  await page.getByLabel('Пароль', { exact: true }).fill(PASSWORD);
+  await page.getByRole('button', { name: 'Войти' }).click();
+  await page.waitForURL((u) => u.pathname === '/account');
+  // Метку владельца телефона поставил вход, сессия B действует
+  expect(await page.evaluate(() => localStorage.getItem('crm.device.owner'))).toBe(b.id);
+  expect(await page.evaluate(async () => (await fetch('/api/calls/today', { cache: 'no-store' })).status)).toBe(200);
+
+  await returnTo(tab2, { online: true });
+  await expectHiddenFrom(tab2, a);
+  await expect.poll(async () => {
+    const keys = await page.evaluate(() => Object.keys(localStorage));
+    return keys.filter((k) => k.endsWith(`.${a.id}`) && /^crm\.call\.(pending|tally)\./.test(k));
+  }).toEqual([]);
+  await expectNoClientTraces(page, a);
+});
+
+test('сессия A истекла, никто не вошёл: возврат на вкладку без события online уводит со «Звонить» и с карточки клиента', async ({ page, context }) => {
+  const a = await makeOperator(2, { lpr: true });
+  await openCall(page, a);
+  await expect(page.getByTestId('call-card')).toContainText(a.names[0]!);
+  const tab2 = await context.newPage();
+  await tab2.goto(`/clients/${a.clientIds[0]}`);
+  await expect(tab2.locator('body')).toContainText('Асель Синтетик');
+
+  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
+  await returnTo(tab2);
+  await expectHiddenFrom(tab2, a);
+  await expect(tab2).toHaveURL(/\/login/);
+  await returnTo(page);
+  await expectHiddenFrom(page, a);
+  await expect(page).toHaveURL(/\/login/);
+});
+
+test('итоги A со свободным текстом старше calling.offlineWindowHours удаляются под B и попадают в журнал; свежие и без текста остаются', async ({ page }) => {
+  const a = await makeOperator(1);
+  const b = await makeOperator(1);
+  await openCall(page, a);
+  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
+  await page.goto('/login');
+  const HOUR = 3_600_000;
+  const ids = { old: randomUUID(), fresh: randomUUID(), bare: randomUUID() };
+  // Итоги A, которые A не успел отправить (синтетика): старый и свежий с ЛПР и заметкой, старый без текста
+  await page.evaluate(
+    async ({ ids, userId, cardId, now, HOUR }) => {
+      const req = (note: string, lprName: string) => ({
+        opId: '', cardId, outcomeKey: 'no_answer', via: 'offline', occurredAt: now, tappedAt: null, phoneId: null, reasonCode: '', note,
+        lpr: lprName ? 'no' : '', lprInfo: lprName ? { name: lprName, phone: '+7 709 555 12 34', when: '' } : null,
+        callbackAt: null, markTarget: false, alsoDncPhoneIds: [], fields: {}, durationSec: null, agreement: null,
+      });
+      const entry = (opId: string, createdAt: number, freeText: boolean, note: string, lprName: string) => ({
+        opId, userId, request: { ...req(note, lprName), opId }, notBefore: createdAt, attempts: 3, retryAt: createdAt, createdAt, title: '', kind: 'no_answer', freeText,
+      });
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open('crm-call');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      const tx = db.transaction('outbox', 'readwrite');
+      tx.objectStore('outbox').put(entry(ids.old, now - 100 * HOUR, true, 'Старая заметка Синтетик', 'Берик Синтетик-ЛПР'));
+      tx.objectStore('outbox').put(entry(ids.fresh, now - HOUR, true, 'Свежая заметка Синтетик', 'Дана Синтетик-ЛПР'));
+      tx.objectStore('outbox').put(entry(ids.bare, now - 100 * HOUR, false, '', ''));
+      await new Promise((res, rej) => {
+        tx.oncomplete = () => res(null);
+        tx.onerror = () => rej(tx.error);
+      });
+      db.close();
+    },
+    { ids, userId: a.id, cardId: a.cardIds[0]!, now: Date.now(), HOUR },
+  );
+
+  await login(page, b);
+  await page.goto('/call');
+  await expect(page.getByTestId('call-card')).toBeVisible();
+  const outboxIds = () =>
+    page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open('crm-call');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      const rows = await new Promise<Array<{ opId: string }>>((res) => {
+        const g = db.transaction('outbox').objectStore('outbox').getAll();
+        g.onsuccess = () => res(g.result as Array<{ opId: string }>);
+      });
+      db.close();
+      return rows.map((x) => x.opId).sort();
+    });
+  await expect.poll(outboxIds, { timeout: 15_000 }).toEqual([ids.fresh, ids.bare].sort());
+  const dump = await dumpDevice(page);
+  expect(dump).not.toContain('Берик Синтетик-ЛПР');
+  expect(dump).not.toContain('Старая заметка Синтетик');
+  expect(dump).toContain('Дана Синтетик-ЛПР');
+  // Потеря видна: запись журнала о сотруднике A от сотрудника B, без ПДн
+  const rows = await sql<{ actorId: string; meta: { count: number; opIds: string[] } }[]>`
+    SELECT actor_id AS "actorId", meta FROM audit_log WHERE action = 'user.outbox_expired' AND entity = 'user' AND entity_id = ${a.id}`;
+  // Переход посреди уборки (здесь — сразу на /call после входа) может повторить запись: opId сводят повторы
+  expect(rows.length).toBeGreaterThanOrEqual(1);
+  for (const r of rows) {
+    expect(r.actorId).toBe(b.id);
+    expect(r.meta.opIds).toEqual([ids.old]);
+    expect(JSON.stringify(r.meta)).not.toContain('Синтетик');
+  }
+  expect(await callsOf(a.id)).toHaveLength(0);
 });
