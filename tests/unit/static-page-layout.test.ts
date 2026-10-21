@@ -52,3 +52,17 @@ test('страницы с данными рендерят Page', () => {
   }
   assert.deepEqual(missing, []);
 });
+
+test('любой компонент с <PageHeader> стоит внутри Page: рисует Page сам или его рисуют только внутри Page', () => {
+  // Не по шаблону имён файлов: ветка «только полная выгрузка» отчётов (DataExportOnly) им не подходила и
+  // потеряла отступы оболочки (ревью D-319)
+  const all = files.map((f) => ({ f, src: readFileSync(f, 'utf8') }));
+  const bad: string[] = [];
+  for (const { f, src } of all) {
+    if (!/<PageHeader\b/.test(src) || /<Page\b/.test(src)) continue;
+    const names = [...src.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1]!);
+    const users = all.filter((o) => o.f !== f && names.some((n) => new RegExp(`<${n}\\b`).test(o.src)));
+    if (users.length === 0 || users.some((u) => !/<Page\b/.test(u.src))) bad.push(relative(ROOT, f));
+  }
+  assert.deepEqual(bad, []);
+});
