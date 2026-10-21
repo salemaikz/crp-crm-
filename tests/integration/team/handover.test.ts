@@ -8,7 +8,7 @@ import { countOwnerlessWorkingCards } from '../../../src/server/domain/cards';
 import { systemActor } from '../../../src/server/access/systemActor';
 import { disableStaff, handoverPreview, purgeChangeSnapshots } from '../../../src/server/domain/team';
 import type { TestDb } from '../../../src/server/platform/db/testing';
-import { SEED_NOW, SPACE, U } from '../../isolation/harness/seed';
+import { FX, SEED_NOW, SPACE, U } from '../../isolation/harness/seed';
 import { closeCallsWorld, openCallsWorld, setCard, viewerOf } from '../calls/world';
 
 let db: TestDb;
@@ -104,9 +104,13 @@ test('«срочно»: ни одной рабочей карточки без �
   const kinds = await db.sql<{ kind: string; n: number }>`SELECT kind, count(*)::int AS n FROM assign_log GROUP BY kind ORDER BY kind`;
   assert.deepEqual(kinds.map((k) => [k.kind, k.n]), [['absence', 1], ['release', 1], ['transfer', 97]]);
   assert.equal((await db.sql`SELECT 1 FROM assign_log WHERE counts_to_cap`).length, 0);
-  // снимок = числу изменённых строк: 97 карточек + 2 задачи (tk-b-1; в tk-ho-1 клиент вне набора — не в снимке) + сделки
+  // будущая запись гостя клиента B (мероприятие мира — завтра) уходит получателю; сегодняшняя уже началась — остаётся
+  const guests = await db.sql<{ id: string; r: string }>`SELECT id, responsible_user_id AS r FROM bookings WHERE id IN (${FX.eventToday.booking}, ${FX.eventTomorrow.booking}) ORDER BY id`;
+  assert.deepEqual(guests.map((g) => [g.id, g.r]), [[FX.eventToday.booking, U.opB], [FX.eventTomorrow.booking, U.rop]]);
+  // снимок = числу изменённых строк: 97 карточек + задача tk-b-1 (в tk-ho-1 клиент вне набора — не в снимке) + сделка
+  // + будущая запись клиента из набора (bk-ho-1 — клиент A, вне набора, двигается отдельно и в снимок не входит)
   const snaps = await db.sql<{ t: string; n: number }>`SELECT table_name AS t, count(*)::int AS n FROM change_snapshots GROUP BY table_name ORDER BY table_name`;
-  assert.deepEqual(snaps.map((s) => [s.t, s.n]), [['cards', 97], ['deals', 1], ['tasks', 1]]);
+  assert.deepEqual(snaps.map((s) => [s.t, s.n]), [['bookings', 1], ['cards', 97], ['deals', 1], ['tasks', 1]]);
   // уведомление получателю: только число; ссылка на разбор — по сущности
   const note = await db.sql<{ userId: string; params: { count: number }; entityType: string }>`SELECT user_id, params, entity_type FROM notifications WHERE kind = 'staff_disabled'`;
   assert.deepEqual(note.map((n) => [n.userId, n.params.count, n.entityType]), [[U.rop, 98, 'handover']]);

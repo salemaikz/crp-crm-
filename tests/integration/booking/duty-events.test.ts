@@ -7,7 +7,7 @@ import { getDutyCandidates, getDutyEvent, listDutyEvents } from '../../../src/se
 import { BookingDomainError } from '../../../src/server/domain/booking/errors';
 import type { BookingDeps } from '../../../src/server/domain/booking/types';
 import type { TestDb } from '../../../src/server/platform/db/testing';
-import { U } from '../../isolation/harness/seed';
+import { FX, U } from '../../isolation/harness/seed';
 import { SEED_NOW, clientsOf, closeWorld, fakeCardPort, makeDeps, openBookingWorld, seedBookings, seedEvent, viewerOf } from './helpers';
 
 let db: TestDb;
@@ -34,9 +34,12 @@ before(async () => {
 });
 after(() => closeWorld(db));
 
-test('дежурный видит только своё мероприятие сегодня со счётчиками; завтрашнего и отменённого нет', async () => {
+// В мире изоляции дежурный уже дежурит на сегодняшнем мероприятии (FX.eventToday, 10:00 местного) и завтрашнем:
+// сегодняшнее — тоже «своё сегодня» и в списке есть; завтрашнее — нет.
+test('дежурный видит только свои мероприятия сегодня со счётчиками; завтрашнего и отменённого нет', async () => {
   const list = await listDutyEvents(deps, duty);
-  assert.deepEqual(list.map((e) => e.id), ['ev-mine']);
+  assert.deepEqual(list.map((e) => e.id), ['ev-mine', FX.eventToday.event]);
+  assert.ok(!list.some((e) => e.id === FX.eventTomorrow.event || e.id === 'ev-d-tomorrow' || e.id === 'ev-cancelled'));
   const e = list[0]!;
   assert.deepEqual(e.counts, { unmarked: 2, attended: 1, noShow: 1 });
   assert.equal(e.iAmDuty, true);
@@ -46,9 +49,9 @@ test('дежурный видит только своё мероприятие �
 
 test('РОП видит все сегодняшние запланированные, не будучи дежурным; завтрашнего нет', async () => {
   const list = await listDutyEvents(deps, rop);
-  assert.deepEqual(list.map((e) => e.id), ['ev-mine', 'ev-pm']);
-  assert.deepEqual(list.map((e) => e.iAmDuty), [false, false]);
-  assert.deepEqual(list.map((e) => e.started), [true, false]);
+  assert.deepEqual(list.map((e) => e.id), ['ev-mine', FX.eventToday.event, 'ev-pm']);
+  assert.deepEqual(list.map((e) => e.iAmDuty), [false, false, false]);
+  assert.deepEqual(list.map((e) => e.started), [true, true, false]);
 });
 
 test('оператор без дежурства — пусто, и отдельное мероприятие для него не существует', async () => {
