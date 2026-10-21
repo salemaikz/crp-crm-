@@ -88,6 +88,9 @@ RUN rm -rf /app/src /app/packages/core/src /app/packages/core/build.mjs /app/tes
 # npm, npx, corepack и yarn в рантайме не нужны (меньше поверхность атаки); их пакеты несут .map и .ts
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
     /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn* /usr/local/include/node
+# Точка монтирования тома ассетов crm_assets (D-334), владелец node. Пустой именованный том при первом монтировании
+# получает владельца и права этого каталога: ctl (пользователь node) пишет в него, app монтирует его только на чтение
+RUN mkdir -p /var/lib/crm/assets && chown node:node /var/lib/crm/assets && chmod 0755 /var/lib/crm/assets
 USER node
 # Глобальных каталогов модулей node (HOME/.node_modules, <prefix>/lib/node, NODE_PATH) в образе нет: сборка клиента
 # с ними не стартует (D-312), поэтому образ, где они появились, не собирается

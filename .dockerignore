@@ -11,6 +11,8 @@ playwright-report
 test-results
 tests
 docs
+# Ассеты стенда Vercel (D-333): пишет сид на сборке Vercel, в образ не идут
+/stand-assets/
 **/*.map
 *.tsbuildinfo
 next-env.d.ts

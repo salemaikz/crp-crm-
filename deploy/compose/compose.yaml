@@ -37,6 +37,12 @@ services:
     command: ["node", "--disable-sigusr1", "server.js"]
     environment:
       NODE_OPTIONS: --max-old-space-size=1024
+      # Каталог ассетов (логотип темы, D-333): путь задаёт этот файл вместе с томом, не app.env (D-334)
+      CRM_ASSETS_DIR: /var/lib/crm/assets
+    volumes:
+      - ${CRM_LICENSE_DIR:-/var/lib/crm/license}:/var/lib/crm/license:ro
+      # Ассеты слоёв пресета: app только читает, пишет одноразовый ctl (crmctl config apply)
+      - crm_assets:/var/lib/crm/assets:ro
     mem_limit: ${APP_MEM_LIMIT:-1536m}
     ports:
       # Единственный опубликованный порт, только на loopback хоста: Docker обходит ufw
@@ -80,6 +86,28 @@ services:
     environment:
       NODE_OPTIONS: --max-old-space-size=256
     mem_limit: 384m
+    networks:
+      crm_internal: {}
+    depends_on:
+      db: { condition: service_healthy }
+
+  # Команды crmctl, которым нужны ядро и БД (config, seed, ingest-key, job, secrets): тот же образ, сеть crm_internal.
+  # Хостовый crmctl их не исполняет (ядра на хосте нет, БД без портов). Разовый запуск:
+  #   docker compose -p crm -f <compose.yaml> --env-file /etc/crm/project.env run --rm ctl config apply --layers … --yes
+  # Единственный, кто пишет в том crm_assets (D-061, D-333, D-334); app его только читает, worker не монтирует.
+  ctl:
+    <<: *app-common
+    restart: "no"
+    profiles: [tools]
+    entrypoint: ["node", "dist/crmctl.mjs"]
+    command: ["help"]
+    environment:
+      NODE_OPTIONS: --max-old-space-size=384
+      CRM_ASSETS_DIR: /var/lib/crm/assets
+    volumes:
+      - ${CRM_LICENSE_DIR:-/var/lib/crm/license}:/var/lib/crm/license:ro
+      - crm_assets:/var/lib/crm/assets
+    mem_limit: 512m
     networks:
       crm_internal: {}
     depends_on:
@@ -172,3 +200,7 @@ networks:
 volumes:
   crm_pg:
     name: crm_pg
+  # Ассеты слоёв пресета (логотип, шрифты). В копию не входит: crmctl config apply заполняет его заново из пакета
+  # и накладки (D-334, RUNBOOK «Копии и восстановление»). Владелец каталога — node: его даёт образ (Dockerfile)
+  crm_assets:
+    name: crm_assets
