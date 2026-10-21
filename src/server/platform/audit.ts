@@ -49,6 +49,10 @@ export const AUDIT_ACTIONS = [
   'license.install',
   'license.state_change',
   'license.clock_jump',
+  // D-314: crmctl license clock-reset — откат времени лицензии на показание часов (meta: часы отката, была ли блокировка)
+  'license.clock_reset',
+  // D-314: запуск сборки клиента не как в поставке, но без явной подгрузки кода (meta: role и коды признаков)
+  'license.runtime_signal',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

@@ -6,7 +6,8 @@
 //                                         и не дальше срока подписанной копии в БД (D-290); строке
 //                                         license_state (state, invalid_since, last_seen_at) льгота не верит
 //   read_only                → read_only  мутации 423, кроме D-054; просмотр и выгрузка работают
-//                                         (в том числе причина clock: часы позади дольше 48 ч, D-306)
+//                                         (в том числе причина clock: часы позади дольше 48 ч, D-306, D-314;
+//                                         и error: пересчёт на сервере не удался — не 500, D-314)
 //   invalid                  → invalid    как read_only
 //   missing                  → missing    как read_only
 // Общая сборка без водяного знака (dev, тесты, e2e, общий образ CI) — исключение: лицензии нет → valid.
@@ -52,8 +53,8 @@ export type EvaluateInput = {
 export type Evaluation = {
   status: LicenseStatus;
   access: LicenseAccess;
-  /** Код причины для журнала и status: '' — всё хорошо. */
-  reason: InvalidReason | 'expired' | 'missing' | 'clock' | '';
+  /** Код причины для журнала и status: '' — всё хорошо; error — пересчёт не удался (сервер, D-314), в БД не пишется. */
+  reason: InvalidReason | 'expired' | 'missing' | 'clock' | 'error' | '';
   invalidSince: number | null;
   license: LicensePayload | null;
   /** До какого момента работает льгота (expired или invalid после рабочей), иначе null. */

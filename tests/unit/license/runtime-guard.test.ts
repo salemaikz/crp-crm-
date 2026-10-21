@@ -1,13 +1,14 @@
-// Среда выполнения сборки клиента (D-312): предзагрузка (--require/--import/--loader), инспектор (--inspect, SIGUSR1)
-// и LD_PRELOAD подменяют проверку лицензии без правки кода. Сборка клиента такой запуск не начинает: приложение
-// (instrumentation) и воркер выходят с кодом 1. Общая сборка (стенд, CI, e2e с предзагрузкой ядра) не проверяется.
+// Среда выполнения сборки клиента (D-312, D-314): явная подгрузка кода и отладка (--require/--import/--loader,
+// --inspect, открытый инспектор, LD_PRELOAD/LD_AUDIT) — отказ запуска: приложение (instrumentation) и воркер выходят
+// с кодом 1. Прочие отличия от поставки (вход, флаги, переменные, глобальные каталоги модулей, нет --disable-sigusr1) —
+// сигнал: строка в журнале и аудит, запуск идёт. Общая сборка (стенд, CI, e2e с предзагрузкой ядра) не проверяется.
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RUNTIME_ENTRY, runtimeTamperProblems, type RuntimeFacts } from '../../../src/server/platform/license/runtime';
+import { RUNTIME_ENTRY, checkRuntime, runtimeRefusals, runtimeTamperProblems, takeRuntimeSignal, type RuntimeFacts } from '../../../src/server/platform/license/runtime';
 import { overrideLicenseEnvForTests, resetLicenseEnvForTests } from '../../../src/server/platform/license/testing';
 import { register } from '../../../src/instrumentation';
 import { runWorkerProcess } from '../../../scripts/worker/run';
@@ -33,7 +34,7 @@ test('сборка клиента: запуск как в поставке — �
   assert.deepEqual(runtimeTamperProblems(facts({ env: {} })), []);
 });
 
-test('сборка клиента: предзагрузка и загрузчики в NODE_OPTIONS и в аргументах node — отказ', () => {
+test('сборка клиента: предзагрузка, загрузчики и инспектор в NODE_OPTIONS и в аргументах node — отказ', () => {
   const bad = [
     '--require /tmp/patch.cjs',
     '-r /tmp/patch.cjs',
@@ -47,23 +48,29 @@ test('сборка клиента: предзагрузка и загрузчи�
     '--inspect=0.0.0.0:9229',
     '--inspect-brk',
     '--inspect-port=9229',
-    '--max-old-space-size=1024x',
   ];
   for (const opts of bad) {
-    assert.ok(runtimeTamperProblems(facts({ env: { NODE_OPTIONS: opts } })).length > 0, `NODE_OPTIONS=${opts}`);
-    assert.ok(runtimeTamperProblems(facts({ execArgv: ['--disable-sigusr1', ...opts.split(' ')] })).length > 0, `node ${opts}`);
+    assert.ok(runtimeRefusals(facts({ env: { NODE_OPTIONS: opts } })).length > 0, `NODE_OPTIONS=${opts}`);
+    assert.ok(runtimeRefusals(facts({ execArgv: ['--disable-sigusr1', ...opts.split(' ')] })).length > 0, `node ${opts}`);
+  }
+  // Флаг вне поставки, который код не подгружает, — сигнал, а не отказ
+  for (const opts of ['--max-old-space-size=1024x', '--enable-source-maps']) {
+    assert.ok(runtimeTamperProblems(facts({ env: { NODE_OPTIONS: opts } })).length > 0, opts);
+    assert.deepEqual(runtimeRefusals(facts({ env: { NODE_OPTIONS: opts } })), [], opts);
   }
 });
 
-test('сборка клиента: без --disable-sigusr1 — отказ (инспектор открывается сигналом)', () => {
+test('сборка клиента: без --disable-sigusr1 — сигнал, а не отказ (инспектор открывается сигналом SIGUSR1)', () => {
   const p = runtimeTamperProblems(facts({ execArgv: [] }));
   assert.equal(p.length, 1);
   assert.match(p[0] ?? '', /--disable-sigusr1/);
+  assert.deepEqual(runtimeRefusals(facts({ execArgv: [] })), []);
 });
 
 test('сборка клиента: LD_PRELOAD и открытый инспектор — отказ', () => {
-  assert.ok(runtimeTamperProblems(facts({ env: { LD_PRELOAD: '/tmp/x.so' } })).some((s) => /LD_PRELOAD/.test(s)));
-  assert.ok(runtimeTamperProblems(facts({ inspectorUrl: 'ws://127.0.0.1:9229/x' })).some((s) => /инспектор/.test(s)));
+  assert.ok(runtimeRefusals(facts({ env: { LD_PRELOAD: '/tmp/x.so' } })).some((s) => /LD_PRELOAD/.test(s)));
+  assert.ok(runtimeRefusals(facts({ env: { LD_AUDIT: '/tmp/x.so' } })).some((s) => /LD_AUDIT/.test(s)));
+  assert.ok(runtimeRefusals(facts({ inspectorUrl: 'ws://127.0.0.1:9229/x' })).some((s) => /инспектор/.test(s)));
   assert.deepEqual(runtimeTamperProblems(facts({ env: { LD_PRELOAD: '  ' } })), []);
 });
 
@@ -161,10 +168,11 @@ test('поставка: app и worker запускаются с --disable-sigusr
 
 // ── Обёртка входа (круг 1 раунда 4 волны B): sh -c 'printf … | exec node --disable-sigusr1 -' или /tmp/w.js ────────
 
-test('сборка клиента: точка входа не из поставки (stdin, -e, скрипт в /tmp) — отказ; app и worker — свои пути', () => {
+test('сборка клиента: точка входа не из поставки (stdin, -e, скрипт в /tmp) — сигнал; app и worker — свои пути', () => {
   for (const entry of ['-', undefined, '/tmp/w.js', '/app/dist/worker.mjs']) {
     const p = runtimeTamperProblems(facts({ entry, mainModule: undefined }));
     assert.ok(p.some((x) => /точка входа/.test(x)), `app, вход ${String(entry)}`);
+    assert.deepEqual(runtimeRefusals(facts({ entry, mainModule: undefined })), [], 'обёртка запуска — сигнал (D-314)');
     assert.ok(!p.join('\n').includes('/tmp/w.js'), 'путь чужого скрипта в сообщение не попадает');
   }
   // Главный модуль CommonJS — тоже вход поставки: обёртка, подменившая только process.argv, не проходит
@@ -174,11 +182,13 @@ test('сборка клиента: точка входа не из постав�
   assert.deepEqual(RUNTIME_ENTRY, { app: '/app/server.js', worker: '/app/dist/worker.mjs' });
 });
 
-test('сборка клиента: переменные загрузчика и подгрузки кода (LD_AUDIT, LD_LIBRARY_PATH, OPENSSL_CONF, NODE_PATH…) — отказ', () => {
+test('сборка клиента: переменные загрузчика и подгрузки кода — LD_PRELOAD/LD_AUDIT отказ, прочие (LD_LIBRARY_PATH, OPENSSL_CONF, NODE_PATH…) сигнал', () => {
   for (const name of ['LD_AUDIT', 'LD_LIBRARY_PATH', 'LD_PRELOAD', 'GCONV_PATH', 'NODE_PATH', 'NODE_COMPILE_CACHE', 'OPENSSL_CONF', 'OPENSSL_MODULES', 'OPENSSL_ENGINES']) {
-    const p = runtimeTamperProblems(facts({ env: { NODE_OPTIONS: '--max-old-space-size=1024', [name]: '/tmp/x' } }));
+    const f = facts({ env: { NODE_OPTIONS: '--max-old-space-size=1024', [name]: '/tmp/x' } });
+    const p = runtimeTamperProblems(f);
     assert.ok(p.some((x) => x.includes(name)), name);
     assert.ok(!p.join('\n').includes('/tmp/x'), `${name}: значение в сообщение не попадает`);
+    assert.equal(runtimeRefusals(f).length > 0, name === 'LD_PRELOAD' || name === 'LD_AUDIT', name);
   }
 });
 
@@ -250,7 +260,7 @@ test('живая проба: HOME с .node_modules/@opentelemetry/api — мод
   }
 });
 
-test('сборка клиента: любой существующий глобальный каталог модулей node — отказ; нет таких — без замечаний', () => {
+test('сборка клиента: любой существующий глобальный каталог модулей node — сигнал; нет таких — без замечаний', () => {
   const cases: [string, string][] = [
     ['/tmp/h/.node_modules', 'HOME/.node_modules'],
     ['/tmp/h/.node_libraries', 'HOME/.node_libraries'],
@@ -261,6 +271,27 @@ test('сборка клиента: любой существующий глоб�
     const p = runtimeTamperProblems(facts({ globalModuleDirs: [dir] }));
     assert.ok(p.some((x) => x.includes(label)), `${dir}: ${JSON.stringify(p)}`);
     assert.ok(!p.join('\n').includes(dir), `${dir}: путь в сообщение не попадает`);
+    assert.deepEqual(runtimeRefusals(facts({ globalModuleDirs: [dir] })), [], dir);
   }
   assert.deepEqual(runtimeTamperProblems(facts({ globalModuleDirs: [] })), []);
+});
+
+test('сигнал запуска: строка license.runtime_signal в журнале, коды — в аудит один раз (takeRuntimeSignal), запуск идёт', () => {
+  const warns: string[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => void warns.push(a.map(String).join(' '));
+  try {
+    takeRuntimeSignal();
+    const refusals = checkRuntime('app', facts({ entry: '/tmp/w.js', mainModule: undefined, globalModuleDirs: ['/tmp/h/.node_modules'] }));
+    assert.deepEqual(refusals, []);
+    assert.match(warns.join('\n'), /license\.runtime_signal/);
+    assert.ok(!warns.join('\n').includes('/tmp/w.js') && !warns.join('\n').includes('/tmp/h'), 'без путей');
+    assert.deepEqual(takeRuntimeSignal(), { role: 'app', codes: ['entry', 'global_modules'] });
+    assert.equal(takeRuntimeSignal(), null, 'один раз на процесс');
+    // Отказ: сигнал не копится, вызывающий завершает процесс
+    assert.ok(checkRuntime('worker', facts({ role: 'worker', entry: '/app/dist/worker.mjs', env: { NODE_OPTIONS: '--require /tmp/p.cjs' } })).length > 0);
+    assert.equal(takeRuntimeSignal(), null);
+  } finally {
+    console.warn = orig;
+  }
 });

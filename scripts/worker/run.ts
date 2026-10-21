@@ -3,7 +3,7 @@ import { time } from '@crm/core';
 import { openScriptDb } from '../../src/server/platform/db';
 import { createWorker } from '../../src/server/jobs/worker';
 import { consoleJobLogger } from '../../src/server/jobs/deps';
-import { currentRuntimeFacts, runtimeTamperMessage, runtimeTamperProblems } from '../../src/server/platform/license/runtime';
+import { checkRuntime, runtimeTamperMessage } from '../../src/server/platform/license/runtime';
 
 const HOUR = 3_600_000;
 
@@ -15,8 +15,9 @@ export function assertAlmatyOffset(now: number = Date.now()): void {
 
 export async function runWorkerProcess(): Promise<void> {
   assertAlmatyOffset();
-  // Сборка клиента с предзагрузкой или инспектором не работает (D-312): до БД, выход с кодом 1 — в index.ts
-  const tamper = runtimeTamperProblems(currentRuntimeFacts('worker'));
+  // Сборка клиента с явной предзагрузкой или инспектором не работает (D-312, D-314): до БД, выход с кодом 1 —
+  // в index.ts; прочие отличия от поставки — сигнал в журнал и аудит
+  const tamper = checkRuntime('worker');
   if (tamper.length > 0) {
     console.error(runtimeTamperMessage(tamper));
     throw new Error('runtime_tamper');

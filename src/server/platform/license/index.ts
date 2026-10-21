@@ -5,3 +5,4 @@ export { refreshLicense, type LicenseSnapshot } from './service';
 export { licenseJobHandler } from './job';
 export { currentLicenseSnapshot, invalidateLicenseCache, LICENSE_CACHE_TTL_MS } from './current';
 export { readLicenseRow, type LicenseRow } from './repo';
+export { resetLicenseClock, type ClockResetResult } from './reset';

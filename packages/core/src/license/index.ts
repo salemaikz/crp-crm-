@@ -21,8 +21,8 @@ export {
   CLOCK_BEHIND_LOCK_MS,
   CLOCK_JUMP_STEP_INTERVAL_MS,
   CLOCK_MAX_STEP_MS,
-  CLOCK_RESTART_STEP_MS,
   advanceClock,
+  wholeMs,
 } from './clock';
 export type { ClockAnchor, ClockBehind, ClockInput, ClockJump, ClockResult } from './clock';
 export { EXPIRING_DAYS, INVALID_GRACE_DAYS, LICENSE_STATUSES, LOCKING_ACCESS, evaluateLicense, hasFeature, missingAllowed } from './state';
