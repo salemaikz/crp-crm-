@@ -1,5 +1,6 @@
-// Окно чата Wazzup в карточке (дизайн docs/reports-plugins-design.md §8.7, D-270). Порядок: карточка видна
-// (scopeSql, чужая = несуществующая) → пригодное подключение → номер клиента → канал → сотрудник у провайдера →
+// Окно чата Wazzup в карточке (дизайн docs/reports-plugins-design.md §8.7, D-270, D-297). Порядок: карточка доступна
+// для записи (`note.write`, scopeSql; чужая = несуществующая; «только чтение» сюда не доходит — 423 в обёртке) →
+// согласие клиента не отозвано → пригодное подключение → номер клиента → канал → сотрудник у провайдера →
 // одноразовая ссылка. Имя клиента провайдеру не уходит; ссылка отдаётся только этому сотруднику и нигде не
 // сохраняется: ни в логах, ни в аудите (в аудит — только id карточки и канала).
 import { NotFoundError, type Viewer } from '@/server/access';
@@ -7,7 +8,7 @@ import { getDb } from '@/server/platform/db';
 import { writeAudit } from '@/server/platform/audit';
 import { rateLimit } from '@/server/platform/ratelimit';
 import { buildCtx, findUsableIntegration, IntegrationConfigError } from '../integrations';
-import { enabledChannels, viewerName, visibleCard, workingMobile, type ChannelRow } from './repo';
+import { enabledChannels, lastConsentForCard, viewerName, visibleCard, workingMobile, type ChannelRow } from './repo';
 import { ChatWindowError, type ChatWindowResult, type MessengerDeps } from './types';
 
 export const CHAT_WINDOW_RATE = 30;
@@ -24,8 +25,10 @@ export async function openChatWindow(viewer: Viewer, deps: MessengerDeps, input:
   const now = (deps.now ?? Date.now)();
   if (!rateLimit(`chatwin:${viewer.userId}`, CHAT_WINDOW_RATE, 60_000, now).ok) throw new ChatWindowError('rate_limited');
   const db = await getDb();
-  const card = await visibleCard(viewer, db.sql, input.cardId);
+  const card = await visibleCard(viewer, db.sql, input.cardId, 'note.write');
   if (!card) throw new NotFoundError();
+  // Клиент отозвал согласие на передачу данных за рубеж: номер провайдеру не уходит, сотрудник у провайдера не создаётся
+  if ((await lastConsentForCard(viewer, db.sql, card.id)) === 'revoked') throw new ChatWindowError('consent_revoked');
 
   // Подключение: любой мессенджер с окном провайдера (iframe), пригодный в пространстве карточки
   let found: Awaited<ReturnType<typeof findUsableIntegration>> = null;

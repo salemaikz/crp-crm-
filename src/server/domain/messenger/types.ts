@@ -22,9 +22,12 @@ export interface MessengerSettings {
   managerRoles: readonly string[];
 }
 
-export type ChatWindowFailure = 'messenger_unavailable' | 'no_phone' | 'no_channel' | 'provider_error' | 'rate_limited';
+export type ChatWindowFailure = 'messenger_unavailable' | 'no_phone' | 'no_channel' | 'provider_error' | 'rate_limited' | 'consent_revoked';
 
-/** Ошибка окна чата → 409 (или 502 для provider_error) с кодом; текста нет (его строит интерфейс). */
+/**
+ * Ошибка окна чата и отметки «открыт WhatsApp» → 409 (502 для provider_error, 429 для rate_limited) с кодом; текста нет
+ * (его строит интерфейс). `consent_revoked` — клиент отозвал согласие: провайдер не вызывается (D-297).
+ */
 export class ChatWindowError extends Error {
   override name = 'ChatWindowError';
   constructor(readonly code: ChatWindowFailure) {

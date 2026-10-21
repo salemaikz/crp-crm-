@@ -19,7 +19,7 @@ import {
   type InvariantPart,
   type PurgePart,
 } from './platform';
-import { webhookHandlers } from './integrations';
+import { WEBHOOK_MAX_ATTEMPTS, webhookHandlers } from './integrations';
 
 const DAY_MS = 86_400_000;
 
@@ -50,7 +50,7 @@ export function queueSpecs(): QueueSpec[] {
       name: 'webhook_inbox',
       batch: 20,
       leaseMs: 60_000,
-      maxAttempts: 8,
+      maxAttempts: WEBHOOK_MAX_ATTEMPTS,
       handlers: webhookHandlers(),
       enabled: () => true,
       writes: 'business',

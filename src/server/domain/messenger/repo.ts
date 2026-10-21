@@ -52,19 +52,28 @@ export async function listChannels(sql: Sql, integrationId: string): Promise<(Ch
       FROM messenger_channels WHERE integration_id = ${integrationId} ORDER BY transport, provider_channel_id`;
 }
 
-/** Каналы компании от провайдера: новые добавляются, известные обновляются; привязка к оператору и «включён» не трогаются. */
-export async function upsertChannels(sql: Sql, a: { integrationId: string; spaceId: string; channels: readonly MessengerChannelInfo[]; now: number }): Promise<number> {
-  let n = 0;
+/**
+ * Каналы компании от провайдера: новые добавляются ВЫКЛЮЧЕННЫМИ (D-298: канал мог оказаться личным номером
+ * сотрудника — его переписку CRM не принимает, пока администратор не включит канал), известные обновляются; привязка
+ * к оператору и «включён» не трогаются. `total` — каналов в ответе провайдера, `added` — id новых строк.
+ */
+export async function upsertChannels(
+  sql: Sql,
+  a: { integrationId: string; spaceId: string; channels: readonly MessengerChannelInfo[]; now: number },
+): Promise<{ total: number; added: string[] }> {
+  let total = 0;
+  const added: string[] = [];
   for (const c of a.channels) {
-    const rows = await sql<{ id: string }>`
-      INSERT INTO messenger_channels (id, integration_id, space_id, provider_channel_id, transport, plain_id, state, state_changed_at, created_at, updated_at)
-      VALUES (${newId()}, ${a.integrationId}, ${a.spaceId}, ${c.channelRef}, ${c.transport}, ${c.plainId}, ${c.state}, ${a.now}, ${a.now}, ${a.now})
+    const rows = await sql<{ id: string; inserted: boolean }>`
+      INSERT INTO messenger_channels (id, integration_id, space_id, provider_channel_id, transport, plain_id, state, state_changed_at, is_enabled, created_at, updated_at)
+      VALUES (${newId()}, ${a.integrationId}, ${a.spaceId}, ${c.channelRef}, ${c.transport}, ${c.plainId}, ${c.state}, ${a.now}, FALSE, ${a.now}, ${a.now})
       ON CONFLICT (integration_id, provider_channel_id) DO UPDATE
         SET transport = EXCLUDED.transport, plain_id = EXCLUDED.plain_id, updated_at = EXCLUDED.updated_at
-      RETURNING id`;
-    n += rows.length;
+      RETURNING id, (xmax = 0) AS inserted`;
+    total += rows.length;
+    for (const r of rows) if (r.inserted) added.push(r.id);
   }
-  return n;
+  return { total, added };
 }
 
 /** Состояние от провайдера; устаревшее событие (раньше записанного) не применяется. Возвращает true, если применено. */
@@ -226,12 +235,27 @@ export interface ChatCard {
   actingUserId: string | null;
 }
 
-/** Карточка, видимая сотруднику (`card.read`); чужая = несуществующая. */
-export async function visibleCard(viewer: Viewer, sql: Sql, cardId: string): Promise<ChatCard | null> {
+/**
+ * Карточка, доступная сотруднику по разрешению `perm`; чужая = несуществующая. Окно чата и «открыт WhatsApp» —
+ * пишущие действия (`note.write`, D-297): у роли «только чтение» охват пишущего разрешения пуст.
+ */
+export async function visibleCard(viewer: Viewer, sql: Sql, cardId: string, perm: 'card.read' | 'note.write'): Promise<ChatCard | null> {
   const [row] = await scoped(sql)<ChatCard>`
     SELECT c.id, c.client_id, c.space_id, c.owner_user_id, c.acting_user_id
-      FROM cards c WHERE c.id = ${cardId} AND ${scopeSql(viewer, 'card', 'card.read')}`;
+      FROM cards c WHERE c.id = ${cardId} AND ${scopeSql(viewer, 'card', perm)}`;
   return row ?? null;
+}
+
+/**
+ * Последняя отметка согласия клиента карточки — для окна чата (D-297). Охват — по карточке и тому же разрешению, что
+ * у окна чата: роль без `client.read` не должна обходить отзыв согласия пустым ответом.
+ */
+export async function lastConsentForCard(viewer: Viewer, sql: Sql, cardId: string): Promise<'given' | 'revoked' | null> {
+  const [row] = await scoped(sql)<{ action: 'given' | 'revoked' }>`
+    SELECT k.action FROM consents k JOIN cards c ON c.client_id = k.client_id
+     WHERE c.id = ${cardId} AND k.kind = 'messenger_crossborder' AND ${scopeSql(viewer, 'card', 'note.write')}
+     ORDER BY k.at DESC, k.created_at DESC, k.id DESC LIMIT 1`;
+  return row?.action ?? null;
 }
 
 /** Основной рабочий мобильный номер клиента, видимый роли. */

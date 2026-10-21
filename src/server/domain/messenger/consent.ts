@@ -2,9 +2,13 @@
 // отзыв — новая строка `revoked`. Окно чата без отметки согласия открывается с предупреждением (D-270).
 import { NotFoundError, type Viewer } from '@/server/access';
 import { getDb } from '@/server/platform/db';
+import { rateLimit } from '@/server/platform/ratelimit';
 import { editableClient, insertConsent, lastConsent, visibleCard } from './repo';
 import { insertClientEvent } from '../cards/repo';
-import type { ConsentAction } from './types';
+import { ChatWindowError, type ConsentAction } from './types';
+
+/** Отметок «открыт WhatsApp» в минуту на сотрудника: защита ленты клиента от залива (D-297). */
+export const LINK_OPENED_RATE = 20;
 
 export async function setMessengerConsent(viewer: Viewer, input: { clientId: string; action: ConsentAction; textHash: string; now?: number }): Promise<{ clientId: string; action: ConsentAction }> {
   const db = await getDb();
@@ -19,10 +23,14 @@ export async function getMessengerConsent(viewer: Viewer, clientId: string): Pro
   return lastConsent(viewer, (await getDb()).sql, clientId);
 }
 
-/** Запись в ленту «открыт WhatsApp, шаблон X» без текста переписки (INTEGRATIONS §3.1). */
+/**
+ * Запись в ленту «открыт WhatsApp, шаблон X» без текста переписки (INTEGRATIONS §3.1). Пишущее действие (`note.write`,
+ * D-297): «только чтение» и запирающая лицензия получают 423 в обёртке; не больше LINK_OPENED_RATE в минуту на сотрудника.
+ */
 export async function recordLinkOpened(viewer: Viewer, input: { cardId: string; templateKey: string | null }): Promise<{ cardId: string }> {
+  if (!rateLimit(`waopened:${viewer.userId}`, LINK_OPENED_RATE, 60_000, viewer.now).ok) throw new ChatWindowError('rate_limited');
   const db = await getDb();
-  const card = await visibleCard(viewer, db.sql, input.cardId);
+  const card = await visibleCard(viewer, db.sql, input.cardId, 'note.write');
   if (!card || viewer.spaceId === null) throw new NotFoundError();
   await insertClientEvent(db.sql, {
     clientId: card.clientId,

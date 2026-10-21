@@ -1,7 +1,8 @@
 // Применение нормализованных событий мессенджера (O7a, дизайн docs/reports-plugins-design.md §8.5). Одна транзакция
 // на строку webhook_inbox. Правило, которое нельзя нарушать: событие мессенджера НИКОГДА само не меняет состояние
 // карточки и не снимает «Не звонить» — только лента, чат и задачи. Канал обязан принадлежать этому подключению
-// (телу вебхука не доверяем). Тексты сообщений в логи не попадают: пишутся только коды.
+// (телу вебхука не доверяем). Выключенный канал не принимает сообщений (D-298): событие пропускается, в лог — счётчик.
+// Тексты сообщений в логи не попадают: пишутся только коды.
 import { time } from '@crm/core';
 import type { MessengerChannelEvent, MessengerMessageEvent, MessengerStatusEvent, NormalizedEvent, PluginId } from '@/integrations/contract';
 import type { SystemActor } from '@/server/access';
@@ -80,8 +81,9 @@ async function applyChannel(c: Ctx, ev: MessengerChannelEvent): Promise<void> {
   const channel = await findChannel(c.tx, { integrationId: c.integration.id, ref: ev.channelRef });
   if (!channel) return void log('foreign_channel', { kind: 'channel' });
   const applied = await setChannelState(c.tx, { id: channel.id, state: ev.state, at: ev.at, now: c.now });
-  // Здоровым считается только active; устаревшее событие (раньше записанного состояния) тревогу не поднимает
-  if (!applied || ev.state === 'active') return;
+  // Здоровым считается только active; устаревшее событие (раньше записанного состояния) тревогу не поднимает;
+  // выключенный канал CRM не использует — его состояние обновляется без тревоги
+  if (!applied || ev.state === 'active' || !channel.isEnabled) return;
   const day = c.settings.calendar.localDay(c.now);
   for (const userId of await alertRecipients(c.tx, channel.spaceId, c.settings)) {
     await insertNotice(c.tx, {
@@ -233,6 +235,7 @@ export async function applyMessengerEvents(
       const settings = await loadMessengerSettings(integration.spaceId);
       const c: Ctx = { tx, actor, integration, settings, sourceKey: sourceKeyOf(integration, settings), attempt: input.attempt ?? 1, now };
       let outcome: QueueOutcome = { status: 'done' };
+      let skippedDisabled = 0;
       for (const ev of input.events) {
         if (ev.type === 'channel') await applyChannel(c, ev);
         else if (ev.type === 'status') {
@@ -245,9 +248,15 @@ export async function applyMessengerEvents(
             log('foreign_channel', { kind: 'message' });
             continue;
           }
+          // Выключенный канал (например, личный номер сотрудника в общем аккаунте): ни клиента, ни текста, ни задач
+          if (!channel.isEnabled) {
+            skippedDisabled++;
+            continue;
+          }
           await applyMessage(c, channel, ev);
         }
       }
+      if (skippedDisabled > 0) log('channel_disabled', { kind: 'message', skipped: skippedDisabled });
       return outcome;
     });
   } catch (e) {
@@ -273,7 +282,15 @@ async function refreshChannelsIfNeeded(deps: MessengerDeps, input: { integration
     const r = await plugin.listChannels(buildCtx(deps, plugin, row));
     if (!r.ok) return;
     const head = await lockIntegration(db.sql, input.integrationId);
-    if (head) await upsertChannels(db.sql, { integrationId: head.id, spaceId: head.spaceId, channels: r.channels, now });
+    if (!head) return;
+    const { added } = await upsertChannels(db.sql, { integrationId: head.id, spaceId: head.spaceId, channels: r.channels, now });
+    // Новый канал выключен (D-298): администратор узнаёт о нём из уведомления и решает, включать ли
+    const admins = added.length > 0 ? await adminIds(db.sql) : [];
+    for (const channelId of added) {
+      for (const userId of admins) {
+        await insertNotice(db.sql, { userId, kind: 'messenger_channel_new', entityType: 'messenger_channel', entityId: channelId, params: {}, dedupeKey: `mchnew:${channelId}:${userId}`, now });
+      }
+    }
   } catch {
     log('channel_refresh_failed');
   }

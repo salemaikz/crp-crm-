@@ -12,18 +12,20 @@ import { buildCtx, IntegrationConfigError } from './ctx';
 import {
   activeStaff,
   channelsOf,
+  clearWebhookTokenIf,
   defaultSpaceId,
+  enableIfToken,
   getIntegrationRow,
-  getWebhookTokenHash,
   insertIntegration,
   isActiveMember,
   listIntegrationsOf,
+  lockPluginConnections,
   patchChannelRow,
   resetIntegration,
   setCrossborder,
-  setEnabled,
   setStatus,
   setWebhookToken,
+  switchOff,
   type ChannelView,
 } from './repo';
 import { gateFor, usabilityOf } from './service';
@@ -72,9 +74,14 @@ export interface PluginView {
 }
 
 /** Плагин, который можно подключить ключом: мессенджер с подключением, каналами и подпиской на вебхук. */
-function connectable(deps: IntegrationDeps, pluginId: string): MessengerPlugin {
+function connectableOrNull(deps: IntegrationDeps, pluginId: string): MessengerPlugin | null {
   const p: AnyPlugin | undefined = deps.registry.all().find((x) => x.id === pluginId);
-  if (!p || p.kind !== 'messenger' || !p.needsConnection || !p.listChannels || !p.subscribe) throw new IntegrationAdminError('not_found', 404);
+  return p && p.kind === 'messenger' && p.needsConnection && p.listChannels && p.subscribe ? p : null;
+}
+
+function connectable(deps: IntegrationDeps, pluginId: string): MessengerPlugin {
+  const p = connectableOrNull(deps, pluginId);
+  if (!p) throw new IntegrationAdminError('not_found', 404);
   return p;
 }
 
@@ -171,7 +178,8 @@ export interface ConnectResult {
 
 /**
  * Ключ → подключение (выключено) + зашифрованный секрет; вне транзакции — проверка у провайдера и каналы.
- * Повторный вызов с другим ключом меняет секрет и выключает подключение (аккаунт мог смениться).
+ * Одно подключение на плагин: транзакция под блокировкой плагина, параллельный вызов ждёт и находит строку (D-298).
+ * Повторный вызов с другим ключом меняет секрет, выключает подключение и все его каналы (аккаунт мог смениться).
  */
 export async function connectIntegration(viewer: Viewer, deps: IntegrationDeps, input: { pluginId: string; apiKey: string }): Promise<ConnectResult> {
   const plugin = connectable(deps, input.pluginId);
@@ -180,6 +188,7 @@ export async function connectIntegration(viewer: Viewer, deps: IntegrationDeps, 
   const now = nowOf(deps);
   const id = await guarded(() =>
     db.tx(async (tx) => {
+      await lockPluginConnections(tx, plugin.id);
       const existing = (await listIntegrationsOf(tx, plugin.id))[0];
       const spaceId = await defaultSpaceId(tx);
       const id = existing?.id ?? newId();
@@ -203,7 +212,8 @@ async function refreshFromProvider(deps: IntegrationDeps, sql: Sql, id: string):
   let channels = 0;
   if (health.code === 'ok' || health.code === 'no_channels') {
     const list = await plugin.listChannels!(ctx);
-    if (list.ok) channels = await upsertChannels(sql, { integrationId: id, spaceId: await spaceOf(sql, row), channels: list.channels, now });
+    // Новые каналы приходят выключенными (D-298): администратор видит их на этом же экране и включает сам
+    if (list.ok) channels = (await upsertChannels(sql, { integrationId: id, spaceId: await spaceOf(sql, row), channels: list.channels, now })).total;
   }
   await setStatus(sql, id, health.code, now);
   return { status: health.code, channels };
@@ -238,8 +248,9 @@ function hookUrl(ctx: Ctx<unknown, unknown>, pluginId: string, token: string): s
 
 /**
  * Включить: пригодность без учёта самого переключателя → новый адрес вебхука (в БД только sha256; сначала БД —
- * провайдер сразу присылает тест `{"test":true}`) → подписка → сотрудники → `enabled`. Ошибка провайдера → 502,
- * подключение остаётся выключенным, адрес сбрасывается.
+ * провайдер сразу присылает тест `{"test":true}`) → подписка → сотрудники → `enabled` только при своём токене
+ * (D-298: «Выключить» или снятие отметки во время подписки сбрасывают токен — включение не состоится, 409
+ * state_changed). Ошибка провайдера → 502, подключение остаётся выключенным, свой адрес сбрасывается.
  */
 export async function enableIntegration(viewer: Viewer, deps: IntegrationDeps, id: string): Promise<{ id: string; enabled: true }> {
   const db = await getDb();
@@ -249,11 +260,11 @@ export async function enableIntegration(viewer: Viewer, deps: IntegrationDeps, i
     if (!usable.usable) throw new IntegrationAdminError(usable.reason, 409);
     const ctx = ctxOf(deps, plugin, row);
     const token = newToken();
+    const tokenHash = sha256(token);
     const url = hookUrl(ctx, plugin.id, token);
-    const now = nowOf(deps);
-    await setWebhookToken(db.sql, id, sha256(token), now);
+    await setWebhookToken(db.sql, id, tokenHash, nowOf(deps));
     const failed = async (): Promise<never> => {
-      await setWebhookToken(db.sql, id, null, nowOf(deps));
+      await clearWebhookTokenIf(db.sql, { id, tokenHash, now: nowOf(deps) });
       throw new IntegrationAdminError('provider_error', 502);
     };
     const sub = await plugin.subscribe!(ctx, { webhookUrl: url });
@@ -262,48 +273,60 @@ export async function enableIntegration(viewer: Viewer, deps: IntegrationDeps, i
       const sync = await plugin.syncUsers(ctx, await activeStaff(db.sql, { spaceId: await spaceOf(db.sql, row) }));
       if (!sync.ok) return failed();
     }
-    await setEnabled(db.sql, id, true, nowOf(deps));
+    if (!(await enableIfToken(db.sql, { id, tokenHash, now: nowOf(deps) }))) throw new IntegrationAdminError('state_changed', 409);
     await audit(db.sql, viewer, deps, 'integration.enable', id, { pluginId: plugin.id });
     return { id, enabled: true as const };
   });
 }
 
-/** Выключить (мутация безопасности D-054: работает и в «только чтение»). Вебхуки перестают приниматься сразу. */
+/**
+ * Выключить (мутация безопасности D-054: работает и в «только чтение»). Вебхуки перестают приниматься сразу: адрес
+ * отзывается, при включении выдаётся новый.
+ */
 export async function disableIntegration(viewer: Viewer, deps: IntegrationDeps, id: string): Promise<{ id: string; enabled: false }> {
   const sql = (await getDb()).sql;
   const row = await getIntegrationRow(sql, id);
   if (!row) throw new IntegrationAdminError('not_found', 404);
-  await setEnabled(sql, id, false, nowOf(deps));
+  await switchOff(sql, id, nowOf(deps));
   await audit(sql, viewer, deps, 'integration.disable', id, { pluginId: row.pluginId });
   return { id, enabled: false };
 }
 
-/** Перевыпустить адрес вебхука: старый перестаёт работать; включённое подключение подписывается заново. */
+/**
+ * Перевыпустить адрес вебхука — мутация безопасности (D-054, D-298): старый адрес перестаёт работать в любом случае.
+ * Переподписка — только у включённого подключения с флагом и лицензией; иначе (выключено, флаг, лицензия «только
+ * чтение») или при любой ошибке переподписки адрес просто обнуляется, а подключение остаётся выключенным: новый
+ * адрес выдаст следующее «Включить».
+ */
 export async function rotateIntegrationWebhook(viewer: Viewer, deps: IntegrationDeps, id: string): Promise<{ id: string }> {
   const db = await getDb();
-  const row0 = await getIntegrationRow(db.sql, id);
-  if (!row0) throw new IntegrationAdminError('not_found', 404);
-  return guarded(async () => {
-    const previous = await getWebhookTokenHash(db.sql, id);
-    const token = newToken();
-    const now = nowOf(deps);
-    if (!row0.enabled) {
-      // Выключенное: адрес просто сбрасывается, новый появится при включении
-      await setWebhookToken(db.sql, id, null, now);
-      await audit(db.sql, viewer, deps, 'integration.revoke_webhook', id, { pluginId: row0.pluginId, resubscribed: false });
-      return { id };
-    }
-    const { row, plugin } = await loadRow(db.sql, deps, id);
-    const ctx = ctxOf(deps, plugin, row);
-    await setWebhookToken(db.sql, id, sha256(token), now);
-    const sub = await plugin.subscribe!(ctx, { webhookUrl: hookUrl(ctx, plugin.id, token) });
-    if (!sub.ok) {
-      await setWebhookToken(db.sql, id, previous, nowOf(deps));
-      throw new IntegrationAdminError('provider_error', 502);
-    }
-    await audit(db.sql, viewer, deps, 'integration.revoke_webhook', id, { pluginId: plugin.id, resubscribed: true });
+  const row = await getIntegrationRow(db.sql, id);
+  if (!row) throw new IntegrationAdminError('not_found', 404);
+  const revoke = async (reason: string): Promise<void> => {
+    await switchOff(db.sql, id, nowOf(deps));
+    await audit(db.sql, viewer, deps, 'integration.revoke_webhook', id, { pluginId: row.pluginId, resubscribed: false, reason });
+  };
+
+  const plugin = connectableOrNull(deps, row.pluginId);
+  const gate = plugin ? await gateFor(deps, plugin, null, { ignoreEnabled: true }) : null;
+  const skip = !row.enabled ? 'disabled' : !plugin || !gate?.flagOn ? 'flag_off' : !gate.licensed ? 'not_licensed' : null;
+  if (skip || !plugin) {
+    await revoke(skip ?? 'flag_off');
     return { id };
-  });
+  }
+
+  const token = newToken();
+  await setWebhookToken(db.sql, id, sha256(token), nowOf(deps));
+  try {
+    const ctx = ctxOf(deps, plugin, row);
+    const sub = await guarded(() => plugin.subscribe!(ctx, { webhookUrl: hookUrl(ctx, plugin.id, token) }));
+    if (!sub.ok) throw new IntegrationAdminError('provider_error', 502);
+  } catch (e) {
+    await revoke(e instanceof IntegrationAdminError ? e.code : 'error');
+    throw e;
+  }
+  await audit(db.sql, viewer, deps, 'integration.revoke_webhook', id, { pluginId: plugin.id, resubscribed: true });
+  return { id };
 }
 
 // ---------------------------------------------------------------------------

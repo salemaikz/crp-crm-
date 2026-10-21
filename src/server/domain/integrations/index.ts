@@ -18,5 +18,6 @@ export {
   type PluginView,
 } from './admin';
 export { findUsableIntegration, loadIntegrationRow } from './lookup';
+export { notifyInboxFailed } from './inboxFailed';
 export { gateFor, usabilityOf, loadInboxItem, purgeWebhookPayloads, defaultFlagOn, defaultLicensed } from './service';
 export type { IntegrationDeps, IntegrationRow, InboxRow } from './types';

@@ -23,6 +23,7 @@ import * as connectRoute from '../../../src/app/api/integrations/connect/route';
 import * as listRoute from '../../../src/app/api/integrations/route';
 import * as enableRoute from '../../../src/app/api/integrations/[id]/enable/route';
 import * as disableRoute from '../../../src/app/api/integrations/[id]/disable/route';
+import * as rotateRoute from '../../../src/app/api/integrations/[id]/rotate-webhook/route';
 import { actAs, enterSeedWorld, viewerOf } from '../../isolation/harness/actors';
 import { SEED_NOW, U } from '../../isolation/harness/seed';
 import { closeWorld, openWorld } from '../access/world';
@@ -37,6 +38,8 @@ type Call = { method: string; path: string; body: unknown };
 let calls: Call[];
 let webhookTokenSeenByProvider: string | null = null;
 let patchStatus = 200;
+/** Что сделать «у провайдера» во время подписки (гонка с «Выключить»). */
+let duringPatch: (() => Promise<void>) | null = null;
 
 const fetcher = async (url: string, init: RequestInit): Promise<Response> => {
   const path = new URL(url).pathname.replace('/v3', '');
@@ -48,6 +51,7 @@ const fetcher = async (url: string, init: RequestInit): Promise<Response> => {
     const token = String(body.webhooksUri).split('/').pop() as string;
     const rows = await db.sql`SELECT 1 FROM integrations WHERE webhook_token_hash = ${sha(token)}`;
     webhookTokenSeenByProvider = rows.length === 1 ? token : null;
+    if (duringPatch) await duringPatch();
     return patchStatus === 200 ? new Response('{}') : new Response('{}', { status: patchStatus });
   }
   return new Response('{}');
@@ -74,6 +78,7 @@ beforeEach(() => {
   calls = [];
   webhookTokenSeenByProvider = null;
   patchStatus = 200;
+  duringPatch = null;
 });
 
 const failure = async (p: Promise<unknown>, code: string, status: number): Promise<void> => {
@@ -250,4 +255,93 @@ test('маршруты: только администратор; «только 
   } finally {
     enterSeedWorld();
   }
+});
+
+type Handler = (req: Request, ctx: { params: Promise<unknown> }) => Promise<Response>;
+const callRoute = async (h: Handler, as: string, params: Record<string, string>) => {
+  actAs(as);
+  return h(new Request(`${ORIGIN}/api/integrations`, { method: 'POST', headers: { origin: ORIGIN } }), { params: Promise.resolve(params) });
+};
+const ping = (token: string) => receiveWebhook(deps(), { pluginId: 'messenger.wazzup', token, req: new Request('https://crm.test/x', { method: 'POST', body: '{"test":true}' }) });
+const LEAKED = 'L'.repeat(43);
+
+test('перевыпуск адреса без лицензии: старый адрес отозван без переподписки, подключение выключено (D-054, D-298)', async () => {
+  const admin = await viewerOf(U.admin);
+  const id = (await row())!.id;
+  await db.sql`UPDATE integrations SET enabled = TRUE, webhook_token_hash = ${sha(LEAKED)} WHERE id = ${id}`;
+  assert.equal((await ping(LEAKED)).status, 200, 'контроль: утёкший адрес работает');
+  await rotateIntegrationWebhook(admin, deps({ licensed: async () => false }), id);
+  assert.equal(calls.length, 0, 'провайдера не трогали');
+  assert.deepEqual({ enabled: (await row())?.enabled, hash: (await row())?.hash }, { enabled: false, hash: null });
+  assert.equal((await ping(LEAKED)).status, 404, 'утёкший адрес больше не принимается');
+  const metas = await db.sql<{ meta: Record<string, unknown> }>`SELECT meta FROM audit_log WHERE action = 'integration.revoke_webhook' AND meta->>'reason' = 'not_licensed'`;
+  assert.deepEqual(metas.map((m) => m.meta), [{ pluginId: 'messenger.wazzup', resubscribed: false, reason: 'not_licensed' }]);
+});
+
+test('маршрут перевыпуска при лицензии «только чтение» — 200, адрес отозван', async () => {
+  const id = (await row())!.id;
+  await db.sql`UPDATE integrations SET enabled = TRUE, webhook_token_hash = ${sha(LEAKED)} WHERE id = ${id}`;
+  enterSeedWorld({ license: 'read_only' });
+  try {
+    assert.equal((await callRoute(rotateRoute.POST, U.admin, { id })).status, 200);
+  } finally {
+    enterSeedWorld();
+  }
+  assert.deepEqual({ enabled: (await row())?.enabled, hash: (await row())?.hash }, { enabled: false, hash: null });
+  assert.equal(calls.length, 0);
+});
+
+test('ошибка провайдера при перевыпуске: 502, но старый адрес всё равно отозван и подключение выключено', async () => {
+  const admin = await viewerOf(U.admin);
+  const id = (await row())!.id;
+  await setIntegrationCrossborder(admin, deps(), id, { approved: true, decisionDate: '2026-10-28' });
+  await db.sql`UPDATE integrations SET enabled = TRUE, webhook_token_hash = ${sha(LEAKED)} WHERE id = ${id}`;
+  patchStatus = 400;
+  await failure(rotateIntegrationWebhook(admin, deps(), id), 'provider_error', 502);
+  assert.deepEqual({ enabled: (await row())?.enabled, hash: (await row())?.hash }, { enabled: false, hash: null });
+  assert.equal((await ping(LEAKED)).status, 404);
+});
+
+test('«Выключить» во время подписки при включении побеждает: 409 state_changed, подключение выключено, адреса нет', async () => {
+  const admin = await viewerOf(U.admin);
+  const id = (await row())!.id;
+  const enables = async () => (await db.sql`SELECT 1 FROM audit_log WHERE action = 'integration.enable'`).length;
+  const before = await enables();
+  duringPatch = async () => {
+    duringPatch = null;
+    await disableIntegration(admin, deps(), id);
+  };
+  await failure(enableIntegration(admin, deps(), id), 'state_changed', 409);
+  assert.deepEqual({ enabled: (await row())?.enabled, hash: (await row())?.hash }, { enabled: false, hash: null });
+  assert.equal(await enables(), before, 'несостоявшееся включение в аудит не пишется');
+  // Без гонки включение проходит
+  await enableIntegration(admin, deps(), id);
+  assert.equal((await row())?.enabled, true);
+});
+
+test('одно подключение на плагин: два параллельных «Подключить» дают одну строку; новые каналы выключены (D-298)', async () => {
+  const admin = await viewerOf(U.admin);
+  await db.sql`DELETE FROM messenger_messages`;
+  await db.sql`DELETE FROM messenger_chats`;
+  await db.sql`DELETE FROM webhook_inbox`;
+  await db.sql`DELETE FROM messenger_channels`;
+  await db.sql`DELETE FROM integration_secrets`;
+  await db.sql`DELETE FROM integrations WHERE plugin_id = 'messenger.wazzup'`;
+  await Promise.all([
+    connectIntegration(admin, deps(), { pluginId: 'messenger.wazzup', apiKey: 'parallel-synthetic-key-0001' }),
+    connectIntegration(admin, deps(), { pluginId: 'messenger.wazzup', apiKey: 'parallel-synthetic-key-0002' }),
+  ]);
+  assert.equal((await db.sql`SELECT 1 FROM integrations WHERE plugin_id = 'messenger.wazzup'`).length, 1);
+  const ch = await db.sql<{ isEnabled: boolean }>`SELECT is_enabled FROM messenger_channels`;
+  assert.equal(ch.length, 2);
+  assert.ok(ch.every((c) => !c.isEnabled), 'каналы нового подключения выключены, пока администратор не включит');
+});
+
+test('новый ключ выключает каналы прежнего аккаунта', async () => {
+  const admin = await viewerOf(U.admin);
+  const id = (await row())!.id;
+  await db.sql`UPDATE messenger_channels SET is_enabled = TRUE WHERE integration_id = ${id}`;
+  await connectIntegration(admin, deps(), { pluginId: 'messenger.wazzup', apiKey: 'other-account-synthetic-key-03' });
+  const ch = await db.sql<{ isEnabled: boolean }>`SELECT is_enabled FROM messenger_channels WHERE integration_id = ${id}`;
+  assert.ok(ch.length > 0 && ch.every((c) => !c.isEnabled));
 });

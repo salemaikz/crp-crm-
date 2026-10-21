@@ -3,13 +3,13 @@ import { createHash } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getClientFeed } from '../../../src/server/domain/clients';
-import { applyMessengerEvents, getMessengerConsent, recordLinkOpened, setMessengerConsent } from '../../../src/server/domain/messenger';
+import { applyMessengerEvents, ChatWindowError, getMessengerConsent, LINK_OPENED_RATE, recordLinkOpened, setMessengerConsent } from '../../../src/server/domain/messenger';
 import { NotFoundError } from '../../../src/server/access';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import * as consentRoute from '../../../src/app/api/messenger/consent/route';
 import * as openedRoute from '../../../src/app/api/messenger/opened/route';
 import ruMessenger from '../../../messages/ru/messenger.json';
-import { actAs, viewerOf } from '../../isolation/harness/actors';
+import { actAs, enterSeedWorld, viewerOf } from '../../isolation/harness/actors';
 import { U } from '../../isolation/harness/seed';
 import { INTEGRATION, NOW, actor, closeMessengerWorld, msg, openMessengerWorld, worldDeps } from './world';
 
@@ -67,6 +67,34 @@ test('«открыт WhatsApp»: событие ленты без текста �
   assert.equal((await post(U.opA, { cardId: 'cd-a-3', templateKey: null })).status, 200);
   assert.equal((await post(U.opA, { cardId: 'cd-a-3', templateKey: 'Плохой ключ' })).status, 400);
   assert.equal((await post(U.opB, { cardId: 'cd-a-3', templateKey: null })).status, 404);
+});
+
+test('«открыт WhatsApp» — запись: директор («только чтение») и лицензия read_only — 423, лента не меняется (D-297)', async () => {
+  const count = async () => (await db.sql`SELECT 1 FROM client_events WHERE client_id = 'cl-a-4' AND kind = 'messenger.link_opened'`).length;
+  const post = async (as: string) => {
+    actAs(as);
+    return openedRoute.POST(new Request(`${ORIGIN}/api/messenger/opened`, { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'application/json' }, body: JSON.stringify({ cardId: 'cd-a-4', templateKey: null }) }), { params: Promise.resolve({}) });
+  };
+  assert.equal((await post(U.director)).status, 423);
+  enterSeedWorld({ license: 'read_only' });
+  try {
+    assert.equal((await post(U.opA)).status, 423);
+  } finally {
+    enterSeedWorld();
+  }
+  assert.equal(await count(), 0);
+});
+
+test('«открыт WhatsApp»: не больше LINK_OPENED_RATE в минуту на сотрудника, дальше 429 без записи', async () => {
+  const v = await viewerOf(U.rop);
+  const count = async () => (await db.sql`SELECT 1 FROM client_events WHERE client_id = 'cl-a-5' AND kind = 'messenger.link_opened'`).length;
+  for (let i = 0; i < LINK_OPENED_RATE; i++) await recordLinkOpened(v, { cardId: 'cd-a-5', templateKey: null });
+  await assert.rejects(recordLinkOpened(v, { cardId: 'cd-a-5', templateKey: null }), (e: unknown) => e instanceof ChatWindowError && e.code === 'rate_limited' && e.status === 429);
+  assert.equal(await count(), LINK_OPENED_RATE);
+  actAs(U.rop);
+  const r = await openedRoute.POST(new Request(`${ORIGIN}/api/messenger/opened`, { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'application/json' }, body: JSON.stringify({ cardId: 'cd-a-5', templateKey: null }) }), { params: Promise.resolve({}) });
+  assert.equal(r.status, 429);
+  assert.equal(await count(), LINK_OPENED_RATE);
 });
 
 test('лента клиента: сообщения с текстом, удалённое без текста, статус доставки; чужому оператору клиент недоступен', async () => {

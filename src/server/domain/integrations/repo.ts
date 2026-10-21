@@ -90,15 +90,28 @@ export async function defaultSpaceId(sql: Sql): Promise<string | null> {
   return row?.id ?? null;
 }
 
+/**
+ * Подключение плагина создаётся или меняется только под этой блокировкой (до конца транзакции): два параллельных
+ * «Подключить» не создают двух строк. Уникального индекса нет намеренно: схема v1 не правится, а будущие подключения
+ * по пространствам допускают несколько строк на плагин (D-298).
+ */
+export async function lockPluginConnections(tx: Sql, pluginId: string): Promise<void> {
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`integration-connect:${pluginId}`}, 0))`;
+}
+
 export async function insertIntegration(sql: Sql, a: { id: string; pluginId: string; spaceId: string | null; now: number }): Promise<void> {
   await sql`
     INSERT INTO integrations (id, plugin_id, space_id, config, enabled, status, created_at, updated_at)
     VALUES (${a.id}, ${a.pluginId}, ${a.spaceId}, '{}'::jsonb, FALSE, 'unknown', ${a.now}, ${a.now})`;
 }
 
-/** Новый ключ того же подключения: выключаем и сбрасываем адрес вебхука (после смены аккаунта всё включается заново). */
+/**
+ * Новый ключ того же подключения: выключаем, сбрасываем адрес вебхука и выключаем каналы — ключ мог быть от другого
+ * аккаунта, каналы старого не должны принимать сообщения (после смены ключа всё включается заново, D-298).
+ */
 export async function resetIntegration(sql: Sql, id: string, now: number): Promise<void> {
   await sql`UPDATE integrations SET enabled = FALSE, status = 'unknown', webhook_token_hash = NULL, updated_at = ${now} WHERE id = ${id}`;
+  await sql`UPDATE messenger_channels SET is_enabled = FALSE, updated_at = ${now} WHERE integration_id = ${id} AND is_enabled`;
 }
 
 export async function setStatus(sql: Sql, id: string, status: string, now: number): Promise<void> {
@@ -109,21 +122,61 @@ export async function setWebhookToken(sql: Sql, id: string, hash: string | null,
   await sql`UPDATE integrations SET webhook_token_hash = ${hash}, updated_at = ${now} WHERE id = ${id}`;
 }
 
-export async function getWebhookTokenHash(sql: Sql, id: string): Promise<string | null> {
-  const [row] = await sql<{ hash: string | null }>`SELECT webhook_token_hash AS hash FROM integrations WHERE id = ${id}`;
-  return row?.hash ?? null;
+/**
+ * Выключить и отозвать адрес вебхука одной строкой (мутации безопасности D-054: «Выключить», отзыв адреса без
+ * переподписки). Сброс токена заодно срывает идущее «Включить»: его последний шаг требует своего токена (D-298).
+ */
+export async function switchOff(sql: Sql, id: string, now: number): Promise<void> {
+  await sql`UPDATE integrations SET enabled = FALSE, webhook_token_hash = NULL, updated_at = ${now} WHERE id = ${id}`;
 }
 
-export async function setEnabled(sql: Sql, id: string, enabled: boolean, now: number): Promise<void> {
-  await sql`UPDATE integrations SET enabled = ${enabled}, updated_at = ${now} WHERE id = ${id}`;
+/**
+ * Последний шаг «Включить»: только если адрес вебхука всё ещё тот, что выдало это включение. «Выключить», снятие
+ * отметки о решении или новый ключ за время подписки его сбросили — включение не состоится (false).
+ */
+export async function enableIfToken(sql: Sql, a: { id: string; tokenHash: string; now: number }): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
+    UPDATE integrations SET enabled = TRUE, updated_at = ${a.now}
+     WHERE id = ${a.id} AND NOT enabled AND webhook_token_hash = ${a.tokenHash} RETURNING id`;
+  return rows.length > 0;
 }
 
-/** Отметка решения о передаче ПДн за рубеж; снятие отметки сразу выключает подключение. */
+/** Сбросить адрес вебхука, только если это всё ещё наш токен (неудачное включение не затирает чужое). */
+export async function clearWebhookTokenIf(sql: Sql, a: { id: string; tokenHash: string; now: number }): Promise<void> {
+  await sql`UPDATE integrations SET webhook_token_hash = NULL, updated_at = ${a.now} WHERE id = ${a.id} AND webhook_token_hash = ${a.tokenHash}`;
+}
+
+/** Отметка решения о передаче ПДн за рубеж; снятие отметки сразу выключает подключение и отзывает адрес вебхука. */
 export async function setCrossborder(sql: Sql, a: { id: string; approvedAt: number | null; by: string | null; now: number }): Promise<void> {
   await sql`
     UPDATE integrations SET crossborder_approved_at = ${a.approvedAt}, crossborder_approved_by = ${a.by},
-           enabled = CASE WHEN ${a.approvedAt}::bigint IS NULL THEN FALSE ELSE enabled END, updated_at = ${a.now}
+           enabled = CASE WHEN ${a.approvedAt}::bigint IS NULL THEN FALSE ELSE enabled END,
+           webhook_token_hash = CASE WHEN ${a.approvedAt}::bigint IS NULL THEN NULL ELSE webhook_token_hash END,
+           updated_at = ${a.now}
      WHERE id = ${a.id}`;
+}
+
+/** Активные администраторы установки: получатели уведомлений о подключениях. */
+export async function activeAdminIds(sql: Sql): Promise<string[]> {
+  return (await sql<{ id: string }>`SELECT id FROM users WHERE is_admin AND status = 'active' ORDER BY id`).map((r) => r.id);
+}
+
+/** Строки inbox подключения, ушедшие в failed с момента `since` (число для уведомления администратору). */
+export async function countFailedInbox(sql: Sql, a: { integrationId: string; since: number }): Promise<number> {
+  const [r] = await sql<{ n: number }>`
+    SELECT count(*)::int AS n FROM webhook_inbox WHERE integration_id = ${a.integrationId} AND state = 'failed' AND received_at >= ${a.since}`;
+  return r?.n ?? 0;
+}
+
+/** Уведомление сотруднику по ключу идемпотентности: повтор ничего не меняет. params — только коды и числа. */
+export async function insertAdminNotice(
+  sql: Sql,
+  a: { userId: string; kind: string; entityType: string; entityId: string; params: Record<string, number | string>; dedupeKey: string; now: number },
+): Promise<void> {
+  await sql`
+    INSERT INTO notifications (id, user_id, kind, entity_type, entity_id, params, dedupe_key, not_before, created_at)
+    VALUES (${newId()}, ${a.userId}, ${a.kind}, ${a.entityType}, ${a.entityId}, ${jsonParam(a.params)}, ${a.dedupeKey}, ${a.now}, ${a.now})
+    ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`;
 }
 
 /** Активные сотрудники пространства: id и имя (для выгрузки пользователей провайдеру). */

@@ -242,16 +242,46 @@ test('чужой канал: событие пропущено, ничего н�
   assert.equal((await db.sql`SELECT 1 FROM messenger_channels WHERE provider_channel_id = 'foreign-channel'`).length, 0);
 });
 
-test('канал, появившийся у провайдера после подключения, подтягивается сверкой', async () => {
+test('канал, появившийся у провайдера после подключения, подтягивается сверкой выключенным; администратор уведомлён (D-298)', async () => {
   const deps = worldDeps({
     fetch: async () => new Response(JSON.stringify([{ guid: 'wz-channel-new', transport: 'whatsapp', plainId: '77091112244', state: 'active' }])),
   });
-  const r = await applyMessengerEvents(actor, deps, { integrationId: INTEGRATION, pluginId: 'messenger.wazzup', events: [msg({ channelRef: 'wz-channel-new', providerMessageId: 'pm-new' })] });
-  assert.deepEqual(r, { status: 'done' });
-  assert.equal((await db.sql`SELECT 1 FROM messenger_messages WHERE provider_message_id = 'pm-new'`).length, 1);
-  await db.sql`DELETE FROM messenger_messages`;
-  await db.sql`DELETE FROM messenger_chats`;
-  await db.sql`DELETE FROM messenger_channels WHERE provider_channel_id = 'wz-channel-new'`;
+  const run = (id: string) => applyMessengerEvents(actor, deps, { integrationId: INTEGRATION, pluginId: 'messenger.wazzup', events: [msg({ channelRef: 'wz-channel-new', providerMessageId: id })] });
+  try {
+    assert.deepEqual(await run('pm-new'), { status: 'done' });
+    const ch = await one(db.sql<{ id: string; isEnabled: boolean }>`SELECT id, is_enabled FROM messenger_channels WHERE provider_channel_id = 'wz-channel-new'`);
+    assert.equal(ch.isEnabled, false, 'новый канал выключен, пока администратор не решит');
+    assert.equal((await db.sql`SELECT 1 FROM messenger_messages WHERE provider_message_id = 'pm-new'`).length, 0, 'сообщение выключенного канала не сохраняется');
+    assert.equal((await db.sql`SELECT 1 FROM clients WHERE source_kind = 'messenger'`).length, 0);
+    const n = await db.sql<{ userId: string; entityId: string; params: unknown }>`SELECT user_id, entity_id, params FROM notifications WHERE kind = 'messenger_channel_new'`;
+    assert.deepEqual(n.map((r) => r.userId), [U.admin], 'уведомление — администраторам');
+    assert.equal(n[0]?.entityId, ch.id);
+    assert.deepEqual(n[0]?.params, {});
+    resetChannelRefreshForTests();
+    await run('pm-new-2');
+    assert.equal((await db.sql`SELECT 1 FROM notifications WHERE kind = 'messenger_channel_new'`).length, 1, 'о канале сообщаем один раз');
+    // Администратор включил канал — сообщения принимаются
+    await db.sql`UPDATE messenger_channels SET is_enabled = TRUE WHERE id = ${ch.id}`;
+    await run('pm-new-3');
+    assert.equal((await db.sql`SELECT 1 FROM messenger_messages WHERE provider_message_id = 'pm-new-3'`).length, 1);
+  } finally {
+    await db.sql`DELETE FROM messenger_messages`;
+    await db.sql`DELETE FROM messenger_chats`;
+    await db.sql`DELETE FROM messenger_channels WHERE provider_channel_id = 'wz-channel-new'`;
+  }
+});
+
+test('выключенный канал: входящее пропускается — ни клиента, ни текста, ни задачи; тревоги по нему нет (D-298)', async () => {
+  await db.sql`UPDATE messenger_channels SET is_enabled = FALSE WHERE id = ${CHANNEL}`;
+  const known = '77090000001';
+  assert.deepEqual(await apply([msg(), msg({ chatId: known, chatDigits: known, providerMessageId: 'pm-known' })]), { status: 'done' });
+  assert.equal((await db.sql`SELECT 1 FROM messenger_messages`).length, 0);
+  assert.equal((await db.sql`SELECT 1 FROM messenger_chats`).length, 0);
+  assert.equal((await db.sql`SELECT 1 FROM clients WHERE source_kind = 'messenger'`).length, 0);
+  assert.equal((await tasksOf('inbound_message')).length, 0);
+  await apply([channelEvent('disabled', NOW + MIN)]);
+  assert.equal((await one(db.sql<{ state: string }>`SELECT state FROM messenger_channels WHERE id = ${CHANNEL}`)).state, 'disabled', 'состояние обновляется');
+  assert.equal((await db.sql`SELECT 1 FROM notifications WHERE kind = 'messenger_channel_down'`).length, 0, 'тревоги по выключенному каналу нет');
 });
 
 test('статус раньше сообщения: retry, с 3-й попытки событие считается устаревшим; статус не затирается старым', async () => {

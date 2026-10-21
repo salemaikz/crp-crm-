@@ -6,7 +6,7 @@ import type { Viewer, SystemActor } from '../../../src/server/access';
 import { pluginUsability } from '../../../src/integrations/enablement';
 import { createRegistry, PLUGINS } from '../../../src/integrations/registry';
 import { FALLBACK_MODES, getChannelModes, purgeWebhookPayloads } from '../../../src/server/domain/integrations';
-import { webhookHandlers, type InboxApplier } from '../../../src/server/jobs/integrations';
+import { WEBHOOK_MAX_ATTEMPTS, webhookHandlers, type InboxApplier } from '../../../src/server/jobs/integrations';
 import { purgeParts, queueSpecs } from '../../../src/server/jobs/registry';
 import { jsonParam } from '../../../src/server/platform/db/core';
 import { createTestDb, type TestDb } from '../../../src/server/platform/db/testing';
@@ -78,6 +78,43 @@ test('очередь: обработчик только у плагина с в�
   assert.equal(seen.length, 1, 'нет событий — применитель не зовётся');
   assert.deepEqual(await h(actor, { id: 'w-3', handlerKey: 'messenger.wazzup', kind: 'status', attempt: 1 }, signal), { status: 'failed', error: 'payload_purged' });
   assert.deepEqual(await h(actor, { id: 'w-none', handlerKey: 'messenger.wazzup', kind: 'status', attempt: 1 }, signal), { status: 'failed', error: 'missing' });
+});
+
+test('неудачи очереди видны администраторам: integration_inbox_failed при invalid_settings и после последней попытки, раз в сутки', async () => {
+  await db.sql`INSERT INTO users (id, phone_digits, name, is_admin, status, created_at) VALUES
+    ('u-adm-1', '77090000901', 'Администратор Синтетик', TRUE, 'active', ${T0}),
+    ('u-op-1', '77090000902', 'Оператор Синтетик', FALSE, 'active', ${T0})`;
+  await insertIntegration(db.sql, { id: 'hook-f', token: null });
+  await insertIntegration(db.sql, { id: 'hook-g', token: null });
+  await db.sql`
+    INSERT INTO webhook_inbox (id, integration_id, dedupe_key, kind, payload, next_at, received_at) VALUES
+      ('wf-1', 'hook-f', 'f:1', 'status', ${jsonParam({ id: 'm1', kind: 'status' })}, ${T0}, ${T0}),
+      ('wf-2', 'hook-g', 'f:2', 'status', ${jsonParam({ id: 'm2', kind: 'status' })}, ${T0}, ${T0})`;
+  let outcome: Awaited<ReturnType<InboxApplier>> | 'throw' = { status: 'done' };
+  const apply: InboxApplier = async () => {
+    if (outcome === 'throw') throw new Error('сбой');
+    return outcome;
+  };
+  const h = webhookHandlers(fakeRegistry, { messenger: apply }).get('messenger.wazzup')!;
+  const signal = new AbortController().signal;
+  const run = (id: string, attempt: number) => h(actor, { id, handlerKey: 'messenger.wazzup', kind: 'status', attempt }, signal);
+  const notices = () => db.sql<{ userId: string; entityId: string; params: Record<string, number> }>`
+    SELECT user_id, entity_id, params FROM notifications WHERE kind = 'integration_inbox_failed' ORDER BY entity_id, user_id`;
+
+  outcome = { status: 'retry', error: 'message_not_yet' };
+  await run('wf-1', WEBHOOK_MAX_ATTEMPTS - 1);
+  assert.equal((await notices()).length, 0, 'повтор впереди — молчим');
+  outcome = { status: 'failed', error: 'invalid_settings' };
+  assert.deepEqual(await run('wf-1', 1), { status: 'failed', error: 'invalid_settings' });
+  assert.deepEqual(await notices(), [{ userId: 'u-adm-1', entityId: 'hook-f', params: { count: 1 } }], 'только администраторам, в params — число');
+  outcome = { status: 'retry', error: 'message_not_yet' };
+  await run('wf-1', WEBHOOK_MAX_ATTEMPTS);
+  assert.equal((await notices()).length, 1, 'то же подключение в те же сутки — без повтора');
+  outcome = 'throw';
+  await assert.rejects(run('wf-2', WEBHOOK_MAX_ATTEMPTS));
+  assert.deepEqual((await notices()).map((n) => n.entityId), ['hook-f', 'hook-g'], 'исключение на последней попытке — тоже неудача');
+  await db.sql`DELETE FROM notifications`;
+  await db.sql`DELETE FROM webhook_inbox WHERE id IN ('wf-1', 'wf-2')`;
 });
 
 test('чистка: payload старше 14 дней обнуляется, строки остаются; часть purge и очередь в реестре воркера', async () => {

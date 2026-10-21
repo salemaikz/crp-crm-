@@ -1,12 +1,14 @@
-// Окно чата в карточке (дизайн §8.7, D-270): доступ по карточке (чужая = 404), пригодность подключения, выбор канала,
-// запрос к провайдеру без имени клиента, аудит без ссылки, ссылка не пишется в логи. Сеть — только фикстура fetch.
+// Окно чата в карточке (дизайн §8.7, D-270, D-297): пишущее действие по карточке (чужая = 404, «только чтение» и
+// запирающая лицензия — 423), отзыв согласия — 409 без провайдера, пригодность подключения, выбор канала, запрос к
+// провайдеру без имени клиента, аудит без ссылки, ссылка не пишется в логи. Сеть — только фикстура fetch.
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { NotFoundError } from '../../../src/server/access';
 import { ChatWindowError, openChatWindow, pickChannel, CHAT_WINDOW_RATE } from '../../../src/server/domain/messenger';
 import type { TestDb } from '../../../src/server/platform/db/testing';
-import * as chatRoute from '../../../src/app/api/messenger/chat-window/route';
-import { actAs, viewerOf } from '../../isolation/harness/actors';
+import * as chatRoute from '../../../src/app/api/messenger/chat-window/[cardId]/route';
+import { configDoc } from '../../isolation/harness/config';
+import { actAs, enterSeedWorld, viewerOf } from '../../isolation/harness/actors';
 import { U } from '../../isolation/harness/seed';
 import { INTEGRATION, addChannel, closeMessengerWorld, openMessengerWorld, worldDeps } from './world';
 
@@ -37,6 +39,7 @@ beforeEach(async () => {
   await db.sql`UPDATE integrations SET enabled = TRUE, crossborder_approved_at = 1 WHERE id = ${INTEGRATION}`;
   await db.sql`UPDATE messenger_channels SET is_enabled = TRUE`;
   await db.sql`UPDATE client_phones SET kind = 'mobile' WHERE client_id = 'cl-a-1'`;
+  await db.sql`DELETE FROM consents WHERE client_id = 'cl-a-1'`;
 });
 
 test('сотрудник открывает чат своей карточки: канал владельца, сотрудник у провайдера, запрос без имени клиента', async () => {
@@ -114,29 +117,78 @@ test('ошибка провайдера → provider_error (502), ссылка �
 });
 
 test('лимит: 30 открытий в минуту на сотрудника', async () => {
-  const v = await viewerOf(U.director);
-  await db.sql`UPDATE cards SET owner_user_id = ${U.opA} WHERE id = 'cd-a-1'`;
-  for (let i = 0; i < CHAT_WINDOW_RATE; i++) await openChatWindow(v, deps(), { cardId: 'cd-a-1' });
-  await assert.rejects(openChatWindow(v, deps(), { cardId: 'cd-a-1' }), (e: unknown) => e instanceof ChatWindowError && e.code === 'rate_limited' && e.status === 429);
+  // Свежий сотрудник (счётчик лимита пуст): оператор-дежурный, карточка на время теста — его
+  const v = await viewerOf(U.duty);
+  await db.sql`UPDATE cards SET owner_user_id = ${U.duty} WHERE id = 'cd-a-1'`;
+  try {
+    for (let i = 0; i < CHAT_WINDOW_RATE; i++) await openChatWindow(v, deps(), { cardId: 'cd-a-1' });
+    await assert.rejects(openChatWindow(v, deps(), { cardId: 'cd-a-1' }), (e: unknown) => e instanceof ChatWindowError && e.code === 'rate_limited' && e.status === 429);
+  } finally {
+    await db.sql`UPDATE cards SET owner_user_id = ${U.opA} WHERE id = 'cd-a-1'`;
+  }
 });
 
+const postWindow = async (as: string | null, cardId: string, origin = true) => {
+  actAs(as);
+  return chatRoute.POST(new Request(`${ORIGIN}/api/messenger/chat-window/${cardId}`, { method: 'POST', headers: origin ? { origin: ORIGIN } : {} }), {
+    params: Promise.resolve({ cardId }),
+  });
+};
+
 test('маршрут: чужая карточка — 404, выключенное подключение — 409 с кодом, без Origin — 403; ответ не кэшируется', async () => {
-  const post = async (as: string | null, body: unknown, origin = true) => {
-    actAs(as);
-    return chatRoute.POST(
-      new Request(`${ORIGIN}/api/messenger/chat-window`, { method: 'POST', headers: { 'content-type': 'application/json', ...(origin ? { origin: ORIGIN } : {}) }, body: JSON.stringify(body) }),
-      { params: Promise.resolve({}) },
-    );
-  };
-  assert.equal((await post(U.opB, { cardId: 'cd-a-1' })).status, 404);
-  assert.equal((await post(null, { cardId: 'cd-a-1' })).status, 401);
-  assert.equal((await post(U.opA, { cardId: 'cd-a-1' }, false)).status, 403);
-  assert.equal((await post(U.opA, { cardId: '' })).status, 400);
+  assert.equal((await postWindow(U.opB, 'cd-a-1')).status, 404);
+  assert.equal((await postWindow(null, 'cd-a-1')).status, 401);
+  assert.equal((await postWindow(U.opA, 'cd-a-1', false)).status, 403);
+  assert.equal((await postWindow(U.opA, 'плохой id')).status, 400);
   await db.sql`UPDATE integrations SET enabled = FALSE WHERE id = ${INTEGRATION}`;
-  const r = await post(U.opA, { cardId: 'cd-a-1' });
+  const r = await postWindow(U.opA, 'cd-a-1');
   assert.equal(r.status, 409);
   assert.deepEqual(await r.json(), { error: 'messenger_unavailable' });
   assert.equal(r.headers.get('cache-control'), 'no-store');
+});
+
+test('«только чтение» и запирающая лицензия — 423: ни окна, ни сотрудника у провайдера, ни аудита (D-297)', async () => {
+  const audits = async () => (await db.sql`SELECT 1 FROM audit_log WHERE action = 'messenger.open_chat'`).length;
+  const before = await audits();
+  const dir = await postWindow(U.director, 'cd-a-1');
+  assert.equal(dir.status, 423, 'директор видит карточку, но писать клиенту от имени компании не может');
+  enterSeedWorld({ license: 'read_only' });
+  try {
+    assert.equal((await postWindow(U.opA, 'cd-a-1')).status, 423);
+  } finally {
+    enterSeedWorld();
+  }
+  assert.equal(calls.length, 0, 'провайдера не трогали: ни /users, ни /iframe');
+  assert.equal(await audits(), before);
+});
+
+test('роль без права писать (note.write), но с чтением карточки — 404, как у чужой карточки (target: object)', async () => {
+  const doc = configDoc() as { global: { roles: Array<{ key: string; readOnly: boolean }> } };
+  for (const r of doc.global.roles) if (r.key === 'director') r.readOnly = false;
+  enterSeedWorld({ config: doc });
+  try {
+    const r = await postWindow(U.director, 'cd-a-1');
+    assert.equal(r.status, 404);
+    assert.equal(calls.length, 0);
+  } finally {
+    enterSeedWorld();
+  }
+});
+
+test('согласие отозвано — 409 consent_revoked, номер провайдеру не уходит; новая отметка снова открывает окно', async () => {
+  const at = (n: number) => 1_000 + n;
+  const H = 'a'.repeat(64);
+  await db.sql`INSERT INTO consents (id, client_id, kind, action, at, text_hash, recorded_by, created_at)
+               VALUES ('k-1', 'cl-a-1', 'messenger_crossborder', 'given', ${at(1)}, ${H}, ${U.opA}, ${at(1)}),
+                      ('k-2', 'cl-a-1', 'messenger_crossborder', 'revoked', ${at(2)}, ${H}, ${U.opA}, ${at(2)})`;
+  await assert.rejects(openChatWindow(await viewerOf(U.opA), deps(), { cardId: 'cd-a-1' }), (e: unknown) => e instanceof ChatWindowError && e.code === 'consent_revoked' && e.status === 409);
+  const r = await postWindow(U.opA, 'cd-a-1');
+  assert.equal(r.status, 409);
+  assert.deepEqual(await r.json(), { error: 'consent_revoked' });
+  assert.equal(calls.length, 0, 'ни /users, ни /iframe: цифры номера за рубеж не ушли');
+  await db.sql`INSERT INTO consents (id, client_id, kind, action, at, text_hash, recorded_by, created_at)
+               VALUES ('k-3', 'cl-a-1', 'messenger_crossborder', 'given', ${at(3)}, ${H}, ${U.opA}, ${at(3)})`;
+  assert.equal((await openChatWindow(await viewerOf(U.opA), deps(), { cardId: 'cd-a-1' })).url, LINK);
 });
 
 test('pickChannel: канал владельца карточки, затем сотрудника, затем общий; рабочий — первым', () => {

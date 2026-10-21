@@ -1,14 +1,15 @@
 'use client';
 
 // Отметка «клиент согласен на переписку и передачу данных за рубеж» (INTEGRATIONS §3.2 п. 12). Сервер пишет в consents
-// sha256 показанного текста; отзыв — новая строка. Без отметки окно чата открывается с предупреждением (D-270).
+// sha256 показанного текста; отзыв — новая строка. Без отметки окно чата открывается с предупреждением (D-270), при
+// отзыве — не открывается (D-297): панель узнаёт о смене отметки через onChange.
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Badge, Button } from '@/ui/kit';
 
 export type ConsentState = 'given' | 'revoked' | null;
 
-export function ConsentToggle({ clientId, initial, canEdit }: { clientId: string; initial: ConsentState; canEdit: boolean }) {
+export function ConsentToggle({ clientId, initial, canEdit, onChange }: { clientId: string; initial: ConsentState; canEdit: boolean; onChange?: (state: ConsentState) => void }) {
   const t = useTranslations('messenger');
   const [state, setState] = useState<ConsentState>(initial);
   const [busy, setBusy] = useState(false);
@@ -21,6 +22,7 @@ export function ConsentToggle({ clientId, initial, canEdit }: { clientId: string
       const res = await fetch('/api/messenger/consent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId, action }) });
       if (!res.ok) throw new Error('consent');
       setState(action);
+      onChange?.(action);
     } catch {
       setFailed(true);
     } finally {

@@ -105,6 +105,7 @@ export function WazzupCard({ plugin, owners, timeZone }: { plugin: PluginView; o
             <h3 id="wazzup-ch" className="font-semibold">
               {t('wazzup.channels')}
             </h3>
+            <p className="text-sm text-[var(--text-2)]">{t('wazzup.channelsHint')}</p>
             {conn.channels.length === 0 ? (
               <p className="text-[var(--text-2)]">{t('wazzup.noChannels')}</p>
             ) : (
