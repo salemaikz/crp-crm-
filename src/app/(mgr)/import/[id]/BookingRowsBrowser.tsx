@@ -4,7 +4,7 @@ import { useFormatter, useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
 import { BOOKING_ROW_FILTERS, type BookingRowView, type RowFilter } from '../types';
-import { Alert, Badge, Button, Field, Select, Table, type TableColumn } from '@/ui/kit';
+import { ACTION_SEPARATE, ActionBar, Alert, Badge, Button, Field, Select, Table, type TableColumn } from '@/ui/kit';
 import { call } from '../api';
 
 const PAGE = 50;
@@ -37,9 +37,9 @@ export function BookingRowsBrowser({ importId, refreshKey, eventTypeLabels }: { 
 
   const code = (c: string, ns: 'issue' | 'flag') => (t.has(`${ns}.${c}` as 'issue.bad_date') ? t(`${ns}.${c}` as 'issue.bad_date') : c);
   const columns: TableColumn<BookingRowView>[] = [
-    { key: 'no', header: t('rows.columns.row'), cell: (r) => r.rowNo, width: '72px' },
+    { key: 'no', header: t('rows.columns.row'), numeric: true, cell: (r) => r.rowNo, width: '72px' },
     { key: 'name', header: t('rows.columns.name'), primary: true, cell: (r) => <strong>{r.name || '—'}</strong> },
-    { key: 'phones', header: t('rows.columns.phones'), hideOnMobile: true, cell: (r) => r.phones.join(', ') || '—' },
+    { key: 'phones', header: t('rows.columns.phones'), hideOnMobile: true, nowrap: true, cell: (r) => (r.phones.length > 0 ? <span className="k-num">{r.phones.join(', ')}</span> : '—') },
     {
       key: 'event',
       header: t('rows.columns.event'),
@@ -65,8 +65,8 @@ export function BookingRowsBrowser({ importId, refreshKey, eventTypeLabels }: { 
   const total = data?.total ?? 0;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-3">
-        <Field label={tr('filter')}>
+      <ActionBar className="items-end">
+        <Field label={tr('filter')} width="md" className="min-w-0 flex-1">
           <Select
             name="filter"
             value={filter}
@@ -82,21 +82,21 @@ export function BookingRowsBrowser({ importId, refreshKey, eventTypeLabels }: { 
             ))}
           </Select>
         </Field>
-        <Button variant="secondary" href={`/api/import/${importId}/rows.csv?filter=${filter}`} external download>
+        <Button variant="secondary" size="sm" href={`/api/import/${importId}/rows.csv?filter=${filter}`} external download className={ACTION_SEPARATE}>
           <Download aria-hidden="true" size={18} /> {tr('download')}
         </Button>
-      </div>
+      </ActionBar>
       {error && <Alert tone="danger">{te.has(error as 'generic') ? te(error as 'generic') : te('generic')}</Alert>}
       <Table columns={columns} rows={data?.rows ?? []} rowKey={(r) => String(r.rowNo)} dense empty={<p>{tr('empty')}</p>} />
-      <div className="flex items-center gap-3">
+      <ActionBar>
         <Button variant="secondary" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
           {ta('prev')}
         </Button>
-        <span>{tr('range', { from: total === 0 ? 0 : offset + 1, to: Math.min(offset + PAGE, total), total: f.number(total) })}</span>
+        <span className="k-num">{tr('range', { from: total === 0 ? 0 : offset + 1, to: Math.min(offset + PAGE, total), total: f.number(total) })}</span>
         <Button variant="secondary" size="sm" disabled={offset + PAGE >= total} onClick={() => setOffset(offset + PAGE)}>
           {ta('next')}
         </Button>
-      </div>
+      </ActionBar>
     </div>
   );
 }

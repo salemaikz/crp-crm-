@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import type { BookingDetails } from '../types';
-import { Field, Select } from '@/ui/kit';
+import { Field, FormGrid, Select } from '@/ui/kit';
 
 /** Значение выбора: пусто — решения нет, `none` — «автор неизвестен», иначе id сотрудника. */
 export const AUTHOR_NONE = '__none';
@@ -21,9 +21,9 @@ export function AuthorMapForm({ hints, staff, value, onChange, disabled }: Props
   const t = useTranslations('import.bookings.authors');
   if (hints.length === 0) return <p>{t('none')}</p>;
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <FormGrid>
       {hints.map((h) => (
-        <Field key={h.label} label={h.label} hint={`${t('rows', { count: h.rows })} · ${t(`by.${h.by}`)}`}>
+        <Field key={h.label} width="md" label={h.label} hint={`${t('rows', { count: h.rows })} · ${t(`by.${h.by}`)}`}>
           <Select
             name={`author-${h.label}`}
             value={value[h.label] ?? ''}
@@ -45,7 +45,7 @@ export function AuthorMapForm({ hints, staff, value, onChange, disabled }: Props
           </Select>
         </Field>
       ))}
-    </div>
+    </FormGrid>
   );
 }
 

@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import type { ImportDetails } from '../types';
-import { Field, Select } from '@/ui/kit';
+import { Field, FormGrid, Select } from '@/ui/kit';
 
 type Props = {
   labels: readonly string[];
@@ -17,9 +17,9 @@ export function OwnerMapForm({ labels, candidates, value, onChange, disabled }: 
   const t = useTranslations('import.owners');
   if (labels.length === 0) return <p>{t('none')}</p>;
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <FormGrid>
       {labels.map((label) => (
-        <Field key={label} label={label}>
+        <Field key={label} width="md" label={label}>
           <Select
             name={`owner-${label}`}
             value={value[label] ?? ''}
@@ -40,6 +40,6 @@ export function OwnerMapForm({ labels, candidates, value, onChange, disabled }: 
           </Select>
         </Field>
       ))}
-    </div>
+    </FormGrid>
   );
 }

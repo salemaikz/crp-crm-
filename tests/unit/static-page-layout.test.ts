@@ -55,14 +55,24 @@ test('страницы с данными рендерят Page', () => {
 
 test('любой компонент с <PageHeader> стоит внутри Page: рисует Page сам или его рисуют только внутри Page', () => {
   // Не по шаблону имён файлов: ветка «только полная выгрузка» отчётов (DataExportOnly) им не подходила и
-  // потеряла отступы оболочки (ревью D-319)
+  // потеряла отступы оболочки (ревью D-319). Проверка по месту вызова, а не по файлу: экран «Записей» импорта
+  // (BookingsDetail) вызывался в файле, где Page рисует соседний компонент, и стоял вне Page.
   const all = files.map((f) => ({ f, src: readFileSync(f, 'utf8') }));
   const bad: string[] = [];
   for (const { f, src } of all) {
-    if (!/<PageHeader\b/.test(src) || /<Page\b/.test(src)) continue;
+    const loose = [...src.matchAll(/<PageHeader\b/g)].filter((m) => pageDepth(src, m.index) === 0);
+    if (loose.length === 0) continue;
     const names = [...src.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1]!);
-    const users = all.filter((o) => o.f !== f && names.some((n) => new RegExp(`<${n}\\b`).test(o.src)));
-    if (users.length === 0 || users.some((u) => !/<Page\b/.test(u.src))) bad.push(relative(ROOT, f));
+    const calls = all
+      .filter((o) => o.f !== f)
+      .flatMap((o) => names.flatMap((n) => [...o.src.matchAll(new RegExp(`<${n}\\b`, 'g'))].map((m) => pageDepth(o.src, m.index))));
+    if (calls.length === 0 || calls.some((d) => d === 0)) bad.push(relative(ROOT, f));
   }
   assert.deepEqual(bad, []);
 });
+
+/** Сколько <Page> открыто к позиции i (по тексту файла). */
+function pageDepth(src: string, i: number): number {
+  const before = src.slice(0, i);
+  return (before.match(/<Page\b/g)?.length ?? 0) - (before.match(/<\/Page>/g)?.length ?? 0);
+}

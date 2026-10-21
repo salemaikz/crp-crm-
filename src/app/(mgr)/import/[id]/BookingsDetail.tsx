@@ -3,14 +3,15 @@
 import { useFormatter, useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ArrowLeft, Check, RefreshCw } from 'lucide-react';
-import { Alert, Badge, Button, Card, PageHeader } from '@/ui/kit';
+import { Check, RefreshCw } from 'lucide-react';
+import { ActionBar, Alert, Button, Card, Page } from '@/ui/kit';
 import { call } from '../api';
 import type { ApplyBlocker, BookingApplyResult, BookingPreviewSummary, ImportDetails } from '../types';
 import { AuthorMapForm, authorMapOf, initialChoice, type AuthorChoice } from './AuthorMapForm';
 import { BookingApplyDialog } from './BookingApplyDialog';
 import { BookingRowsBrowser } from './BookingRowsBrowser';
 import { BookingCountsView, BookingSummaryView } from './BookingSummaryView';
+import { DetailHeader } from './DetailHeader';
 
 type Props = { details: ImportDetails; sameFileAppliedAt: number | null };
 
@@ -74,64 +75,52 @@ export function BookingsDetail({ details, sameFileAppliedAt }: Props) {
   const canApply = !!summary && !alreadyApplied && blockers.length === 0 && !stale;
 
   return (
-    <>
-      <PageHeader
-        breadcrumbs={
-          <Button variant="quiet" size="sm" href="/import">
-            <ArrowLeft aria-hidden="true" size={16} /> {t('detail.back')}
-          </Button>
-        }
-        title={details.fileName || t('list.noName')}
-        lead={t('detail.lead', { rows: f.number(details.rows), at: f.dateTime(details.createdAt, { dateStyle: 'medium', timeStyle: 'short' }) })}
-        actions={<Badge tone={alreadyApplied ? 'success' : details.status === 'failed' ? 'danger' : 'info'}>{t(`status.${alreadyApplied ? 'applied' : details.status}`)}</Badge>}
-      />
-      <div className="flex flex-col gap-6">
-        {sameFileAppliedAt !== null && <Alert tone="info">{t('detail.sameFile', { at: f.dateTime(sameFileAppliedAt, { dateStyle: 'medium', timeStyle: 'short' }) })}</Alert>}
-        {expired && <Alert tone="warning">{t('detail.expired')}</Alert>}
-        {error && (
-          <Alert tone={stale ? 'warning' : 'danger'}>
-            {errText(error)}
-            {blockers.length > 0 && <> {blockers.map((b) => t(`blockers.${b}`)).join('; ')}</>}
-          </Alert>
-        )}
-        {alreadyApplied && written && (
-          <Card>
-            <h2 className="mb-3 text-lg font-semibold">{tb('result.title')}</h2>
-            {applied?.alreadyApplied && <p className="mb-3">{t('result.again')}</p>}
-            <BookingCountsView w={written} />
-          </Card>
-        )}
-        {!alreadyApplied && !expired && data && (
-          <Card>
-            <h2 className="mb-3 text-lg font-semibold">{tb('authors.title')}</h2>
-            <p className="mb-3">{tb('authors.lead')}</p>
+    <Page width="wide" header={<DetailHeader details={details} applied={alreadyApplied} />}>
+      {sameFileAppliedAt !== null && <Alert tone="info">{t('detail.sameFile', { at: f.dateTime(sameFileAppliedAt, { dateStyle: 'medium', timeStyle: 'short' }) })}</Alert>}
+      {expired && <Alert tone="warning">{t('detail.expired')}</Alert>}
+      {error && (
+        <Alert tone={stale ? 'warning' : 'danger'}>
+          {errText(error)}
+          {blockers.length > 0 && <> {blockers.map((b) => t(`blockers.${b}`)).join('; ')}</>}
+        </Alert>
+      )}
+      {alreadyApplied && written && (
+        <Card title={tb('result.title')}>
+          {applied?.alreadyApplied && <p className="mb-3">{t('result.again')}</p>}
+          <BookingCountsView w={written} />
+        </Card>
+      )}
+      {!alreadyApplied && !expired && data && (
+        <Card title={tb('authors.title')}>
+          <div className="flex flex-col gap-[var(--space-stack)]">
+            <p>{tb('authors.lead')}</p>
             <AuthorMapForm hints={data.hints} staff={data.staff} value={choice} onChange={setChoice} disabled={busy} />
-            <div className="mt-4">
+            <ActionBar>
               <Button variant="secondary" onClick={runPreview} disabled={busy}>
                 <RefreshCw aria-hidden="true" size={18} /> {summary ? t('actions.recheck') : t('actions.preview')}
               </Button>
-            </div>
-          </Card>
-        )}
-        {summary && !alreadyApplied && (
-          <Card>
-            <h2 className="mb-3 text-lg font-semibold">{tb('summary.title')}</h2>
+            </ActionBar>
+          </div>
+        </Card>
+      )}
+      {summary && !alreadyApplied && (
+        <Card title={tb('summary.title')}>
+          <div className="flex flex-col gap-[var(--space-stack)]">
             <BookingSummaryView s={summary} />
-            <div className="mt-4">
+            <ActionBar>
               <Button onClick={() => setConfirm(true)} disabled={!canApply || busy}>
                 <Check aria-hidden="true" size={18} /> {t('actions.apply')}
               </Button>
-            </div>
-          </Card>
-        )}
-        {!expired && (summary || alreadyApplied) && (
-          <Card>
-            <h2 className="mb-3 text-lg font-semibold">{tb('rows.title')}</h2>
-            <BookingRowsBrowser importId={details.id} refreshKey={tick} eventTypeLabels={data?.eventTypeLabels ?? {}} />
-          </Card>
-        )}
-      </div>
+            </ActionBar>
+          </div>
+        </Card>
+      )}
+      {!expired && (summary || alreadyApplied) && (
+        <Card title={tb('rows.title')}>
+          <BookingRowsBrowser importId={details.id} refreshKey={tick} eventTypeLabels={data?.eventTypeLabels ?? {}} />
+        </Card>
+      )}
       {summary && <BookingApplyDialog open={confirm} summary={summary} busy={busy} onConfirm={runApply} onClose={() => setConfirm(false)} />}
-    </>
+    </Page>
   );
 }

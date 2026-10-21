@@ -3,7 +3,7 @@
 import { useFormatter, useTranslations } from 'next-intl';
 import Link from 'next/link';
 import type { ImportListItem, ProfileOption } from './types';
-import { Badge, Card, EmptyState, Page, PageHeader, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
+import { Badge, Card, EmptyState, Page, PageHeader, Section, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
 import { UploadForm } from './UploadForm';
 
 const TONE: Record<ImportListItem['status'], BadgeTone> = { preview: 'info', applied: 'success', failed: 'danger' };
@@ -15,7 +15,7 @@ export function ImportScreen({ items, profiles, today }: { items: ImportListItem
   const columns: TableColumn<ImportListItem>[] = [
     { key: 'file', header: t('list.file'), primary: true, cell: (i) => <strong>{i.fileName || t('list.noName')}</strong> },
     { key: 'profile', header: t('list.profile'), cell: (i) => labels.get(i.profileKey) ?? i.profileKey },
-    { key: 'rows', header: t('list.rows'), align: 'right', cell: (i) => f.number(i.rows) },
+    { key: 'rows', header: t('list.rows'), numeric: true, cell: (i) => f.number(i.rows) },
     { key: 'at', header: t('list.at'), cell: (i) => f.dateTime(i.createdAt, { dateStyle: 'medium', timeStyle: 'short' }) },
     {
       key: 'status',
@@ -41,12 +41,12 @@ export function ImportScreen({ items, profiles, today }: { items: ImportListItem
   return (
     <Page width="wide">
       <PageHeader title={t('title')} lead={t('lead')} />
-      <Card className="mb-6">
-        <h2 className="mb-3 text-lg font-semibold">{t('upload.title')}</h2>
+      <Card title={t('upload.title')}>
         {profiles.length === 0 ? <EmptyState framed={false} title={t('upload.noProfiles')} description={t('upload.noProfilesHint')} /> : <UploadForm profiles={profiles} today={today} />}
       </Card>
-      <h2 className="mb-3 text-lg font-semibold">{t('list.title')}</h2>
-      <Table columns={columns} rows={items} rowKey={(i) => i.id} empty={<EmptyState framed={false} title={t('list.emptyTitle')} description={t('list.emptyHint')} />} />
+      <Section title={t('list.title')}>
+        <Table columns={columns} rows={items} rowKey={(i) => i.id} empty={<EmptyState framed={false} title={t('list.emptyTitle')} description={t('list.emptyHint')} />} />
+      </Section>
     </Page>
   );
 }

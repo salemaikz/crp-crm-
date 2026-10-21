@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Upload } from 'lucide-react';
-import { Alert, Button, Field, Input, Select } from '@/ui/kit';
+import { ActionBar, Alert, Button, Field, FormGrid, Input, Select } from '@/ui/kit';
 import { uploadFile } from './api';
 import type { ProfileOption, UploadResult } from './types';
 
@@ -52,44 +52,46 @@ export function UploadForm({ profiles, today }: Props) {
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+    <form onSubmit={submit} className="flex flex-col gap-[var(--space-stack)]" noValidate>
       {error && (
         <Alert tone={error === 'sheet_required' ? 'info' : 'danger'}>
           {te.has(error as 'generic') ? te(error as 'generic') : error === 'no_file' ? t('noFile') : te('generic')}
           {missing.length > 0 && <> {t('missing', { fields: missing.join(', ') })}</>}
         </Alert>
       )}
-      <Field label={t('profile')} hint={profiles.find((p) => p.key === profile)?.kind === 'bookings' ? tb('lead') : undefined} required>
-        <Select name="profile" value={profile} onChange={(e) => setProfile(e.target.value)}>
-          {profiles.map((p) => (
-            <option key={p.key} value={p.key}>
-              {p.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label={t('file')} hint={t('fileHint')} required>
-        <Input name="file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-      </Field>
-      {sheets.length > 0 && (
-        <Field label={t('sheet')} required>
-          <Select name="sheet" value={sheet} onChange={(e) => setSheet(e.target.value)}>
-            {sheets.map((s) => (
-              <option key={s} value={s}>
-                {s}
+      <FormGrid>
+        <Field label={t('profile')} width="md" hint={profiles.find((p) => p.key === profile)?.kind === 'bookings' ? tb('lead') : undefined} required>
+          <Select name="profile" value={profile} onChange={(e) => setProfile(e.target.value)}>
+            {profiles.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label}
               </option>
             ))}
           </Select>
         </Field>
-      )}
-      <Field label={t('snapshotDay')} hint={t('snapshotDayHint')} required>
-        <Input name="snapshotDay" type="date" max={today} value={day} onChange={(e) => setDay(e.target.value)} />
-      </Field>
-      <div>
+        <Field label={t('file')} width="md" hint={t('fileHint')} required>
+          <Input name="file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        </Field>
+        {sheets.length > 0 && (
+          <Field label={t('sheet')} width="md" required>
+            <Select name="sheet" value={sheet} onChange={(e) => setSheet(e.target.value)}>
+              {sheets.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        <Field label={t('snapshotDay')} width="sm" hint={t('snapshotDayHint')} required>
+          <Input name="snapshotDay" type="date" max={today} value={day} onChange={(e) => setDay(e.target.value)} />
+        </Field>
+      </FormGrid>
+      <ActionBar>
         <Button type="submit" disabled={busy || profiles.length === 0}>
           <Upload aria-hidden="true" size={18} /> {busy ? t('uploading') : t('submit')}
         </Button>
-      </div>
+      </ActionBar>
     </form>
   );
 }
