@@ -11,7 +11,7 @@ import { customFromRow } from './customFields';
 import { ImportError } from './errors';
 import { computePreview, memoPhoneHmac, occurredAtOf, type Computation } from './load';
 import { IMPORT_APPLY_LOCK_KEY, INTAKE_LOCK_KEY, iinHmac } from './platformGlue';
-import { assertOwners, blockersOf, configUnchanged, countHeldWorking, summaryOf } from './preview';
+import { assertKind, assertOwners, blockersOf, configUnchanged, countHeldWorking, summaryOf } from './preview';
 import * as repo from './repo';
 import type { ImportContext } from './settings';
 import type { ApplyCounts, ApplyRequest, ApplyResult, ImportActor, ImportReportV1 } from './types';
@@ -437,9 +437,10 @@ export async function applyImport(ctx: ImportContext, actor: ImportActor, import
     if (!lock?.ok) throw new ImportError('busy');
     const imp = await repo.selectImport(sql, ctx.spaceId, importId, true);
     if (!imp) throw new NotFoundError();
+    assertKind(ctx, imp, 'clients');
     if (imp.status === 'applied') {
       const prev = imp.report.apply;
-      return { importId, alreadyApplied: true, appliedAt: imp.appliedAt ?? prev?.at ?? 0, written: prev?.written ?? zeroCounts() };
+      return { importId, alreadyApplied: true, appliedAt: imp.appliedAt ?? prev?.at ?? 0, written: prev && prev.kind !== 'bookings' ? prev.written : zeroCounts() };
     }
     if (imp.status === 'failed') throw new ImportError('blocked', { blockers: ['failed'] });
     if (!configUnchanged(imp.report, ctx)) throw new ImportError('blocked', { blockers: ['config_changed'] });

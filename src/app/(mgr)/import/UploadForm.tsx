@@ -13,6 +13,7 @@ type Props = { profiles: ProfileOption[]; today: string };
 /** Загрузка CSV или XLSX: профиль, файл, лист (после ответа sheet_required), дата снимка таблицы. */
 export function UploadForm({ profiles, today }: Props) {
   const t = useTranslations('import.upload');
+  const tb = useTranslations('import.bookings');
   const te = useTranslations('import.errors');
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -58,7 +59,7 @@ export function UploadForm({ profiles, today }: Props) {
           {missing.length > 0 && <> {t('missing', { fields: missing.join(', ') })}</>}
         </Alert>
       )}
-      <Field label={t('profile')} required>
+      <Field label={t('profile')} hint={profiles.find((p) => p.key === profile)?.kind === 'bookings' ? tb('lead') : undefined} required>
         <Select name="profile" value={profile} onChange={(e) => setProfile(e.target.value)}>
           {profiles.map((p) => (
             <option key={p.key} value={p.key}>

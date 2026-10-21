@@ -16,6 +16,11 @@ export function importEnabled(env: Env = process.env): boolean {
   return isFeatureEnabled('IMPORT', env);
 }
 
+/** FEATURE_IMPORT_BOOKINGS (D-324): профиль «Записи» действует только вместе с FEATURE_IMPORT. */
+export function importBookingsEnabled(env: Env = process.env): boolean {
+  return importEnabled(env) && isFeatureEnabled('IMPORT_BOOKINGS', env);
+}
+
 /**
  * Тестовый стенд на Vercel (D-318): загрузка файлов закрыта при любом FEATURE_IMPORT. Импорт — главный путь, которым
  * настоящие таблицы клиентов попали бы на сервер вне РК (D-008); на стенде данные — только синтетика сида.

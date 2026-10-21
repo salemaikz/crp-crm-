@@ -50,6 +50,9 @@ export default defineConfig({
       FEATURE_BK_WIZARD: '1',
       // Покупки и передачи в отдел (B6/B6b) за флагом
       FEATURE_PURCHASES: '1',
+      // Импорт таблиц и профиль «Записи» (C4, C4b) за флагами; на бою выключены до приёмки
+      FEATURE_IMPORT: '1',
+      FEATURE_IMPORT_BOOKINGS: '1',
     },
   },
 });

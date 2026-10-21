@@ -4,5 +4,5 @@ import type { ImportActor } from '@/server/domain/import';
 
 export function actorOf(viewer: Viewer): ImportActor {
   if (viewer.spaceId === null) throw new NotFoundError();
-  return { userId: viewer.userId, spaceId: viewer.spaceId };
+  return { userId: viewer.userId, spaceId: viewer.spaceId, viewer };
 }

@@ -397,6 +397,8 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `import.profiles[].ownerSlots` | `[{label, ranges: [[от, до], …]}]`, необязательный; нет = пусто | — | **пусто в пресете**: слоты задаёт установка (D-191) | CLI: `crmctl config set <пространство> 'import.profiles[key=operator_tables].ownerSlots' '[{"label":"Синий","ranges":[[3,202]]}]'` |
 | `import.profiles[].fieldTargets` | `{<поле импорта>: {object: client\|card, fieldKey}}`, необязательный | — | `head → client.head_name`, `activity → client.oked`, `niche → client.niche_other` | CLI |
 | `import.profiles[].noteMarkers` | `[{code, words[]}]`, необязательный | — | `dnc_request`: «не звонить», «не звоните», «удалить» | CLI |
+| `import.profiles[].kind` | `clients\|bookings`, необязательный; нет = `clients` | `clients` | профиль «Записи» (`bookings`) по `tests/fixtures/import/README.md` | CLI (D-324) |
+| `import.profiles[].valueMaps.eventType`, `import.profiles[].defaultEventTypeKey`, `import.profiles[].maxRows` | карта «ячейка → `booking.eventTypes[].key`» (любой вид; строки индивидуальных видов распознаются и уходят в отчёт как `unsupported_type`, загружаются только групповые), вид по умолчанию, предел строк (≤ 5 000, по умолчанию 2 000); только у `bookings`, необязательные | — | короткие и полные подписи видов клиента (групповых и индивидуальных) | CLI (D-324, `docs/import-bookings-design.md` §3) |
 | `import.maxFileMb` | int | 10 | 10 | CLI |
 | `import.maxRows` | int | 20 000 | 20 000 | CLI |
 | `import.rowsRetentionDays` | int | 14 | 14 | CLI |
@@ -467,7 +469,7 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `LICENSE_PATH` | путь к файлу лицензии в томе. Пишет `crmctl install` | да | нет |
 | `INGEST_PUBLIC` | `0` — `/api/ingest/` закрыт снаружи (по умолчанию): nginx и второй рубеж в приложении — запрос через nginx (верный `X-Proxy-Secret`) получает 404, запрос с `X-Via-Proxy` без верного секрета — 404 всегда | нет | нет |
 | `INGEST_ACCEPTING` | `1` — приём ingest/v1 включён; `0` — выключен целиком, ответ 423 (рубильник на время разбора проблем источника) | нет | нет |
-| `FEATURE_BK_WIZARD`, `FEATURE_PURCHASES`, `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_PUSH`, `FEATURE_MERGE`, `FEATURE_BULK_TRANSFER`, `FEATURE_IMPORT` | флаги модулей пилота — аварийные выключатели (D-047, D-062; таблица — PLAN §7.3) | нет | нет |
+| `FEATURE_BK_WIZARD`, `FEATURE_PURCHASES`, `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_PUSH`, `FEATURE_MERGE`, `FEATURE_BULK_TRANSFER`, `FEATURE_IMPORT`, `FEATURE_IMPORT_BOOKINGS` (профиль «Записи», только вместе с `FEATURE_IMPORT`, D-324) | флаги модулей пилота — аварийные выключатели (D-047, D-062; таблица — PLAN §7.3) | нет | нет |
 | `FEATURE_REPORTS`, `FEATURE_SALES_SETTINGS` | отчёты за период с их CSV/XLSX и панелью директора; экран настроек продаж (D-295). Выключен — 404 и пункт меню скрыт. Полная выгрузка и журнал выгрузок флагом не закрываются (D-055): их выключатель — право `data.export_all` в ролях | нет | нет |
 | `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_ZADARMA`, `FEATURE_TELEPHONY_BEELINE` | флаги интеграций (D-025 crp-kz) | нет | нет |
 | `TELEMETRY` | `off` по умолчанию | нет | нет |

@@ -8,14 +8,20 @@ import { Alert, Badge, Button, Card, PageHeader } from '@/ui/kit';
 import { call } from '../api';
 import type { ApplyBlocker, ApplyResult, ImportDetails, PreviewSummary } from '../types';
 import { ApplyDialog } from './ApplyDialog';
+import { BookingsDetail } from './BookingsDetail';
 import { OwnerMapForm } from './OwnerMapForm';
 import { RowsBrowser } from './RowsBrowser';
 import { CountsView, SummaryView } from './SummaryView';
 
 type Props = { details: ImportDetails; sameFileAppliedAt: number | null };
 
-/** Одна загрузка: карта владельцев → предпросмотр → «Применить» → что записано. */
-export function DetailScreen({ details, sameFileAppliedAt }: Props) {
+/** Одна загрузка: таблица клиентов — карта владельцев; таблица записей (D-324) — карта авторов. */
+export function DetailScreen(props: Props) {
+  return props.details.kind === 'bookings' ? <BookingsDetail {...props} /> : <ClientsDetail {...props} />;
+}
+
+/** Таблица клиентов: карта владельцев → предпросмотр → «Применить» → что записано. */
+function ClientsDetail({ details, sameFileAppliedAt }: Props) {
   const t = useTranslations('import');
   const te = useTranslations('import.errors');
   const f = useFormatter();
@@ -31,7 +37,8 @@ export function DetailScreen({ details, sameFileAppliedAt }: Props) {
   const [tick, setTick] = useState(0);
 
   const alreadyApplied = details.status === 'applied' || applied !== null;
-  const written = applied?.written ?? details.report.apply?.written ?? null;
+  const stamp = details.report.apply;
+  const written = applied?.written ?? (stamp && stamp.kind !== 'bookings' ? stamp.written : null);
   const expired = details.rowsExpired;
 
   async function runPreview() {

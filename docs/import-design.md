@@ -324,10 +324,9 @@ SELECT cs.external_id AS row_key, c.touched_in_crm, c.owner_user_id, c.hold_reas
 ## 9. «Подтвержден» и профиль «Записи» (C4b)
 
 В C4: `agreed` без записи → № 30 через `import_agreed` (`bookingId: null`), счётчик
-`agreedWithoutBooking`. Точка расширения для C4b: `ImportProfileSetting.kind = 'bookings'` и вход
-`bookings` предпросмотра; загрузка, строки, отпечаток, блокировка и транзакция — общие. C4b
-(architect 25.10) решает: мероприятие по дате, запись `via='import'`, `bookings.import_key`, переход
-`callback → agreed` и закрытие `clarify_import`.
+`agreedWithoutBooking`. Профиль «Записи» спроектирован в `docs/import-bookings-design.md` (D-324): свой
+разбор и предпросмотр, общие загрузка, строки, блокировка и транзакция; вход `bookings` предпросмотра этого
+профиля остаётся пустым — путь в `agreed` из таблиц только через профиль «Записи».
 
 ## 10. Права, флаг, аудит, изоляция
 

@@ -298,13 +298,21 @@ const ImportFieldKey = z.string().regex(/^[a-z][a-zA-Z0-9_]{0,39}$/, 'поле �
 const ImportProfile = obj({
   key: Key,
   label: I18n,
+  /** Вид профиля (D-324): нет = таблицы клиентов; `bookings` — записи на мероприятия. */
+  kind: z.enum(['clients', 'bookings']).optional(),
   /** Заголовок колонки файла → поле (системное или ключ `fields[]`). */
   columns: z.record(z.string().min(1).max(200), z.string().min(1).max(100)),
   valueMaps: obj({
     outcome: z.record(z.string().min(1).max(200), Key),
     lpr: z.record(z.string().min(1).max(200), z.boolean()),
     target: z.record(z.string().min(1).max(200), z.boolean()),
+    /** Профиль `bookings`: значение ячейки вида мероприятия → ключ `booking.eventTypes[]`. */
+    eventType: z.record(z.string().min(1).max(200), Key).optional(),
   }),
+  /** Профиль `bookings`: вид мероприятия, если колонки вида нет или ячейка пуста (групповой). */
+  defaultEventTypeKey: Key.optional(),
+  /** Профиль `bookings`: предел строк (запись идёт через `createBooking` построчно). */
+  maxRows: int(1, 5000).optional(),
   ownerBy: z.enum(['column', 'row_ranges']),
   // Необязательные ключи D-191: отсутствие = пусто (как у `archived`), значения по умолчанию нет.
   /** Слоты для `ownerBy: row_ranges`; задаёт установка (`crmctl config set`), в пресете — пусто. */

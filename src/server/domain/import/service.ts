@@ -7,8 +7,11 @@ import { limitsFor } from '@/server/platform/files';
 import { applyImport } from './apply';
 import { ImportError } from './errors';
 import { computePreview } from './load';
-import { importEnabled, standImportBlocked } from './platformGlue';
-import { assertOwners, blockersOf, countHeldWorking, loadImportOrThrow, restoreOwnerMap, stampOf, summaryOf } from './preview';
+import { authorHintsOf, restoreAuthorMap } from './bookingLoad';
+import { importBookingsEnabled, importEnabled, standImportBlocked } from './platformGlue';
+import { uploadBookings } from './bookingUpload';
+import { bookingViewerOf } from './bookingSummary';
+import { assertKind, assertOwners, blockersOf, countHeldWorking, loadImportOrThrow, restoreOwnerMap, stampOf, summaryOf } from './preview';
 import * as repo from './repo';
 import { csvOf, filteredRows } from './rows';
 import { loadImportContext } from './settings';
@@ -71,15 +74,23 @@ export const importService: ImportService = {
     if (!imp) return null;
     const ctx = await loadImportContext(actor.spaceId);
     const profile = ctx.settings.profiles.find((p) => p.key === imp.profileKey);
-    const labels = !profile ? [] : profile.ownerBy.kind === 'row_ranges' ? ownerLabelsOf(profile, []) : await repo.selectOperatorLabels(db.sql, imp.id);
+    const kind = profile?.kind ?? 'clients';
+    // Загрузка «Записей» при выключенном флаге или без охватов РОП — «нет такого» (D-324, D-116)
+    if (kind === 'bookings') bookingViewerOf(actor);
+    const labels = !profile || kind === 'bookings' ? [] : profile.ownerBy.kind === 'row_ranges' ? ownerLabelsOf(profile, []) : await repo.selectOperatorLabels(db.sql, imp.id);
     const present = await repo.hasRows(db.sql, imp.id);
     const candidates = await repo.selectParticipants(db.sql, actor.spaceId, ctx.participantRoles);
-    return { ...itemOf(imp, present), report: imp.report, ownerLabels: labels, savedOwnerMap: restoreOwnerMap(imp.report, labels), candidates };
+    const base = { ...itemOf(imp, present), kind, report: imp.report, ownerLabels: labels, savedOwnerMap: restoreOwnerMap(imp.report, labels), candidates };
+    if (kind !== 'bookings') return base;
+    const { hints, staff } = await authorHintsOf(db.sql, ctx, imp.id);
+    return { ...base, bookings: { hints, staff, savedAuthorMap: restoreAuthorMap(imp.report, hints.map((h) => h.label)), eventTypeLabels: ctx.eventTypeLabels } };
   },
 
   async upload(actor, input: UploadInput, now): Promise<UploadResult> {
     assertUploadAllowed(actor);
     const ctx = await loadImportContext(actor.spaceId);
+    const profile = ctx.settings.profiles.find((p) => p.key === input.profileKey);
+    if (profile?.kind === 'bookings') return uploadBookings(ctx, actor, input, now);
     return uploadImport(ctx, actor, input, now);
   },
 
@@ -89,6 +100,7 @@ export const importService: ImportService = {
     const db = await getDb();
     return db.tx(async (sql) => {
       const imp = loadImportOrThrow(await repo.selectImport(sql, actor.spaceId, importId));
+      assertKind(ctx, imp, 'clients');
       const stored = await repo.selectRows(sql, importId);
       if (stored.length === 0) throw new ImportError('rows_expired');
       const participants = await assertOwners(sql, ctx, req.ownerMap);
@@ -106,6 +118,7 @@ export const importService: ImportService = {
     const ctx = await loadImportContext(actor.spaceId);
     const db = await getDb();
     const imp = loadImportOrThrow(await repo.selectImport(db.sql, actor.spaceId, importId));
+    assertKind(ctx, imp, 'clients');
     const all = await filteredRows(db.sql, ctx, imp, q.filter);
     if (all === null) throw new ImportError('rows_expired');
     const limit = Math.min(Math.max(q.limit, 1), 200);
@@ -117,6 +130,7 @@ export const importService: ImportService = {
     const ctx = await loadImportContext(actor.spaceId);
     const db = await getDb();
     const imp = loadImportOrThrow(await repo.selectImport(db.sql, actor.spaceId, importId));
+    assertKind(ctx, imp, 'clients');
     const rows = await filteredRows(db.sql, ctx, imp, filter);
     if (rows === null) throw new ImportError('rows_expired');
     await repo.insertAudit(db.sql, { id: newId(), actorId: actor.userId, spaceId: actor.spaceId, action: 'import.export', entityId: importId, meta: { importId, filter, rows: rows.length }, now });
@@ -133,11 +147,22 @@ export const importService: ImportService = {
 /** Коды колонок выгрузки; маршрут подставляет переведённые подписи. */
 export const DEFAULT_HEADERS = ['row', 'name', 'phones', 'operator', 'outcome', 'answer', 'action', 'hold', 'issues', 'flags'] as const;
 
-/** Профили загрузки для формы: ключ и подпись (только таблицы клиентов; «Записи» — C4b). */
-export async function listProfiles(actor: ImportActor): Promise<{ key: string; label: string }[]> {
+/** Профиль «Записи» виден в списке только РОП с охватами `booking.create` и `card.assign` на пространство и при FEATURE_IMPORT_BOOKINGS. */
+export function bookingsAvailableFor(actor: ImportActor): boolean {
+  try {
+    bookingViewerOf(actor);
+    return importBookingsEnabled();
+  } catch {
+    return false;
+  }
+}
+
+/** Профили загрузки для формы: ключ, подпись и вид («Записи» — по флагу и охватам, D-324). */
+export async function listProfiles(actor: ImportActor): Promise<{ key: string; label: string; kind: 'clients' | 'bookings' }[]> {
   assertAvailable(actor);
   const ctx = await loadImportContext(actor.spaceId);
-  return ctx.settings.profiles.filter((p) => p.kind === 'clients').map((p) => ({ key: p.key, label: p.label }));
+  const withBookings = bookingsAvailableFor(actor);
+  return ctx.settings.profiles.filter((p) => p.kind === 'clients' || withBookings).map((p) => ({ key: p.key, label: p.label, kind: p.kind }));
 }
 
 /** Предел тела загрузки в байтах: import.maxFileMb, но не больше жёсткого потолка (D-112). */

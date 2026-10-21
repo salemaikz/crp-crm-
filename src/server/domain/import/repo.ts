@@ -84,6 +84,14 @@ export async function selectOperatorLabels(sql: Sql, importId: string): Promise<
   return rows.map((r) => r.label);
 }
 
+/** Ярлыки авторов профиля «Записи» из ячейки «Оператор» (одинаковые по написанию — вместе) и число строк с каждым. */
+export async function selectAuthorLabels(sql: Sql, importId: string): Promise<{ label: string; rows: number }[]> {
+  return sql<{ label: string; rows: number }>`
+    SELECT parsed ->> 'authorLabel' AS label, count(*)::int AS rows FROM import_rows
+     WHERE import_id = ${importId} AND parsed ->> 'authorLabel' IS NOT NULL
+     GROUP BY 1 ORDER BY 1 LIMIT 500`;
+}
+
 export async function hasRows(sql: Sql, importId: string): Promise<boolean> {
   const [r] = await sql<{ hit: boolean }>`SELECT EXISTS (SELECT 1 FROM import_rows WHERE import_id = ${importId}) AS hit`;
   return r?.hit === true;

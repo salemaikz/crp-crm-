@@ -46,7 +46,16 @@ export function zip(files: readonly ZipFile[], o: { zip64Locator?: boolean; dirO
   return cat([...locals, dir, locator, eocd]);
 }
 
-export type Cell = string | number | null | { date: number } | { formula: string; value?: string | number } | { bool: boolean } | { error: string };
+export type Cell =
+  | string
+  | number
+  | null
+  | { date: number }
+  /** Стиль h:mm (встроенный формат 20) — так Excel хранит набранное «12:00». */
+  | { time: number }
+  /** Свой формат `dd.mm.yyyy hh:mm` — дата со временем в одной ячейке. */
+  | { dateTime: number }
+  | { formula: string; value?: string | number } | { bool: boolean } | { error: string };
 
 export interface XlsxOptions {
   sheets: { name: string; rows: Cell[][]; /** r (номер строки с 1) → ячейки, для пропусков */ rowNumbers?: number[] }[];
@@ -92,6 +101,8 @@ export function xlsx(o: XlsxOptions): Uint8Array {
           if (o.inline) out.push(`<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${esc(c)}</t></is></c>`);
           else out.push(`<c r="${ref}" t="s"><v>${sharedIdx(c)}</v></c>`);
         } else if ('date' in c) out.push(`<c r="${ref}" s="1"><v>${c.date}</v></c>`);
+        else if ('time' in c) out.push(`<c r="${ref}" s="2"><v>${c.time}</v></c>`);
+        else if ('dateTime' in c) out.push(`<c r="${ref}" s="3"><v>${c.dateTime}</v></c>`);
         else if ('formula' in c) out.push(`<c r="${ref}"><f>${esc(c.formula)}</f>${c.value === undefined ? '' : `<v>${c.value}</v>`}</c>`);
         else if ('bool' in c) out.push(`<c r="${ref}" t="b"><v>${c.bool ? 1 : 0}</v></c>`);
         else out.push(`<c r="${ref}" t="e"><v>${esc(c.error)}</v></c>`);
@@ -112,8 +123,9 @@ export function xlsx(o: XlsxOptions): Uint8Array {
     `</Relationships>`;
   const sst = `<?xml version="1.0"?><sst xmlns="${NS}">${shared.map((s) => `<si><t xml:space="preserve">${esc(s)}</t></si>`).join('')}</sst>`;
   const styles =
-    `<?xml version="1.0"?><styleSheet xmlns="${NS}"><numFmts count="1"><numFmt numFmtId="164" formatCode="dd.mm.yyyy"/></numFmts>` +
-    `<cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="${o.strict ? 164 : 14}"/></cellXfs></styleSheet>`;
+    `<?xml version="1.0"?><styleSheet xmlns="${NS}"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd.mm.yyyy"/>` +
+    `<numFmt numFmtId="165" formatCode="dd.mm.yyyy hh:mm"/></numFmts>` +
+    `<cellXfs count="4"><xf numFmtId="0"/><xf numFmtId="${o.strict ? 164 : 14}"/><xf numFmtId="20"/><xf numFmtId="165"/></cellXfs></styleSheet>`;
   const contentTypes =
     `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
     `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
