@@ -345,3 +345,51 @@ test('новый ключ выключает каналы прежнего ак�
   const ch = await db.sql<{ isEnabled: boolean }>`SELECT is_enabled FROM messenger_channels WHERE integration_id = ${id}`;
   assert.ok(ch.length > 0 && ch.every((c) => !c.isEnabled));
 });
+
+// D-322: «Включить» сначала условно занимает адрес вебхука (выключено и нет живой заявки), и только потом идёт к
+// провайдеру. Иначе второе включение перезаписывало адрес, и у провайдера мог остаться адрес, которого нет в БД.
+
+test('«Включить» у включённого подключения — 409 already_enabled: провайдера не трогаем, адрес прежний (D-322)', async () => {
+  const admin = await viewerOf(U.admin);
+  const id = (await row())!.id;
+  await setIntegrationCrossborder(admin, deps(), id, { approved: true, decisionDate: '2026-10-28' });
+  await enableIntegration(admin, deps(), id);
+  const before = await row();
+  assert.equal(before?.enabled, true);
+  calls = [];
+  await failure(enableIntegration(admin, deps(), id), 'already_enabled', 409);
+  assert.equal(calls.length, 0, 'ни подписки, ни сотрудников');
+  assert.deepEqual({ enabled: (await row())?.enabled, hash: (await row())?.hash }, { enabled: true, hash: before?.hash });
+});
+
+test('два «Включить» одновременно: второе — 409 enable_in_progress до провайдера; у провайдера и в БД один адрес (D-322)', async () => {
+  const admin = await viewerOf(U.admin);
+  const id = (await row())!.id;
+  await disableIntegration(admin, deps(), id);
+  calls = [];
+  let second: unknown = null;
+  duringPatch = async () => {
+    duringPatch = null;
+    second = await enableIntegration(admin, deps(), id).catch((e: unknown) => e);
+  };
+  await enableIntegration(admin, deps(), id);
+  assert.ok(second instanceof IntegrationAdminError && second.code === 'enable_in_progress' && second.status === 409, String(second));
+  const patches = calls.filter((c) => c.path === '/webhooks');
+  assert.equal(patches.length, 1, 'второе включение до провайдера не дошло');
+  const token = String((patches[0]!.body as { webhooksUri: string }).webhooksUri).split('/').pop() as string;
+  assert.deepEqual({ enabled: (await row())?.enabled, hash: (await row())?.hash }, { enabled: true, hash: sha(token) });
+});
+
+test('заявка на включение, брошенная упавшим процессом, держит адрес 5 минут, потом не мешает (D-322)', async () => {
+  const admin = await viewerOf(U.admin);
+  const id = (await row())!.id;
+  await disableIntegration(admin, deps(), id);
+  await db.sql`UPDATE integrations SET webhook_token_hash = ${sha('stale-claim-synthetic-token')}, updated_at = ${SEED_NOW} WHERE id = ${id}`;
+  calls = [];
+  await failure(enableIntegration(admin, deps({ now: () => SEED_NOW + 60_000 }), id), 'enable_in_progress', 409);
+  assert.equal(calls.length, 0);
+  await enableIntegration(admin, deps({ now: () => SEED_NOW + 5 * 60_000 + 1 }), id);
+  const r = await row();
+  assert.equal(r?.enabled, true);
+  assert.notEqual(r?.hash, sha('stale-claim-synthetic-token'));
+});

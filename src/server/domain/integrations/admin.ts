@@ -11,6 +11,7 @@ import { upsertChannels } from '../messenger/repo';
 import { buildCtx, IntegrationConfigError } from './ctx';
 import {
   activeStaff,
+  claimEnableToken,
   channelsOf,
   clearWebhookTokenIf,
   defaultSpaceId,
@@ -247,22 +248,27 @@ function hookUrl(ctx: Ctx<unknown, unknown>, pluginId: string, token: string): s
 }
 
 /**
- * Включить: пригодность без учёта самого переключателя → новый адрес вебхука (в БД только sha256; сначала БД —
- * провайдер сразу присылает тест `{"test":true}`) → подписка → сотрудники → `enabled` только при своём токене
- * (D-298: «Выключить» или снятие отметки во время подписки сбрасывают токен — включение не состоится, 409
+ * Включить: уже включено → 409 already_enabled → пригодность без учёта самого переключателя → новый адрес вебхука
+ * условным захватом (D-322: выключено и нет живой заявки другого включения, иначе 409 до провайдера; в БД только
+ * sha256; сначала БД — провайдер сразу присылает тест `{"test":true}`) → подписка → сотрудники → `enabled` только при
+ * своём токене (D-298: «Выключить» или снятие отметки во время подписки сбрасывают токен — включение не состоится, 409
  * state_changed). Ошибка провайдера → 502, подключение остаётся выключенным, свой адрес сбрасывается.
  */
 export async function enableIntegration(viewer: Viewer, deps: IntegrationDeps, id: string): Promise<{ id: string; enabled: true }> {
   const db = await getDb();
   return guarded(async () => {
     const { row, plugin } = await loadRow(db.sql, deps, id);
+    if (row.enabled) throw new IntegrationAdminError('already_enabled', 409);
     const usable = await usabilityOf(deps, plugin, row, { ignoreEnabled: true });
     if (!usable.usable) throw new IntegrationAdminError(usable.reason, 409);
     const ctx = ctxOf(deps, plugin, row);
     const token = newToken();
     const tokenHash = sha256(token);
     const url = hookUrl(ctx, plugin.id, token);
-    await setWebhookToken(db.sql, id, tokenHash, nowOf(deps));
+    if (!(await claimEnableToken(db.sql, { id, tokenHash, now: nowOf(deps) }))) {
+      const current = await getIntegrationRow(db.sql, id);
+      throw new IntegrationAdminError(current?.enabled ? 'already_enabled' : 'enable_in_progress', 409);
+    }
     const failed = async (): Promise<never> => {
       await clearWebhookTokenIf(db.sql, { id, tokenHash, now: nowOf(deps) });
       throw new IntegrationAdminError('provider_error', 502);

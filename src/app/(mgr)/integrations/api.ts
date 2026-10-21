@@ -1,7 +1,7 @@
 // Клиентские вызовы /api/integrations: ошибка = код ответа; текст выбирает интерфейс из локали.
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; key: string };
 
-const KNOWN = new Set(['provider_error', 'no_secrets_key', 'no_origin', 'crossborder_not_approved', 'not_licensed', 'bad_owner', 'state_changed']);
+const KNOWN = new Set(['provider_error', 'no_secrets_key', 'no_origin', 'crossborder_not_approved', 'not_licensed', 'bad_owner', 'state_changed', 'already_enabled', 'enable_in_progress']);
 
 export async function call<T>(method: 'POST' | 'PATCH', url: string, body?: unknown): Promise<ApiResult<T>> {
   try {
