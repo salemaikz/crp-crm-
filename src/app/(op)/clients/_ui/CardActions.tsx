@@ -5,12 +5,13 @@ import { closeReasonOptions } from '@/server/domain/cards';
 import type { ClientCardDto } from '@/server/domain/clients';
 import { Button } from '@/ui/kit';
 import { CardMenu } from './CardMenu';
+import { TransferButton } from './TransferButton';
 
 type Props = { card: ClientCardDto; viewer: Viewer };
 
 /**
  * Действия карточки по `can.*` с сервера (интерфейс только показывает): «Записать» → мастер записи и пункты меню
- * C9 (закрытие, возврат в обзвон, снятие «Не звонить»). Задачи и передача — в своих панелях и в B9a.
+ * C9 (закрытие, возврат в обзвон, снятие «Не звонить») и «Передать…» (B9a). Задачи — в своей панели.
  */
 export async function CardActions({ card, viewer }: Props) {
   const t = await getTranslations('clients');
@@ -18,7 +19,7 @@ export async function CardActions({ card, viewer }: Props) {
   if (!head) return null;
   const can = card.can;
   const menu = can.closeFromMenu || can.reopen || can.unblock;
-  if (!can.book && !menu) return null;
+  if (!can.book && !menu && !can.transfer) return null;
   const reasons = menu ? await closeReasonOptions(viewer) : { not_target: [], do_not_call: [] };
   return (
     <div className="flex flex-col gap-2">
@@ -39,6 +40,11 @@ export async function CardActions({ card, viewer }: Props) {
           phones={card.phones.filter((p) => p.working).map((p) => ({ id: p.id, e164: p.e164, primary: p.primary }))}
           reasons={reasons}
         />
+      )}
+      {can.transfer && (
+        <div>
+          <TransferButton cardId={head.id} version={head.version} ownerUserId={head.ownerUserId} />
+        </div>
       )}
     </div>
   );

@@ -89,7 +89,8 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
       closeFromMenu: head ? head.canClose && canCloseFrom(head.state) : false,
       reopen: head ? head.canReopen && REOPEN_FROM.includes(head.state) : false,
       unblock: head ? head.canUnblock && head.state === 'do_not_call' : false,
-      transfer: false,
+      // B9a: право передачи по карточке (охват в SQL, «только чтение» уже понижено)
+      transfer: head ? head.canTransfer : false,
     },
     card: head ? toCardHead(head, fields.projectFor(cardFieldViewer(viewer, cfg), 'card', cfg.fields, head.custom as fields.CustomValues)) : null,
     phones,

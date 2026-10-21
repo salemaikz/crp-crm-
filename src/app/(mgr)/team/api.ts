@@ -7,7 +7,7 @@ type ErrorBody = { error?: string; detail?: string };
 export function errorKey(body: ErrorBody | null, status: number): string {
   const known = new Set([
     'exists', 'disabled', 'self_role', 'unknown_role', 'phone', 'name', 'role_required', 'no_space', 'not_activated', 'already_active',
-    'forbidden', 'unauthorized', 'not_found', 'read_only',
+    'forbidden', 'unauthorized', 'not_found', 'read_only', 'card_changed', 'same_owner', 'recipient', 'too_many',
   ]);
   if (body?.detail && known.has(body.detail)) return body.detail;
   if (body?.error && known.has(body.error)) return body.error;
@@ -15,7 +15,7 @@ export function errorKey(body: ErrorBody | null, status: number): string {
   return 'generic';
 }
 
-export async function call<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, body?: unknown): Promise<ApiResult<T>> {
+export async function call<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, body?: unknown, loginNext = '/team'): Promise<ApiResult<T>> {
   try {
     const res = await fetch(url, {
       method,
@@ -23,7 +23,7 @@ export async function call<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: 
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (res.status === 401) {
-      window.location.replace('/login?next=/team');
+      window.location.replace(`/login?next=${loginNext}`);
       return { ok: false, key: 'unauthorized' };
     }
     const data = (await res.json().catch(() => null)) as (T & ErrorBody) | null;

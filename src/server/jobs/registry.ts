@@ -6,6 +6,7 @@ import { countOwnerlessWorkingCards } from '@/server/domain/cards';
 import { purgeDeviceStatus } from '@/server/domain/calls';
 import { distributeJob } from '@/server/domain/distribution';
 import { purgeExpiredImportRows } from '@/server/domain/import';
+import { purgeChangeSnapshots } from '@/server/domain/team';
 import { alarmsJob, digestJob } from '@/server/domain/notify';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import {
@@ -33,6 +34,8 @@ export const purgeParts: PurgePart[] = [
   { key: 'device_status', run: (actor, now) => purgeDeviceStatus(actor, now - 30 * DAY_MS) },
   // строки импорта по сроку import.rowsRetentionDays каждого пространства (C4d §11)
   { key: 'import_rows', run: async (actor, now) => (await purgeExpiredImportRows(actor, now)).deleted },
+  // снимки «до» массовой передачи и слияния: 30 дней (D-062)
+  { key: 'change_snapshots', run: (actor, now) => purgeChangeSnapshots(actor, now - 30 * DAY_MS) },
 ];
 
 export function jobDefinitions(): JobDefinition[] {

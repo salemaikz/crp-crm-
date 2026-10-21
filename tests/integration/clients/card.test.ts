@@ -33,7 +33,7 @@ test('оператор видит карточку своего клиента: 
 test('РОП видит право на изменение названия и БИН', async () => {
   const v = await viewerOf(U.rop);
   const c = await getClientCard(v, clientOf('a', 1));
-  assert.deepEqual(c.can, { ...CAN_OFF, edit: true, editIdentity: true, editCard: true, note: true, task: true, closeFromMenu: true });
+  assert.deepEqual(c.can, { ...CAN_OFF, edit: true, editIdentity: true, editCard: true, note: true, task: true, closeFromMenu: true, transfer: true });
 });
 
 test('счётчики берутся с карточки, без пересчёта', async () => {

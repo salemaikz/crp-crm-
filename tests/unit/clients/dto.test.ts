@@ -79,6 +79,7 @@ test('шапка карточки: счётчики с карточки, lpr и 
     canReopen: false,
     canUnblock: false,
     canClose: false,
+    canTransfer: false,
   };
   const h = toCardHead(row, { fields: [], values: {} });
   assert.equal(h.version, 7);

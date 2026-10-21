@@ -72,6 +72,7 @@ export type CardHeadDb = {
   canReopen: boolean;
   canUnblock: boolean;
   canClose: boolean;
+  canTransfer: boolean;
 };
 
 /** 4.2. Карточка обзвона текущего пространства. */
@@ -86,7 +87,8 @@ export async function selectCardHead(sql: Sql, viewer: Viewer, clientId: string)
            (${scopeSql(viewer, 'card', 'card.edit')}) AS can_edit_card,
            (${scopeSql(viewer, 'card', 'card.return')}) AS can_reopen,
            (${scopeSql(viewer, 'card', 'card.unblock')}) AS can_unblock,
-           (${scopeSql(viewer, 'card', 'card.outcome')}) AS can_close
+           (${scopeSql(viewer, 'card', 'card.outcome')}) AS can_close,
+           (${scopeSql(viewer, 'card', 'client.transfer')}) AS can_transfer
       FROM cards c
       LEFT JOIN users ou ON ou.id = c.owner_user_id
       LEFT JOIN users au ON au.id = c.acting_user_id

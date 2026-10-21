@@ -15,7 +15,7 @@ type Dialog = { kind: 'invite' } | { kind: 'row'; id: string } | { kind: 'link';
 
 const TONE: Record<StaffRow['status'], BadgeTone> = { active: 'success', invited: 'info', disabled: 'neutral' };
 
-export function StaffScreen({ data }: { data: StaffList }) {
+export function StaffScreen({ data, bulkEnabled }: { data: StaffList; bulkEnabled: boolean }) {
   const t = useTranslations('team');
   const router = useRouter();
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -87,6 +87,7 @@ export function StaffScreen({ data }: { data: StaffList }) {
             key={row.id}
             row={row}
             roles={data.roles}
+            bulkEnabled={bulkEnabled}
             onChanged={() => router.refresh()}
             onClose={close}
             onLink={(kind, link) => setDialog({ kind: 'link', link, reset: kind === 'reset' })}

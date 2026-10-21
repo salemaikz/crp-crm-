@@ -11,6 +11,7 @@ import { DEFAULT_SECURITY_POLICY } from '../../../src/server/platform/auth/types
 import { buildViewer } from '../../../src/server/access/viewer';
 import { overrideAccessForTests, resetAccessForTests } from '../../../src/server/access/testing';
 import type { Viewer } from '../../../src/server/access/types';
+import { applySeedConfig } from '../../isolation/harness/config';
 import { seedIsolation, SEED_NOW, U } from '../../isolation/harness/seed';
 import { actAs, enterSeedWorld, viewerOf } from '../../isolation/harness/actors';
 import * as team from '../../../src/server/domain/team';
@@ -29,6 +30,7 @@ let admin: Viewer;
 before(async () => {
   db = await createTestDb();
   await seedIsolation(db.sql);
+  await applySeedConfig(); // передача дел при отключении читает настройки (роли, резервный получатель)
   const hash = await hashPassword(PASSWORD);
   // у синтетики пароля нет: «активен» = есть пароль
   await db.sql`UPDATE users SET password_hash = ${hash} WHERE status = 'active'`;
@@ -168,12 +170,13 @@ test('смена роли действует со следующего запр�
   assert.deepEqual((await team.updateStaff(admin, U.director, { roleKey: 'director' })).changed, []); // без изменений — без аудита
 });
 
-test('отключение: вход закрыт, сессии и ссылки отозваны, повтор безопасен, дела — заглушка', async () => {
+test('отключение: вход закрыт, сессии и ссылки отозваны, повтор безопасен, дела переданы (B9a)', async () => {
   const s = await db.tx((sql) => createSession(sql, { userId: U.marketer, policy, nowMs: Date.now() }));
   const res = await team.disableStaff(admin, U.marketer);
   assert.equal(res.alreadyDisabled, false);
   assert.equal(res.sessionsRevoked, 1);
-  assert.deepEqual(res.handover, { status: 'not_implemented', movedCards: 0 }); // TODO(B9a): настоящая передача дел
+  // у маркетолога нет карточек: передавать нечего, но пространство обработано
+  assert.deepEqual([res.handover.status, res.handover.movedCards, res.handover.spaces.length], ['done', 0, 1]);
   assert.equal(await resolveSession(db.sql, s.token, policy, Date.now()), null);
   const login = await db.tx((sql) => attemptLogin(sql, { phone: '77099000006', password: PASSWORD, ip: '203.0.113.8' }, policy, Date.now()));
   assert.equal(login.ok, false);
@@ -275,6 +278,7 @@ test('лицензия «только чтение»: приглашение и 
   assert.equal((await resetPost(req('POST'), ctx(U.opB))).status, 200);
   const off = await disablePost(req('POST', { mode: 'urgent' }), ctx(U.opB));
   assert.equal(off.status, 200);
-  assert.equal(((await off.json()) as { handover: { status: string } }).handover.status, 'not_implemented');
+  const body = (await off.json()) as { handover: { status: string; movedCards: number } };
+  assert.deepEqual([body.handover.status, body.handover.movedCards], ['done', 100]); // «срочное» отключение работает и при лицензии «только чтение»
   assert.equal((await row(U.opB))?.status, 'disabled');
 });

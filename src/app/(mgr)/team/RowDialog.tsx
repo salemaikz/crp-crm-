@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Alert, Button, Field, Select, useToast } from '@/ui/kit';
 import { call } from './api';
+import { DisableDialog } from './DisableDialog';
 import type { DisableResult, IssuedLink, RoleOption, StaffRow } from './types';
 
 export type RowStep = 'menu' | 'role' | 'admin' | 'reset' | 'revoke' | 'disable' | 'disabledDone';
@@ -11,6 +12,8 @@ export type RowStep = 'menu' | 'role' | 'admin' | 'reset' | 'revoke' | 'disable'
 type Props = {
   row: StaffRow;
   roles: RoleOption[];
+  /** Мастер передачи дел включён (`FEATURE_BULK_TRANSFER`). */
+  bulkEnabled: boolean;
   /** Ссылка выдана (повторное приглашение, сброс пароля): окно переключается на её показ. */
   onLink: (kind: 'invite' | 'reset', link: IssuedLink) => void;
   /** Данные изменились: обновить список. */
@@ -19,16 +22,15 @@ type Props = {
 };
 
 /** Содержимое единственного окна действий над сотрудником: меню и подтверждения сменяют друг друга. */
-export function RowDialog({ row, roles, onLink, onChanged, onClose }: Props) {
+export function RowDialog({ row, roles, bulkEnabled, onLink, onChanged, onClose }: Props) {
   const t = useTranslations('team');
   const te = useTranslations('team.errors');
   const toast = useToast();
   const [step, setStep] = useState<RowStep>('menu');
   const [roleKey, setRoleKey] = useState(row.roleKey ?? roles[0]?.key ?? '');
-  const [mode, setMode] = useState<'urgent' | 'wizard'>('urgent');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [handoverPending, setHandoverPending] = useState(false);
+  const [handover, setHandover] = useState<DisableResult['handover'] | null>(null);
 
   const back = () => {
     setError(null);
@@ -172,26 +174,16 @@ export function RowDialog({ row, roles, onLink, onChanged, onClose }: Props) {
 
   if (step === 'disable') {
     return (
-      <div className="flex flex-col gap-4">
-        <p>{t('disable.text')}</p>
-        <Field label={t('disable.mode')}>
-          <Select name="mode" value={mode} onChange={(e) => setMode(e.target.value as 'urgent' | 'wizard')}>
-            <option value="urgent">{t('disable.urgent')}</option>
-            <option value="wizard">{t('disable.wizard')}</option>
-          </Select>
-        </Field>
-        {err}
-        {footer({
-          label: t('disable.submit'),
-          danger: true,
-          onClick: () =>
-            run<DisableResult>('POST', `${base}/disable`, { mode }, (res) => {
-              setHandoverPending(res.handover.status === 'not_implemented');
-              onChanged();
-              setStep('disabledDone');
-            }),
-        })}
-      </div>
+      <DisableDialog
+        userId={row.id}
+        bulkEnabled={bulkEnabled}
+        onBack={back}
+        onDone={(res) => {
+          setHandover(res.handover);
+          onChanged();
+          setStep('disabledDone');
+        }}
+      />
     );
   }
 
@@ -199,10 +191,11 @@ export function RowDialog({ row, roles, onLink, onChanged, onClose }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <Alert tone="success">{t('disable.done')}</Alert>
-      {handoverPending && (
-        <Alert tone="warning" title={t('disable.handoverPendingTitle')}>
-          {t('disable.handoverPendingText')}
-        </Alert>
+      {handover && handover.status === 'done' && (
+        <p>{t('disable.doneMoved', { moved: handover.movedCards, released: handover.releasedCards, acting: handover.actingCards })}</p>
+      )}
+      {handover && handover.status === 'no_recipient' && (
+        <Alert tone="warning">{t('disable.doneNoRecipient')}</Alert>
       )}
       <div>
         <Button onClick={onClose}>{t('actions.done')}</Button>

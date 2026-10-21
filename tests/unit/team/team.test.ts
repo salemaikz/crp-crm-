@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { InviteInput, ResendInput, UpdateInput, DisableInput } from '../../../src/server/domain/team/schemas';
-import { stubHandover } from '../../../src/server/domain/team/handover';
 import { errorKey } from '../../../src/app/(mgr)/team/api';
 import manifest from '../../isolation/manifest/team';
 import { walk } from '../../helpers/sourceFiles';
@@ -43,14 +42,19 @@ test('errorKey: detail важнее кода; все ключи есть в ло
   }
 });
 
-test('заглушка передачи дел ничего не переносит и сообщает об этом', async () => {
-  const r = await stubHandover.run({} as never, { actorId: 'a', userId: 'u', spaceId: null, mode: 'urgent', nowMs: 0 });
-  assert.deepEqual(r, { status: 'not_implemented', movedCards: 0 });
+test('DisableInput: получатель мастера только в режиме wizard; поровну — 2–20 разных', () => {
+  assert.deepEqual(DisableInput.parse({ mode: 'wizard', to: { userId: 'u1' } }), { mode: 'wizard', to: { userId: 'u1' } });
+  assert.throws(() => DisableInput.parse({ mode: 'urgent', to: { userId: 'u1' } }));
+  assert.throws(() => DisableInput.parse({ mode: 'wizard', to: { even: ['u1'] } }));
+  assert.throws(() => DisableInput.parse({ mode: 'wizard', to: { even: ['u1', 'u1'] } }));
+  assert.ok(DisableInput.parse({ mode: 'wizard', to: { even: ['u1', 'u2'] } }));
 });
 
 test('манифест изоляции покрывает каждый маршрут и страницу модуля', () => {
   const declared = new Set(manifest.entries.map((e) => `${e.method} ${e.path}`));
-  assert.ok(manifest.entries.every((e) => e.perm === 'admin'));
+  // передача клиентов (B9a) открыта РОП: остальной раздел — только администратору
+  const isTransfer = (path: string) => path.startsWith('/api/team/transfers/') || path === '/(mgr)/team/transfer';
+  assert.ok(manifest.entries.every((e) => (isTransfer(e.path) ? e.perm === 'client.transfer' : e.perm === 'admin')));
   const files = walk('src/app/api/team', ['.ts']).filter((f) => f.endsWith('/route.ts'));
   assert.ok(files.length >= 5);
   for (const f of files) {

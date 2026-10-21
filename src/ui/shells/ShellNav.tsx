@@ -2,7 +2,7 @@
 // Навигация оболочки: боковая колонка (ноутбук) и нижняя панель с «Ещё» (телефон). Текущий раздел
 // определяется по адресу, поэтому компоненты клиентские; подписи приходят готовыми из локали.
 import {
-  Archive, ArrowRightLeft, Bell, CalendarDays, ChartColumn, Ellipsis, Handshake, Headset, IdCard, Inbox, Kanban,
+  Archive, ArrowRightLeft, Bell, CalendarDays, ChartColumn, Ellipsis, Forward, Handshake, Headset, IdCard, Inbox, Kanban,
   LayoutDashboard, ListChecks, Phone, Settings, Shuffle, Sun, Upload, UserCheck, User, UserCog, Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,7 +17,7 @@ export type NavEntry = { id: MenuId; href: string; label: string };
 const ICONS: Record<MenuId, LucideIcon> = {
   call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive, myDay: Sun,
   summary: LayoutDashboard, distribution: Shuffle, cards: IdCard, kanban: Kanban, reports: ChartColumn,
-  settings: Settings, pool: Inbox, import: Upload, handoffs: ArrowRightLeft, team: UserCog,
+  settings: Settings, pool: Inbox, import: Upload, handoffs: ArrowRightLeft, team: UserCog, transfer: Forward,
   consultations: Headset, duty: UserCheck,
 };
 // Запасной значок на случай нового MenuId без записи выше

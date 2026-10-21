@@ -6,6 +6,10 @@ const HREF: Record<string, string> = {
   alarm_handoff_unaccepted: '/handoffs',
   alarm_grey_unassigned: '/bookings',
   probe_limit: '/distribution',
+  // B9a: переданные клиенты и дела отключённого сотрудника — в список клиентов; без получателя — в раздел «Без владельца»
+  client_transferred: '/clients',
+  staff_disabled: '/clients',
+  staff_disabled_orphans: '/distribution',
 };
 
 const KNOWN = new Set(Object.keys(HREF));
