@@ -13,14 +13,17 @@ import type { WizardChoice } from '@/app/(op)/bookings/_wizard/choice';
 import type { BookingWizardProps } from '@/app/(op)/bookings/_wizard/BookingWizard';
 import type { WizardResult } from '@/app/(op)/bookings/_wizard/result';
 import { bookingAgreement, laterAgreement, parseAgreementResponse } from './agreement';
-import { createCallApi, type CallApi } from './api';
+import { createCallApi, isWrongUser, type CallApi } from './api';
 import { CallCard } from './CallCard';
 import { deviceHeaders, ensureDeviceId } from './device';
+import { leaveForeignPage, markDeviceOwner, OWNER_CHANGED_EVENT, ownerChanged, sanitizeForeign } from './deviceOwner';
+import { browserStorage, isLogoutPending, LOGOUT_PENDING_EVENT, LOGOUT_PENDING_KEY } from './logoutPending';
 import { OutcomeSheet } from './OutcomeSheet';
+import { hasFreeText } from './freeText';
 import { Outbox } from './outbox';
 import { createDeviceStore } from './outboxStore';
 import { clearPending, readPending, writePending, type PendingState } from './pending';
-import { registerShell } from './serviceWorker';
+import { isStaleShell, registerShell, reloadWhenOnline } from './serviceWorker';
 import { callsInLastHour, forgetOutcome, readTally, recordOutcome, viewOf, withUnsent, type Tally } from './tally';
 import {
   DEVICE_PING_MS,
@@ -91,6 +94,9 @@ function CallScreenInner({ config }: { config: CallConfig }) {
   const [serverToday, setServerToday] = useState<TodaySummary | null>(null);
   const [booking, setBooking] = useState<{ def: OutcomeButton; fieldValues: Record<string, string> } | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Выход не завершён (в этой или другой вкладке): экран пуст, ничего не отправляется и не пишется на телефон
+  const [locked, setLocked] = useState(false);
+  const lockedRef = useRef(false);
 
   const queueRef = useRef(queue);
   const pendingRef = useRef(pending);
@@ -110,7 +116,19 @@ function CallScreenInner({ config }: { config: CallConfig }) {
     groupRef.current = group;
   });
 
+  // Страница устарела: на телефоне уже работает другой сотрудник (метка владельца, D-292)
+  const foreign = useCallback(() => ownerChanged(browserStorage(), userId), [userId]);
+  // Очередь из памяти убирается, страница прячется и перезагружается: сервер отдаст страницу текущей сессии
+  const leave = useCallback(() => {
+    lockedRef.current = true;
+    setLocked(true);
+    setQueue([]);
+    leaveForeignPage({ reload: !isStaleShell() });
+  }, [setQueue]);
+
   const today = useCallback(() => localDay(Date.now(), config.timeZone), [config.timeZone]);
+  // Текстовые поля итогов: их значения — свободный текст оператора (D-293)
+  const textFields = useMemo(() => new Set(Object.entries(config.outcomeFields).filter(([, f]) => f.type === 'text').map(([k]) => k)), [config.outcomeFields]);
 
   // ---- Очередь ----------------------------------------------------------------------------------------------
 
@@ -129,8 +147,14 @@ function CallScreenInner({ config }: { config: CallConfig }) {
           const known = [...have, ...fetched];
           const exclude = [...new Set([...r.outbox.cardIds(), ...known.map((c) => c.cardId)])];
           const res = await r.api.queue({ limit: Math.min(PAGE, DEPTH - known.length), exclude, group: grp });
+          // Сессии нет: страница прячется и перезагружается — сервер уведёт на вход, карточки из памяти не видны
           if (res.status === 401) {
-            router.replace('/login');
+            leave();
+            return;
+          }
+          // На телефоне вошёл другой сотрудник: его очередь этой странице не отдаётся (D-292)
+          if (isWrongUser(res)) {
+            leave();
             return;
           }
           if (!res.data) throw new Error(`queue ${res.status}`);
@@ -155,7 +179,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
         refillLock.current = false;
       }
     },
-    [router, setQueue],
+    [setQueue, leave],
   );
 
   const loadRejected = useCallback(async () => {
@@ -168,37 +192,76 @@ function CallScreenInner({ config }: { config: CallConfig }) {
     const r = rtRef.current;
     if (!r) return;
     const res = await r.api.today();
-    if (res) setServerToday(res);
-  }, []);
+    // Вошёл другой сотрудник или сессии больше нет (истекла, «выйти везде»): экран сотрудника не показываем ни секунды —
+    // очередь из памяти убирается, страница прячется и перезагружается (сервер отдаст вход или страницу текущей сессии)
+    if (isWrongUser(res) || res.status === 401) leave();
+    else if (res.data) setServerToday(res.data);
+  }, [leave]);
 
   const flushAndSync = useCallback(
     async (opts: { force?: boolean; ignoreBackoff?: boolean } = {}) => {
       const r = rtRef.current;
-      if (!r) return;
+      if (!r || lockedRef.current) return;
+      if (foreign()) {
+        leave();
+        return;
+      }
       const rep = await r.outbox.flush(opts);
+      // Сервер: вошёл другой сотрудник. Страница прежнего не годится — перезагрузка даст страницу текущей сессии
+      if (rep.held.length > 0) {
+        leave();
+        return;
+      }
       if (rep.rejected.length > 0) await loadRejected();
       if (rep.sent.length > 0 || rep.rejected.length > 0) {
         void refill();
         void refreshToday();
       }
     },
-    [loadRejected, refill, refreshToday],
+    [loadRejected, refill, refreshToday, foreign, leave],
   );
 
   // ---- Старт ------------------------------------------------------------------------------------------------
 
   useEffect(() => {
     let alive = true;
+    let stopStale: (() => void) | null = null;
     void (async () => {
+      // Выход не завершён: данные не грузим и не рисуем, экран блокировки (LogoutGuard) доводит выход
+      if (isLogoutPending()) {
+        lockedRef.current = true;
+        setLocked(true);
+        return;
+      }
+      // Страница из кэша service worker (нет сети): сессия могла смениться, поэтому на сервер ничего не уходит,
+      // пока страница не перезагрузится под текущей сессией (итоги отправляются только под той, что их создала)
+      // Пока выход не завершён (флаг мог появиться позже, из другой вкладки), запросы тоже не уходят
+      const stale = isStaleShell();
       const { store, persistent } = createDeviceStore();
+      if (stale) {
+        // Оболочка прежнего сотрудника, а на телефоне уже другой: ни данных, ни уборки — ждём сеть и перезагрузку
+        if (foreign()) {
+          stopStale = reloadWhenOnline();
+          leave();
+          return;
+        }
+      } else {
+        // Страница пришла с сервера: её сотрудник — владелец телефона (D-292). Данные другого сотрудника на этом
+        // телефоне (его сессия истекла без выхода) убираются до чтения своих (D-291)
+        markDeviceOwner(browserStorage(), userId);
+        await sanitizeForeign(userId, { storage: browserStorage(), store: persistent ? store : null });
+      }
       const deviceId = await ensureDeviceId(store);
       const holder: { outbox?: Outbox } = {};
-      const api = createCallApi(() => deviceHeaders(deviceId, holder.outbox?.pendingCount() ?? 0, holder.outbox?.lastFlushAt() ?? null));
+      const guardedFetch: typeof fetch = (...a) => (stale || isLogoutPending() ? Promise.reject(new Error('blocked')) : fetch(...a));
+      if (stale) stopStale = reloadWhenOnline();
+      const api = createCallApi(() => deviceHeaders(deviceId, holder.outbox?.pendingCount() ?? 0, holder.outbox?.lastFlushAt() ?? null), userId, guardedFetch);
       const onChange = () => {
         setVersion((v) => v + 1);
         setNow(Date.now());
       };
-      const outbox = new Outbox({ store, send: (req) => api.sendOutcome(req), userId, onChange });
+      // Автор итога — из записи outbox: сервер сверяет его с сессией (D-291)
+      const outbox = new Outbox({ store, send: (req, author) => api.sendOutcome(req, author), userId, onChange });
       holder.outbox = outbox;
       await outbox.load();
       if (!alive) return;
@@ -215,24 +278,51 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       await loadRejected();
       registerShell();
       await refill({ replace: true });
+      if (lockedRef.current) return;
       void outbox.flush({ ignoreBackoff: true }).then((rep) => {
+        if (rep.held.length > 0) {
+          leave();
+          return;
+        }
         if (rep.rejected.length > 0) void loadRejected();
         void refreshToday();
       });
     })();
     return () => {
       alive = false;
+      stopStale?.();
     };
     // Старт один раз: зависимости стабильны
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Намерение звонка и черновик шторки сохраняются при каждом изменении
+  // Выход начат в другой вкладке или в этой: очередь из памяти убирается, экран пустеет
   useEffect(() => {
-    if (!hydrated) return;
+    const lock = () => {
+      lockedRef.current = true;
+      setLocked(true);
+      setQueue([]);
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === LOGOUT_PENDING_KEY && e.newValue !== null) lock();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(LOGOUT_PENDING_EVENT, lock);
+    // Сотрудник сменился (метка владельца, DeviceOwnerGuard): страница прячется и перезагружается
+    window.addEventListener(OWNER_CHANGED_EVENT, lock);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(LOGOUT_PENDING_EVENT, lock);
+      window.removeEventListener(OWNER_CHANGED_EVENT, lock);
+    };
+  }, [setQueue]);
+
+  // Намерение звонка и черновик шторки сохраняются при каждом изменении; во время выхода — нет (очистка не отменяется)
+  useEffect(() => {
+    if (!hydrated || lockedRef.current || isLogoutPending() || foreign()) return;
     if (pending) writePending(window.localStorage, userId, pending);
     else clearPending(window.localStorage, userId);
-  }, [pending, hydrated, userId]);
+  }, [pending, hydrated, userId, foreign]);
 
   // ---- Отправка: таймеры и события --------------------------------------------------------------------------
 
@@ -272,20 +362,35 @@ function CallScreenInner({ config }: { config: CallConfig }) {
         if (pendingRef.current) awayRef.current = true;
         return;
       }
+      // Вкладка прежнего сотрудника: на телефоне уже другой — ничего не показываем и не шлём (D-292)
+      if (foreign()) {
+        leave();
+        return;
+      }
       setNow(Date.now());
       if (awayRef.current && pendingRef.current) {
         awayRef.current = false;
         openSheetIfPending();
       }
       void flushAndSync();
+      // Сверка с сервером: метки владельца может не быть (хранилище недоступно), а сессия смениться — 409 wrong_user
+      void refreshToday();
     };
     const onPageShow = () => {
+      if (foreign()) {
+        leave();
+        return;
+      }
       if (pendingRef.current && awayRef.current) {
         awayRef.current = false;
         openSheetIfPending();
       }
     };
     const onOnline = () => {
+      if (foreign()) {
+        leave();
+        return;
+      }
       void flushAndSync({ ignoreBackoff: true });
       void refill();
       void refreshToday();
@@ -301,7 +406,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('focus', onFocus);
     };
-  }, [flushAndSync, openSheetIfPending, refill, refreshToday]);
+  }, [flushAndSync, openSheetIfPending, refill, refreshToday, foreign, leave]);
 
   // ---- Действия ---------------------------------------------------------------------------------------------
 
@@ -311,6 +416,12 @@ function CallScreenInner({ config }: { config: CallConfig }) {
   }, [queue, pending]);
 
   const startCall = (card: QueueCard, phone: QueuePhone) => {
+    // Страница прежнего сотрудника: «намерение звонка» с названием компании на телефон не пишем (D-292)
+    if (lockedRef.current) return;
+    if (foreign()) {
+      leave();
+      return;
+    }
     const r = rtRef.current;
     // Оператор идёт дальше: итоги из окна отмены уходят сразу (PROCESS 2.5, «Следующая»)
     if (r && r.outbox.pendingCount() > 0) {
@@ -350,7 +461,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
 
   const undo = async (opId: string, p: PendingState, card: QueueCard | null) => {
     const r = rtRef.current;
-    if (!r) return;
+    if (!r || lockedRef.current) return;
     if (!(await r.outbox.cancel(opId))) {
       toast.show({ message: t('toast.alreadySent'), tone: 'info' });
       return;
@@ -371,7 +482,12 @@ function CallScreenInner({ config }: { config: CallConfig }) {
   const submit = async (def: OutcomeButton, fieldValues: Record<string, string>, opts: { later?: boolean } = {}) => {
     const r = rtRef.current;
     const p = pendingRef.current;
-    if (!r || !p) return;
+    if (!r || !p || lockedRef.current) return;
+    // Итог со страницы прежнего сотрудника не ложится в outbox этого телефона: другой сотрудник уже работает (D-292)
+    if (foreign()) {
+      leave();
+      return;
+    }
     const nowMs = Date.now();
     const request = buildRequest({
       opId: p.call.opId,
@@ -385,7 +501,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       ...(opts.later ? { agreement: laterAgreement(contactId(), config, nowMs) } : {}),
     });
     try {
-      await r.outbox.enqueue({ request, title: p.call.title, kind: def.kind, undoMs: config.undoMs });
+      await r.outbox.enqueue({ request, title: p.call.title, kind: def.kind, undoMs: config.undoMs, freeText: hasFreeText(request, textFields) });
     } catch {
       toast.show({ message: t('toast.notSaved'), tone: 'danger' });
       return;
@@ -409,6 +525,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
 
   /** Итог принят вместе с записью (или без неё, если карточку передали): шторка закрывается, карточка уходит из очереди. */
   const finishAgreement = (p: PendingState, booked: boolean) => {
+    if (lockedRef.current) return;
     const def = config.outcomes.find((o) => o.key === p.draft.outcomeKey);
     setTally(recordOutcome(window.localStorage, userId, today(), { opId: p.call.opId, kind: def?.kind ?? 'agreed', at: p.call.tappedAt, booked }));
     setBooking(null);
@@ -440,6 +557,10 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       res = await r.api.postOutcome(request);
     } catch {
       return { ok: false, code: 'network' };
+    }
+    if (isWrongUser({ status: res.status, code: (res.json as { code?: string } | null)?.code })) {
+      leave();
+      return { ok: false, code: 'handled' };
     }
     const verdict = parseAgreementResponse(res.status, res.json);
     switch (verdict.kind) {
@@ -473,6 +594,8 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       if (res.data) {
         setCounts((c) => (c ? { ...c, skippedToday: res.data!.skipsToday, skipLimit: res.data!.skipLimit } : c));
         setQueue((q) => [...q.filter((c) => c.cardId !== card.cardId), { ...card, skippedToday: true }]);
+      } else if (isWrongUser(res)) {
+        leave();
       } else if (res.code === 'skip_limit') {
         setCounts((c) => (c ? { ...c, skippedToday: c.skipLimit } : c));
         toast.show({ message: te('errors.skip_limit'), tone: 'danger' });
@@ -513,6 +636,8 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       : pending.call.phones.map((p) => ({ id: p.id, label: p.masked }))
     : [];
 
+  if (locked) return null;
+
   return (
     <main className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 py-3" data-testid="call-screen">
       <header className="flex flex-col gap-2">
@@ -529,7 +654,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       </header>
 
       {rejected.map((r) => (
-        <Alert key={r.opId} tone="danger" title={t('outbox.rejected', { title: r.title })}>
+        <Alert key={r.opId} tone="danger" title={t('outbox.rejected', { title: r.title || '—' })}>
           <span>{te.has(`errors.${r.code}`) ? te(`errors.${r.code}`) : te('errors.not_found')}</span>
           <Button variant="quiet" size="sm" onClick={() => void dismissRejected(r.opId)}>
             {t('outbox.dismiss')}

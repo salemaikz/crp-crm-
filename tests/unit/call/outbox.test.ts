@@ -196,3 +196,72 @@ test('nextDueAt: ближайший срок отправки или паузы'
   await t.outbox.flush();
   assert.equal(t.outbox.nextDueAt(), t.clock.now + 3000, 'после ошибки — пауза 3 с');
 });
+
+// ---- D-291: автор итога и общий телефон -----------------------------------------------------------------
+
+test('classify: 409 wrong_user — держать до входа автора; прочие 409 — отказ', () => {
+  assert.equal(classify(409, 'wrong_user'), 'hold');
+  assert.equal(classify(409, 'skip_limit'), 'rejected');
+  assert.equal(classify(400, 'wrong_user'), 'rejected');
+});
+
+test('отправка несёт автора записи: транспорт получает userId outbox', async () => {
+  const authors: string[] = [];
+  const store = createMemoryStore();
+  const outbox = new Outbox({ store, userId: 'u1', send: async (_r, author) => (authors.push(author), { status: 200 }) });
+  await outbox.enqueue(item(1, 0));
+  await outbox.flush();
+  assert.deepEqual(authors, ['u1']);
+});
+
+test('409 wrong_user: итог не теряется и не показывается отказом — остаётся в хранилище без названия, вкладка его больше не шлёт', async () => {
+  const t = setup(async () => ({ status: 409, code: 'wrong_user' }));
+  await t.outbox.enqueue(item(1, 0));
+  await t.outbox.enqueue(item(2, 0));
+  const rep = await t.outbox.flush();
+  assert.deepEqual(rep.held, [req(1).opId], 'проход остановлен на первом: остальные под той же чужой сессией');
+  assert.equal(t.outbox.has(req(1).opId), false);
+  assert.equal((await t.outbox.rejectedList()).length, 0);
+  const kept = await t.store.get(req(1).opId);
+  assert.equal(kept?.title, '');
+  assert.equal(kept?.userId, 'u1');
+  assert.deepEqual(kept?.request, req(1), 'запрос (id и коды) цел — уйдёт при входе автора');
+  // Автор вошёл снова: новая страница читает итог из хранилища и отправляет его
+  const again = new Outbox({ store: t.store, userId: 'u1', send: async () => ({ status: 200 }) });
+  await again.load();
+  assert.equal((await again.flush({ force: true })).sent.length, 2);
+});
+
+test('вкладка не возвращает название в хранилище после очистки при выходе (later)', async () => {
+  const t = setup(async () => {
+    throw new Error('нет сети');
+  });
+  await t.outbox.enqueue(item(1, 0));
+  // Выход в другой вкладке: purgeDevice стёр название в хранилище, память этой вкладки — прежняя
+  const stored = (await t.store.get(req(1).opId))!;
+  await t.store.put({ ...stored, title: '' });
+  await t.outbox.flush();
+  assert.equal((await t.store.get(req(1).opId))?.title, '');
+  assert.equal((await t.store.get(req(1).opId))?.attempts, 1);
+  assert.equal(t.outbox.list()[0]?.title, '', 'и в памяти вкладки тоже');
+});
+
+test('запись уже отправила или отменила другая вкладка: повтор её не воскрешает', async () => {
+  const t = setup(async () => {
+    throw new Error('нет сети');
+  });
+  await t.outbox.enqueue(item(1, 0));
+  await t.store.remove(req(1).opId);
+  await t.outbox.flush();
+  assert.equal(await t.store.get(req(1).opId), null);
+  assert.equal(t.outbox.pendingCount(), 0);
+});
+
+test('отказ сервера после очистки: подпись берётся из хранилища (пустая), а не из памяти вкладки', async () => {
+  const t = setup(async () => ({ status: 404 }));
+  await t.outbox.enqueue(item(1, 0));
+  const stored = (await t.store.get(req(1).opId))!;
+  await t.store.put({ ...stored, title: '' });
+  await t.outbox.flush();
+  assert.equal((await t.outbox.rejectedList())[0]?.title, '');
+});

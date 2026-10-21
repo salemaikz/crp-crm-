@@ -16,10 +16,16 @@ export async function unreadCount(viewer: Viewer): Promise<number> {
   }
 }
 
-/** Страница уведомлений, новые сверху; курсор — `created_at` последней строки. */
+/** Курсор страницы: `<created_at>_<id>` последней строки (у пачки одно `created_at`, поэтому нужен и id). Голое число — старый вид. */
+export function parseCursor(raw: string | null | undefined): { createdAt: number; id: string | null } | null {
+  const m = raw ? /^(\d{1,16})(?:_([\w-]{1,64}))?$/.exec(raw) : null;
+  return m ? { createdAt: Number(m[1]), id: m[2] ?? null } : null;
+}
+
+/** Страница уведомлений, новые сверху; курсор — `created_at` и id последней строки. */
 export async function listMine(viewer: Viewer, opts: { cursor?: string | null; limit?: number } = {}): Promise<NotificationPage> {
   const limit = Math.min(Math.max(opts.limit ?? BELL_PAGE_SIZE, 1), BELL_MAX_PAGE);
-  const before = opts.cursor && /^\d{1,16}$/.test(opts.cursor) ? Number(opts.cursor) : null;
+  const before = parseCursor(opts.cursor);
   const db = await getDb();
   const rows = await listForUser(db.sql, { userId: viewer.userId, before, limit: limit + 1 });
   const items = rows.slice(0, limit);
@@ -27,7 +33,7 @@ export async function listMine(viewer: Viewer, opts: { cursor?: string | null; l
   return {
     items,
     unread: await countUnread(db.sql, viewer.userId),
-    next: rows.length > limit && last ? String(last.createdAt) : null,
+    next: rows.length > limit && last ? `${last.createdAt}_${last.id}` : null,
   };
 }
 

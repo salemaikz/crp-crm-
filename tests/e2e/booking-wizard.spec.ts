@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { expect, test, type Page } from '@playwright/test';
 import { ensureConsultant } from './support/consult';
+import { uniquePhone } from './support/phones';
 
 const DB_URL = process.env.E2E_DATABASE_URL;
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -42,12 +43,12 @@ async function makeWorld(state = 'new'): Promise<World> {
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   if (!space) throw new Error('нет пространства sales');
   const t = Date.now();
-  const w: World = { userId: randomUUID(), phone: `7709${digits(7)}`, clientId: randomUUID(), cardId: randomUUID(), contactId: randomUUID(), name: `ТОО Тест Альфа ${digits(4)}` };
+  const w: World = { userId: randomUUID(), phone: await uniquePhone(sql), clientId: randomUUID(), cardId: randomUUID(), contactId: randomUUID(), name: `ТОО Тест Альфа ${digits(4)}` };
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${w.userId}, ${w.phone}, 'Оператор Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${w.userId}, ${space.id}, 'operator', FALSE, ${t}, ${t})`;
   await sql`INSERT INTO clients (id, kind, name, name_norm, search_norm, source_kind, created_at, updated_at)
             VALUES (${w.clientId}, 'company', ${w.name}, ${w.name.toLowerCase()}, ${w.name.toLowerCase()}, 'import', ${t}, ${t})`;
-  await sql`INSERT INTO client_phones (id, client_id, digits, kind, is_primary, created_at) VALUES (${randomUUID()}, ${w.clientId}, ${`7709${digits(7)}`}, 'mobile', TRUE, ${t})`;
+  await sql`INSERT INTO client_phones (id, client_id, digits, kind, is_primary, created_at) VALUES (${randomUUID()}, ${w.clientId}, ${await uniquePhone(sql)}, 'mobile', TRUE, ${t})`;
   await sql`INSERT INTO contacts (id, client_id, name, is_decision_maker, created_at) VALUES (${w.contactId}, ${w.clientId}, 'Контакт Синтетик', TRUE, ${t})`;
   await sql`INSERT INTO cards (id, space_id, client_id, owner_user_id, state, assigned_at, created_at, updated_at)
             VALUES (${w.cardId}, ${space.id}, ${w.clientId}, ${w.userId}, ${state}, ${t}, ${t}, ${t})`;

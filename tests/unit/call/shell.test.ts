@@ -14,6 +14,7 @@ function loadWorker() {
   const cache = new Map<string, unknown>();
   const stores = new Map<string, Map<string, unknown>>();
   const fetched: string[] = [];
+  const net = { down: false };
   const self = {
     location: { origin: 'https://crm.test' },
     addEventListener: (type: string, fn: Listener) => void listeners.set(type, fn),
@@ -22,20 +23,22 @@ function loadWorker() {
   };
   const caches = {
     keys: async () => [...stores.keys()],
+    has: async (k: string) => stores.has(k),
     delete: async (k: string) => stores.delete(k),
     open: async (k: string) => {
       const m = stores.get(k) ?? new Map<string, unknown>();
       stores.set(k, m);
-      return { match: async (r: { url?: string } | string) => m.get(typeof r === 'string' ? r : (r.url ?? '')), put: async (r: { url?: string } | string, v: unknown) => void m.set(typeof r === 'string' ? r : (r.url ?? ''), v) };
+      return { delete: async (r: { url?: string } | string) => m.delete(typeof r === 'string' ? r : (r.url ?? '')), match: async (r: { url?: string } | string) => m.get(typeof r === 'string' ? r : (r.url ?? '')), put: async (r: { url?: string } | string, v: unknown) => void m.set(typeof r === 'string' ? r : (r.url ?? ''), v) };
     },
   };
   const fetchFn = async (r: { url: string }) => {
     fetched.push(r.url);
-    return { ok: true, redirected: false, clone() { return this; } };
+    if (net.down) throw new Error('offline');
+    return { ok: true, redirected: false, status: 200, statusText: 'OK', headers: new Headers(), text: async () => '<html><head><title>x</title></head><body>оболочка</body></html>', clone() { return this; } };
   };
-  vm.runInNewContext(readFileSync(join(ROOT, 'public', 'sw.js'), 'utf8'), { self, caches, fetch: fetchFn, URL, Promise });
+  vm.runInNewContext(readFileSync(join(ROOT, 'public', 'sw.js'), 'utf8'), { self, caches, fetch: fetchFn, URL, Promise, Headers, Response });
   void cache;
-  return { listeners, fetched, stores };
+  return { listeners, fetched, stores, net };
 }
 
 function fetchEvent(url: string, init: { method?: string; mode?: string } = {}) {
@@ -71,7 +74,7 @@ test('SW берёт статику сборки и оболочку экрана
   fetchHandler(nav.e);
   assert.ok(nav.responded());
   await nav.responded();
-  const names = [...w.stores.get('crm-shell-v1')!.keys()];
+  const names = [...w.stores.get('crm-shell-v3')!.keys()];
   assert.ok(names.includes('/call'), 'оболочка сохранена');
   assert.ok(!names.some((n) => n.includes('/api/')), 'в кэше нет API');
 });
@@ -82,11 +85,68 @@ test('SW очищает кэш по команде выхода', async () => {
   const nav = fetchEvent('https://crm.test/call', { mode: 'navigate' });
   fetchHandler(nav.e);
   await nav.responded();
-  assert.ok(w.stores.has('crm-shell-v1'));
+  assert.ok(w.stores.has('crm-shell-v3'));
   let waited: Promise<unknown> | null = null;
   w.listeners.get('message')!({ data: { type: 'clear' }, waitUntil: (p: Promise<unknown>) => void (waited = p) });
   await waited;
-  assert.equal(w.stores.has('crm-shell-v1'), false);
+  assert.equal(w.stores.has('crm-shell-v3'), false);
+});
+
+test('без сети оболочка /call отдаётся с меткой «из кэша» (страница не шлёт итоги под чужой сессией)', async () => {
+  const w = loadWorker();
+  const fetchHandler = w.listeners.get('fetch')!;
+  const online = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(online.e);
+  await online.responded();
+  w.net.down = true;
+  const offline = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(offline.e);
+  const res = (await offline.responded()) as Response;
+  assert.match(await res.text(), /<head><meta name="crm-shell" content="stale">/);
+});
+
+test('вход и выход: оболочка прежнего сотрудника удаляется, следующий без сети её не получит', async () => {
+  for (const trigger of [fetchEvent('https://crm.test/login', { mode: 'navigate' }), fetchEvent('https://crm.test/api/auth/logout', { method: 'POST' })]) {
+    const w = loadWorker();
+    const fetchHandler = w.listeners.get('fetch')!;
+    const nav = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+    fetchHandler(nav.e);
+    await nav.responded();
+    let waited: Promise<unknown> | null = null;
+    fetchHandler({ ...trigger.e, waitUntil: (p: Promise<unknown>) => void (waited = p) });
+    await waited;
+    assert.equal(trigger.responded(), null, 'запрос идёт в сеть как обычно');
+    w.net.down = true;
+    const offline = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+    fetchHandler(offline.e);
+    await assert.rejects(Promise.resolve(offline.responded()));
+  }
+});
+
+test('выход не завершён (метка crm-logout-pending): оболочка /call не отдаётся из кэша и не кэшируется заново', async () => {
+  const w = loadWorker();
+  const fetchHandler = w.listeners.get('fetch')!;
+  const first = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(first.e);
+  await first.responded();
+  w.stores.set('crm-logout-pending', new Map());
+  w.stores.get('crm-shell-v3')!.clear();
+  // Сеть есть, сессия прежнего сотрудника ещё жива: страница приходит, но в кэш не ложится
+  const online = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(online.e);
+  await online.responded();
+  assert.equal(w.stores.get('crm-shell-v3')!.has('/call'), false);
+  // Оболочка из кэша (положена до выхода) без сети не отдаётся
+  w.stores.get('crm-shell-v3')!.set('/call', { text: async () => '<html><head></head></html>', headers: new Headers(), status: 200, statusText: 'OK' });
+  w.net.down = true;
+  const offline = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(offline.e);
+  await assert.rejects(Promise.resolve(offline.responded()));
+  // Выход завершён — метка снята, кэшированная оболочка снова доступна без сети
+  w.stores.delete('crm-logout-pending');
+  const after = fetchEvent('https://crm.test/call', { mode: 'navigate' });
+  fetchHandler(after.e);
+  assert.ok(await after.responded());
 });
 
 function flat(tree: Record<string, unknown>, prefix = '', out = new Set<string>()): Set<string> {

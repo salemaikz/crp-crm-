@@ -34,6 +34,14 @@ export function sessionCookieSpec(env: Env = process.env): SessionCookieSpec {
   return { name: SESSION_COOKIE_PLAIN, httpOnly: true, secure: false, sameSite: 'lax', path: '/' };
 }
 
+/**
+ * Метка «выход не завершён» (D-310). Ставит телефон из скрипта (не httpOnly, `SameSite=Strict`, `Path=/`, без ПДн,
+ * значение не важно) при «Всё равно выйти» и пока висит флаг незавершённого выхода. Сервер, увидев её на запросе с
+ * сессией, закрывает эту сессию в БД и стирает cookie; снимает метку успешный вход или выход. Имя продублировано в
+ * src/ui/call/logoutPending.ts (интерфейс не импортирует сервер) — равенство проверяет тест.
+ */
+export const LOGOUT_MARKER_COOKIE = 'crm_logout';
+
 /** Оба имени: выход и чтение принимают любое (смена схемы при переезде на https не оставит мусор). */
 export function sessionCookieNames(): readonly string[] {
   return [SESSION_COOKIE_SECURE, SESSION_COOKIE_PLAIN];

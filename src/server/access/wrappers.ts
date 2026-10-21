@@ -1,6 +1,6 @@
 // Обёртки route(), publicRoute(), page(), action() (ARCHITECTURE §5.2 п. 1–3, D-017, D-074).
 // Каждый route handler, server action и страница с данными обёрнуты и описаны в манифесте изоляции.
-// Порядок: Origin (мутирующий метод и любой server action) → сессия (продление срока перевыпускает
+// Порядок: переход документа на адрес API (404, D-310) → Origin (мутирующий метод и любой server action) → сессия (продление срока перевыпускает
 // cookie, D-154) → Viewer (перечитывается из БД) → блокировка мутаций (роль «только чтение»,
 // лицензия; кроме D-054) → разрешение → обработчик → аудит. Ошибки доступа — единые ответы без текста.
 import { notFound, redirect } from 'next/navigation';
@@ -11,6 +11,7 @@ import { checkOrigin as checkOriginHeaders } from '@/server/platform/auth/csrf';
 import { getDb } from '@/server/platform/db';
 import { AccessError, ForbiddenError, HTTP_STATUS, NotFoundError, ReadOnlyError, UnauthorizedError, errorBody, type AccessErrorCode } from './errors';
 import { resolveViewer } from './current';
+import { refuseDocumentNavigation } from './navigation';
 import { requireAccess } from './viewer';
 import { LOCKING_LICENSE_STATES, type Viewer } from './types';
 
@@ -178,11 +179,14 @@ async function audit<C, R>(viewer: Viewer, spec: AuditSpec<C, R>, ctx: C, result
 
 /**
  * Route handler с сессией. Обработчик может вернуть Response или данные (уйдут JSON; undefined —
- * 204). Ответы API не кэшируются (D-033): обёртка ставит `Cache-Control: no-store`.
+ * 204). Ответы API не кэшируются (D-033): обёртка ставит `Cache-Control: no-store`. GET переходом документа —
+ * 404, кроме маршрутов скачивания (navigation.ts, D-310).
  */
 export function route(opts: RouteOptions, handler: (ctx: RouteContext) => Promise<unknown>): NextRouteHandler {
   return async (req, ctx) => {
     try {
+      // Адрес API, открытый как документ (адресная строка, view-source), — 404 без данных и без чтения сессии (D-310)
+      if (refuseDocumentNavigation(req)) return jsonError('not_found');
       const mutating = !SAFE_METHODS.has(req.method.toUpperCase());
       if (mutating) checkOrigin(req);
       const viewer = await resolveViewer();

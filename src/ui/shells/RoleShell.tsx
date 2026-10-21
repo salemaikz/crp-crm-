@@ -8,6 +8,7 @@ import { ChannelModesProvider } from '@/ui/channels';
 import { loadChannelModes } from '@/ui/channels/loadModes';
 import { AppShell } from './AppShell';
 import { loadMenu } from './loadMenu';
+import { foreignOutboxTtlMs } from './outboxTtl';
 import type { ShellKind } from './menu';
 
 type Props = {
@@ -20,13 +21,14 @@ type Props = {
 };
 
 export async function RoleShell({ viewer, force, bellCount, children }: Props) {
-  const [t, tc, menu, unread, modes] = await Promise.all([
+  const [t, tc, menu, unread, modes, outboxTtlMs] = await Promise.all([
     getTranslations('shell'),
     getTranslations('common.app'),
     loadMenu(viewer, force),
     bellCount === undefined ? unreadCount(viewer) : Promise.resolve(bellCount),
     // как звонить и писать (D-268): кнопки «Позвонить» и «WhatsApp» читают режим из контекста
     loadChannelModes(viewer),
+    foreignOutboxTtlMs(),
   ]);
   const items = menu.items.map((i) => ({ ...i, label: t(`nav.${i.id}`) }));
   return (
@@ -40,6 +42,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
       bell={{ href: '/notifications', label: t('bell'), count: unread }}
       more={{ label: t('more'), closeLabel: t('close') }}
       userId={viewer.userId}
+      outboxTtlMs={outboxTtlMs}
     >
       <ChannelModesProvider modes={modes}>{children}</ChannelModesProvider>
     </AppShell>

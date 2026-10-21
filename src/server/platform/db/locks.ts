@@ -27,6 +27,8 @@ export const JOB_LOCK_CLASS = 72_026_106;
 
 /** День консультаций: подбор, запись, назначение, резерв и автоназначение «серых» идут по одному на пространство и дату (D-245). */
 export const CONSULT_DAY_LOCK_CLASS = 72_026_107;
+/** Журнал потерь итогов (D-311): сообщения об итогах одного автора пишутся по очереди — повтор не задваивает строку. */
+export const EXPIRED_CLAIM_LOCK_CLASS = 72_026_108;
 
 /** Все ключи и классы: тест проверяет, что значения не повторяются. */
 export const ALL_LOCK_VALUES = {
@@ -38,6 +40,7 @@ export const ALL_LOCK_VALUES = {
   SKIP_LOCK_CLASS,
   JOB_LOCK_CLASS,
   CONSULT_DAY_LOCK_CLASS,
+  EXPIRED_CLAIM_LOCK_CLASS,
 } as const;
 
 /** Сессионная advisory-блокировка, снятие. */

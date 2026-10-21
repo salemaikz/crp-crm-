@@ -6,7 +6,7 @@ import type { Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db';
 import { phoneHmac } from '@/server/platform/hmac';
 import type { QueueGroup } from '@/server/domain/cards/types';
-import { SKIP_LOCK_CLASS } from '@/server/platform/db/locks';
+import { EXPIRED_CLAIM_LOCK_CLASS, SKIP_LOCK_CLASS } from '@/server/platform/db/locks';
 
 // ---------------------------------------------------------------------------
 // Пропуски
@@ -160,6 +160,65 @@ export async function upsertDeviceStatus(sql: Sql, a: { userId: string; deviceId
            last_flush_at = COALESCE(EXCLUDED.last_flush_at, device_status.last_flush_at),
            seen_at = EXCLUDED.seen_at
      WHERE device_status.seen_at <= EXCLUDED.seen_at`;
+}
+
+// Проверки сообщения о потере итогов (D-308). Ответ клиенту их не раскрывает: сервер отвечает `{ ok: true }` или 404 об
+// авторе, поэтому чтения идут без охвата — они решают только, что писать в журнал.
+
+/** Сотрудник установки с таким id есть (отключённый тоже: его итоги могли остаться на телефоне). */
+export async function userExists(sql: Sql, id: string): Promise<boolean> {
+  const rows = await sql<{ id: string }>`SELECT id FROM users WHERE id = ${id}`;
+  return rows.length > 0;
+}
+
+/** Какие из opId уже записаны звонками (id звонка = opId устройства, D-019): они дошли и не потеряны. */
+export async function receivedCallIds(sql: Sql, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await sql<{ id: string }>`SELECT id FROM calls WHERE id = ANY(${[...ids]}::text[])`;
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Ключ идемпотентности журнала потерь (D-311): сообщения об итогах одного автора записываются по очереди (блокировка
+ * транзакции по автору), поэтому две вкладки или повтор после потерянного ответа не пишут строку дважды.
+ */
+export async function lockExpiredClaims(sql: Sql, authorId: string): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(${EXPIRED_CLAIM_LOCK_CLASS}::int, hashtext(${authorId}))`;
+}
+
+/** Какие из opId автора уже записаны в журнал потерь (любым сотрудником): второй раз они не пишутся. */
+export async function claimedExpiredOpIds(sql: Sql, authorId: string, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await sql<{ op: string }>`
+    SELECT DISTINCT op
+      FROM audit_log a, jsonb_array_elements_text(COALESCE(a.meta->'claimed'->'opIds', '[]'::jsonb)) AS op
+     WHERE a.action = 'user.outbox_expired' AND a.entity = 'user' AND a.entity_id = ${authorId}
+       AND op = ANY(${[...ids]}::text[])`;
+  return rows.map((r) => r.op);
+}
+
+export interface ExpiredClaimRow {
+  id: string;
+  actorId: string | null;
+  authorId: string;
+  createdAt: number;
+  meta: Record<string, unknown>;
+}
+
+/** Записи журнала потерь с момента `since` (служебная проверка, D-311). Без охвата: только id, числа и opId. */
+export async function expiredClaimsSince(sql: Sql, since: number): Promise<ExpiredClaimRow[]> {
+  const rows = await sql<ExpiredClaimRow>`
+    SELECT id, actor_id, entity_id AS author_id, created_at, meta
+      FROM audit_log
+     WHERE action = 'user.outbox_expired' AND entity = 'user' AND created_at >= ${since}
+     ORDER BY created_at, id`;
+  return rows.map((r) => ({ id: r.id, actorId: r.actorId, authorId: r.authorId, createdAt: Number(r.createdAt), meta: r.meta ?? {} }));
+}
+
+/** Сколько неотправленных итогов сотрудник сообщал с этого устройства в последний раз; null — устройство не видели. */
+export async function devicePendingOf(sql: Sql, userId: string, deviceId: string): Promise<number | null> {
+  const rows = await sql<{ pendingOutbox: number }>`SELECT pending_outbox FROM device_status WHERE user_id = ${userId} AND device_id = ${deviceId}`;
+  return rows[0]?.pendingOutbox ?? null;
 }
 
 export async function deleteDeviceStatusBefore(sql: Sql, before: number): Promise<number> {

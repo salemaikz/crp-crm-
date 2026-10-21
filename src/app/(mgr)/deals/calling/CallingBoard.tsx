@@ -53,7 +53,7 @@ const codeOf = (json: unknown): string => {
 
 type Move = { tile: CallingTile; target: DropTarget; opId: string; draft: SheetDraft; openedAt: number };
 
-export function CallingBoard({ initial, config }: { initial: Board; config: CallConfig }) {
+export function CallingBoard({ initial, config, userId }: { initial: Board; config: CallConfig; userId: string }) {
   const t = useTranslations('deals.board');
   const te = useTranslations('calls');
   const f = useFormatter();
@@ -66,7 +66,8 @@ export function CallingBoard({ initial, config }: { initial: Board; config: Call
   const [booking, setBooking] = useState<{ def: OutcomeButton; fieldValues: Record<string, string> } | null>(null);
   const [failed, setFailed] = useState(false);
   const workerRef = useRef(worker);
-  const api = useRef(createCallApi(() => ({})));
+  // автор итога «вручную» — сотрудник этой сессии: сервер сверяет его с сессией (D-291)
+  const api = useRef(createCallApi(() => ({}), userId));
   useEffect(() => {
     workerRef.current = worker;
   });

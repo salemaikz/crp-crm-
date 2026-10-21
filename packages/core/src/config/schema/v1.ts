@@ -92,6 +92,8 @@ const Space = obj({ key: Key, label: I18n, enabled: z.boolean(), default: z.bool
 
 const Security = obj({
   sessionDays: int(1, 365),
+  /** Простой сессии, часы (D-310); нет — 12 ч по умолчанию приложения. */
+  idleHours: int(2, 720).optional(),
   inviteTtlHours: int(1, 720),
   loginAttempts: obj({ perPhone: int(1, 50), perIp: int(1, 1000), windowMin: int(1, 1440) }),
   phoneProbesPerDay: int(0, 1000),

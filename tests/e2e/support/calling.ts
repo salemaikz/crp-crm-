@@ -4,7 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
-import { expect, type Page } from '@playwright/test';
+import { expect, type BrowserContext, type Page } from '@playwright/test';
+import { pretty, uniquePhone } from './phones';
 
 export const DB_URL = process.env.E2E_DATABASE_URL;
 export const PASSWORD = 'Надёжный-пароль-77';
@@ -26,6 +27,8 @@ export interface Operator {
 export interface OperatorOptions {
   /** У каждого клиента есть контакт-ЛПР («Асель Синтетик, Директор») со своим номером и заметка. */
   lpr?: boolean;
+  /** Роль в пространстве продаж (по умолчанию оператор). */
+  role?: string;
 }
 
 const digits = (n: number) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
@@ -35,12 +38,12 @@ export async function makeOperator(cards: number, opts: OperatorOptions = {}): P
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   if (!space) throw new Error('нет пространства sales: prepareDb() не выполнен');
   const id = randomUUID();
-  const phone = `7709${digits(7)}`;
+  const phone = await uniquePhone(sql);
   const t = Date.now();
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at)
             VALUES (${id}, ${phone}, ${'Оператор Синтетик'}, ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at)
-            VALUES (${id}, ${space.id}, 'operator', FALSE, ${t}, ${t})`;
+            VALUES (${id}, ${space.id}, ${opts.role ?? 'operator'}, FALSE, ${t}, ${t})`;
   const tag = digits(5);
   const cardIds: string[] = [];
   const names: string[] = [];
@@ -52,7 +55,7 @@ export async function makeOperator(cards: number, opts: OperatorOptions = {}): P
     await sql`INSERT INTO clients (id, kind, name, name_norm, search_norm, source_kind, created_at, updated_at)
               VALUES (${clientId}, 'company', ${name}, ${name.toLowerCase()}, ${name.toLowerCase()}, 'import', ${t}, ${t})`;
     await sql`INSERT INTO client_phones (id, client_id, digits, kind, is_primary, created_at)
-              VALUES (${randomUUID()}, ${clientId}, ${`7709${digits(7)}`}, 'mobile', TRUE, ${t})`;
+              VALUES (${randomUUID()}, ${clientId}, ${await uniquePhone(sql)}, 'mobile', TRUE, ${t})`;
     await sql`INSERT INTO cards (id, space_id, client_id, owner_user_id, state, assigned_at, created_at, updated_at)
               VALUES (${cardId}, ${space.id}, ${clientId}, ${id}, 'new', ${t}, ${t + i}, ${t})`;
     if (opts.lpr) {
@@ -60,7 +63,7 @@ export async function makeOperator(cards: number, opts: OperatorOptions = {}): P
       await sql`INSERT INTO contacts (id, client_id, name, position, is_decision_maker, created_at)
                 VALUES (${contactId}, ${clientId}, 'Асель Синтетик', 'Директор', TRUE, ${t})`;
       await sql`INSERT INTO client_phones (id, client_id, contact_id, digits, kind, is_primary, created_at)
-                VALUES (${randomUUID()}, ${clientId}, ${contactId}, ${`7709${digits(7)}`}, 'mobile', FALSE, ${t})`;
+                VALUES (${randomUUID()}, ${clientId}, ${contactId}, ${await uniquePhone(sql)}, 'mobile', FALSE, ${t})`;
       await sql`INSERT INTO notes (id, client_id, space_id, body, created_at)
                 VALUES (${randomUUID()}, ${clientId}, ${space.id}, 'Просили перезвонить после обеда', ${t})`;
     }
@@ -71,14 +74,21 @@ export async function makeOperator(cards: number, opts: OperatorOptions = {}): P
   return { id, phone, cardIds, names, clientIds };
 }
 
-const pretty = (p: string) => `8 ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7, 9)} ${p.slice(9)}`;
-
 export async function login(page: Page, op: Operator): Promise<void> {
   await page.goto('/login');
   await page.getByLabel('Номер телефона').fill(pretty(op.phone));
   await page.getByLabel('Пароль', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Войти' }).click();
   await page.waitForURL((u) => u.pathname !== '/login');
+}
+
+/**
+ * Вход одним запросом, без открытия страниц: cookie контекста меняется, а метку владельца телефона (D-292) ни одна
+ * страница не ставит. Так проверяется защита на сервере (409 `wrong_user`) отдельно от метки.
+ */
+export async function loginByRequest(context: BrowserContext, op: Operator, origin: string): Promise<void> {
+  const res = await context.request.post('/api/auth/login', { headers: { origin }, data: { phone: pretty(op.phone), password: PASSWORD } });
+  expect(res.status()).toBe(200);
 }
 
 export async function openCall(page: Page, op: Operator): Promise<void> {

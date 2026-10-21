@@ -29,6 +29,8 @@ export const AUDIT_ACTIONS = [
   'user.role_change',
   'user.admin_change',
   'user.disable',
+  // D-293: неотправленные итоги сотрудника со свободным текстом удалены с телефона по сроку (в meta — число и opId)
+  'user.outbox_expired',
   // B2: мероприятия и серии записи (без ПДн в meta)
   'event.create',
   'event.update',

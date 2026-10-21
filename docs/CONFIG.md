@@ -438,6 +438,7 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | Ключ | Тип | По умолчанию | ЦРП | Кто |
 |---|---|---|---|---|
 | `security.sessionDays` | int | 30 (скользящий срок) | 30 | CLI |
+| `security.idleHours` | int 2…720 | 12 — сессия без запросов дольше этого недействительна (D-310); продление раз в час, поэтому фактически от `idleHours − 1` до `idleHours` | 12 (по умолчанию) | CLI |
 | `security.inviteTtlHours` | int | 72 | 72 | CLI |
 | `security.loginAttempts` | `{perPhone, perIp, windowMin}` | 5, 20, 15. По номеру — нарастающая задержка, а не блокировка (чужой не может перебором заблокировать вход оператору); по IP — блокировка на окно | то же | CLI |
 | `security.phoneProbesPerDay` | int | 20 | 20 — общий счётчик проверок номера (D-040) | РОП |

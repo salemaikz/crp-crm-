@@ -27,5 +27,5 @@ export { PageHeader } from './PageHeader';
 export { Modal } from './Modal';
 export { BottomSheet } from './BottomSheet';
 export type { OverlayProps } from './Overlay';
-export { ToastProvider, useToast } from './Toast';
+export { ToastProvider, useOptionalToast, useToast } from './Toast';
 export type { ToastInput, ToastTone } from './toastState';

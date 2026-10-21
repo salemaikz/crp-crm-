@@ -31,7 +31,7 @@ test('нет настроек: ConfigMissingError (name для потребит�
   resetConfigCache();
   await assert.rejects(getActiveConfig({ now: 1 }), (e: unknown) => e instanceof Error && e.name === 'ConfigMissingError' && e instanceof ConfigMissingError);
   assert.equal(await getActiveConfigOrNull({ now: 2 }), null);
-  assert.deepEqual(await readSecurityPolicy(), { sessionDays: 30, inviteTtlHours: 72, loginAttempts: { perPhone: 5, perIp: 20, windowMin: 15 } });
+  assert.deepEqual(await readSecurityPolicy(), { sessionDays: 30, idleHours: 12, inviteTtlHours: 72, loginAttempts: { perPhone: 5, perIp: 20, windowMin: 15 } });
   assert.equal(resolveTimeZone(undefined), 'UTC');
 });
 

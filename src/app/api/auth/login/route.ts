@@ -15,7 +15,8 @@ export const POST = publicRoute({ reason: 'auth', origin: 'check' }, async ({ re
   const result = await loginRequest({ ...body.data, ip: deriveClientIp(req.headers), previousToken: await readSessionToken() });
   if (result.ok) {
     await setSessionCookie(result.session);
-    return json(200, { next: result.next });
+    // userId — метка владельца телефона (D-292): страница входа ставит её до перехода, вкладки прежнего сотрудника прячутся
+    return json(200, { next: result.next, userId: result.userId });
   }
   if (result.error === 'validation') return json(400, { error: 'validation' });
   if (result.error === 'rate_limited') return rateLimited(result.retryAfterMs);

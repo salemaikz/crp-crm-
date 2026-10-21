@@ -228,6 +228,11 @@ SELECT m.*, s.at AS skipped_at,
   перезвоны с `next_call_at < now − overdueAlertMinutes`, `skippedToday`; плюс `skipLimit` из настроек.
 - По отобранным (≤ 4) карточкам: название клиента, номера (рабочие, не из стоп-листа по HMAC; цифры
   полностью — для `tel:` своей карточки), поля по правам `fields.projectFor` (как карточка клиента C2).
+- `decisionMaker` — ЛПР клиента (имя, должность, телефон контакта с `is_decision_maker`), `lastNote` — свежайшая
+  заметка из `notes` и заметок итогов звонков, до 300 символов. Читаются тремя-четырьмя запросами на страницу
+  (по отобранным карточкам), без N+1.
+- `GET /api/calls/today` → `getToday`: итоги, дозвоны, записи и пропуски сотрудника за местные сутки пространства
+  (по всем его устройствам); экран складывает серверные числа с итогами, ещё лежащими в outbox.
 - `limit` 1–4 (по умолчанию 1), `exclude` ≤ 50 id (итоги в outbox устройства), `group` — вкладки
   «Все / Перезвоны / Повторы / Новые».
 - p95 ≤ 300 мс на 5 000 карточек (10 операторов × 500): индексы v1 `cards_queue_idx`, `cards_acting_idx`,
@@ -259,7 +264,7 @@ ON CONFLICT (user_id, device_id) DO UPDATE
  WHERE device_status.seen_at <= EXCLUDED.seen_at;
 ```
 
-Пинг `POST /api/device/ping` (зона platform, C7b) зовёт ту же `recordDeviceStatus` из домена calls.
+Пинг `POST /api/device/ping` (сделан в ops, волна B; право `authenticated`) зовёт ту же `recordDeviceStatus` из домена calls.
 `purgeDeviceStatus(actor, before)` — для `purge` воркера (§12).
 
 ## 11. API (route handlers через `route()`)
@@ -276,11 +281,59 @@ ON CONFLICT (user_id, device_id) DO UPDATE
 |---|---|---|---|
 | `not_found`, `opid_reused` | 404 | `{ error: 'not_found' }` (как у несуществующего) | убрать из outbox, показать «итог не принят» |
 | проверки ядра (`reason_required`, `lpr_required`, `lpr_info_required`, `callback_at_required`, `callback_in_past`, `contact_required`, `agreement_required`, `phone_required`, `outcome_unknown`, `outcome_archived`) и `field_not_allowed`, `phone_not_on_card`, `fields` | 400 | `{ error: 'bad_request', code, field }` | то же |
+| `wrong_user` (D-291): `X-Call-Author` не совпал с сессией; проверка до разбора тела, ничего не пишется, `device_status` тоже | 409 | `{ error: 'wrong_user', code: 'wrong_user' }` | **оставить** без названия компании, из этой вкладки не слать; уходит при входе автора |
 | `skip_limit`, `invalid_transition` | 409 | `{ error: code, skipLimit? }` | — (пропуск онлайн) |
 | ошибки записи (`event_full` …) | как у B2 | тело B2 | шторка показывает альтернативы |
 | `forbidden` (охват `relation`) | 403 | — | убрать |
 | лицензия «только чтение» | 423 (обёртка) | — | **оставить** и повторять |
 | 5xx, сеть | — | — | оставить и повторять |
+
+Автор (D-291, D-292). Экран «Звонить» шлёт `X-Call-Author` во всех записях: итог из outbox — с `userId` записи outbox,
+пропуск и «Договорились — записать» — с сотрудником страницы. Чтения `GET /api/calls/queue` и `/today` несут его с
+сотрудником страницы; не совпал с сессией — 409 `wrong_user` до чтения, `device_status` не пишется, страница
+прячется и перезагружается. Нет заголовка — запрос от сессии как есть (скрипты,
+интеграции). Повтор того же `opId` тем же автором — обычный `duplicate`.
+
+### 11.1. Общий телефон: выход и смена сотрудника (D-063, D-291, ARCHITECTURE §7)
+
+- **Выход.** `finishLogout`: флаг `crm.logout.pending` в localStorage (без ПДн) и кэш-метка `crm-logout-pending` для
+  service worker → очистка телефона (`purgeDevice`) и кэша оболочки → `POST /api/auth/logout`. Сервер ответил (2xx
+  или 401) — флаг и метка сняты, переход на вход. Нет сети — на вход не уходим.
+- **Пока флаг стоит**: скрипт в `<head>` корневого layout ставит `data-logout-pending` на `<html>` до первой
+  отрисовки, CSS прячет всё, кроме экрана блокировки «Выход завершится, когда появится сеть» (`LogoutGuard`, на
+  любой странице, включая вход). Повтор выхода — на `online` и раз в 5 с. `CallScreen` не грузит очередь, не шлёт
+  outbox и не пишет черновик; другие вкладки узнают о флаге по событию `storage`. Service worker при метке не отдаёт
+  и не кэширует оболочку `/call` (версия кэша `crm-shell-v3`: оболочки без скрипта удалены).
+- **Смена сотрудника без выхода** (сессия A истекла, вошёл B): при загрузке страницы под B (`DeviceOwnerGuard` в
+  оболочке и старт `CallScreen`) черновик, «намерение звонка», счётчик за сутки и отказы сервера других сотрудников
+  удаляются; их неотправленные итоги остаются только с id и кодами запроса (`title = ''`) и уходят только под A.
+- **Вторая вкладка прежнего сотрудника** (D-292): метка `crm.device.owner` (id сотрудника страницы, пришедшей с
+  сервера; ставят `DeviceOwnerGuard` оболочки и `/account`, старт `CallScreen`, а также вход и приглашение по
+  `userId` из ответа API — до перехода). Вкладка сверяет её на `storage`, `visibilitychange`, `focus`, `pageshow`,
+  `online`, а на возврат ещё и спрашивает сервер: любая страница — `GET /api/device/session` с `X-Call-Author`
+  (не чаще раза в 2 с), экран «Звонить» — ещё `/today`. 409 `wrong_user` или 401 (сессия истекла, никто не вошёл) —
+  атрибут `data-owner-changed` прячет страницу, `CallScreen` блокируется (ничего не пишет и не шлёт), перезагрузка:
+  сервер отдаёт страницу текущей сессии или вход.
+- **Итоги сотрудника с истёкшей сессией** (D-293 п. 2): при загрузке страницы под другим сотрудником
+  `sanitizeForeign` обезличивает их (`title = ''`), а записи со свободным текстом старше `calling.offlineWindowHours`
+  (наибольший срок из пространств; `foreignOutboxTtlMs`) удаляет сразу и сообщает
+  `POST /api/device/outbox-expired` (запись `audit_log` `user.outbox_expired`: actor — сотрудник телефона, объект —
+  автор итогов, `meta.claimed` — заявлено телефоном: `count`, `opIds`, `reason`, `deviceId`, `authorPendingOnDevice`;
+  `meta.checked` — проверено сервером: `authorExists`, `alreadyReceived`, `alreadyClaimed`; подтверждение по `calls` —
+  `verifyExpiredLosses`, D-311). Мутация безопасности `device.outbox_expire` (D-308). Не дошло (`retry`: сеть, 5xx, 429,
+  401) — сообщение ждёт в `meta.expiredReports` (`expiredReports.ts`) до следующей загрузки или `online` и уходит под
+  тем, кто вошёл, в том числе под самим автором (`actor_id = entity_id`, тост автору через `onOwnLost`, D-309); 400/404 —
+  не повторяется, переходит в след `meta.expiredRefused`. Очередь меняется только `store.updateMeta` (одна транзакция
+  IndexedDB). Сервер: автор существует (иначе 404), `opId` из `calls` и уже заявленные об этом авторе отбрасываются
+  (блокировка по автору — повтор не задваивает), 20/ч на устройство и 60/ч на сотрудника. «Удалить их и выйти» ставит
+  удаляемые `opId` в ту же очередь с `reason: 'discarded'` (D-311).
+- **Выход с итогами со свободным текстом** (D-293): `flushDeviceOutbox` возвращает `{ count, freeText }`;
+  `freeText` — записи outbox с признаком `freeText` (ставит экран при постановке итога по видам полей из настроек;
+  у старых записей — проверка с запасом, `freeText.ts`). При `freeText > 0` кнопки «Всё равно выйти» нет: «Остаться»
+  или «Удалить их и выйти» с подтверждением; `finishLogout` без подтверждения отвечает `confirm`, с подтверждением
+  `purgeDevice` удаляет такие записи целиком.
+- **Вкладка не воскрешает названия**: повтор (`later`) и отказ берут запись из хранилища, а не из памяти вкладки;
+  записи в хранилище нет — её не возвращают.
 
 ## 12. Тесты
 
@@ -334,7 +387,7 @@ Zod-тело итога (лишние поля → 400); исполнитель 
 | ~~`lose_open`~~ сделано (сведение дня 3): все открытые сделки клиента в пространстве → `lost` с причиной итога. Осталось `reassign_open` в `deals/effects.applyDealEffects` | booking (B6) | до пилота |
 | замена `cards` в `booking/deps.ts` на `cardBookingPort` | координатор | при влитии C5 |
 | строки в реестре воркера: `countOwnerlessWorkingCards` (`invariants`), `purgeDeviceStatus` (`purge`) | координатор после P7 | 23.10 |
-| `POST /api/device/ping` → `recordDeviceStatus` | platform (C7b) | 23.10 |
+| ~~`POST /api/device/ping` → `recordDeviceStatus`~~ сделано в ops (волна B) | ops | — |
 
 ## 14. Чего builder C5 НЕ делает
 

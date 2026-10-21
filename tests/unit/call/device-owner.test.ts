@@ -1,0 +1,244 @@
+// Общий телефон (D-291): при загрузке под B данные A удаляются или обезличиваются; итоги A остаются без названий.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  checkPageSession,
+  createExpiredReporter,
+  DEVICE_OWNER_KEY,
+  expiredForeign,
+  flushExpiredReports,
+  foreignKeys,
+  markDeviceOwner,
+  ownerChanged,
+  pendingExpiredReports,
+  queueExpiredReport,
+  refusedExpiredReports,
+  sanitizeForeign,
+  type ScanStorage,
+} from '../../../src/ui/call/deviceOwner';
+import { createMemoryStore } from '../../../src/ui/call/outboxStore';
+
+function mem(): ScanStorage & { m: Map<string, string> } {
+  const m = new Map<string, string>();
+  return {
+    m,
+    get length() {
+      return m.size;
+    },
+    key: (i: number) => [...m.keys()][i] ?? null,
+    getItem: (k: string) => m.get(k) ?? null,
+    setItem: (k: string, v: string) => void m.set(k, v),
+    removeItem: (k: string) => void m.delete(k),
+  };
+}
+
+const entry = (opId: string, userId: string, title: string) => ({
+  opId, userId, notBefore: 0, attempts: 0, retryAt: 0, createdAt: 1, title, kind: 'no_answer' as const,
+  request: { opId, cardId: `cd-${opId}`, outcomeKey: 'no_answer' } as never,
+});
+
+test('ключи других сотрудников: только pending и tally чужих, свои и посторонние ключи не трогаются', () => {
+  const s = mem();
+  for (const k of ['crm.call.pending.uA', 'crm.call.tally.uA', 'crm.call.pending.uB', 'crm.call.tally.uB', 'crm.logout.pending', 'other']) s.setItem(k, '1');
+  assert.deepEqual(foreignKeys(s, 'uB').sort(), ['crm.call.pending.uA', 'crm.call.tally.uA']);
+});
+
+test('вход B после истёкшей сессии A: черновик, счётчик и отказы A удалены, итоги A — без названия, но целы', async () => {
+  const storage = mem();
+  storage.setItem('crm.call.pending.uA', '{"call":{"title":"ТОО Синтетик"}}');
+  storage.setItem('crm.call.tally.uA', '{"day":"x","items":[]}');
+  storage.setItem('crm.call.tally.uB', '{"day":"x","items":[]}');
+  const store = createMemoryStore();
+  await store.put(entry('a1', 'uA', 'ТОО Синтетик'));
+  await store.put(entry('b1', 'uB', 'ТОО Свой'));
+  await store.putRejected({ opId: 'ra', userId: 'uA', title: 'ТОО Синтетик', code: 'not_found', at: 1 });
+  await store.putRejected({ opId: 'rb', userId: 'uB', title: 'ТОО Свой', code: 'not_found', at: 1 });
+
+  await sanitizeForeign('uB', { storage, store });
+
+  assert.deepEqual([...storage.m.keys()], ['crm.call.tally.uB']);
+  const a = await store.all('uA');
+  assert.equal(a.length, 1);
+  assert.equal(a[0]!.title, '');
+  assert.equal((a[0]!.request as { cardId: string }).cardId, 'cd-a1');
+  assert.equal((await store.all('uB'))[0]!.title, 'ТОО Свой', 'свои данные B не трогаются');
+  assert.equal((await store.rejected('uA')).length, 0);
+  assert.equal((await store.rejected('uB')).length, 1);
+});
+
+test('нет хранилищ — уборка не бросает', async () => {
+  await sanitizeForeign('uB', { storage: null, store: null });
+});
+
+test('метка владельца телефона (D-292): страница сотрудника, которого на телефоне сменили, устарела', () => {
+  const s = mem();
+  assert.equal(ownerChanged(s, 'uA'), false, 'метки нет — решает сервер');
+  markDeviceOwner(s, 'uA');
+  assert.equal(s.getItem(DEVICE_OWNER_KEY), 'uA');
+  assert.equal(ownerChanged(s, 'uA'), false);
+  markDeviceOwner(s, 'uB');
+  assert.equal(ownerChanged(s, 'uA'), true, 'вкладка A после входа B');
+  assert.equal(ownerChanged(s, 'uB'), false);
+  assert.deepEqual(foreignKeys(s, 'uB'), [], 'метка — не данные сотрудника, уборка её не трогает');
+  assert.equal(ownerChanged(null, 'uA'), false);
+});
+
+test('метка владельца: хранилище бросает — не падаем', () => {
+  const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); }, removeItem: () => undefined };
+  markDeviceOwner(broken, 'uA');
+  assert.equal(ownerChanged(broken, 'uA'), false);
+});
+
+// ---- Срок итогов другого сотрудника (D-293 п. 2) и сверка сессии вкладки (D-292) ---------------------------------
+
+const HOUR = 3_600_000;
+const NOW = 1_000 * HOUR;
+const TTL = 72 * HOUR;
+const withText = (opId: string, userId: string, createdAt: number, freeText: boolean | undefined, note = 'Заметка Синтетик') => ({
+  ...entry(opId, userId, ''),
+  createdAt,
+  ...(freeText === undefined ? {} : { freeText }),
+  request: { opId, cardId: `cd-${opId}`, outcomeKey: 'no_answer', note, lprInfo: null, fields: {}, agreement: null } as never,
+});
+
+test('срок: удаляются только чужие итоги со свободным текстом старше срока; свои, свежие и без текста — нет', () => {
+  const entries = [
+    withText('old', 'uA', NOW - TTL, true),
+    withText('old-legacy', 'uA', NOW - TTL - 1, undefined),
+    withText('fresh', 'uA', NOW - TTL + 1, true),
+    withText('bare', 'uA', NOW - 2 * TTL, false, ''),
+    withText('mine', 'uB', NOW - 2 * TTL, true),
+    withText('c-old', 'uC', NOW - 3 * TTL, true),
+  ];
+  const got = expiredForeign(entries, 'uB', NOW, TTL);
+  assert.deepEqual([...got.entries()], [['uA', ['old', 'old-legacy']], ['uC', ['c-old']]]);
+});
+
+test('срок: сервер записал потерю — итог удалён, в очереди отчётов пусто', async () => {
+  const store = createMemoryStore();
+  await store.put(withText('old', 'uA', NOW - TTL - 1, true));
+  await store.put(withText('fresh', 'uA', NOW - 1, true));
+  const calls: Array<[string, string[]]> = [];
+  await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async (a, ids) => (calls.push([a, ids]), 'sent') } });
+  assert.deepEqual(calls, [['uA', ['old']]]);
+  assert.deepEqual((await store.allExcept('uB')).map((e) => e.opId), ['fresh']);
+  assert.deepEqual(await pendingExpiredReports(store), []);
+});
+
+test('срок (D-308): сервер недоступен, 5xx или «только чтение» — ПДн удаляются сразу, отчёт ждёт и уходит при следующей возможности', async () => {
+  const store = createMemoryStore();
+  await store.put(withText('old', 'uA', NOW - TTL - 1, true, 'Заметка Берик Синтетик'));
+  await store.put(withText('fresh', 'uA', NOW - 1, true));
+  await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async () => 'retry' } });
+  assert.deepEqual((await store.allExcept('uB')).map((e) => e.opId), ['fresh'], 'ПДн не ждут ответа сервера');
+  assert.deepEqual(await pendingExpiredReports(store), [{ authorId: 'uA', opIds: ['old'] }]);
+  // Отчёт бросил — так же
+  await store.put(withText('old2', 'uC', NOW - TTL - 1, true));
+  await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async () => { throw new Error('net'); } } });
+  assert.equal(await store.get('old2'), null);
+  assert.deepEqual(await pendingExpiredReports(store), [{ authorId: 'uA', opIds: ['old'] }, { authorId: 'uC', opIds: ['old2'] }]);
+  // В очереди только id: ни заметки, ни названий
+  assert.doesNotMatch(JSON.stringify(await pendingExpiredReports(store)), /Синтетик/);
+
+  // Следующая загрузка: сеть есть — очередь уходит на сервер и пустеет
+  const sent: Array<[string, string[]]> = [];
+  await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async (a, ids) => (sent.push([a, ids]), 'sent') } });
+  assert.deepEqual(sent, [['uA', ['old']], ['uC', ['old2']]]);
+  assert.deepEqual(await pendingExpiredReports(store), []);
+});
+
+test('срок: отчёт очереди без сети остаётся; отказ сервера по существу (400, 404) — без повтора, но след остаётся на телефоне (D-309)', async () => {
+  const store = createMemoryStore();
+  await store.put(withText('old', 'uA', NOW - TTL - 1, true));
+  await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async () => 'retry' } });
+  assert.equal(await flushExpiredReports(store, async () => 'retry'), false);
+  assert.deepEqual(await pendingExpiredReports(store), [{ authorId: 'uA', opIds: ['old'] }]);
+  const sent: string[] = [];
+  assert.equal(await flushExpiredReports(store, async (a) => (sent.push(a), 'refused')), true);
+  assert.deepEqual(await pendingExpiredReports(store), [], 'отказ по существу не повторяется');
+  assert.deepEqual(await refusedExpiredReports(store), [{ authorId: 'uA', opIds: ['old'] }], 'но и не исчезает молча');
+  assert.equal(await flushExpiredReports(store, async (a) => (sent.push(a), 'sent')), true);
+  assert.deepEqual(sent, ['uA'], 'отклонённое повторно не уходит');
+  // Отказ на прямой отчёт — итог удалён, повтора нет, след остаётся
+  await store.put(withText('old3', 'uA', NOW - TTL - 1, true));
+  await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async () => 'refused' } });
+  assert.equal(await store.get('old3'), null);
+  assert.deepEqual(await pendingExpiredReports(store), []);
+  assert.deepEqual(await refusedExpiredReports(store), [{ authorId: 'uA', opIds: ['old', 'old3'] }]);
+  assert.doesNotMatch(JSON.stringify(await refusedExpiredReports(store)), /Синтетик/);
+});
+
+test('срок (D-309): на телефон вошёл сам автор — его потеря уходит на сервер под ним и показывается ему, а не выбрасывается', async () => {
+  const store = createMemoryStore();
+  await store.put(withText('old', 'uA', NOW - TTL - 1, true, 'Заметка Берик Синтетик'));
+  // Под B сервер не ответил: итог A удалён, сообщение ждёт
+  await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async () => 'retry' } });
+  assert.deepEqual(await pendingExpiredReports(store), [{ authorId: 'uA', opIds: ['old'] }]);
+  // Входит сам A: сообщение о его потере уходит под его сессией, A узнаёт о потере на экране
+  const sent: Array<[string, string[]]> = [];
+  const own: number[] = [];
+  await sanitizeForeign('uA', {
+    storage: null,
+    store,
+    expire: { now: NOW, ttlMs: TTL, report: async (a, ids) => (sent.push([a, ids]), 'sent'), onOwnLost: (n) => own.push(n) },
+  });
+  assert.deepEqual(sent, [['uA', ['old']]]);
+  assert.deepEqual(own, [1]);
+  assert.deepEqual(await pendingExpiredReports(store), []);
+  // Сообщения о чужих потерях автору не показываются
+  await queueExpiredReport(store, 'uC', ['c1', 'c2']);
+  await queueExpiredReport(store, 'uA', ['a2']);
+  const own2: number[] = [];
+  assert.equal(await flushExpiredReports(store, async () => 'sent', { userId: 'uA', onOwnLost: (n) => own2.push(n) }), true);
+  assert.deepEqual(own2, [1]);
+  // Не дошло — не показывается (покажется, когда дойдёт)
+  await queueExpiredReport(store, 'uA', ['a3']);
+  const own3: number[] = [];
+  assert.equal(await flushExpiredReports(store, async () => 'retry', { userId: 'uA', onOwnLost: (n) => own3.push(n) }), false);
+  assert.deepEqual(own3, []);
+});
+
+test('срок: очередь отчётов сводит повторы opId и уходит частями не больше 100', async () => {
+  const store = createMemoryStore();
+  const ids = Array.from({ length: 150 }, (_, i) => `op-${i}`);
+  await queueExpiredReport(store, 'uA', ids.slice(0, 120));
+  await queueExpiredReport(store, 'uA', ids.slice(100));
+  const seen: number[] = [];
+  assert.equal(await flushExpiredReports(store, async (_a, chunk) => (seen.push(chunk.length), 'sent')), true);
+  assert.deepEqual(seen, [100, 50]);
+  assert.deepEqual(await pendingExpiredReports(store), []);
+});
+
+test('срок: сообщение о потере — POST /api/device/outbox-expired с id устройства, только id без ПДн; ответ сервера → sent/retry/refused', async () => {
+  const store = createMemoryStore();
+  const seen: Array<{ url: string; init: RequestInit }> = [];
+  const ok = createExpiredReporter(store, (async (url: string, init: RequestInit) => (seen.push({ url, init }), new Response('{}', { status: 200 }))) as never);
+  assert.equal(await ok('uA', ['op-1']), 'sent');
+  assert.equal(seen[0]!.url, '/api/device/outbox-expired');
+  assert.equal(seen[0]!.init.method, 'POST');
+  assert.deepEqual(JSON.parse(String(seen[0]!.init.body)), { authorId: 'uA', opIds: ['op-1'] });
+  assert.match((seen[0]!.init.headers as Record<string, string>)['X-Device-Id']!, /^[A-Za-z0-9_-]{1,64}$/);
+  for (const status of [401, 423, 429, 500, 503]) {
+    const r = createExpiredReporter(store, (async () => new Response('{}', { status })) as never);
+    assert.equal(await r('uA', ['op-1']), 'retry', String(status));
+  }
+  for (const status of [400, 404]) {
+    const r = createExpiredReporter(store, (async () => new Response('{}', { status })) as never);
+    assert.equal(await r('uA', ['op-1']), 'refused', String(status));
+  }
+  const offline = createExpiredReporter(store, (async () => { throw new TypeError('Failed to fetch'); }) as never);
+  assert.equal(await offline('uA', ['op-1']), 'retry');
+});
+
+test('сверка сессии вкладки: 200 — та же, 409 — вошёл другой, 401 — сессии нет, сеть и прочее — неизвестно', async () => {
+  const at = (status: number) => (async (url: string, init: RequestInit) => {
+    assert.equal(url, '/api/device/session');
+    assert.equal((init.headers as Record<string, string>)['X-Call-Author'], 'uA');
+    return new Response('{}', { status });
+  }) as never;
+  assert.equal(await checkPageSession('uA', at(200)), 'same');
+  assert.equal(await checkPageSession('uA', at(409)), 'other');
+  assert.equal(await checkPageSession('uA', at(401)), 'gone');
+  assert.equal(await checkPageSession('uA', at(500)), 'unknown');
+  assert.equal(await checkPageSession('uA', (async () => { throw new TypeError('Failed to fetch'); }) as never), 'unknown');
+});

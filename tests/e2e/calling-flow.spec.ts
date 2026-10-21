@@ -3,6 +3,7 @@
 // Синтетика: номера +7 709 …, названия «ТОО Синтетика …».
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { dumpDevice, expectNoClientTraces } from './support/device';
 import { DB_URL, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, prepareDb, seedGroupEvents, sql } from './support/calling';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -273,4 +274,22 @@ test('выход: неотправленные итоги уходят до вы
   expect(await callsOf(op.id)).toHaveLength(2);
   await page.goto('/call');
   await expect(page).toHaveURL(/\/login/);
+});
+
+test('после выхода на телефоне нет названий и номеров клиентов: localStorage, IndexedDB, Cache Storage', async ({ page }) => {
+  const op = await makeOperator(3, { lpr: true });
+  await openCall(page, op);
+  // Шторка открыта и черновик записан в localStorage; итог ушёл — после выхода от них не должно остаться следов
+  await page.getByTestId('call-button').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeVisible();
+  // Проверка не пустая: до выхода название компании на устройстве есть
+  await expect.poll(async () => (await dumpDevice(page)).includes(op.names[0]!)).toBe(true);
+  await page.getByTestId('outcome-no_answer').click();
+  await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 40_000 }).toBe(1);
+  await page.getByRole('button', { name: 'Ещё' }).click();
+  await page.getByTestId('logout').click();
+  await page.waitForURL(/\/login/);
+
+  // Всё хранилище устройства (localStorage, все базы IndexedDB, Cache Storage): номера как в БД (7709…), названия, ЛПР
+  await expectNoClientTraces(page, op);
 });

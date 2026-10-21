@@ -2,6 +2,8 @@
 
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { markDeviceOwner } from '@/ui/call/deviceOwner';
+import { browserStorage } from '@/ui/call/logoutPending';
 import { buttonClass, errorClass, inputClass } from '../fieldStyles';
 
 type Preview = { name: string; phoneMasked: string };
@@ -66,7 +68,9 @@ export function InviteForm() {
         body: JSON.stringify({ token: token.current, password }),
       });
       if (res.ok) {
-        const data = (await res.json()) as { next: string };
+        const data = (await res.json()) as { next: string; userId?: string };
+        // Метка владельца телефона (D-292), как при входе
+        if (data.userId) markDeviceOwner(browserStorage(), data.userId);
         window.location.assign(data.next);
         return;
       }

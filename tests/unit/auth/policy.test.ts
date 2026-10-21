@@ -17,7 +17,13 @@ test('частичный раздел global.security дополняется у�
   const p = await readSecurityPolicy(async () => ({ global: { security: { sessionDays: 7, loginAttempts: { perIp: 50 } } } }));
   assert.equal(p.sessionDays, 7);
   assert.equal(p.inviteTtlHours, 72);
+  assert.equal(p.idleHours, 12, 'простой по умолчанию — 12 ч (D-310)');
   assert.deepEqual(p.loginAttempts, { perPhone: 5, perIp: 50, windowMin: 15 });
+});
+
+test('простой сессии (D-310): свой из global.security; меньше 2 ч — раздел не прошёл, умолчания', async () => {
+  assert.equal((await readSecurityPolicy(async () => ({ global: { security: { idleHours: 720 } } }))).idleHours, 720);
+  assert.deepEqual(await readSecurityPolicy(async () => ({ global: { security: { idleHours: 1 } } })), DEFAULT_SECURITY_POLICY);
 });
 
 test('невалидный раздел — умолчания; чужой сбой чтения пробрасывается', async () => {

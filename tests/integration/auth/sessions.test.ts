@@ -47,7 +47,8 @@ test('уменьшение sessionDays гасит старые сессии ср
   const u = await createUser(db.sql);
   const a = await createSession(db.sql, { userId: u.id, policy, nowMs: T0 });
   const b = await createSession(db.sql, { userId: u.id, policy, nowMs: T0 + 1 });
-  const short = { ...policy, sessionDays: 7 };
+  // Простой (D-310) здесь не проверяется: он больше срока, иначе гасил бы сессию раньше sessionDays
+  const short = { ...policy, sessionDays: 7, idleHours: 720 };
   assert.ok(await resolveSession(db.sql, a.token, short, T0 + 6 * DAY)); // касание продлевает от последнего визита
   assert.equal(await resolveSession(db.sql, b.token, short, T0 + 8 * DAY), null); // не заходила 8 дней при сроке 7
 });
@@ -93,4 +94,19 @@ test('revokeAllSessions с exceptSessionId и revokeSessionByToken', async () =>
   assert.equal(await resolveSession(db.sql, b.token, policy, T0 + 5), null);
   assert.ok(await resolveSession(db.sql, c.token, policy, T0 + 5));
   assert.equal(await revokeAllSessions(db.sql, u.id), 1);
+});
+
+test('простой (D-310): сессия без активности дольше idleHours недействительна; активность раз в час её держит', async () => {
+  const u = await createUser(db.sql);
+  const idle = { ...policy, idleHours: 12 };
+  const HOUR = 3_600_000;
+  const quiet = await createSession(db.sql, { userId: u.id, policy: idle, nowMs: T0 });
+  assert.ok(await resolveSession(db.sql, quiet.token, idle, T0 + 12 * HOUR - 1));
+  // Касание в 12 ч − 1 мс продлило бы срок: проверяем отдельную сессию, которую никто не трогал
+  const untouched = await createSession(db.sql, { userId: u.id, policy: idle, nowMs: T0 });
+  assert.equal(await resolveSession(db.sql, untouched.token, idle, T0 + 12 * HOUR), null, 'простой 12 ч — сессии нет');
+  // Активность каждый час продлевает: через сутки работы сессия жива
+  const busy = await createSession(db.sql, { userId: u.id, policy: idle, nowMs: T0 });
+  for (let h = 1; h <= 24; h++) assert.ok(await resolveSession(db.sql, busy.token, idle, T0 + h * HOUR), `час ${h}`);
+  assert.equal(await resolveSession(db.sql, busy.token, idle, T0 + 36 * HOUR), null, 'после 12 ч без запросов — нет');
 });

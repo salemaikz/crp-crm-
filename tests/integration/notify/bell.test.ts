@@ -47,6 +47,20 @@ test('список и счётчик — только свои; новые св�
   assert.equal(await unreadCount(await viewerOf(U.rop)), 0);
 });
 
+test('курсор (created_at, id): пачка с одинаковым created_at листается без потерь на границе страницы', async () => {
+  const at = SEED_NOW + 5_000;
+  for (let i = 1; i <= 5; i++) await add(`n-c-${i}`, U.rop, at);
+  const rop = await viewerOf(U.rop);
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: Awaited<ReturnType<typeof listMine>> = await listMine(rop, { limit: 2, cursor });
+    seen.push(...page.items.map((i) => i.id));
+    cursor = page.next;
+  } while (cursor);
+  assert.deepEqual(seen, ['n-c-5', 'n-c-4', 'n-c-3', 'n-c-2', 'n-c-1']);
+});
+
 test('чужие id в «прочитано» молча пропускаются, чужое остаётся непрочитанным', async () => {
   const a = await viewerOf(U.opA);
   const r = await markMineRead(a, ['n-a-1', 'n-b-1', 'нет-такого']);

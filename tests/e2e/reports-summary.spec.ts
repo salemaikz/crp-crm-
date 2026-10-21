@@ -1,18 +1,19 @@
 // Сводка дня РОП на телефоне: плитки, таблица операторов, «Обновить», красная плитка при просрочке, отказ оператору.
 // Сотрудники, карточки и устройство создаются прямо в БД приложения (E2E_DATABASE_URL — та же база, что у DATABASE_URL
-// сервера; настройки пресета уже применены `crmctl config apply`); без неё тесты пропускаются. Синтетика: номера 701 555 02 xx.
+// сервера; настройки пресета уже применены `crmctl config apply`); без неё тесты пропускаются. Синтетика: номера +7 709 … без коллизий в прогоне (support/phones.ts).
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { expect, test, type Page } from '@playwright/test';
+import { pretty, runTag, uniquePhone } from './support/phones';
 
 const DB_URL = process.env.E2E_DATABASE_URL;
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
 const PASSWORD = 'Надёжный-пароль-77';
 const sql = DB_URL ? postgres(DB_URL, { max: 2 }) : (null as never);
-const pretty = (p: string) => `8 ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7, 9)} ${p.slice(9)}`;
-const phone = () => `7701555${String(Math.floor(Math.random() * 9000) + 1000)}`;
+// Метка прогона в именах: строку оператора ищем по ней — остатки прошлых попыток в той же БД не мешают
+const TAG = runTag();
 
 type Staff = { id: string; phone: string; name: string };
 let spaceId = '';
@@ -21,7 +22,7 @@ let operator: Staff;
 let consultant: Staff;
 
 async function makeStaff(role: string, name: string, inDistribution = false): Promise<Staff> {
-  const s = { id: randomUUID(), phone: phone(), name };
+  const s = { id: randomUUID(), phone: await uniquePhone(sql), name };
   const now = Date.now();
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${s.id}, ${s.phone}, ${name}, ${bcrypt.hashSync(PASSWORD, 4)}, ${now})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${s.id}, ${spaceId}, ${role}, ${inDistribution}, ${now}, ${now})`;
@@ -39,10 +40,9 @@ async function login(page: Page, s: Staff): Promise<void> {
 test.beforeAll(async () => {
   const space = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE is_default LIMIT 1`;
   spaceId = space[0]?.id ?? '';
-  const tag = Math.floor(Math.random() * 90000) + 10000;
-  rop = await makeStaff('rop', `РОП Сводка ${tag}`);
-  operator = await makeStaff('operator', `Оператор Сводка ${tag}`, true);
-  consultant = await makeStaff('consultant', `Консультант Сводка ${tag}`);
+  rop = await makeStaff('rop', `РОП Сводка ${TAG}`);
+  operator = await makeStaff('operator', `Оператор Сводка ${TAG}`, true);
+  consultant = await makeStaff('consultant', `Консультант Сводка ${TAG}`);
   // у оператора просроченный перезвон и неотправленные итоги на устройстве
   const now = Date.now();
   const clientId = randomUUID();
@@ -50,7 +50,7 @@ test.beforeAll(async () => {
             VALUES (${clientId}, 'company', 'ТОО Синтетика Сводка', 'синтетика сводка', 'синтетика сводка', 'import', ${now}, ${now})`;
   await sql`INSERT INTO cards (id, space_id, client_id, owner_user_id, state, next_call_at, created_at, updated_at)
             VALUES (${randomUUID()}, ${spaceId}, ${clientId}, ${operator.id}, 'callback', ${now - 3 * 3_600_000}, ${now}, ${now})`;
-  await sql`INSERT INTO device_status (user_id, device_id, pending_outbox, last_flush_at, seen_at) VALUES (${operator.id}, ${'e2e-' + tag}, 7, NULL, ${now})`;
+  await sql`INSERT INTO device_status (user_id, device_id, pending_outbox, last_flush_at, seen_at) VALUES (${operator.id}, ${'e2e-' + TAG}, 7, NULL, ${now})`;
 });
 
 test.afterAll(async () => {
@@ -70,7 +70,7 @@ test('РОП открывает сводку: плитки, красная пр�
   // просрочка → красное число
   await expect(page.locator('.k-stat--danger')).toHaveCount(1);
   // оператор виден в таблице, неотправленные показаны
-  const row = page.getByRole('row', { name: new RegExp(`Оператор Сводка`) }).first();
+  const row = page.getByRole('row', { name: new RegExp(operator.name) });
   await expect(row).toBeVisible();
   await expect(row).toContainText('7');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

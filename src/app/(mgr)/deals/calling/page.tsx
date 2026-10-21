@@ -16,5 +16,5 @@ export default page({ perm: 'card.read', target: 'section' }, async ({ viewer })
   }
   const config = await loadCallConfig(viewer);
   if (!config) notFound();
-  return <CallingBoard initial={board} config={config} />;
+  return <CallingBoard initial={board} config={config} userId={viewer.userId} />;
 });

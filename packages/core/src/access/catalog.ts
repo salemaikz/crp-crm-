@@ -148,5 +148,7 @@ export const SECURITY_MUTATIONS = [
   'integration.disable',
   'license.upload',
   'data.export_all',
+  // Итоги другого сотрудника со свободным текстом удаляются с общего телефона по сроку, сервер пишет потерю (D-308)
+  'device.outbox_expire',
 ] as const;
 export type SecurityMutation = (typeof SECURITY_MUTATIONS)[number];
