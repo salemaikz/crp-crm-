@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { BadRequestError, page } from '@/server/access';
 import { CARD_STATES, listClients, parseListQuery, type ClientList } from '@/server/domain/clients';
 import { Badge, Button, Chip, ChipGroup, EmptyState, Input, List, ListItem } from '@/ui/kit';
+import { can } from '@/server/access';
+import { ProposeSheet } from './_ui/ProposeSheet';
 import { formatDateTime, formatPhone } from './_ui/format';
 import { stateTone } from './_ui/stateTone';
 
@@ -42,14 +44,30 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'section' }
   }
   const states = sp.getAll('state');
   const q = sp.get('q') ?? '';
+  const view = sp.get('view') === 'mine' ? 'mine' : 'all';
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-4 lg:py-6">
-      <h1 className="mb-4 text-2xl font-semibold">{t('list.title')}</h1>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-semibold">{t('list.title')}</h1>
+        {can(viewer, 'client.propose') && <ProposeSheet />}
+      </div>
+      <ChipGroup label={t('list.view')} className="mb-3">
+        <Chip href={hrefWith(sp, (p) => p.delete('view'))} active={view === 'all'}>
+          {t('list.viewAll')}
+        </Chip>
+        <Chip href={hrefWith(sp, (p) => p.set('view', 'mine'))} active={view === 'mine'}>
+          {t('list.viewMine')}
+        </Chip>
+        <Chip href="/archive" active={false}>
+          {t('list.viewArchive')}
+        </Chip>
+      </ChipGroup>
       <form method="get" action="/clients" role="search" className="mb-3 flex flex-col gap-2 sm:flex-row">
         {states.map((s) => (
           <input key={s} type="hidden" name="state" value={s} />
         ))}
+        {view === 'mine' && <input type="hidden" name="view" value="mine" />}
         <Input name="q" type="search" defaultValue={q} placeholder={t('list.searchPlaceholder')} aria-label={t('list.search')} maxLength={100} className="sm:flex-1" />
         <Button type="submit" variant="primary">
           {t('list.searchSubmit')}

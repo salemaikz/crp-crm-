@@ -37,3 +37,8 @@ export function formatNumber(n: number): string {
 export function labelOf(label: Label, locale: string = 'ru'): string {
   return (locale === 'kk' && label.kk) || label.ru;
 }
+
+/** Дата в поясе установки: `28.10.2026`. */
+export function formatDate(ms: number, timeZone: string): string {
+  return new Intl.DateTimeFormat(LOCALE, { timeZone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(ms));
+}

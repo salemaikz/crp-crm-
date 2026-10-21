@@ -56,6 +56,9 @@ export type ListParticipants = (viewer: Viewer) => Promise<ParticipantView[]>;
 /** Включить или выключить участие (memberships.in_distribution). «Пауза» и «Отсутствует» — C6b. */
 export type SetParticipation = (viewer: Viewer, input: { userId: string; inDistribution: boolean }) => Promise<ParticipantView>;
 
+/** «Пауза» на сегодня (`paused: true`) или её снятие. */
+export type SetPause = (viewer: Viewer, input: { userId: string; paused: boolean }) => Promise<ParticipantView>;
+
 // ---------------------------------------------------------------------------
 // Пул
 // ---------------------------------------------------------------------------
@@ -71,6 +74,8 @@ export interface PoolSummary {
   roomToday: number;
   /** «Сверх лимита»: max(0, ready − roomToday). */
   overCap: number;
+  /** Рабочие карточки без владельца, кроме `new` (страховочный раздел, в норме 0; C6b, D-066). */
+  ownerless: number;
 }
 
 export interface PoolItem {
@@ -167,6 +172,71 @@ export type IssueCards = (viewer: Viewer, input: ManualIssueInput, deps?: Distri
 // Журнал раздачи (PROCESS 7.9)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// «Отсутствует», «Пауза», «Без владельца (не новые)» (C6b, docs/tasks-team-design.md §2, D-255, D-256)
+// ---------------------------------------------------------------------------
+
+export interface AbsenceView {
+  id: string;
+  userId: string;
+  userName: string;
+  fromDay: string;
+  toDay: string;
+  /** null — «поровну между работающими». */
+  substituteUserId: string | null;
+  substituteName: string | null;
+  createdAt: number;
+}
+
+export interface CreateAbsenceInput {
+  /** UUID с устройства РОП: id отсутствия, повтор возвращает прежнее. */
+  opId: string;
+  userId: string;
+  fromDay: string;
+  toDay: string;
+  substituteUserId: string | null;
+}
+
+export interface AbsenceApplied {
+  /** Карточек получили временного владельца. */
+  acting: number;
+  /** Нетронутых новых вернулось в пул. */
+  released: number;
+}
+
+export interface CreateAbsenceResult extends AbsenceView {
+  applied: AbsenceApplied;
+  replayed: boolean;
+}
+
+export interface OwnerlessItem {
+  cardId: string;
+  clientId: string;
+  name: string;
+  state: string;
+  nextCallAt: number | null;
+  version: number;
+  createdAt: number;
+}
+
+export interface OwnerlessPage {
+  items: OwnerlessItem[];
+  next: string | null;
+}
+
+export interface OwnerlessAssignInput {
+  opId: string;
+  toUserId: string;
+  items: readonly { cardId: string; version: number }[];
+}
+
+export interface OwnerlessAssignResult {
+  assigned: number;
+  /** `changed` — карточка уже не в разделе или версия устарела. */
+  skipped: { cardId: string; reason: 'changed' }[];
+  replayed: boolean;
+}
+
 export type AssignLogKind = 'auto' | 'manual' | 'return' | 'absence' | 'release' | 'transfer' | 'inbound' | 'proposal' | 'merge' | 'import';
 
 /** Строка журнала: выдачи одного прогона или действия, сгруппированные по виду и получателю. */
@@ -192,7 +262,7 @@ export type GetJournal = (viewer: Viewer, input: { from: string; to: string; use
 // Ошибки домена и зависимости
 // ---------------------------------------------------------------------------
 
-export const DISTRIBUTION_ERRORS = ['not_working', 'over_cap', 'mode_off', 'invalid_settings', 'not_participant'] as const;
+export const DISTRIBUTION_ERRORS = ['not_working', 'over_cap', 'mode_off', 'invalid_settings', 'not_participant', 'overlap', 'substitute_absent', 'no_substitute', 'dates'] as const;
 export type DistributionErrorCode = (typeof DISTRIBUTION_ERRORS)[number];
 
 export interface DistributionFailure {
@@ -211,7 +281,7 @@ export interface DistributionDeps {
 export interface AssignBatch {
   spaceId: string;
   runId: string;
-  kind: Extract<AssignLogKind, 'auto' | 'manual'>;
+  kind: Extract<AssignLogKind, 'auto' | 'manual' | 'proposal'>;
   /** userId → id карточек по порядку. */
   byOperator: Readonly<Record<string, readonly string[]>>;
   countsToCap: boolean;

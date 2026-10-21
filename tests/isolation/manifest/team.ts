@@ -5,6 +5,10 @@ import { defineManifest, type ManifestEntry } from '../harness/manifest';
 
 const base = { target: 'section', perm: 'admin' } as const;
 const staff = '/api/team/staff';
+// B9a: передача клиентов открыта РОП (`client.transfer`), не администратору. Входы без id в пути — разделы.
+const transfer = { target: 'section', perm: 'client.transfer' } as const;
+const OP_ID = '00000000-0000-4000-8000-0000000000b9';
+const TRANSFER_TOUCHES = ['cards', 'tasks', 'deals', 'bookings', 'assign_log', 'client_events', 'notifications', 'audit_log', 'change_snapshots'] as const;
 
 const entries: ManifestEntry[] = [
   { ...base, kind: 'page', path: '/(mgr)/team', method: 'GET', mutation: false },
@@ -47,6 +51,28 @@ const entries: ManifestEntry[] = [
     mutation: true,
     touches: ['users', 'memberships', 'sessions', 'invites'],
     securityMutation: true,
+  },
+  { ...base, kind: 'route', path: `${staff}/[id]/handover-preview`, method: 'GET', mutation: false },
+  { ...transfer, kind: 'page', path: '/(mgr)/team/transfer', method: 'GET', mutation: false },
+  {
+    ...transfer,
+    kind: 'route',
+    path: '/api/team/transfers/one',
+    method: 'POST',
+    sampleBody: { opId: OP_ID, cardId: 'cd-b-1', version: 0, toUserId: 'u-op-a' },
+    mutation: true,
+    touches: TRANSFER_TOUCHES,
+  },
+  { ...transfer, kind: 'route', path: '/api/team/transfers/preview', method: 'GET', mutation: false },
+  { ...transfer, kind: 'route', path: '/api/team/transfers/staff', method: 'GET', mutation: false },
+  {
+    ...transfer,
+    kind: 'route',
+    path: '/api/team/transfers/bulk',
+    method: 'POST',
+    sampleBody: { opId: OP_ID, fromUserId: 'u-op-b', scope: 'working', to: { userId: 'u-op-a' } },
+    mutation: true,
+    touches: TRANSFER_TOUCHES,
   },
 ];
 

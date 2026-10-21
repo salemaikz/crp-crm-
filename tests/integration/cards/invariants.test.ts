@@ -23,3 +23,11 @@ test('считает retry и callback без владельца; пул (new) �
   await setCard(db.sql, 'cd-a-4', { owner: null, state: 'written_off' });
   assert.equal(await countOwnerlessWorkingCards(sys), 2);
 });
+
+test('слитая карточка (hold_reason merged) без владельца не считается', async () => {
+  const before = await countOwnerlessWorkingCards(sys);
+  await setCard(db.sql, 'cd-a-5', { owner: null, state: 'retry' });
+  assert.equal(await countOwnerlessWorkingCards(sys), before + 1);
+  await db.sql`UPDATE cards SET hold_reason = 'merged' WHERE id = 'cd-a-5'`;
+  assert.equal(await countOwnerlessWorkingCards(sys), before, 'слияние — не тревога');
+});

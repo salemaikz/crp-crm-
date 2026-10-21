@@ -4,7 +4,6 @@
 // ключ уже дал `IngestPrincipal`. Журналы и отчёты — без ПДн.
 import { dedup } from '@crm/core';
 import { jsonParam, type Sql } from '@/server/platform/db/core';
-import { newId } from '@/server/platform/db';
 import { INTAKE_LOCK_KEY } from '@/server/platform/db/locks';
 
 const { HIDDEN_ORG_ID_PREFIX } = dedup;
@@ -77,6 +76,15 @@ export async function touchKey(sql: Sql, id: string, now: number): Promise<void>
 /** Общая блокировка приёма: её берут все пути, создающие клиента (одна константа INTAKE_LOCK_KEY). */
 export async function lockIntake(sql: Sql): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(${INTAKE_LOCK_KEY})`;
+}
+
+/**
+ * Блокировка приёма первой командой тх с ограничением ожидания (docs/tasks-team-design.md §1.2): `lock_timeout` 10 с
+ * ставится до advisory-блокировки и действует до конца тх. Для интерактивных путей (предложение контакта, разбор РОП).
+ */
+export async function lockIntakeFirst(sql: Sql): Promise<void> {
+  await sql`SET LOCAL lock_timeout = '10s'`;
+  await lockIntake(sql);
 }
 
 export async function findBatch(sql: Sql, sourceKey: string, batchId: string): Promise<{ requestHash: string; report: BatchReport } | null> {
@@ -330,9 +338,9 @@ export interface NewClient {
   custom: Record<string, unknown>;
   searchNorm: string;
   sourceKey: string;
+  /** Откуда клиент: по умолчанию приём по ключу; «Предложить контакт» — `proposal`; входящее из мессенджера — `messenger` (O7a). */
+  sourceKind?: 'ingest' | 'proposal' | 'messenger';
   now: number;
-  /** Откуда клиент: по умолчанию приём по ключу; входящее из мессенджера — `messenger` (O7a). */
-  sourceKind?: 'ingest' | 'messenger';
 }
 
 export async function insertClient(sql: Sql, c: NewClient): Promise<void> {
@@ -447,11 +455,65 @@ export async function countSourceClientsSince(sql: Sql, a: { sourceKey: string; 
   return r?.n ?? 0;
 }
 
-export async function insertClientEventRow(
+// ---------- «Предложить контакт» (D-258) ----------
+// Как и остальной приём, без scopeSql: проверка номера идёт по всей базе, наружу уходит только «принято».
+
+/** Предложение по id (повтор opId): чьё оно. */
+export async function findProposal(sql: Sql, id: string): Promise<{ userId: string } | null> {
+  const rows = await sql<{ userId: string }>`SELECT user_id FROM proposals WHERE id = ${id}`;
+  return rows[0] ?? null;
+}
+
+export async function countProbesOnDay(sql: Sql, userId: string, day: string): Promise<number> {
+  const rows = await sql<{ n: number }>`SELECT count(*)::int AS n FROM phone_probes WHERE user_id = ${userId} AND day = ${day}`;
+  return rows[0]?.n ?? 0;
+}
+
+export async function insertProbeRow(sql: Sql, p: { id: string; userId: string; day: string; path: 'proposal'; matched: boolean; now: number }): Promise<void> {
+  await sql`INSERT INTO phone_probes (id, user_id, day, path, matched, created_at)
+            VALUES (${p.id}, ${p.userId}, ${p.day}, ${p.path}, ${p.matched}, ${p.now})`;
+}
+
+/** Первый не слитый клиент с таким номером (по давности создания) или null. */
+export async function firstClientByPhone(sql: Sql, digits: string): Promise<string | null> {
+  const rows = await sql<{ id: string }>`
+    SELECT cp.client_id AS id FROM client_phones cp JOIN clients o ON o.id = cp.client_id
+     WHERE cp.digits = ${digits} AND o.merged_into_id IS NULL
+     ORDER BY o.created_at, o.id LIMIT 1`;
+  return rows[0]?.id ?? null;
+}
+
+export async function insertProposal(
   sql: Sql,
-  a: { clientId: string; spaceId: string; kind: string; at: number; data: Record<string, unknown> },
+  p: { id: string; spaceId: string; userId: string; digits: string; name: string; status: 'created' | 'review'; matchedClientId: string | null; clientId: string | null; now: number },
 ): Promise<void> {
   await sql`
-    INSERT INTO client_events (id, client_id, space_id, kind, actor_id, at, ref_type, ref_id, data)
-    VALUES (${newId()}, ${a.clientId}, ${a.spaceId}, ${a.kind}, NULL, ${a.at}, '', '', ${jsonParam(a.data)})`;
+    INSERT INTO proposals (id, space_id, user_id, digits, name, status, matched_client_id, client_id, created_at)
+    VALUES (${p.id}, ${p.spaceId}, ${p.userId}, ${p.digits}, ${p.name}, ${p.status}, ${p.matchedClientId}, ${p.clientId}, ${p.now})`;
+}
+
+/** Сводное уведомление; повтор по `dedupeKey` ничего не пишет. */
+export async function insertNotificationRow(
+  sql: Sql,
+  n: { id: string; userId: string; kind: string; params: Record<string, unknown>; dedupeKey: string; now: number },
+): Promise<void> {
+  await sql`
+    INSERT INTO notifications (id, user_id, kind, entity_type, entity_id, params, dedupe_key, not_before, created_at)
+    VALUES (${n.id}, ${n.userId}, ${n.kind}, '', '', ${jsonParam(n.params)}, ${n.dedupeKey}, ${n.now}, ${n.now})
+    ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`;
+}
+
+export async function insertClientEventRow(
+  sql: Sql,
+  e: { id: string; clientId: string; spaceId: string; kind: string; actorId: string | null; now: number; data: Record<string, unknown> },
+): Promise<void> {
+  await sql`
+    INSERT INTO client_events (id, client_id, space_id, deal_id, kind, actor_id, at, ref_type, ref_id, data)
+    VALUES (${e.id}, ${e.clientId}, ${e.spaceId}, NULL, ${e.kind}, ${e.actorId}, ${e.now}, '', '', ${jsonParam(e.data)})`;
+}
+
+/** Номер в стоп-листе (по HMAC). */
+export async function phoneInStopList(sql: Sql, phoneHmac: string): Promise<boolean> {
+  const rows = await sql<{ hit: number }>`SELECT 1 AS hit FROM stop_list WHERE phone_hmac = ${phoneHmac}`;
+  return rows.length > 0;
 }

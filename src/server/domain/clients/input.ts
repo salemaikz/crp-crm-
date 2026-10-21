@@ -25,6 +25,29 @@ export const patchBody = z
   });
 export type PatchBody = z.infer<typeof patchBody>;
 
+/** PATCH полей карточки обзвона (C8): версия карточки, значения и то, что интерфейс видел до правки. */
+export const patchCardBody = z
+  .object({
+    version: z.number().int().min(0),
+    set: z.object({ custom: record }).strict(),
+    expect: z.object({ custom: record }).strict(),
+  })
+  .strict()
+  .superRefine((b, ctx) => {
+    const set = Object.keys(b.set.custom).sort();
+    const exp = Object.keys(b.expect.custom).sort();
+    if (set.length !== exp.length || set.some((k, i) => k !== exp[i])) {
+      ctx.addIssue({ code: 'custom', path: ['expect', 'custom'], message: 'expect должен содержать те же ключи, что set' });
+    }
+  });
+export type PatchCardBody = z.infer<typeof patchCardBody>;
+
+/** Заметка (C8): `opId` — id заметки, повтор безопасен. */
+export const createNoteBody = z
+  .object({ opId: uuid, body: z.string().min(1).max(4000), dealId: z.string().min(1).max(100).nullable().optional() })
+  .strict();
+export const pinNoteBody = z.object({ pinned: z.boolean() }).strict();
+
 export const addPhoneBody = z
   .object({ opId: uuid, phone: z.string().min(1).max(60), contactId: z.string().min(1).max(100).nullable().optional() })
   .strict();
@@ -79,6 +102,10 @@ export type ListQuery = {
   fieldFilters: Array<{ key: string; value: string }>;
   cursor: Cursor | null;
   limit: number | null;
+  /** Вид списка (C9): все, «Мои клиенты» (`agreed`/`client` у меня), архив закрытых. */
+  view: 'all' | 'mine' | 'archive';
+  /** Архив: владелец карточки (фильтр РОП). */
+  owner: string | null;
 };
 
 const STATE_SET: ReadonlySet<string> = new Set(CARD_STATES);
@@ -102,7 +129,13 @@ export function parseListQuery(sp: URLSearchParams): ListQuery {
     if (!/^\d{1,3}$/.test(rawLimit) || Number(rawLimit) < 1) throw new BadRequestError('limit');
     limit = Math.min(Number(rawLimit), LIST_LIMIT);
   }
+  const rawView = sp.get('view') ?? 'all';
+  if (rawView !== 'all' && rawView !== 'mine' && rawView !== 'archive') throw new BadRequestError('view');
+  const owner = sp.get('owner');
+  if (owner !== null && (owner.length === 0 || owner.length > 100 || rawView !== 'archive')) throw new BadRequestError('owner');
   return {
+    view: rawView,
+    owner,
     q,
     states: rawStates.length ? ([...new Set(rawStates)] as CardState[]) : null,
     fieldFilters,

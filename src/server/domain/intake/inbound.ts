@@ -78,8 +78,8 @@ export async function createInboundClient(
   await repo.addPhones(tx, clientId, [{ id: newId(), digits: input.digits, kind: parsed?.kind ?? 'unknown', ext: '', isPrimary: true }], ctx.now);
   await repo.addSource(tx, { id: newId(), clientId, sourceKey: ctx.sourceKey, keyId: null, externalId: null, now: ctx.now, sourceKind: 'messenger' });
   await repo.insertCard(tx, { id: cardId, spaceId: ctx.spaceId, clientId, holdReason: '', holdCode: '', now: ctx.now });
-  await repo.insertClientEventRow(tx, { clientId, spaceId: ctx.spaceId, kind: 'client.created', at: ctx.now, data: { sourceKind: 'messenger' } });
-  await repo.insertClientEventRow(tx, { clientId, spaceId: ctx.spaceId, kind: 'card.created', at: ctx.now, data: { sourceKey: ctx.sourceKey } });
+  await repo.insertClientEventRow(tx, { id: newId(), clientId, spaceId: ctx.spaceId, kind: 'client.created', actorId: null, now: ctx.now, data: { sourceKind: 'messenger' } });
+  await repo.insertClientEventRow(tx, { id: newId(), clientId, spaceId: ctx.spaceId, kind: 'card.created', actorId: null, now: ctx.now, data: { sourceKey: ctx.sourceKey } });
 
   // 5. Владелец карточки по правилу входящих
   const assigned = await assignInbound(tx, actor, {

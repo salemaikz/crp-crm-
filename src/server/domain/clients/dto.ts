@@ -39,7 +39,7 @@ export function pickDecisionMaker(contacts: readonly ContactDto[]): { contactId:
   return c ? { contactId: c.id, name: c.name } : null;
 }
 
-export function toCardHead(r: CardHeadDb): CardHeadDto {
+export function toCardHead(r: CardHeadDb, cardFields: fields.Projection): CardHeadDto {
   return {
     id: r.id,
     state: r.state as CardState,
@@ -51,6 +51,13 @@ export function toCardHead(r: CardHeadDb): CardHeadDto {
     lastOutcomeCode: r.lastOutcomeCode,
     ownerName: r.ownerName,
     actingName: r.actingName,
+    version: r.version,
+    ownerUserId: r.ownerUserId,
+    actingUntilDay: r.actingUntilDay,
+    closeReasonCode: r.closeReasonCode,
+    closedAt: r.closedAt,
+    returnAt: r.returnAt,
+    fields: cardFields,
     counters: {
       callsTotal: r.callsTotal,
       noAnswerTotal: r.noAnswerTotal,

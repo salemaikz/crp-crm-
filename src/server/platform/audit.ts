@@ -4,7 +4,7 @@
 import { newId, now, type Sql } from './db';
 import { jsonParam } from './db/core';
 
-export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'export' | 'integration' | 'messenger' | 'resource' | 'deal';
+export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'export' | 'integration' | 'messenger' | 'resource' | 'deal' | 'proposal' | 'client' | 'pair';
 
 /**
  * Реестр имён действий. Имя — «<сущность>.<глагол_snake>» в два сегмента, первый совпадает с
@@ -53,6 +53,11 @@ export const AUDIT_ACTIONS = [
   // C6a: раздача (без ПДн в meta)
   'distribution.issue',
   'distribution.participant',
+  // C6b: отсутствие, пауза, раздел «без владельца» (в meta — коды и числа)
+  'distribution.absence',
+  'distribution.absence_cancel',
+  'distribution.pause',
+  'distribution.ownerless_assign',
   // C5: карточка обзвона (без ПДн в meta)
   'card.dnc_cleared',
   'card.merged',
@@ -64,6 +69,14 @@ export const AUDIT_ACTIONS = [
   'integration.revoke_webhook',
   'integration.channel',
   'messenger.open_chat',
+  // C9: возврат в обзвон и разбор «Предложить контакт» (в meta — коды и id, без ПДн)
+  'card.reopen',
+  'proposal.resolve',
+  // B9a: передача клиентов (в meta — числа и коды режима, без имён)
+  'client.transfer',
+  // B9b: слияние клиентов и решение по спорной паре (в meta — id, коды и счётчики, без ПДн)
+  'client.merge',
+  'pair.resolve',
   // P10: лицензия (в meta — lid, kid, коды состояний и причин, часы в часах; без ПДн)
   'license.install',
   'license.state_change',

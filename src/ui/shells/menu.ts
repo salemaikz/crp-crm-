@@ -8,7 +8,7 @@ export type ShellKind = 'operator' | 'manager' | 'consultant' | 'duty';
 /** Идентификатор пункта: он же ключ подписи `shell.nav.<id>` и иконки. */
 export type MenuId =
   | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive' | 'myDay'
-  | 'summary' | 'director' | 'exports' | 'distribution' | 'cards' | 'kanban' | 'reports' | 'settings' | 'pool' | 'import' | 'handoffs' | 'team'
+  | 'summary' | 'director' | 'exports' | 'distribution' | 'cards' | 'kanban' | 'reports' | 'settings' | 'pool' | 'import' | 'handoffs' | 'team' | 'transfer'
   | 'consultations' | 'duty' | 'integrations';
 
 export type MenuItem = { id: MenuId; href: string };
@@ -69,6 +69,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'pool', href: '/pool', keys: ['pool'], perm: 'pool.read' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'import', href: '/import', keys: ['import'], perm: 'import.run', feature: 'IMPORT' },
+      { id: 'transfer', href: '/team/transfer', keys: ['distribution'], perm: 'client.transfer', feature: 'BULK_TRANSFER' },
       { id: 'team', href: '/team', adminOnly: true },
       { id: 'integrations', href: '/integrations', adminOnly: true },
     ],

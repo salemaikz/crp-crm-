@@ -78,3 +78,14 @@ test('строка запроса списка: состояния, фильтр
   assert.throws(() => parseListQuery(new URLSearchParams('f.a=1&f.a=2')), { code: 'bad_request' });
   assert.throws(() => parseListQuery(new URLSearchParams('cursor=%%%')), { code: 'bad_request' });
 });
+
+test('вид списка (C9): all по умолчанию, mine и archive; owner — только в архиве', () => {
+  assert.deepEqual([parseListQuery(new URLSearchParams('')).view, parseListQuery(new URLSearchParams('')).owner], ['all', null]);
+  assert.equal(parseListQuery(new URLSearchParams('view=mine')).view, 'mine');
+  const a = parseListQuery(new URLSearchParams('view=archive&owner=u-1'));
+  assert.deepEqual([a.view, a.owner], ['archive', 'u-1']);
+  assert.throws(() => parseListQuery(new URLSearchParams('view=trash')), { code: 'bad_request' });
+  assert.throws(() => parseListQuery(new URLSearchParams('view=mine&owner=u-1')), { code: 'bad_request' });
+  assert.throws(() => parseListQuery(new URLSearchParams('owner=u-1')), { code: 'bad_request' });
+  assert.throws(() => parseListQuery(new URLSearchParams('view=archive&owner=')), { code: 'bad_request' });
+});

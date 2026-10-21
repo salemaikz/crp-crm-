@@ -54,10 +54,33 @@ const int = (min: number, max: number) =>
 
 export const PoolQuery = z.object({ cursor: z.string().max(200).optional(), limit: int(1, 100).optional() }).strict();
 export const LogQuery = z.object({ from: date, to: date, userId: id.optional() }).strict();
-export const ParticipantBody = z.object({ inDistribution: z.boolean() }).strict();
+export const ParticipantBody = z.union([z.object({ inDistribution: z.boolean() }).strict(), z.object({ paused: z.boolean() }).strict()]);
 export const UserIdParam = id;
 
 export const IssueBody = z.union([
   z.object({ opId: z.string().uuid(), toUserId: id, cardIds: z.array(id).min(1).max(100) }).strict(),
   z.object({ opId: z.string().uuid(), toUserId: id, count: z.number().int().min(1).max(200) }).strict(),
 ]);
+
+export const AbsenceBody = z.object({ opId: z.string().uuid(), userId: id, fromDay: date, toDay: date, substituteUserId: id.nullable() }).strict();
+export const OwnerlessQuery = z.object({ cursor: z.string().max(200).optional(), limit: int(1, 100).optional() }).strict();
+export const OwnerlessAssignBody = z
+  .object({ opId: z.string().uuid(), toUserId: id, items: z.array(z.object({ cardId: id, version: z.number().int().min(0) }).strict()).min(1).max(100) })
+  .strict();
+
+export const ProposalResolveBody = z.object({ opId: z.string().uuid(), decision: z.enum(['create', 'reject']) }).strict();
+
+// B9b: спорные пары и слияние
+export const PairsQuery = z
+  .object({ status: z.enum(['open', 'merged', 'distinct', 'split_allowed']).optional(), cursor: z.string().max(200).optional(), limit: int(1, 100).optional() })
+  .strict();
+export const PairResolveBody = z.object({ decision: z.enum(['distinct', 'split_allowed']), comment: z.string().max(1000).default('') }).strict();
+export const MergeChoiceQuery = z.object({ survivor: z.enum(['a', 'b']), owner: z.enum(['auto', 'survivor', 'other']).default('auto') }).strict();
+export const MergeBody = z
+  .object({
+    opId: z.string().uuid(),
+    survivor: z.enum(['a', 'b']),
+    owner: z.enum(['auto', 'survivor', 'other']),
+    fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();

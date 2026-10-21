@@ -45,6 +45,11 @@ export const DESCRIBED_KINDS = [
   'client.created',
   'message',
   'messenger.link_opened',
+  'client.merged',
+  'task.created',
+  'task.done',
+  'task.cancelled',
+  'task.comment',
 ] as const;
 
 /** Состояния карточки, для которых в локали есть отдельная подпись `feed.kinds.cardState.<состояние>`. */
@@ -97,6 +102,11 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'client.created':
     case 'message':
     case 'messenger.link_opened':
+    case 'client.merged':
+    case 'task.created':
+    case 'task.done':
+    case 'task.cancelled':
+    case 'task.comment':
       return { key: `feed.kinds.${item.kind.replace('.', '_')}`, values: {} };
     case 'card.state': {
       // Новое состояние в подписи; незнакомое (новая версия ядра) — общая строка

@@ -42,9 +42,11 @@ export const closeAutoTaskByKey: CloseAutoTaskByKey = async (tx, _actor, input) 
 };
 
 export const reassignOpenTasks: ReassignOpenTasks = async (tx, _actor, input) => {
+  if (input.fromUserIds.length === 0) return 0;
   const rows = await tx<{ id: string }>`
     UPDATE tasks SET assignee_user_id = ${input.toUserId}
-     WHERE space_id = ${input.spaceId} AND client_id = ${input.clientId} AND status = 'open' RETURNING id`;
+     WHERE space_id = ${input.spaceId} AND client_id = ${input.clientId} AND status = 'open'
+       AND assignee_user_id = ANY(${[...input.fromUserIds]}::text[]) RETURNING id`;
   return rows.length;
 };
 

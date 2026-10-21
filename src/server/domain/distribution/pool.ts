@@ -6,6 +6,7 @@ import { distributionDeps } from './deps';
 import { requireRole, requireSpace } from './guards';
 import { loadParticipants } from './participants';
 import {
+  countOwnerless,
   poolCounts,
   selectCardsOfClients,
   selectPairs,
@@ -111,11 +112,11 @@ export async function loadCandidates(actor: DistributionActor, sql: Sql, a: { sp
 // Страница пула для РОП
 // ---------------------------------------------------------------------------
 
-function encodeCursor(r: Pick<PoolRow, 'createdAt' | 'id'>): string {
+export function encodeCursor(r: Pick<PoolRow, 'createdAt' | 'id'>): string {
   return Buffer.from(`${r.createdAt}:${r.id}`, 'utf8').toString('base64url');
 }
 
-function decodeCursor(cursor: string | null): { createdAt: number; id: string } | null {
+export function decodeCursor(cursor: string | null): { createdAt: number; id: string } | null {
   if (cursor === null) return null;
   const text = Buffer.from(cursor, 'base64url').toString('utf8');
   const i = text.indexOf(':');
@@ -145,7 +146,8 @@ export const getPool: GetPool = async (viewer: Viewer, input) => {
     const roomToday = participants.filter((p) => p.status === 'working').reduce((sum, p) => sum + p.remaining, 0);
     const ready = Math.max(0, counts.ready - pairBlocked);
     const held = Object.fromEntries(HOLD_KINDS.map((k) => [k, k === 'pair_blocked' ? pairBlocked : (counts.held[k.slice('hold:'.length)] ?? 0)])) as Record<PoolHoldKind, number>;
-    const summary: PoolSummary = { ready, held, roomToday, overCap: Math.max(0, ready - roomToday) };
+    const ownerless = await countOwnerless(viewer, tx, { spaceId });
+    const summary: PoolSummary = { ready, held, roomToday, overCap: Math.max(0, ready - roomToday), ownerless };
 
     const page = await selectPoolPage(viewer, tx, { spaceId, limit: input.limit + 1, after });
     const rows = page.slice(0, input.limit);

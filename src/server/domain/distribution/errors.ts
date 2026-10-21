@@ -1,13 +1,17 @@
 // Ошибки домена раздачи и их HTTP-представление (docs/distribution-design.md §6).
 import { DISTRIBUTION_ERRORS, type DistributionErrorCode, type DistributionFailure } from './types';
 
-/** HTTP-статус кода: `not_participant` — плохой запрос, остальное — конфликт состояния. */
+/** HTTP-статус кода: `not_participant` и `dates` — плохой запрос, остальное — конфликт состояния. */
 export const DISTRIBUTION_HTTP_STATUS: Readonly<Record<DistributionErrorCode, number>> = {
   not_working: 409,
   over_cap: 409,
   mode_off: 409,
   invalid_settings: 409,
   not_participant: 400,
+  overlap: 409,
+  substitute_absent: 409,
+  no_substitute: 409,
+  dates: 400,
 };
 
 export class DistributionDomainError extends Error implements DistributionFailure {

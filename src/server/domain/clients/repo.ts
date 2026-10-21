@@ -60,6 +60,19 @@ export type CardHeadDb = {
   lastTouchAt: number | null;
   ownerName: string | null;
   actingName: string | null;
+  version: number;
+  ownerUserId: string | null;
+  actingUntilDay: string | null;
+  closeReasonCode: string;
+  closedAt: number | null;
+  returnAt: number | null;
+  custom: Json;
+  canBook: boolean;
+  canEditCard: boolean;
+  canReopen: boolean;
+  canUnblock: boolean;
+  canClose: boolean;
+  canTransfer: boolean;
 };
 
 /** 4.2. Карточка обзвона текущего пространства. */
@@ -68,7 +81,14 @@ export async function selectCardHead(sql: Sql, viewer: Viewer, clientId: string)
   const rows = await scoped(sql)<CardHeadDb>`
     SELECT c.id, c.state, c.hold_reason, c.next_call_at, c.attempts, c.lpr, c.is_target, c.last_outcome_code,
            c.calls_total, c.no_answer_total, c.connects_total, c.first_connect_at, c.last_connect_at, c.last_touch_at,
-           ou.name AS owner_name, au.name AS acting_name
+           ou.name AS owner_name, au.name AS acting_name,
+           c.version, c.owner_user_id, c.acting_until_day, c.close_reason_code, c.closed_at, c.return_at, c.custom,
+           (${scopeSql(viewer, 'card', 'booking.create')}) AS can_book,
+           (${scopeSql(viewer, 'card', 'card.edit')}) AS can_edit_card,
+           (${scopeSql(viewer, 'card', 'card.return')}) AS can_reopen,
+           (${scopeSql(viewer, 'card', 'card.unblock')}) AS can_unblock,
+           (${scopeSql(viewer, 'card', 'card.outcome')}) AS can_close,
+           (${scopeSql(viewer, 'card', 'client.transfer')}) AS can_transfer
       FROM cards c
       LEFT JOIN users ou ON ou.id = c.owner_user_id
       LEFT JOIN users au ON au.id = c.acting_user_id
@@ -143,6 +163,10 @@ export async function selectSurvivor(sql: Sql, viewer: Viewer, id: string): Prom
 // ---------- Список ----------
 
 export type ListRowDb = {
+  closeReasonCode: string;
+  closedAt: number | null;
+  returnAt: number | null;
+  ownerUserId: string | null;
   cardId: string;
   id: string;
   name: string;
@@ -163,24 +187,40 @@ export type ListParams = {
   filter: Json;
   cursor: { at: number; id: string } | null;
   limit: number;
+  /** Вид списка (C9): все, «Мои клиенты» или архив закрытых. */
+  view: 'all' | 'mine' | 'archive';
+  /** Архив РОП: только карточки этого владельца. */
+  owner: string | null;
 };
+
+/** Состояния архива (PROCESS 2.9) и «Моих клиентов» (C9, §5.1). */
+export const ARCHIVE_STATES = ['not_interested', 'not_target', 'do_not_call', 'written_off'] as const;
+export const MINE_STATES = ['agreed', 'client'] as const;
 
 /** 4.5. Список клиентов текущего пространства: охват по карточке, поиск по trgm, фильтр полей по GIN. */
 export async function selectClientList(sql: Sql, viewer: Viewer, p: ListParams): Promise<ListRowDb[]> {
   if (viewer.spaceId === null) return [];
   const curAt = p.cursor?.at ?? null;
   const curId = p.cursor?.id ?? null;
+  const archive = p.view === 'archive';
+  const mine = p.view === 'mine';
+  const viewStates: string[] | null = archive ? [...ARCHIVE_STATES] : mine ? [...MINE_STATES] : null;
+  // Архив: от недавно закрытых к давним, без даты закрытия — в конце; курсор — (closed_at, id). Остальные виды — по касанию.
   return scoped(sql)<ListRowDb>`
     SELECT c.id AS card_id, cl.id, cl.name, cl.custom, c.state, c.hold_reason, c.next_call_at, c.last_touch_at,
-           COALESCE(c.last_touch_at, c.created_at) AS sort_at
+           c.close_reason_code, c.closed_at, c.return_at, c.owner_user_id,
+           CASE WHEN ${archive}::boolean THEN COALESCE(c.closed_at, 0) ELSE COALESCE(c.last_touch_at, c.created_at) END AS sort_at
       FROM cards c JOIN clients cl ON cl.id = c.client_id
      WHERE c.space_id = ${viewer.spaceId}
        AND ${scopeSql(viewer, 'card', 'client.read', { alias: 'c' })}
-       AND cl.merged_into_id IS NULL
+       AND cl.merged_into_id IS NULL AND c.hold_reason <> 'merged'
+       AND (${viewStates}::text[] IS NULL OR c.state = ANY(${viewStates}::text[]))
        AND (${p.states}::text[] IS NULL OR c.state = ANY(${p.states}::text[]))
+       AND (NOT ${mine}::boolean OR c.owner_user_id = ${viewer.userId} OR c.acting_user_id = ${viewer.userId})
+       AND (${p.owner}::text IS NULL OR c.owner_user_id = ${p.owner}::text)
        AND (${p.p1}::text IS NULL OR cl.search_norm LIKE ${p.p1}::text OR cl.search_norm LIKE ${p.p2}::text)
        AND cl.custom @> ${jsonParam(p.filter)}
-       AND (${curAt}::bigint IS NULL OR (COALESCE(c.last_touch_at, c.created_at), c.id) < (${curAt}::bigint, ${curId}::text))
+       AND (${curAt}::bigint IS NULL OR (CASE WHEN ${archive}::boolean THEN COALESCE(c.closed_at, 0) ELSE COALESCE(c.last_touch_at, c.created_at) END, c.id) < (${curAt}::bigint, ${curId}::text))
      ORDER BY sort_at DESC, c.id DESC
      LIMIT ${p.limit + 1}`;
 }
@@ -519,7 +559,7 @@ export async function insertReviewTask(sql: Sql, viewer: Viewer, v: { clientId: 
 
 // ---------- Отказ 404 или 403 ----------
 
-export type DeniedEntity = 'client' | 'contact' | 'client_phone';
+export type DeniedEntity = 'client' | 'contact' | 'client_phone' | 'card';
 
 /**
  * Мутация не нашла строку с охватом правки: повторное чтение охватом `client.read`. Не видна —
@@ -530,6 +570,8 @@ export async function throwNotFoundOrForbidden(viewer: Viewer, sql: Sql, entity:
   let rows: Row[];
   if (entity === 'client') {
     rows = await q`SELECT 1 AS hit FROM clients cl WHERE cl.id = ${id} AND cl.merged_into_id IS NULL AND ${scopeSql(viewer, 'client', 'client.read')}`;
+  } else if (entity === 'card') {
+    rows = await q`SELECT 1 AS hit FROM cards c WHERE c.id = ${id} AND ${scopeSql(viewer, 'card', 'card.read')}`;
   } else if (entity === 'contact') {
     rows = await q`SELECT 1 AS hit FROM contacts ct WHERE ct.id = ${id} AND ct.archived_at IS NULL AND ${scopeSql(viewer, 'contact', 'client.read')}`;
   } else {

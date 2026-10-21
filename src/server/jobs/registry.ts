@@ -5,9 +5,10 @@ import type { JobDefinition, JobInstance, QueueSpec } from '@/server/platform/jo
 import { countOwnerlessWorkingCards } from '@/server/domain/cards';
 import { attendanceSweepJob, countAgreedWithoutStep, greyAssignJob } from '@/server/domain/booking';
 import { purgeDeviceStatus } from '@/server/domain/calls';
-import { distributeJob } from '@/server/domain/distribution';
+import { absenceJob, distributeJob } from '@/server/domain/distribution';
 import { purgeExpiredImportRows } from '@/server/domain/import';
 import { purgeWebhookPayloads } from '@/server/domain/integrations';
+import { purgeChangeSnapshots } from '@/server/domain/team';
 import { alarmsJob, digestJob } from '@/server/domain/notify';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import {
@@ -40,10 +41,12 @@ export const purgeParts: PurgePart[] = [
   { key: 'import_rows', run: async (actor, now) => (await purgeExpiredImportRows(actor, now)).deleted },
   // payload входящих вебхуков (ПДн): обнуляется через 14 дней, строки остаются (дизайн §7.7)
   { key: 'webhook_payload', run: (actor, now) => purgeWebhookPayloads(actor, now - 14 * DAY_MS) },
+  // снимки «до» массовой передачи и слияния: 30 дней (D-062)
+  { key: 'change_snapshots', run: (actor, now) => purgeChangeSnapshots(actor, now - 30 * DAY_MS) },
 ];
 
 export function jobDefinitions(): JobDefinition[] {
-  return [eventsEnsureJob, distributeJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob, greyAssignJob, attendanceSweepJob];
+  return [eventsEnsureJob, distributeJob, absenceJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob, greyAssignJob, attendanceSweepJob];
 }
 
 /** Очереди: вебхуки — обработчики по pluginId (O6, применители — O7a), push — P8b; без обработчика — retry no_handler. */

@@ -11,7 +11,7 @@ const routeFile = (path: string) => join(ROOT, 'src', 'app', path, 'route.ts');
 
 test('манифест: маршруты — route.ts с экспортом метода, обёрткой route() и тем же правом', () => {
   const routes = manifest.entries.filter((e) => e.kind === 'route');
-  assert.equal(routes.length, 5);
+  assert.equal(routes.length, 16);
   for (const e of routes) {
     const file = routeFile(e.path);
     assert.ok(existsSync(file), `нет файла маршрута ${e.method} ${e.path}`);
@@ -21,11 +21,14 @@ test('манифест: маршруты — route.ts с экспортом ме
   }
 });
 
-test('экран РОП описан и защищён page() с правом pool.read', () => {
+test('экраны РОП (раздача, спорные пары) описаны и защищены page() с правом pool.read', () => {
   const pages = manifest.entries.filter((e) => e.kind === 'page');
-  assert.equal(pages.length, 1);
-  assert.ok(existsSync(join(ROOT, 'src', 'app', '(mgr)', 'distribution', 'page.tsx')));
-  assert.match(readFileSync(join(ROOT, 'src', 'app', '(mgr)', 'distribution', 'page.tsx'), 'utf8'), /page<[^>]*>\(\{ perm: 'pool\.read' \}/);
+  assert.deepEqual(pages.map((p) => p.path).sort(), ['/(mgr)/distribution', '/(mgr)/pairs']);
+  for (const dir of ['distribution', 'pairs']) {
+    const file = join(ROOT, 'src', 'app', '(mgr)', dir, 'page.tsx');
+    assert.ok(existsSync(file), dir);
+    assert.match(readFileSync(file, 'utf8'), /page<[^>]*>\(\{ perm: 'pool\.read' \}/, dir);
+  }
 });
 
 test('маршруты /api/distribution все описаны в манифесте', () => {

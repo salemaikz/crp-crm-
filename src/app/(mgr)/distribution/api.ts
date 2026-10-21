@@ -3,7 +3,22 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; key: string; rem
 
 type ErrorBody = { error?: string; detail?: string; remaining?: number; cap?: number };
 
-const KNOWN = new Set(['not_working', 'over_cap', 'mode_off', 'invalid_settings', 'not_participant', 'forbidden', 'unauthorized', 'not_found', 'read_only']);
+const KNOWN = new Set([
+  'not_working',
+  'over_cap',
+  'mode_off',
+  'invalid_settings',
+  'not_participant',
+  'overlap',
+  'substitute_absent',
+  'no_substitute',
+  'dates',
+  'forbidden',
+  'unauthorized',
+  'not_found',
+  'read_only',
+  'conflict',
+]);
 
 /** Ключ текста в distribution.errors по ответу API. */
 export function errorKey(body: ErrorBody | null, status: number): string {

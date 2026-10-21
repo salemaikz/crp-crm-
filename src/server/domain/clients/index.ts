@@ -1,10 +1,15 @@
 // Публичный API модуля клиентов для маршрутов и страниц. Репозиторий (repo.ts) наружу не выходит.
 export { addContact, archiveContactById, updateContact, type PatchContactResult } from './contacts';
+export { cardFieldViewer, updateCardFields, type CardFieldsResult } from './cardFields';
+export { loadCatalogLabels, type CatalogLabels } from './labels';
 export { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
-export { FieldIssuesError } from './errors';
+export { DetailedConflictError, FieldIssuesError } from './errors';
 export {
   addContactBody,
   addPhoneBody,
+  createNoteBody,
+  pinNoteBody,
+  patchCardBody,
   parseBody,
   parseListQuery,
   patchBody,
@@ -12,8 +17,10 @@ export {
   patchPhoneBody,
   type ListQuery,
   type PatchBody,
+  type PatchCardBody,
 } from './input';
 export { addPhone, updatePhone, type AddPhoneResult } from './phones';
-export { findSurvivor, getClientCard, getClientFeed, listClients, loadClientPage, updateClient, type ClientPage } from './service';
+export { findSurvivor, getClientCard, getClientDeals, getClientFeed, getClientSummaryFor, listClients, loadClientPage, updateClient, type ClientPage } from './service';
 export { CARD_STATES } from './types';
-export type { CardHeadDto, CardState, ClientCardDto, ClientList, ClientRow, ContactDto, PhoneDto, PhoneKind } from './types';
+export type { CardHeadDto, CardState, ClientCan, ClientCardDto, ClientList, ClientRow, ContactDto, PhoneDto, PhoneKind } from './types';
+export type { ClientSummaryDto, DealRowDto, NoteDto } from '../timeline';

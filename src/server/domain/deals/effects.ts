@@ -1,7 +1,7 @@
 // Что запись делает со сделкой (B2, D-134): открыть при записи, сдвинуть вперёд при явке, и исполнитель
 // эффектов `calling.DealEffect` для C5. Покупку, её отмену и проигрыш сервис сделок пишет сам ДО события
 // карточки (D-248), поэтому `win`, `cancel_purchase`, `lose` по уже записанной сделке — пустые операции
-// (docs/deals-handoffs-design.md §5.8). `reassign_open` — B9a: здесь бросает.
+// (docs/deals-handoffs-design.md §5.8). `reassign_open` — открытые сделки за новым владельцем карточки (B9a).
 import type { calling } from '@crm/core';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, scopeOf, type Viewer } from '@/server/access';
 import { throwNotFoundOrConflict } from '@/server/access/scope';
@@ -15,7 +15,7 @@ import { assertStageRequirements } from './requirements';
 import { wonStageOf } from './rules';
 import { loadDealsSettings } from './settings';
 import type { LoadDealsSettings } from './types';
-import { dealIdOfBooking, findDealById, findDealByRequestId, findOpenDealId, insertDeal, insertDealFeed, listOpenDealsOfClient, lockDealForStage, loseDeal, setDealStage, setNeedsRebook, updateDealStageScoped, type DealRow } from './repo';
+import { dealIdOfBooking, findDealById, findDealByRequestId, findOpenDealId, insertDeal, insertDealFeed, listOpenDealsOfClient, lockDealForStage, loseDeal, reassignOpenDeals, setDealStage, setNeedsRebook, updateDealStageScoped, type DealRow } from './repo';
 
 type CardRef = Pick<LockedCard, 'id' | 'clientId' | 'spaceId' | 'ownerUserId'>;
 
@@ -164,8 +164,8 @@ async function loseOne(sql: Sql, actor: BookingActor, resolve: PipelineResolver,
 }
 
 /**
- * Исполнитель `effects.deals` машины карточки (C5). Карточка заблокирована вызывающим. Операции, которым
- * нужны покупки и передача, — B6/B9a.
+ * Исполнитель `effects.deals` машины карточки (C5). Карточка заблокирована вызывающим, сделки берутся после неё
+ * (порядок D-251).
  */
 export async function applyDealEffects(
   sql: Sql,
@@ -217,8 +217,14 @@ export async function applyDealEffects(
         if (deal && deal.status === 'open') await loseOne(sql, actor, resolve, deal, e.reasonCode, at);
         break;
       }
-      default:
-        throw new Error(`deals: операция ${e.op} появится в B9a`);
+      case 'reassign_open':
+        // PROCESS 8.5: открытые сделки идут за карточкой (карточка уже заблокирована, D-251); ленты не пишем
+        await reassignOpenDeals(sql, { spaceId: card.spaceId, clientId: card.clientId, toUserId: e.to, at });
+        break;
+      default: {
+        const unknown: never = e;
+        throw new Error(`deals: неизвестная операция ${(unknown as { op: string }).op}`);
+      }
     }
   }
 }

@@ -132,3 +132,12 @@ export async function countStaleOnStage(
        AND d.stage_changed_at <= ${a.threshold}`;
   return rows[0]?.n ?? 0;
 }
+
+/** Открытые сделки клиента в пространстве → новому ответственному (передача, PROCESS 8.5). Выигранные и проигранные не трогаются. */
+export async function reassignOpenDeals(sql: Sql, a: { spaceId: string; clientId: string; toUserId: string; at: number }): Promise<number> {
+  const rows = await sql<{ id: string }>`
+    UPDATE deals d SET owner_user_id = ${a.toUserId}, version = d.version + 1, updated_at = ${a.at}
+     WHERE d.space_id = ${a.spaceId} AND d.client_id = ${a.clientId} AND d.status = 'open'
+    RETURNING d.id`;
+  return rows.length;
+}

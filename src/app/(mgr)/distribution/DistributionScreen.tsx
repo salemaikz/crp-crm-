@@ -4,8 +4,10 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { Alert, PageHeader, Tabs } from '@/ui/kit';
 import { JournalPanel } from './JournalPanel';
+import { OwnerlessPanel } from './OwnerlessPanel';
 import { ParticipantsPanel } from './ParticipantsPanel';
 import { PoolPanel } from './PoolPanel';
+import { ProposalsPanel } from './ProposalsPanel';
 import type { DistributionData } from './types';
 
 export function DistributionScreen({ data }: { data: DistributionData }) {
@@ -21,6 +23,8 @@ export function DistributionScreen({ data }: { data: DistributionData }) {
         items={[
           { id: 'pool', label: t('tabs.pool'), count: data.pool.summary.ready, content: <PoolPanel data={data} onChanged={refresh} /> },
           { id: 'participants', label: t('tabs.participants'), count: data.participants.length, content: <ParticipantsPanel data={data} onChanged={refresh} /> },
+          { id: 'proposals', label: t('proposals.tab'), count: data.proposals.length, content: <ProposalsPanel data={data} onChanged={refresh} /> },
+          { id: 'ownerless', label: t('ownerless.tab'), count: data.pool.summary.ownerless, content: <OwnerlessPanel data={data} onChanged={refresh} /> },
           { id: 'journal', label: t('tabs.journal'), content: <JournalPanel data={data} /> },
         ]}
       />

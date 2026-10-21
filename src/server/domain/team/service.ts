@@ -8,8 +8,9 @@ import { revokeAllSessions, issueInvite, issuePasswordReset, revokePendingInvite
 import { writeAudit } from '@/server/platform/audit';
 import { getDb, type Sql } from '@/server/platform/db';
 import { badRequest, conflict } from './errors';
-import { stubHandover, type HandoverResult, type StaffHandover } from './handover';
+import { staffHandover, type HandoverResult, type StaffHandover } from './handover';
 import * as repo from './repo';
+import { requireBulkFeature } from './transfer';
 import { assignableRoles } from './roles';
 import type { DisableInput, InviteInput, ResendInput, UpdateInput } from './schemas';
 import type { IssuedLink, StaffList, StaffRow } from './types';
@@ -203,27 +204,30 @@ export type DisableResult = { alreadyDisabled: boolean; sessionsRevoked: number;
 
 /**
  * Отключение: вход закрыт сразу (учётка и членства, сессии, неиспользованные ссылки), затем передача дел.
- * Повтор безопасен. Передача дел — заглушка до B9a (handover.ts, D-066).
+ * Повтор безопасен. Передача дел — handover.ts (B9a, D-066, D-255): «срочно» всегда, мастер с получателем — за флагом.
  */
 export async function disableStaff(viewer: Viewer, userId: string, input: DisableInput = { mode: 'urgent' }, deps?: DisableDeps): Promise<DisableResult> {
   assertNotSelf(viewer, userId);
-  const handover = deps?.handover ?? stubHandover;
+  const handover = deps?.handover ?? staffHandover;
+  if (input.to !== undefined) requireBulkFeature();
   const db = await getDb();
   const nowMs = nowOf(viewer, deps);
   return db.tx(async (sql) => {
     const user = await repo.lockUser(sql, userId);
     if (!user) throw new NotFoundError();
     if (user.status === 'disabled') {
-      return { alreadyDisabled: true, sessionsRevoked: 0, invitesRevoked: 0, handover: { status: 'done', movedCards: 0 } } satisfies DisableResult;
+      return { alreadyDisabled: true, sessionsRevoked: 0, invitesRevoked: 0, handover: { status: 'done', movedCards: 0, releasedCards: 0, actingCards: 0, spaces: [] } } satisfies DisableResult;
     }
     await repo.disableUser(sql, userId, nowMs);
     const sessionsRevoked = await revokeAllSessions(sql, userId);
     const invitesRevoked = await revokePendingInvites(sql, user.phoneDigits, nowMs);
     const result = await handover.run(sql, {
       actorId: viewer.userId,
+      viewer,
       userId,
       spaceId: await spaceOf(sql, viewer),
       mode: input.mode,
+      to: input.to,
       nowMs,
     });
     await writeAudit(sql, {
@@ -231,7 +235,7 @@ export async function disableStaff(viewer: Viewer, userId: string, input: Disabl
       action: 'user.disable',
       entity: 'user',
       entityId: userId,
-      meta: { mode: input.mode, sessionsRevoked, invitesRevoked, handover: result.status, movedCards: result.movedCards },
+      meta: { mode: input.mode, sessionsRevoked, invitesRevoked, handover: result.status, movedCards: result.movedCards, releasedCards: result.releasedCards, actingCards: result.actingCards },
       createdAt: nowMs,
     });
     return { alreadyDisabled: false, sessionsRevoked, invitesRevoked, handover: result };

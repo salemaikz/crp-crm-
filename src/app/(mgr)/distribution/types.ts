@@ -27,7 +27,7 @@ export type PoolItemRow = {
 };
 
 export type PoolPageData = {
-  summary: { ready: number; held: Readonly<Record<PoolHoldKind, number>>; roomToday: number; overCap: number };
+  summary: { ready: number; held: Readonly<Record<PoolHoldKind, number>>; roomToday: number; overCap: number; ownerless: number };
   items: PoolItemRow[];
   next: string | null;
 };
@@ -54,10 +54,54 @@ export type IssueResultData = {
   replayed: boolean;
 };
 
+export type AbsenceRowData = {
+  id: string;
+  userId: string;
+  userName: string;
+  fromDay: string;
+  toDay: string;
+  substituteUserId: string | null;
+  substituteName: string | null;
+  createdAt: number;
+};
+
+export type AbsenceSavedData = AbsenceRowData & { applied: { acting: number; released: number }; replayed: boolean };
+
+export type OwnerlessItemRow = {
+  cardId: string;
+  clientId: string;
+  name: string;
+  state: string;
+  nextCallAt: number | null;
+  version: number;
+  createdAt: number;
+};
+
+export type OwnerlessPageData = { items: OwnerlessItemRow[]; next: string | null };
+
+export type OwnerlessAssignData = { assigned: number; skipped: { cardId: string; reason: 'changed' }[]; replayed: boolean };
+
+/** Предложение оператора на разборе РОП (D-258). */
+export type ProposalRowData = {
+  id: string;
+  phone: string;
+  name: string;
+  userId: string;
+  userName: string;
+  createdAt: number;
+  matchedClientId: string | null;
+  matchedName: string | null;
+};
+
 export type DistributionData = {
   pool: PoolPageData;
   participants: ParticipantRow[];
   journal: JournalRowData[];
+  absences: AbsenceRowData[];
+  ownerless: OwnerlessPageData;
+  proposals: ProposalRowData[];
+  /** Местный день зрителя: даты по умолчанию в форме «Отсутствует». */
+  today: string;
   canIssue: boolean;
   canManage: boolean;
   timeZone: string;

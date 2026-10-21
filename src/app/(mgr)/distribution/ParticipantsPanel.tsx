@@ -2,7 +2,8 @@
 
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Alert, Badge, Checkbox, EmptyState, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
+import { Alert, Badge, Button, Checkbox, EmptyState, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
+import { AbsenceDialog, AbsenceList } from './AbsencePanel';
 import { call } from './api';
 import { formatDay } from './format';
 import type { DistributionData, ParticipantRow, ParticipantStatus } from './types';
@@ -14,6 +15,17 @@ export function ParticipantsPanel({ data, onChanged }: { data: DistributionData;
   const te = useTranslations('distribution.errors');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [absenceFor, setAbsenceFor] = useState<ParticipantRow | null>(null);
+
+  async function togglePause(row: ParticipantRow) {
+    if (busy) return;
+    setBusy(row.userId);
+    setError(null);
+    const r = await call<ParticipantRow>('PUT', `/api/distribution/participants/${encodeURIComponent(row.userId)}`, { paused: row.status !== 'paused' });
+    setBusy(null);
+    if (r.ok) onChanged();
+    else setError(r.key);
+  }
 
   async function toggle(row: ParticipantRow, value: boolean) {
     if (busy) return;
@@ -52,6 +64,21 @@ export function ParticipantsPanel({ data, onChanged }: { data: DistributionData;
         />
       ),
     },
+    {
+      key: 'actions',
+      header: t('participants.columns.actions'),
+      cell: (p) =>
+        data.canManage ? (
+          <span className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" disabled={busy !== null} aria-label={t(p.status === 'paused' ? 'pause.unsetFor' : 'pause.setFor', { name: p.name })} onClick={() => void togglePause(p)}>
+              {t(p.status === 'paused' ? 'pause.unset' : 'pause.set')}
+            </Button>
+            <Button variant="secondary" size="sm" disabled={busy !== null} aria-label={t('absence.openFor', { name: p.name })} onClick={() => setAbsenceFor(p)}>
+              {t('absence.open')}
+            </Button>
+          </span>
+        ) : null,
+    },
   ];
 
   return (
@@ -63,6 +90,8 @@ export function ParticipantsPanel({ data, onChanged }: { data: DistributionData;
         rowKey={(p) => p.userId}
         empty={<EmptyState framed={false} title={t('participants.empty.title')} description={t('participants.empty.description')} />}
       />
+      <AbsenceList data={data} onChanged={onChanged} />
+      {absenceFor && <AbsenceDialog key={absenceFor.userId} user={absenceFor} data={data} onClose={() => setAbsenceFor(null)} onSaved={onChanged} />}
     </>
   );
 }

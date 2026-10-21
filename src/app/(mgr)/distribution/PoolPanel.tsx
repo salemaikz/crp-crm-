@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Alert, Badge, Button, Checkbox, EmptyState, Modal, Select, Stat, Table, type TableColumn } from '@/ui/kit';
+import { Alert, Badge, Button, Checkbox, EmptyState, Modal, Select, Stat, Table, TextLink, type TableColumn } from '@/ui/kit';
 import { call } from './api';
 import { formatDateTime } from './format';
 import type { DistributionData, IssueResultData, PoolHoldKind, PoolItemRow, PoolPageData } from './types';
@@ -106,6 +106,7 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
           </li>
         ))}
       </ul>
+      <TextLink href="/pairs">{t('pool.pairsLink')}</TextLink>
       {data.canIssue && (
         <div className="flex flex-wrap items-center gap-3">
           <span aria-live="polite">{t('pool.selected', { count: selected.size })}</span>

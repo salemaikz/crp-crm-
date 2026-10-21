@@ -29,6 +29,11 @@ export const EVENT_KINDS = {
   'deal.created': { group: 'deals', dataKeys: ['dealId', 'pipelineKey', 'stageKey'] },
   'deal.stage': { group: 'deals', dataKeys: ['dealId', 'from', 'to', 'cause', 'bookingId'] },
   'deal.lost': { group: 'deals', dataKeys: ['dealId', 'reasonCode'] },
+  // Задачи (B7): только id, коды и сроки; заголовок и текст комментария в ленту не пишутся
+  'task.created': { group: 'tasks', dataKeys: ['taskId', 'kind', 'assigneeUserId', 'dueAt'] },
+  'task.done': { group: 'tasks', dataKeys: ['taskId', 'source'] },
+  'task.cancelled': { group: 'tasks', dataKeys: ['taskId', 'source'] },
+  'task.comment': { group: 'tasks', dataKeys: ['taskId', 'commentId'] },
   // Карточка обзвона (C5): только коды, id сотрудников и счётчики; номера и тексты в данные не пишутся
   'card.created': { group: 'system', dataKeys: ['sourceKey'] },
   'card.state': { group: 'system', dataKeys: ['fromState', 'toState', 'cause'] },
@@ -47,6 +52,8 @@ export const EVENT_KINDS = {
   // Мессенджер (O7a): текст берётся из messenger_messages при чтении ленты; в data — только коды и признаки
   message: { group: 'messages', dataKeys: ['direction', 'msgType', 'hasAttachment'] },
   'messenger.link_opened': { group: 'messages', dataKeys: ['templateKey'] },
+  // Слияние (B9b): у выжившего — id слитого клиента; его события лента читает по цепочке merged_into_id (D-068)
+  'client.merged': { group: 'system', dataKeys: ['otherClientId'] },
 } as const satisfies Record<string, KindSpec>;
 
 export type EventKind = keyof typeof EVENT_KINDS;
@@ -57,6 +64,16 @@ export function isKnownKind(kind: string): kind is EventKind {
 
 export function groupOf(kind: string): FeedGroup | null {
   return isKnownKind(kind) ? EVENT_KINDS[kind].group : null;
+}
+
+/** Фильтры ленты, не совпадающие с группами: «История правок» (C8) — правки полей, номеров и контактов. */
+export const FEED_FILTERS = {
+  edits: ['field.changed', 'phone.added', 'phone.not_working', 'phone.primary', 'contact.added', 'contact.archived'],
+} as const satisfies Record<string, readonly EventKind[]>;
+export type FeedFilter = keyof typeof FEED_FILTERS;
+
+export function isFeedFilter(v: string): v is FeedFilter {
+  return Object.hasOwn(FEED_FILTERS, v);
 }
 
 /** Виды выбранных групп; без групп — все виды реестра. */
