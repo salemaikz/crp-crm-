@@ -5,10 +5,11 @@
 // - отказы сервера (в них названия компаний) — удаляются;
 // - неотправленные итоги — остаются (терять итог нельзя), но без названия компании: только id и коды запроса.
 //   Их outbox B не читает (хранилище отдаёт записи по userId), уходят они только под A и с заголовком автора A.
-// Итоги другого сотрудника со свободным текстом (заметка, ЛПР) старше `calling.offlineWindowHours` удаляются: телефон
-// сообщает серверу о потере (журнал) и только после ответа удаляет их (D-293 п. 2).
+// Итоги другого сотрудника со свободным текстом (заметка, ЛПР) старше `calling.offlineWindowHours` удаляются, и телефон
+// сообщает серверу о потере (журнал, D-293 п. 2). ПДн не ждут ответа сервера: не дошло (нет сети, 5xx) — итог всё равно
+// удаляется, а сообщение (только id) ждёт в очереди и уходит при следующей возможности (D-308, expiredReports.ts).
 // Открытая вкладка A при этом не перезагружается сама: её сотрудника сверяет метка владельца телефона и сервер (D-292).
-import { ensureDeviceId } from './device';
+import { EXPIRE_CHUNK, flushExpiredReports, queueExpiredReport, type ReportExpired, type ReportResult } from './expiredReports';
 import { entryHasFreeText } from './freeText';
 import type { OutboxStore } from './outboxStore';
 import type { StorageLike } from './tally';
@@ -78,17 +79,14 @@ export async function checkPageSession(userId: string, fetchImpl: typeof fetch =
   }
 }
 
-/** Срок итогов другого сотрудника на телефоне (D-293 п. 2) и как сообщить серверу о потере. */
+/** Срок итогов другого сотрудника на телефоне (D-293 п. 2) и как сообщить серверу о потере (D-308). */
 export interface ExpireForeign {
   now: number;
   /** `calling.offlineWindowHours` в мс. */
   ttlMs: number;
-  /** Записать потерю на сервере до удаления. false — не удалять, попробовать при следующей загрузке. */
-  report(authorId: string, opIds: string[]): Promise<boolean>;
+  /** Записать потерю на сервере. `retry` — не дошло: сообщение ждёт в очереди, итог всё равно удаляется. */
+  report: ReportExpired;
 }
-
-/** Сколько opId в одном сообщении о потере (предел маршрута). */
-const EXPIRE_CHUNK = 100;
 
 /** Итоги других сотрудников со свободным текстом, пролежавшие на телефоне дольше срока: по авторам. */
 export function expiredForeign(entries: readonly OutboxEntry[], userId: string, now: number, ttlMs: number): Map<string, string[]> {
@@ -98,25 +96,6 @@ export function expiredForeign(entries: readonly OutboxEntry[], userId: string, 
     out.set(e.userId, [...(out.get(e.userId) ?? []), e.opId]);
   }
   return out;
-}
-
-/** Сообщение о потере: POST /api/device/outbox-expired (запись журнала под сессией телефона). */
-export function createExpiredReporter(store: OutboxStore, fetchImpl: typeof fetch = (...a) => fetch(...a)): ExpireForeign['report'] {
-  return async (authorId, opIds) => {
-    try {
-      const deviceId = await ensureDeviceId(store);
-      const res = await fetchImpl('/api/device/outbox-expired', {
-        method: 'POST',
-        cache: 'no-store',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Device-Id': deviceId },
-        body: JSON.stringify({ authorId, opIds }),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  };
 }
 
 /** localStorage с перебором ключей. */
@@ -170,11 +149,21 @@ export async function sanitizeForeign(userId: string, deps: { storage: ScanStora
   }
   if (!deps.expire) return;
   const { now, ttlMs, report } = deps.expire;
+  // Сеть есть, пока сервер отвечает; первое «не дошло» — остальные сообщения сразу в очередь, без запросов
+  let online = true;
   for (const [author, opIds] of expiredForeign(foreign, userId, now, ttlMs)) {
     for (let i = 0; i < opIds.length; i += EXPIRE_CHUNK) {
       const chunk = opIds.slice(i, i + EXPIRE_CHUNK);
-      // Сначала журнал на сервере, потом удаление: без ответа сервера итог остаётся до следующей загрузки
-      if (!(await report(author, chunk).catch(() => false))) return;
+      const result: ReportResult = online ? await report(author, chunk).catch((): ReportResult => 'retry') : 'retry';
+      if (result === 'retry') {
+        online = false;
+        // Сначала след потери на телефоне (без ПДн), потом удаление: ПДн не ждут сервера (D-308)
+        try {
+          await queueExpiredReport(store, author, chunk);
+        } catch {
+          // хранилище метаданных недоступно: ПДн всё равно удаляем — они важнее следа
+        }
+      }
       try {
         for (const id of chunk) await store.remove(id);
       } catch {
@@ -182,4 +171,8 @@ export async function sanitizeForeign(userId: string, deps: { storage: ScanStora
       }
     }
   }
+  // Сообщения, не дошедшие раньше (эта или прошлые загрузки)
+  if (online) await flushExpiredReports(store, report);
 }
+
+export { createExpiredReporter, flushExpiredReports, pendingExpiredReports, queueExpiredReport, type ReportExpired, type ReportResult } from './expiredReports';

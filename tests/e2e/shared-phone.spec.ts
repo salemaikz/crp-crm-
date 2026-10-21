@@ -329,24 +329,16 @@ test('сессия A истекла, никто не вошёл: возврат 
   await expect(page).toHaveURL(/\/login/);
 });
 
-test('итоги A со свободным текстом старше calling.offlineWindowHours удаляются под B и попадают в журнал; свежие и без текста остаются', async ({ page }) => {
-  const a = await makeOperator(1);
-  const b = await makeOperator(1);
-  await openCall(page, a);
-  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
-  await page.goto('/login');
-  const HOUR = 3_600_000;
-  const ids = { old: randomUUID(), fresh: randomUUID(), bare: randomUUID() };
-  // Итоги A, которые A не успел отправить (синтетика): старый и свежий с ЛПР и заметкой, старый без текста
+type SeedEntry = { opId: string; createdAt: number; freeText: boolean; note: string; lprName: string };
+
+/** Итоги сотрудника, которые он не успел отправить (синтетика): прямо в IndexedDB телефона. */
+async function seedOutbox(page: Page, userId: string, cardId: string, entries: SeedEntry[]): Promise<void> {
   await page.evaluate(
-    async ({ ids, userId, cardId, now, HOUR }) => {
-      const req = (note: string, lprName: string) => ({
-        opId: '', cardId, outcomeKey: 'no_answer', via: 'offline', occurredAt: now, tappedAt: null, phoneId: null, reasonCode: '', note,
+    async ({ userId, cardId, entries, now }) => {
+      const req = (opId: string, note: string, lprName: string) => ({
+        opId, cardId, outcomeKey: 'no_answer', via: 'offline', occurredAt: now, tappedAt: null, phoneId: null, reasonCode: '', note,
         lpr: lprName ? 'no' : '', lprInfo: lprName ? { name: lprName, phone: '+7 709 555 12 34', when: '' } : null,
         callbackAt: null, markTarget: false, alsoDncPhoneIds: [], fields: {}, durationSec: null, agreement: null,
-      });
-      const entry = (opId: string, createdAt: number, freeText: boolean, note: string, lprName: string) => ({
-        opId, userId, request: { ...req(note, lprName), opId }, notBefore: createdAt, attempts: 3, retryAt: createdAt, createdAt, title: '', kind: 'no_answer', freeText,
       });
       const db = await new Promise<IDBDatabase>((res, rej) => {
         const r = indexedDB.open('crm-call');
@@ -354,49 +346,119 @@ test('итоги A со свободным текстом старше calling.o
         r.onerror = () => rej(r.error);
       });
       const tx = db.transaction('outbox', 'readwrite');
-      tx.objectStore('outbox').put(entry(ids.old, now - 100 * HOUR, true, 'Старая заметка Синтетик', 'Берик Синтетик-ЛПР'));
-      tx.objectStore('outbox').put(entry(ids.fresh, now - HOUR, true, 'Свежая заметка Синтетик', 'Дана Синтетик-ЛПР'));
-      tx.objectStore('outbox').put(entry(ids.bare, now - 100 * HOUR, false, '', ''));
+      for (const e of entries) {
+        tx.objectStore('outbox').put({
+          opId: e.opId, userId, request: req(e.opId, e.note, e.lprName), notBefore: e.createdAt, attempts: 3, retryAt: e.createdAt,
+          createdAt: e.createdAt, title: '', kind: 'no_answer', freeText: e.freeText,
+        });
+      }
       await new Promise((res, rej) => {
         tx.oncomplete = () => res(null);
         tx.onerror = () => rej(tx.error);
       });
       db.close();
     },
-    { ids, userId: a.id, cardId: a.cardIds[0]!, now: Date.now(), HOUR },
+    { userId, cardId, entries, now: Date.now() },
   );
+}
+
+/** opId всех итогов в outbox телефона. */
+function outboxIds(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('crm-call');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    const rows = await new Promise<Array<{ opId: string }>>((res) => {
+      const g = db.transaction('outbox').objectStore('outbox').getAll();
+      g.onsuccess = () => res(g.result as Array<{ opId: string }>);
+    });
+    db.close();
+    return rows.map((x) => x.opId).sort();
+  });
+}
+
+type ExpiredMeta = { claimed: { count: number; opIds: string[]; deviceId: string }; confirmed: { authorExists: boolean; alreadyReceived: number } };
+const expiredRows = (authorId: string) =>
+  sql<{ actorId: string; meta: ExpiredMeta }[]>`
+    SELECT actor_id AS "actorId", meta FROM audit_log WHERE action = 'user.outbox_expired' AND entity = 'user' AND entity_id = ${authorId}`;
+
+const HOUR = 3_600_000;
+
+test('итоги A со свободным текстом старше calling.offlineWindowHours удаляются под B и попадают в журнал; свежие и без текста остаются', async ({ page }) => {
+  const a = await makeOperator(1);
+  const b = await makeOperator(1);
+  await openCall(page, a);
+  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
+  await page.goto('/login');
+  const ids = { old: randomUUID(), fresh: randomUUID(), bare: randomUUID() };
+  const now = Date.now();
+  // Итоги A, которые A не успел отправить (синтетика): старый и свежий с ЛПР и заметкой, старый без текста
+  await seedOutbox(page, a.id, a.cardIds[0]!, [
+    { opId: ids.old, createdAt: now - 100 * HOUR, freeText: true, note: 'Старая заметка Синтетик', lprName: 'Берик Синтетик-ЛПР' },
+    { opId: ids.fresh, createdAt: now - HOUR, freeText: true, note: 'Свежая заметка Синтетик', lprName: 'Дана Синтетик-ЛПР' },
+    { opId: ids.bare, createdAt: now - 100 * HOUR, freeText: false, note: '', lprName: '' },
+  ]);
 
   await login(page, b);
   await page.goto('/call');
   await expect(page.getByTestId('call-card')).toBeVisible();
-  const outboxIds = () =>
-    page.evaluate(async () => {
-      const db = await new Promise<IDBDatabase>((res, rej) => {
-        const r = indexedDB.open('crm-call');
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      });
-      const rows = await new Promise<Array<{ opId: string }>>((res) => {
-        const g = db.transaction('outbox').objectStore('outbox').getAll();
-        g.onsuccess = () => res(g.result as Array<{ opId: string }>);
-      });
-      db.close();
-      return rows.map((x) => x.opId).sort();
-    });
-  await expect.poll(outboxIds, { timeout: 15_000 }).toEqual([ids.fresh, ids.bare].sort());
+  await expect.poll(() => outboxIds(page), { timeout: 15_000 }).toEqual([ids.fresh, ids.bare].sort());
   const dump = await dumpDevice(page);
   expect(dump).not.toContain('Берик Синтетик-ЛПР');
   expect(dump).not.toContain('Старая заметка Синтетик');
   expect(dump).toContain('Дана Синтетик-ЛПР');
-  // Потеря видна: запись журнала о сотруднике A от сотрудника B, без ПДн
-  const rows = await sql<{ actorId: string; meta: { count: number; opIds: string[] } }[]>`
-    SELECT actor_id AS "actorId", meta FROM audit_log WHERE action = 'user.outbox_expired' AND entity = 'user' AND entity_id = ${a.id}`;
+  // Потеря видна: запись журнала о сотруднике A от сотрудника B, без ПДн; заявленное телефоном отделено от проверенного
+  const rows = await expiredRows(a.id);
   // Переход посреди уборки (здесь — сразу на /call после входа) может повторить запись: opId сводят повторы
   expect(rows.length).toBeGreaterThanOrEqual(1);
   for (const r of rows) {
     expect(r.actorId).toBe(b.id);
-    expect(r.meta.opIds).toEqual([ids.old]);
+    expect(r.meta.claimed.opIds).toEqual([ids.old]);
+    expect(r.meta.confirmed.authorExists).toBe(true);
     expect(JSON.stringify(r.meta)).not.toContain('Синтетик');
   }
+  expect(await callsOf(a.id)).toHaveLength(0);
+});
+
+test('D-308: вошёл сотрудник «только чтение», сервер не принял сообщение — ПДн A удалены сразу, потеря в журнале при следующей загрузке', async ({ page, context }) => {
+  const a = await makeOperator(1);
+  const dir = await makeOperator(0, { role: 'director' });
+  await openCall(page, a);
+  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
+  await page.goto('/login');
+  const old = randomUUID();
+  await seedOutbox(page, a.id, a.cardIds[0]!, [
+    { opId: old, createdAt: Date.now() - 100 * HOUR, freeText: true, note: 'Старая заметка Синтетик', lprName: 'Берик Синтетик-ЛПР' },
+  ]);
+
+  // Сервер недоступен для сообщения о потере (5xx): ПДн всё равно не остаются на телефоне
+  let refused = 0;
+  await context.route('**/api/device/outbox-expired', (r) => {
+    refused++;
+    return r.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+  });
+  await login(page, dir);
+  await expect.poll(() => outboxIds(page), { timeout: 15_000 }).toEqual([]);
+  expect(refused).toBeGreaterThanOrEqual(1);
+  const dump = await dumpDevice(page);
+  expect(dump).not.toContain('Берик Синтетик-ЛПР');
+  expect(dump).not.toContain('Старая заметка Синтетик');
+  expect(dump).not.toContain('555 12 34');
+  // След потери ждёт на телефоне: только id
+  expect(dump).toContain(old);
+  expect(await expiredRows(a.id)).toHaveLength(0);
+
+  // Следующая загрузка: сообщение доходит, роль «только чтение» его не блокирует (мутация безопасности, D-054)
+  await context.unroute('**/api/device/outbox-expired');
+  await page.reload();
+  await expect.poll(async () => (await expiredRows(a.id)).length, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+  for (const r of await expiredRows(a.id)) {
+    expect(r.actorId).toBe(dir.id);
+    expect(r.meta.claimed.opIds).toEqual([old]);
+    expect(JSON.stringify(r.meta)).not.toContain('Синтетик');
+  }
+  await expect.poll(async () => (await dumpDevice(page)).includes(old), { timeout: 15_000 }).toBe(false);
   expect(await callsOf(a.id)).toHaveLength(0);
 });

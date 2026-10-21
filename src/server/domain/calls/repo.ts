@@ -162,6 +162,28 @@ export async function upsertDeviceStatus(sql: Sql, a: { userId: string; deviceId
      WHERE device_status.seen_at <= EXCLUDED.seen_at`;
 }
 
+// Проверки сообщения о потере итогов (D-308). Ответ клиенту их не раскрывает: сервер отвечает `{ ok: true }` или 404 об
+// авторе, поэтому чтения идут без охвата — они решают только, что писать в журнал.
+
+/** Сотрудник установки с таким id есть (отключённый тоже: его итоги могли остаться на телефоне). */
+export async function userExists(sql: Sql, id: string): Promise<boolean> {
+  const rows = await sql<{ id: string }>`SELECT id FROM users WHERE id = ${id}`;
+  return rows.length > 0;
+}
+
+/** Какие из opId уже записаны звонками (id звонка = opId устройства, D-019): они дошли и не потеряны. */
+export async function receivedCallIds(sql: Sql, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await sql<{ id: string }>`SELECT id FROM calls WHERE id = ANY(${[...ids]}::text[])`;
+  return rows.map((r) => r.id);
+}
+
+/** Сколько неотправленных итогов сотрудник сообщал с этого устройства в последний раз; null — устройство не видели. */
+export async function devicePendingOf(sql: Sql, userId: string, deviceId: string): Promise<number | null> {
+  const rows = await sql<{ pendingOutbox: number }>`SELECT pending_outbox FROM device_status WHERE user_id = ${userId} AND device_id = ${deviceId}`;
+  return rows[0]?.pendingOutbox ?? null;
+}
+
 export async function deleteDeviceStatusBefore(sql: Sql, before: number): Promise<number> {
   const rows = await sql<{ userId: string }>`DELETE FROM device_status WHERE seen_at < ${before} RETURNING user_id`;
   return rows.length;

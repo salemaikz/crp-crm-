@@ -1,9 +1,12 @@
-// Итоги другого сотрудника удалены с телефона по сроку (D-293 п. 2): телефон сообщает об этом до удаления, и запись
-// журнала `user.outbox_expired` остаётся на сервере — потеря не молчаливая. Сотрудник, под чьей сессией пришёл запрос, —
-// автор записи; сотрудник, чьи итоги удаляются, — объект. В журнале только id и число, без ПДн. Свои итоги так не
-// удаляются (400): они уходят на сервер.
+// Итоги другого сотрудника удалены с телефона по сроку (D-293 п. 2, D-308): телефон сообщает об этом, сервер пишет
+// журнал `user.outbox_expired` — потеря не молчаливая. Сотрудник, под чьей сессией пришёл запрос, — автор записи;
+// сотрудник, чьи итоги удалены, — объект. Мутация безопасности (D-054): ПДн уходят с общего телефона при любой лицензии
+// и для роли «только чтение». Свои итоги так не удаляются (400): они уходят на сервер. Проверки журнала, частота и
+// разделение «заявлено телефоном» / «подтверждено сервером» — в домене (reportExpiredOutbox).
 import { z } from 'zod';
 import { BadRequestError, route } from '@/server/access';
+import { reportExpiredOutbox } from '@/server/domain/calls';
+import { rateLimited } from '@/server/platform/http/body';
 
 const BODY_MAX_BYTES = 8 * 1024;
 const DEVICE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -15,31 +18,18 @@ const Body = z
   })
   .strict();
 
-type Result = { ok: true; authorId: string; count: number; opIds: string[]; deviceId: string };
-
-export const POST = route(
-  {
-    perm: 'authenticated',
-    audit: {
-      action: 'user.outbox_expired',
-      entity: 'user',
-      entityId: (_c, r) => (r as Result).authorId,
-      meta: (_c, r) => ({ count: (r as Result).count, opIds: (r as Result).opIds, deviceId: (r as Result).deviceId }),
-    },
-  },
-  async ({ req, viewer }): Promise<Result> => {
-    const text = await req.text();
-    if (text.length > BODY_MAX_BYTES) throw new BadRequestError('too_large');
-    let raw: unknown;
-    try {
-      raw = JSON.parse(text);
-    } catch {
-      throw new BadRequestError('json');
-    }
-    const body = Body.parse(raw);
-    if (body.authorId === viewer.userId) throw new BadRequestError('own_outbox');
-    const opIds = [...new Set(body.opIds)];
-    const device = req.headers.get('x-device-id') ?? '';
-    return { ok: true, authorId: body.authorId, count: opIds.length, opIds, deviceId: DEVICE_ID.test(device) ? device : '' };
-  },
-);
+export const POST = route({ perm: 'authenticated', securityMutation: 'device.outbox_expire' }, async ({ req, viewer }) => {
+  const text = await req.text();
+  if (text.length > BODY_MAX_BYTES) throw new BadRequestError('too_large');
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new BadRequestError('json');
+  }
+  const body = Body.parse(raw);
+  if (body.authorId === viewer.userId) throw new BadRequestError('own_outbox');
+  const device = req.headers.get('x-device-id') ?? '';
+  const res = await reportExpiredOutbox(viewer, { authorId: body.authorId, opIds: body.opIds, deviceId: DEVICE_ID.test(device) ? device : '' }, Date.now());
+  return res.ok ? { ok: true } : rateLimited(res.retryAfterMs);
+});
