@@ -106,6 +106,39 @@ test('РОП загружает записи: автор, предпросмот
   const [call] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM calls WHERE card_id = ${cardId} AND via = 'import' AND user_id IS NULL AND outcome_kind = 'agreed'`;
   expect(call?.n).toBe(1);
 
+  // История записи: действие import от РОП, автор записи (booked_by) — оператор из карты авторов
+  const hist = await sql<{ actor: string | null; action: string }[]>`
+    SELECT h.actor_id AS actor, h.action FROM booking_history h JOIN bookings bk ON bk.id = h.booking_id WHERE bk.client_id = ${clientId}`;
+  expect(hist.find((h) => h.action === 'import')?.actor).toBe(rop.id);
+
+  // Оператор-автор открывает свою карточку: имя клиента и состояние «Договорились»
+  const opPage = await page.context().browser()!.newContext({ ...test.info().project.use });
+  const op = await opPage.newPage();
+  await loginAs(op, operator.phone);
+  await op.goto(`/clients/${clientId}`);
+  await expect(op.getByText(name).first()).toBeVisible();
+  await expect(op.getByText('Договорились').first()).toBeVisible();
+  await opPage.close();
+
+  // Повтор того же файла: новых записей, карточек и звонков нет, применять нечего
+  const total = async () => (await sql<{ n: number }[]>`SELECT (SELECT count(*) FROM bookings)::int + (SELECT count(*) FROM calls)::int AS n`)[0]?.n;
+  const before = await total();
+  await page.goto('/import');
+  await page.getByLabel('Профиль').selectOption('bookings_table');
+  await page.locator('input[type=file]').setInputFiles({ name: 'записи.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf-8') });
+  await page.getByRole('button', { name: 'Загрузить и проверить' }).click();
+  await page.waitForURL(/\/import\/[0-9a-f-]{36}/);
+  const sel = page.getByLabel('Оператор-01', { exact: true });
+  if (await sel.count()) {
+    await sel.selectOption({ label: operatorName });
+    await page.getByRole('button', { name: 'Показать предпросмотр' }).click();
+  }
+  await expect(page.getByText('Этот файл уже применён')).toBeVisible();
+  await expect(page.getByText('Новых записей нет')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Применить', exact: true })).toBeDisabled();
+  expect(await total()).toBe(before);
+  expect((await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bookings WHERE client_id = ${clientId}`)[0]?.n).toBe(1);
+
   // Дежурный список на телефоне: гость из импорта на мероприятии
   await page.setViewportSize({ width: 412, height: 915 });
   await page.goto('/duty');
@@ -113,4 +146,29 @@ test('РОП загружает записи: автор, предпросмот
   await expect(page.getByTestId('guest-row')).toHaveCount(1);
   await expect(page.getByTestId('guest-row')).toContainText(name);
   expect(await noHScroll(page)).toBe(true);
+});
+
+test('директор: загрузка записей — 423, оператор — 403; данные не меняются', async ({ page }) => {
+  const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
+  if (!space) throw new Error('нет пространства sales');
+  const tag = digits(5);
+  const director = await makeStaff(space.id, 'director', `Директор Синтетик ${tag}`);
+  const operator = await makeStaff(space.id, 'operator', `Оператор Синтетик ${tag}`);
+  const post = () =>
+    page.evaluate(async () => {
+      const res = await fetch('/api/import/uploads?profile=bookings_table', {
+        method: 'POST',
+        headers: { 'content-type': 'text/csv', 'x-file-name': encodeURIComponent('записи.csv') },
+        body: 'Наименование;Телефон;Дата\nТОО Х;+7 709 000 00 00;01.01.2030',
+      });
+      return res.status;
+    });
+  const count = async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM imports`)[0]?.n;
+  const before = await count();
+  await loginAs(page, director.phone);
+  expect(await post()).toBe(423);
+  await page.context().clearCookies();
+  await loginAs(page, operator.phone);
+  expect(await post()).toBe(403);
+  expect(await count()).toBe(before);
 });
