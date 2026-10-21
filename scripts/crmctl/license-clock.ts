@@ -5,9 +5,8 @@
 //   эпизод «часы позади» и блокировка с причиной clock снимаются сразу, а не когда верные часы догонят. Это откат
 //   времени лицензии назад: только при эпизоде, только с --yes, всегда запись license.clock_reset в аудите
 //   (сколько часов откатили, была ли блокировка). Затем состояние пересчитывается (license.state_change в аудите).
-// Исполняется внутри образа (нужны БД и ядро), как `job`. Регистрация в реестре scripts/crmctl/index.ts — на стороне
-// ops: `rawCommands['license-clock'] = async (argv) => (await import('./license-clock')).runLicenseClock(argv)` и строка
-// в USAGE.
+// Исполняется внутри образа (нужны БД и ядро), как `job`; зарегистрирована в rawCommands scripts/crmctl/index.ts
+// (ленивый импорт: хостовая копия crmctl стартует без ядра).
 import { getDb, openScriptDb } from '../../src/server/platform/db';
 import { licenseEnv, readLicenseRow, refreshLicense, resetLicenseClock } from '../../src/server/platform/license';
 

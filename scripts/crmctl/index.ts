@@ -44,6 +44,8 @@ export const rawCommands: Record<string, (argv: string[]) => Promise<number>> = 
   'ingest-key': async (argv) => (await import('./ingest')).runIngestKey(argv),
   seed: async (argv) => (await import('./seed')).runSeedCommand(argv),
   job: async (argv) => (await import('./job')).runJob(argv),
+  // Сброс правила часов лицензии (D-314): единственный выход из блокировки «часы позади» после спешивших часов
+  'license-clock': async (argv) => (await import('./license-clock')).runLicenseClock(argv),
 };
 
 export const USAGE = `crmctl — сопровождение установки CRM
@@ -60,6 +62,7 @@ export const USAGE = `crmctl — сопровождение установки C
   ingest-key …    ключи источников лидов: create | list | revoke
   seed …          синтетические данные для стенда (только стенд; crmctl seed --help)
   license …       лицензия: install <файл> | status
+  license-clock … часы лицензии: status | reset --yes (после починки спешивших часов)
   job …           фоновые задачи: list | run <имя> [--space <ключ>] [--slot <ключ>]
 
 Пакет — каталог или .tar.zst. Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;
