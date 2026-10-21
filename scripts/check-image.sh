@@ -21,8 +21,12 @@ else
   tmp="$(mktemp -d)"
   cid="$(docker create "$1")"
   # Содержимое файловой системы образа без /proc, /sys, /dev
-  docker export "$cid" | tar -x -C "$tmp" --exclude='./proc' --exclude='./sys' --exclude='./dev' 2>/dev/null || true
-  # Пустой экспорт (docker export упал) не должен выглядеть как чистый образ
+  # Прерванная распаковка (docker export упал, поток оборван, tar не дочитал) — не чистый образ: часть файлов не
+  # проверена. pipefail: ненулевой код docker export или tar роняет всю цепочку
+  if ! docker export "$cid" | tar -x -C "$tmp" --exclude='./proc' --exclude='./sys' --exclude='./dev'; then
+    echo "НАРУШЕНИЕ: файловая система образа не извлечена (docker export или tar прерван)" >&2; echo "check-image: FAIL" >&2; exit 1
+  fi
+  # Пустой экспорт не должен выглядеть как чистый образ
   if [ ! -d "$tmp/app" ]; then echo "НАРУШЕНИЕ: файловая система образа не извлечена (нет /app)" >&2; echo "check-image: FAIL" >&2; exit 1; fi
   root="$tmp"
 fi

@@ -44,3 +44,43 @@ test('check-image --dir: *.d.ts пакета @crm/* (объявления тип
   const r = check(root);
   assert.equal(r.status, 0, r.stderr);
 });
+
+// Режим образа с подменённым docker (PATH): `docker export` отдаёт tar файловой системы. Прерванная распаковка
+// (docker export упал на середине или поток оборван) — не чистый образ, даже если /app успел появиться.
+async function fakeDocker(mode: 'ok' | 'export-fails' | 'truncated'): Promise<NodeJS.ProcessEnv> {
+  const root = await app();
+  await writeFile(path.join(root, 'app', 'big.bin'), Buffer.alloc(256 * 1024, 1));
+  const tarFile = path.join(root, '..', `${path.basename(root)}.tar`);
+  const t = spawnSync('tar', ['-c', '-f', tarFile, '-C', root, '.'], { encoding: 'utf8' });
+  assert.equal(t.status, 0, t.stderr);
+  const bin = await mkdtemp(path.join(tmpdir(), 'check-image-bin-'));
+  const exportCmd =
+    mode === 'ok' ? `cat '${tarFile}'`
+    : mode === 'truncated' ? `head -c 70000 '${tarFile}'`
+    : `head -c 70000 '${tarFile}'; exit 1`;
+  await writeFile(
+    path.join(bin, 'docker'),
+    `#!/usr/bin/env bash\ncase "$1" in\n  create) echo cid-fake ;;\n  export) ${exportCmd} ;;\n  rm) exit 0 ;;\n  *) exit 1 ;;\nesac\n`,
+    { mode: 0o755 },
+  );
+  return { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` };
+}
+const checkImage = (env: NodeJS.ProcessEnv) => spawnSync('bash', [SCRIPT, 'crm-app:0.0.0-test'], { encoding: 'utf8', env });
+
+test('check-image <образ>: полный экспорт чистого образа — OK', async () => {
+  const r = checkImage(await fakeDocker('ok'));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /check-image: OK/);
+});
+
+test('check-image <образ>: docker export упал на середине — FAIL, а не чистый образ', async () => {
+  const r = checkImage(await fakeDocker('export-fails'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /не извлечена/);
+});
+
+test('check-image <образ>: поток экспорта оборван (tar не дочитал архив) — FAIL', async () => {
+  const r = checkImage(await fakeDocker('truncated'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /не извлечена/);
+});

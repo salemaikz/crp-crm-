@@ -7,6 +7,7 @@ import { intFlag, type ParsedArgs } from './args';
 import { assertImageForCustomer } from './license';
 import { isDirectory } from './manifest';
 import { imageExists, syncCli } from './images';
+import { assertImageKeys } from './pkgcmd';
 import { parseManifest } from './package-format';
 import { restoreVersion } from './update';
 import { checkSignature, isStand, keysSubset, loadKeySet, releaseKeyList, sha256, type KeySet } from './verify';
@@ -107,6 +108,28 @@ async function verifyStored(deps: Deps, customer: string, target: Target): Promi
   return { manifest, backfill };
 }
 
+/**
+ * Почему crmctl прежнего образа НЕ ставится на хост (null — ставится). Откат не возвращает хосту crmctl, который
+ * проверяет пакеты слабее текущего (§4.4, D-316):
+ * - версия до O4c (запись восстановлена задним числом) — её crmctl подписи пакетов не проверяет вовсе;
+ * - нет проверенного manifest.json (стенд с предупреждением) — не с чем сверить ключи образа;
+ * - ключи релизов прежней версии шире текущих — вернулось бы доверие к отозванному ключу;
+ * - crmctl образа сообщает не те ключи, что в подписанном манифесте, или не сообщает их (собран до O4c).
+ */
+async function cliKeepReason(deps: Deps, version: string, stored: PackageManifest | null, backfill: VerifyRecord | null): Promise<string | null> {
+  if (backfill) return `версия ${version} поставлена до O4c, её crmctl не проверяет подпись пакетов`;
+  if (!stored) return `у версии ${version} нет проверенного manifest.json, ключи её crmctl не с чем сверить`;
+  if (!keysSubset(stored.releaseKeys, releaseKeyList(await loadKeySet(deps)))) {
+    return 'crmctl прежней версии доверяет ключам, которых нет у текущего';
+  }
+  try {
+    await assertImageKeys(deps, `crm-app:${version}`, stored);
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+  return null;
+}
+
 export async function rollback(deps: Deps, args: ParsedArgs): Promise<number> {
   const waitMs = intFlag(args.flags, 'wait-seconds', 90) * 1000;
   const state = await requireState(deps.paths);
@@ -146,13 +169,9 @@ export async function rollback(deps: Deps, args: ParsedArgs): Promise<number> {
     deps.io.err(`Версия ${target.version} не отвечает на /api/health. Нужно вмешательство: docker compose -p crm logs app`);
     return 2;
   }
-  // crmctl прежнего образа ставится на хост, только если его ключи релизов не шире текущих: откат не возвращает
-  // доверие к отозванному ключу (§4.4)
-  if (stored && !keysSubset(stored.releaseKeys, releaseKeyList(await loadKeySet(deps)))) {
-    deps.io.err('Предупреждение: crmctl прежней версии доверяет ключам, которых нет у текущего; остаётся текущий crmctl');
-  } else {
-    await syncCli(deps, target.version);
-  }
+  const keep = await cliKeepReason(deps, target.version, stored, backfill);
+  if (keep) deps.io.err(`Предупреждение: ${keep}; остаётся текущий crmctl`);
+  else await syncCli(deps, target.version);
   deps.io.out(`Работает ${target.version}.`);
   return 0;
 }

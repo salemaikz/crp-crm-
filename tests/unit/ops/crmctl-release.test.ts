@@ -366,3 +366,40 @@ test('rollback: crmctl прежней версии с более широким 
   assert.match(f.err.join('\n'), /остаётся текущий crmctl/);
   assert.equal(f.calls.some((c) => c.args[0] === 'create'), false);
 });
+
+/** crmctl прежнего образа поставлен на хост: syncCli делает docker create/cp. */
+const cliSynced = (f: Fake) => f.calls.some((c) => c.cmd === 'docker' && (c.args[0] === 'create' || c.args[0] === 'cp'));
+
+test('rollback на версию до O4c: crmctl с хоста не заменяется (у прежнего нет проверки подписи)', async () => {
+  const f = await twoVersions();
+  await legacyPrevious(f);
+  assert.equal(await run(['rollback', '--wait-seconds', '1'], f.deps), 0, f.err.join('\n'));
+  assert.equal((await readState(f.deps.paths))?.current.version, '1.0.0');
+  assert.equal(cliSynced(f), false, 'crmctl до O4c на хост не ставится');
+  assert.match(f.err.join('\n'), /остаётся текущий crmctl/);
+});
+
+test('rollback: crmctl образа сообщает ключи, отличные от подписанного манифеста, или не сообщает вовсе — на хост не ставится', async () => {
+  const f = await twoVersions();
+  f.server.imageKeys = [{ kid: 'rel-evil', sha256: 'a'.repeat(64) }];
+  assert.equal(await run(['rollback', '--wait-seconds', '1'], f.deps), 0, f.err.join('\n'));
+  assert.equal(cliSynced(f), false);
+  assert.match(f.err.join('\n'), /Ключи релизов в crmctl образа crm-app:1\.0\.0[\s\S]*остаётся текущий crmctl/);
+
+  // crmctl до O4c не знает команды keys: версия с записью о проверке (второй откат на неё) — тоже без замены
+  const g = await twoVersions((cmd, args) =>
+    cmd === 'docker' && args[0] === 'run' && args.includes('keys') ? { code: 1, stdout: '', stderr: 'Неизвестная команда' } : undefined,
+  );
+  assert.equal(await run(['rollback', '--wait-seconds', '1'], g.deps), 0, g.err.join('\n'));
+  assert.equal(cliSynced(g), false);
+  assert.match(g.err.join('\n'), /не сообщил ключи релизов/);
+});
+
+test('rollback на стенде без проверенного манифеста: откат идёт, crmctl с хоста не заменяется', async () => {
+  const g = await twoVersions();
+  await writeFile(path.join(g.dirs.etc, 'app.env'), 'CRM_STAND=1\n');
+  await writeFile(path.join(pdir(g, '1.0.0'), 'manifest.json'), JSON.stringify(manifestFor('1.0.0', { buildId: 'подмена' })));
+  assert.equal(await run(['rollback', '--wait-seconds', '1'], g.deps), 0, g.err.join('\n'));
+  assert.equal(cliSynced(g), false);
+  assert.match(g.err.join('\n'), /остаётся текущий crmctl/);
+});
