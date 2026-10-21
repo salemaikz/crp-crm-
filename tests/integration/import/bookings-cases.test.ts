@@ -65,7 +65,38 @@ test('права: оператор и директор — отказ; без Vi
   await assert.rejects(importApi.preview(op, x.up.importId, { ownerMap: {}, authorMap: authors() }, t()), (e: unknown) => e instanceof ForbiddenError);
   await assert.rejects(importApi.apply(dir, x.up.importId, { fingerprint: x.s.fingerprint, ownerMap: {}, authorMap: authors() }, t()), (e: unknown) => e instanceof ForbiddenError);
   await assert.rejects(importApi.listRows(op, x.up.importId, { filter: 'all', offset: 0, limit: 10 }, t()), (e: unknown) => e instanceof ForbiddenError);
+
+  // РОП другого пространства: загрузка «Записей» чужого пространства — то же, что несуществующая (D-017).
+  // Пространство временное: у него нет ревизии настроек, а следующие тесты переписывают настройки установки.
+  const otherSpace = newId();
+  await db.sql`INSERT INTO spaces (id, key, created_at) VALUES (${otherSpace}, 'rights-other', ${T0})`;
+  try {
+    await strangerSeesNothing(otherSpace, x);
+  } finally {
+    await db.sql`DELETE FROM memberships WHERE space_id = ${otherSpace}`;
+    await db.sql`DELETE FROM spaces WHERE id = ${otherSpace}`;
+  }
 });
+
+async function strangerSeesNothing(otherSpace: string, x: Awaited<ReturnType<typeof preview>>): Promise<void> {
+  const { mkUser } = await import('./bookingsWorld');
+  const otherRop = await mkUser(db, otherSpace, 'rop', 'Руководитель Другой');
+  const stranger = { userId: otherRop, spaceId: otherSpace, viewer: await viewerOf(otherRop) };
+  const missing = newId();
+  assert.equal(await importApi.getImport(stranger, x.up.importId, t()), null);
+  assert.equal(await importApi.getImport(stranger, missing, t()), null);
+  const sameAsMissing = async (call: (id: string) => Promise<unknown>) => {
+    const errOf = async (id: string) => call(id).then(() => assert.fail('ждали отказ'), (e: unknown) => e);
+    const [foreign, none] = [await errOf(x.up.importId), await errOf(missing)];
+    assert.ok(foreign instanceof NotFoundError || (foreign instanceof ImportError && foreign.code === 'not_found'), String(foreign));
+    assert.equal((foreign as Error).constructor, (none as Error).constructor);
+    assert.deepEqual([(foreign as Error).message, (foreign as { code?: string }).code], [(none as Error).message, (none as { code?: string }).code]);
+  };
+  await sameAsMissing((id) => importApi.preview(stranger, id, { ownerMap: {}, authorMap: authors() }, t()));
+  await sameAsMissing((id) => importApi.apply(stranger, id, { fingerprint: x.s.fingerprint, ownerMap: {}, authorMap: authors() }, t()));
+  await sameAsMissing((id) => importApi.listRows(stranger, id, { filter: 'all', offset: 0, limit: 10 }, t()));
+  assert.equal((await db.sql<any>`SELECT status FROM imports WHERE id = ${x.up.importId}`)[0].status, 'preview', 'чужой РОП ничего не применил');
+}
 
 test('охват: роль с import.run без booking.create/card.assign на пространство не видит профиль и не применяет', async () => {
   // синтетическая роль: только import.run — как «помощник» без прав на записи (охват меньше пространства)

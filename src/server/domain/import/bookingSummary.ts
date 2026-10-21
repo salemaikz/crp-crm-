@@ -48,6 +48,7 @@ export function bookingBlockersOf(imp: repo.ImportRow, ctx: ImportContext, rowsP
   if (ctx.agreedOutcomeKey === null) b.push('no_agreed_outcome');
   if (comp) {
     if (comp.preview.unmappedAuthors.length > 0) b.push('unmapped_authors');
+    if (comp.preview.authorLabelCount > imports.AUTHOR_MAP_MAX) b.push('too_many_authors');
     const c = comp.preview.counts.byAction;
     if (c.create + c.changed_in_file === 0) b.push('nothing_to_apply');
   }

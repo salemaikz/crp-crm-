@@ -10,6 +10,7 @@ import { lockCardScoped } from '@/server/domain/cards/repo';
 import { getDb, newId } from '@/server/platform/db';
 import type { Sql } from '@/server/platform/db/core';
 import { computeBookingPreview, loadBookingInputs, bookingKeyOf, cleanAuthorMap } from './bookingLoad';
+import { lockCovers, lockSetOf } from './bookingLocks';
 import * as bookingRepo from './bookingRepo';
 import { bookingBlockersOf, bookingProfileOf, bookingSummaryOf, bookingViewerOf } from './bookingSummary';
 import { ImportError } from './errors';
@@ -148,15 +149,17 @@ export async function applyBookingImport(ctx: ImportContext, actor: ImportActor,
 
       // D-251: карточки (по id) → мероприятия (по id) → записи клиентов (по id), до пересчёта предпросмотра
       const rows = stored.map((r) => r.parsed as imports.ParsedBookingRow);
-      const pre = await loadBookingInputs(sql, ctx, viewer, rows);
-      await bookingRepo.lockCardsOf(viewer, sql, { spaceId: ctx.spaceId, cardIds: pre.candidates.map((c) => c.cardId) });
-      await bookingRepo.lockEventsOf(viewer, sql, { spaceId: ctx.spaceId, eventIds: pre.events.map((e) => e.id) });
-      await bookingRepo.lockBookingsOfClients(viewer, sql, { spaceId: ctx.spaceId, clientIds: pre.candidates.map((c) => c.clientId) });
+      const locked = lockSetOf(await loadBookingInputs(sql, ctx, viewer, rows));
+      await bookingRepo.lockCardsOf(viewer, sql, { spaceId: ctx.spaceId, cardIds: locked.cardIds });
+      await bookingRepo.lockEventsOf(viewer, sql, { spaceId: ctx.spaceId, eventIds: locked.eventIds });
+      await bookingRepo.lockBookingsOfClients(viewer, sql, { spaceId: ctx.spaceId, clientIds: locked.clientIds });
 
       const comp = await computeBookingPreview(sql, ctx, viewer, imp, stored, req.authorMap, now);
       const blockers = bookingBlockersOf(imp, ctx, true, comp);
       if (blockers.length > 0) throw new ImportError('blocked', { blockers });
-      if (comp.fingerprint !== req.fingerprint) throw new ImportError('preview_stale', { summary: await bookingSummaryOf(sql, imp, ctx, comp, []) });
+      // Пересчёт увидел незаблокированную карточку или мероприятие (появились после первого чтения): не пишем вне порядка D-251
+      const stale = comp.fingerprint !== req.fingerprint || !lockCovers(locked, comp.inputs);
+      if (stale) throw new ImportError('preview_stale', { summary: await bookingSummaryOf(sql, imp, ctx, comp, []) });
 
       let written: BookingApplyCounts;
       try {

@@ -5,6 +5,7 @@
 
 import { isValidDay } from '../time';
 import { normalizeLabel } from './answer';
+import { clipAuthorLabel } from './bookingMatch';
 import { rowKeyOf, stateKeyOf } from './keys';
 import type { PersonalIdHmac } from './personalId';
 import { PERSONAL_ID_PREFIX } from './personalId';
@@ -93,12 +94,24 @@ export interface ParseBookingDeps {
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 
+/** Нулевые дни эпох Excel: XLSX-ячейка в формате времени без даты читается как `1899-12-30 ЧЧ:ММ` (или 1904-01-01). */
+const EXCEL_EPOCH_DAYS: ReadonlySet<string> = new Set(['1899-12-30', '1904-01-01']);
+
+/** `YYYY-MM-DD ЧЧ:ММ[:СС]` — так XLSX отдаёт ячейку с форматом даты и времени: дата и время отдельно. */
+function splitDateTime(cell: string): { day: string; time: string } | null {
+  const hit = /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2}(?::\d{2})?)$/.exec((cell ?? '').trim());
+  return hit ? { day: hit[1] as string, time: hit[2] as string } : null;
+}
+
 /**
- * Дата ячейки: `YYYY-MM-DD` (так отдаёт XLSX-ячейку с форматом даты), `ДД.ММ.ГГГГ`, `ДД.ММ.ГГ` (20ГГ),
- * `ДД/ММ/ГГГГ`. Без года, текстом или несуществующая — null: год не угадываем.
+ * Дата ячейки: `YYYY-MM-DD` (так отдаёт XLSX-ячейку с форматом даты), `YYYY-MM-DD ЧЧ:ММ` (дата со временем — берётся
+ * дата), `ДД.ММ.ГГГГ`, `ДД.ММ.ГГ` (20ГГ), `ДД/ММ/ГГГГ`. Без года, текстом, несуществующая или нулевой день эпохи
+ * Excel (это время без даты) — null: год не угадываем.
  */
 export function parseEventDate(cell: string): string | null {
-  const s = (cell ?? '').trim();
+  const dt = splitDateTime(cell);
+  if (dt && EXCEL_EPOCH_DAYS.has(dt.day)) return null;
+  const s = dt ? dt.day : (cell ?? '').trim();
   let y: number;
   let m: number;
   let d: number;
@@ -111,9 +124,14 @@ export function parseEventDate(cell: string): string | null {
   return isValidDay(day) ? day : null;
 }
 
-/** Время ячейки `Ч:ММ`/`ЧЧ:ММ` (секунды отбрасываются) → 'HH:MM'; null — не время. */
+/**
+ * Время ячейки `Ч:ММ`/`ЧЧ:ММ` (секунды отбрасываются) → 'HH:MM'; null — не время. XLSX-ячейка в формате времени
+ * приходит как `1899-12-30 ЧЧ:ММ` (полночь — просто `1899-12-30`), дата со временем — `YYYY-MM-DD ЧЧ:ММ`: берётся время.
+ */
 export function parseEventTime(cell: string): string | null {
-  const hit = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec((cell ?? '').trim());
+  const raw = (cell ?? '').trim();
+  if (EXCEL_EPOCH_DAYS.has(raw)) return '00:00';
+  const hit = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(splitDateTime(raw)?.time ?? raw);
   if (!hit) return null;
   const h = Number(hit[1]);
   const m = Number(hit[2]);
@@ -219,9 +237,11 @@ function buildRow(rowNo: number, cells: Record<string, string>, cp: CompiledBook
   else eventTypeKey = cp.profile.defaultEventTypeKey ?? null;
   if (!eventTypeKey) issues.push({ code: 'unknown_event_type', severity: 'error', ...(eventTypeRaw ? { detail: eventTypeRaw } : {}) });
 
-  const eventDate = parseEventDate(get(F.eventDate));
+  const dateCell = get(F.eventDate);
+  const eventDate = parseEventDate(dateCell);
   if (!eventDate) issues.push({ code: 'bad_date', severity: 'error' });
-  const timeCell = get(F.eventTime);
+  // Колонки времени нет или ячейка пуста, а в ячейке даты есть время (`dd.mm.yyyy hh:mm` в XLSX) — время оттуда
+  const timeCell = get(F.eventTime) || (eventDate ? (splitDateTime(dateCell)?.time ?? '') : '');
   const eventTime = timeCell ? parseEventTime(timeCell) : null;
   if (timeCell && !eventTime) issues.push({ code: 'bad_time', severity: 'error' });
 
@@ -230,7 +250,7 @@ function buildRow(rowNo: number, cells: Record<string, string>, cp: CompiledBook
   if (phones.some((p) => p.review)) issues.push({ code: 'phone_review', severity: 'info' });
   if (form.typeUnknown) issues.push({ code: 'unknown_legal_form', severity: 'review' });
 
-  const authorLabel = get(F.operator) || null;
+  const authorLabel = clipAuthorLabel(get(F.operator)) || null;
   return {
     rowNo,
     name,

@@ -93,6 +93,7 @@ export async function loadBookingInputs(sql: Sql, ctx: ImportContext, viewer: Vi
     capacity: e.capacity,
     taken: e.taken,
     startsAt: e.startsAt,
+    durationMin: e.durationMin,
   }));
   const bookingRows = await bookingRepo.selectClientBookings(viewer, sql, { spaceId: ctx.spaceId, clientIds: candidates.map((c) => c.clientId) });
   const clientBookings: imports.ClientBookingInfo[] = bookingRows.map((b) => ({ clientId: b.clientId, eventId: b.eventId, typeKey: b.eventTypeKey, status: b.status, startsAt: b.startsAt }));

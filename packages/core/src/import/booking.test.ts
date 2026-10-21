@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { authorDecision, matchBookingClient, suggestAuthor, type AuthorStaff } from './bookingMatch';
+import { AUTHOR_LABEL_MAX, authorDecision, clipAuthorLabel, matchBookingClient, suggestAuthor, type AuthorStaff } from './bookingMatch';
 import { bookingPreviewFingerprint, canonicalJsonOf } from './bookingFingerprint';
 import {
   buildBookingPreview,
@@ -51,6 +51,46 @@ test('время: Ч:ММ и ЧЧ:ММ, иначе null', () => {
   assert.equal(parseEventTime('15:00'), '15:00');
   assert.equal(parseEventTime('15:00:00'), '15:00');
   for (const bad of ['25:00', '12:60', 'утром', '1500']) assert.equal(parseEventTime(bad), null, bad);
+});
+
+test('XLSX-ячейки: время в формате времени (эпоха 1900 и 1904), дата со временем; день эпохи в колонке даты — не дата', () => {
+  // так `serialToText` отдаёт ячейки со стилями h:mm и dd.mm.yyyy hh:mm (см. tests/unit/import/booking-xlsx-cells.test.ts)
+  assert.equal(parseEventTime('1899-12-30 12:00'), '12:00');
+  assert.equal(parseEventTime('1904-01-01 09:30'), '09:30');
+  assert.equal(parseEventTime('1899-12-30'), '00:00', 'полночь — только день эпохи');
+  assert.equal(parseEventTime('2026-11-10 18:00'), '18:00', 'дата со временем в колонке времени — берётся время');
+  assert.equal(parseEventTime('2026-11-10'), null, 'дата без времени — не время');
+  assert.equal(parseEventTime('2026-11-10 25:00'), null);
+  assert.equal(parseEventDate('2026-11-10 12:00'), '2026-11-10');
+  assert.equal(parseEventDate('1899-12-30 12:00'), null, 'время без даты в колонке даты');
+  assert.equal(parseEventDate('2026-11-31 12:00'), null);
+});
+
+test('разбор: XLSX-строка — время ячейкой времени; без времени — время из ячейки «дата и время»; явное время важнее', () => {
+  const timeCell = one(['ТОО «Альфа»', '+7 709 111 22 33', '', '2026-11-10', '1899-12-30 12:00', '', '']);
+  assert.deepEqual([timeCell.eventDate, timeCell.eventTime, codes(timeCell)], ['2026-11-10', '12:00', []]);
+  const dateTime = one(['ТОО «Альфа»', '+7 709 111 22 33', '', '2026-11-10 12:00', '', '', '']);
+  assert.deepEqual([dateTime.eventDate, dateTime.eventTime, codes(dateTime)], ['2026-11-10', '12:00', []]);
+  assert.equal(dateTime.rowKey, timeCell.rowKey, 'та же строка, как бы ни были разложены дата и время');
+  const both = one(['ТОО «Альфа»', '+7 709 111 22 33', '', '2026-11-10 12:00', '18:00', '', '']);
+  assert.equal(both.eventTime, '18:00');
+  const noTimeColumn = parseBookingSheet(
+    [['Наименование', 'Телефон', 'Дата'], ['ТОО «Альфа»', '+7 709 111 22 33', '2026-11-10 12:00']],
+    cp,
+    { normalizers, hash: testHash, hmac },
+  );
+  assert.ok(noTimeColumn.ok && noTimeColumn.rows[0]?.eventTime === '12:00', 'колонки времени нет — время из ячейки даты');
+});
+
+test('оператор: длинный ярлык обрезается до предела карты авторов, пробелы схлопнуты, суррогатная пара не рвётся', () => {
+  const long = `Комментарий ${'очень '.repeat(80)}длинный`;
+  const r = one(['ТОО «Альфа»', '+7 709 111 22 33', '', '05.11.2026', '', long, '']);
+  assert.ok(r.authorLabel !== null && r.authorLabel.length <= AUTHOR_LABEL_MAX && r.authorLabel.startsWith('Комментарий очень'));
+  assert.equal(clipAuthorLabel('  Оператор   01 '), 'Оператор 01');
+  const emoji = `${'а'.repeat(AUTHOR_LABEL_MAX - 1)}😀`;
+  const cut = clipAuthorLabel(emoji);
+  assert.equal(cut, 'а'.repeat(AUTHOR_LABEL_MAX - 1));
+  assert.ok(!/[\uD800-\uDBFF]$/.test(cut));
 });
 
 test('разбор: нормальная строка, вид по карте и по умолчанию', () => {
@@ -218,6 +258,7 @@ const ev = (id: string, date: string, over: Partial<BookingEventInfo> = {}): Boo
   capacity: 10,
   taken: 0,
   startsAt: Date.parse(`${date}T10:00:00Z`),
+  durationMin: 180,
   ...over,
 });
 
@@ -378,6 +419,63 @@ test('create: уточнения по карточке — владелец, «�
   assert.deepEqual([held.action, held.transition, held.ownerAfter, held.flags, held.groups], ['create', 'none', null, ['card_held'], ['review']]);
   const heldOwned = run({ state: 'new', holdReason: 'dup_pair' });
   assert.deepEqual([heldOwned.transition, heldOwned.ownerAfter], ['none', 'op-1']);
+});
+
+test('два групповых вида: тот же клиент на оба — карточка переводится один раз, вторая строка видит «Договорились»', () => {
+  const p2 = compileBookingProfile({ ...profile, eventTypeMap: { 'Группа-1': 'grp', 'Группа-2': 'grp2' } });
+  const rows = parse([row({ date: '10.11.2026', time: '12:00' }), row({ date: '10.11.2026', type: 'Группа-2', time: '18:00' })], p2).rows;
+  const events = [ev('e1', '2026-11-10', { time: '12:00' }), ev('e2', '2026-11-10', { time: '18:00', typeKey: 'grp2' })];
+  const run = (card: Partial<BookingCandidate>, participants = ['op-1']) =>
+    buildBookingPreview({
+      rows,
+      groupTypeKeys: new Set(['grp', 'grp2']),
+      candidates: [cand('c1', { phones: [digitsOf(PH[0] as string)], ...card })],
+      events,
+      clientBookings: [],
+      prior: new Map(),
+      importKeyOf: (r) => bookingImportKey('sp', r.rowKey, sha),
+      authorMap: { 'Оператор-01': 'op-1' },
+      participants: new Set(participants),
+      today: TODAY,
+      now: NOW,
+    });
+  const owned = run({ state: 'callback' });
+  assert.deepEqual(owned.rows.map((r) => [r.action, r.eventId, r.transition, r.ownerAfter, r.flags]), [
+    ['create', 'e1', 'to_agreed', 'op-1', []],
+    ['create', 'e2', 'none', 'op-1', []],
+  ]);
+  assert.equal(owned.counts.toAgreed, 1);
+  // без владельца, автор — участник раздачи: владелец назначается первой строкой, вторая его уже видит
+  const unowned = run({ state: 'new', ownerUserId: null });
+  assert.deepEqual(unowned.rows.map((r) => [r.action, r.transition, r.ownerAfter, r.flags]), [
+    ['create', 'to_agreed', 'op-1', ['owner_from_author']],
+    ['create', 'none', 'op-1', []],
+  ]);
+  assert.equal(unowned.counts.toAgreed, 1);
+  assert.equal(unowned.counts.byFlag.owner_from_author, 1);
+  // автор не участник: карточка не меняется ни одной строкой, обе на разбор
+  const stays = run({ state: 'new', ownerUserId: null }, []);
+  assert.deepEqual(stays.rows.map((r) => [r.transition, r.flags]), [['none', ['card_unowned']], ['none', ['card_unowned']]]);
+});
+
+test('мероприятие сегодня: уже закончилось — past_event; идёт или впереди — create', () => {
+  const H = 3_600_000;
+  const today = (startsAt: number, durationMin = 120) => preview({ rows: [row({ date: '21.10.2026' })], events: [ev('e1', TODAY, { startsAt, durationMin })] }).out.rows[0]!.action;
+  assert.equal(today(NOW - 3 * H), 'past_event', 'утреннее мероприятие, файл загружен вечером');
+  assert.equal(today(NOW - 2 * H), 'past_event', 'закончилось ровно сейчас');
+  assert.equal(today(NOW - H), 'create', 'идёт: гость в списке дежурного, явку отмечают на месте');
+  assert.equal(today(NOW + H), 'create');
+});
+
+test('автор: число разных ярлыков строк create (для блокера too_many_authors); ярлыки других строк не считаются', () => {
+  const cands = [0, 1, 2].map((i) => cand(`c${i}`, { nameNorm: `n${i}`, phones: [digitsOf(PH[i] as string)] }));
+  const rows = [
+    row({ name: NAMES[0] as string, phone: PH[0] as string, op: 'Оператор-01' }),
+    row({ name: NAMES[1] as string, phone: PH[1] as string, op: ' оператор-01 ' }),
+    row({ name: NAMES[2] as string, phone: PH[2] as string, op: 'Оператор-02' }),
+    row({ name: 'ТОО «Нет»', phone: '+7 709 999 00 00', op: 'Оператор-03' }),
+  ];
+  assert.equal(preview({ rows, candidates: cands }).out.authorLabelCount, 2);
 });
 
 test('автор: пустая ячейка — «неизвестен» без блокера; нерешённый ярлык строки create — в unmappedAuthors', () => {

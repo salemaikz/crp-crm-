@@ -83,6 +83,8 @@ export interface BookingEventInfo {
   /** Занято мест: записи со статусом из `registered, confirmed, attended, no_show`. */
   taken: number;
   startsAt: number;
+  /** Длительность, мин: мероприятие закончилось — `startsAt + durationMin` ≤ «сейчас». */
+  durationMin: number;
 }
 
 /** Запись клиента, держащая место (любая из четырёх). */
@@ -165,6 +167,8 @@ export interface BookingPreview {
   byEvent: BookingEventLine[];
   /** Ярлыки (как в файле) строк `create`, у которых нет решения РОП: блокер `unmapped_authors`. */
   unmappedAuthors: string[];
+  /** Число разных ярлыков авторов строк `create`: больше `AUTHOR_MAP_MAX` — блокер `too_many_authors`. */
+  authorLabelCount: number;
 }
 
 const GROUP_OF: Partial<Record<BookingAction, BookingGroup>> = {
@@ -214,6 +218,14 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
   /** Мероприятие, на которое строка `create` выше записала клиента данного вида (для конфликта). */
   const createdByClientType = new Map<string, string>();
   const unmapped = new Map<string, string>();
+  /** Все нормализованные ярлыки авторов строк `create` (решённые и нет): предел карты авторов. */
+  const authorLabels = new Set<string>();
+  /**
+   * Карточка после строк `create` выше по файлу: строка одного клиента на другой групповой вид видит уже
+   * «Договорились» и назначенного владельца, а не снимок — иначе применение второй раз переводило бы карточку
+   * (ядро отклоняет `import_agreed` из `agreed`) и назначало бы владельца уже занятой карточке.
+   */
+  const cardAfter = new Map<string, { state: string; ownerUserId: string | null }>();
   const lines = new Map<string, BookingEventLine>();
 
   const rows = input.rows.map((row): BookingPreviewRow => {
@@ -274,6 +286,7 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
     pr.clientId = client.clientId;
     pr.cardId = client.cardId;
     pr.matchBy = match.by;
+    const card = cardAfter.get(client.cardId) ?? { state: client.state, ownerUserId: client.ownerUserId };
 
     // 6. прошедшие мероприятия: явка неизвестна, сверка явки создала бы ложные задачи
     if (!row.eventDate || row.eventDate < input.today) return done('past_event');
@@ -286,6 +299,9 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
     if (scheduled.length > 1) return done('event_ambiguous');
     const ev = scheduled[0] as BookingEventInfo;
     pr.eventId = ev.id;
+    // Мероприятие сегодня, которое уже закончилось, — тоже прошедшее: отметить явку некому, сверка поставила бы
+    // «Не пришёл» (В-ИМПЗ-1). Идущее загружается: гость попадает в список дежурного, явку отмечают на месте.
+    if (ev.startsAt + ev.durationMin * 60_000 <= input.now) return done('past_event');
 
     // 8. та же пара выше в файле
     const pair = `${client.clientId}|${ev.id}`;
@@ -302,28 +318,29 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
 
     // 11–12. карточка: тронута в CRM — ведёт CRM; закрыта — запись не нужна
     if (client.touchedInCrm) return done('kept_in_crm');
-    if (CLOSED_STATES.has(client.state)) return done('state_conflict');
+    if (CLOSED_STATES.has(card.state)) return done('state_conflict');
 
     // 13. места: занято в БД + записано строками выше
     if (ev.taken + (createdOn.get(ev.id) ?? 0) >= ev.capacity) return done('event_full');
 
     // 14. создаём запись: автор и переход карточки
     const decision = authorDecision(input.authorMap, row.authorLabel);
+    if (row.authorLabel !== null && row.authorLabel.trim() !== '') authorLabels.add(normalizeLabel(row.authorLabel));
     if (!decision.decided && row.authorLabel !== null) unmapped.set(normalizeLabel(row.authorLabel), row.authorLabel);
     pr.authorUserId = decision.userId;
     if (decision.userId === null) pr.flags.push('author_unknown');
 
-    const canAgree = AGREE_FROM.has(client.state);
+    const canAgree = AGREE_FROM.has(card.state);
     if (client.holdReason !== '') {
       pr.flags.push('card_held');
-      pr.ownerAfter = client.ownerUserId;
+      pr.ownerAfter = card.ownerUserId;
     } else if (!canAgree) {
-      // «Договорились»/«Клиент»: ещё одна запись, карточка остаётся как есть
-      pr.ownerAfter = client.ownerUserId;
-      if (client.ownerUserId === null) pr.flags.push('card_unowned');
-    } else if (client.ownerUserId !== null) {
+      // «Договорились»/«Клиент» (в том числе строкой выше): ещё одна запись, карточка остаётся как есть
+      pr.ownerAfter = card.ownerUserId;
+      if (card.ownerUserId === null) pr.flags.push('card_unowned');
+    } else if (card.ownerUserId !== null) {
       pr.transition = 'to_agreed';
-      pr.ownerAfter = client.ownerUserId;
+      pr.ownerAfter = card.ownerUserId;
     } else if (decision.userId !== null && input.participants.has(decision.userId)) {
       pr.transition = 'to_agreed';
       pr.ownerAfter = decision.userId;
@@ -332,6 +349,7 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
       pr.flags.push('card_unowned');
     }
     if (pr.transition === 'to_agreed') toAgreed++;
+    cardAfter.set(client.cardId, { state: pr.transition === 'to_agreed' ? 'agreed' : card.state, ownerUserId: pr.ownerAfter });
 
     createdOn.set(ev.id, (createdOn.get(ev.id) ?? 0) + 1);
     createdByClientType.set(`${client.clientId}|${ev.typeKey}`, ev.id);
@@ -346,5 +364,6 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
     counts: { total: rows.length, byAction, byGroup, byFlag, toAgreed },
     byEvent: [...lines.values()].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.eventId.localeCompare(b.eventId)),
     unmappedAuthors: [...unmapped.values()].sort(),
+    authorLabelCount: authorLabels.size,
   };
 }

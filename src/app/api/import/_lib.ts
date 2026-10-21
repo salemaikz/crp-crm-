@@ -1,5 +1,6 @@
 // Общее для маршрутов /api/import: пользователь → ImportActor, разбор тел по Zod, коды ошибок → HTTP.
 // Ошибки файла и импорта отдаются кодом без текста (текст — messages/ru/import.json). Ответы no-store.
+import { imports } from '@crm/core';
 import { z } from 'zod';
 import { BadRequestError, NotFoundError, type Viewer } from '@/server/access';
 import { ImportError, type ImportActor } from '@/server/domain/import';
@@ -81,8 +82,13 @@ export async function readJson<T>(req: Request, schema: { parse(raw: unknown): T
 
 const OwnerMap = z.record(z.string().min(1).max(200), z.string().min(1).max(64)).refine((m) => Object.keys(m).length <= 200, 'ownerMap');
 
-/** Карта авторов профиля «Записи»: ярлык → id сотрудника или null («автор неизвестен»); ≤ 200 ключей. */
-const AuthorMap = z.record(z.string().min(1).max(200), z.string().min(1).max(64).nullable()).refine((m) => Object.keys(m).length <= 200, 'authorMap');
+/**
+ * Карта авторов профиля «Записи»: ярлык → id сотрудника или null («автор неизвестен»). Пределы — из ядра: разбор
+ * обрезает ярлык до той же длины, а ярлыков больше предела — блокер `too_many_authors`, а не 400 на каждый запрос.
+ */
+const AuthorMap = z
+  .record(z.string().min(1).max(imports.AUTHOR_LABEL_MAX), z.string().min(1).max(64).nullable())
+  .refine((m) => Object.keys(m).length <= imports.AUTHOR_MAP_MAX, 'authorMap');
 
 export const PreviewBody = z.object({ ownerMap: OwnerMap.default({}), authorMap: AuthorMap.optional() }).strict();
 export const ApplyBody = z.object({ fingerprint: z.string().regex(/^[0-9a-f]{64}$/), ownerMap: OwnerMap.default({}), authorMap: AuthorMap.optional() }).strict();

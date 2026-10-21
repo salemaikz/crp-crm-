@@ -23,7 +23,7 @@ test('коды ошибок файла и импорта имеют текст',
 });
 
 test('блокеры, статусы, действия строк и фильтры имеют текст', () => {
-  const blockers: ApplyBlocker[] = ['unmapped_slots', 'no_owner_slots', 'rows_expired', 'config_changed', 'already_applied', 'failed', 'unmapped_authors', 'no_agreed_outcome', 'nothing_to_apply'];
+  const blockers: ApplyBlocker[] = ['unmapped_slots', 'no_owner_slots', 'rows_expired', 'config_changed', 'already_applied', 'failed', 'unmapped_authors', 'too_many_authors', 'no_agreed_outcome', 'nothing_to_apply'];
   for (const b of blockers) assert.ok(keys(msg.blockers).includes(b), `blockers.${b}`);
   for (const s of ['preview', 'applied', 'failed']) assert.ok(keys(msg.status).includes(s), `status.${s}`);
   const rows = msg.rows as Record<string, Record<string, unknown>>;
@@ -55,4 +55,13 @@ test('профиль «Записи»: у фильтров, действий, з
   for (const k of ['bookingsCreated', 'cardsAgreed', 'ownersAssigned', 'authorChanged', 'clarifyClosed', 'skipped']) assert.ok(keys((b.result as Record<string, Record<string, unknown>>).counts).includes(k), `bookings.result.counts.${k}`);
   for (const k of BOOKING_EXPORT_HEADERS) assert.ok(keys(msg.exportBookings).includes(k), `exportBookings.${k}`);
   for (const k of ['phone', 'name', 'ambiguous', 'none']) assert.ok(keys((b.authors as Record<string, Record<string, unknown>>).by).includes(k), `bookings.authors.by.${k}`);
+});
+
+test('карта авторов: ярлык предельной длины из разбора и предельное число ярлыков проходят схему тела', async () => {
+  const { PreviewBody, ApplyBody } = await import('../../../src/app/api/import/_lib');
+  const label = imports.clipAuthorLabel(`Оператор ${'x'.repeat(500)}`);
+  assert.ok(PreviewBody.safeParse({ ownerMap: {}, authorMap: { [label]: null } }).success, 'обрезанный ярлык');
+  const many = Object.fromEntries(Array.from({ length: imports.AUTHOR_MAP_MAX }, (_, i) => [`Оператор-${i}`, null]));
+  assert.ok(ApplyBody.safeParse({ fingerprint: 'a'.repeat(64), ownerMap: {}, authorMap: many }).success);
+  assert.ok(!PreviewBody.safeParse({ ownerMap: {}, authorMap: { [`${label}y`]: null } }).success, 'длиннее предела — отказ схемы');
 });

@@ -59,6 +59,7 @@ export interface BookingEventRow {
   eventDate: string;
   startTime: string;
   startsAt: number;
+  durationMin: number;
   capacity: number;
   status: 'scheduled' | 'cancelled';
   taken: number;
@@ -68,7 +69,7 @@ export interface BookingEventRow {
 export async function selectBookingEvents(viewer: Viewer, sql: Sql, a: { spaceId: string; groupTypes: readonly string[]; dates: readonly string[] }): Promise<BookingEventRow[]> {
   if (a.groupTypes.length === 0 || a.dates.length === 0) return [];
   return scoped(sql)<BookingEventRow>`
-    SELECT e.id, e.event_type_key, e.event_date, e.start_time, e.starts_at, e.capacity, e.status,
+    SELECT e.id, e.event_type_key, e.event_date, e.start_time, e.starts_at, e.duration_min, e.capacity, e.status,
            (SELECT count(*) FROM bookings b WHERE b.event_id = e.id AND b.status = ANY(${OCCUPYING}::text[]))::int AS taken
       FROM events e
      WHERE e.space_id = ${a.spaceId} AND e.event_type_key = ANY(${[...a.groupTypes]}::text[]) AND e.event_date = ANY(${[...a.dates]}::text[])

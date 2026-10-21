@@ -86,6 +86,24 @@ export function suggestAuthor(label: string, staff: readonly AuthorStaff[], n: P
   return hit.length > 1 ? { by: 'ambiguous', userId: null } : { by: 'none', userId: null };
 }
 
+/**
+ * Пределы карты авторов в теле запроса (≤ 64 КиБ): длина ярлыка и число ярлыков. Ярлык длиннее обрезается при
+ * разборе (`clipAuthorLabel`), ярлыков больше — блокер `too_many_authors`: иначе тело отклонялось бы и импорт
+ * нельзя было бы применить никаким выбором.
+ */
+export const AUTHOR_LABEL_MAX = 200;
+export const AUTHOR_MAP_MAX = 200;
+
+/** Ярлык из ячейки «Оператор»: пробелы схлопнуты, не длиннее `AUTHOR_LABEL_MAX` (без разрыва суррогатной пары). */
+export function clipAuthorLabel(cell: string): string {
+  const s = (cell ?? '').replace(/\s+/g, ' ').trim();
+  if (s.length <= AUTHOR_LABEL_MAX) return s;
+  let cut = s.slice(0, AUTHOR_LABEL_MAX);
+  const last = cut.charCodeAt(cut.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+  return cut.trimEnd();
+}
+
 /** Карта решений РОП: нормализованный ярлык → сотрудник, null — «автор неизвестен», нет ключа — не решено. */
 export type AuthorMap = Readonly<Record<string, string | null | undefined>>;
 
