@@ -134,6 +134,8 @@ export interface ConsultStripDay {
   slots: ConsultSlotOption[];
   /** Когда подберут консультанта «серой» на этот день (`core.greyTiming`). */
   greyTiming: core.GreyTiming;
+  /** Шаг прогонов автоназначения, мин (`booking.grey.schedule.stepMin`): подсказка при `greyTiming = 'next_run'`. */
+  greyStepMin: number;
 }
 
 /** Полоса дней с подбором для карточки (`booking.create` по карточке; консультант — только к себе, D-246). */

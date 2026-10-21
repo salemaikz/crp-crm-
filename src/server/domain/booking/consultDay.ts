@@ -309,7 +309,12 @@ export const getConsultStrip: GetConsultStrip = async (deps, viewer, input) => {
         if (opt) slots.push(opt);
       }
       if (slots.length === 0) continue;
-      days.push({ date, slots, greyTiming: core.greyTiming(date, now, ops.grey.schedule, settings.timeZone, (d) => settings.calendar.isWorkday(d)) });
+      days.push({
+        date,
+        slots,
+        greyTiming: core.greyTiming(date, now, ops.grey.schedule, settings.timeZone, (d) => settings.calendar.isWorkday(d)),
+        greyStepMin: ops.grey.schedule.stepMin,
+      });
     }
     const active = await listActiveFutureBookings(viewer, tx, { spaceId, clientId: card.clientId, now, perm: 'booking.create', kind: 'individual' });
     const current = active.find((b) => b.eventTypeKey === type.key) ?? null;

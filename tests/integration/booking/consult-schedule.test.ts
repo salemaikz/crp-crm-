@@ -10,7 +10,7 @@ import { BookingDomainError } from '../../../src/server/domain/booking/errors';
 import type { BookingDeps } from '../../../src/server/domain/booking/types';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { U } from '../../isolation/harness/seed';
-import { SEED_NOW, addConsultant, addSchedule, closeConsultWorld, fakeCardPort, insertGrey, makeDeps, openConsultWorld, viewerOf, weekdays } from './helpers';
+import { SEED_NOW, addConsultant, addSchedule, closeConsultWorld, fakeCardPort, insertGrey, makeDeps, openConsultWorld, setGreyConfig, viewerOf, weekdays } from './helpers';
 
 const DAY = '2026-11-03'; // вторник
 let db: TestDb;
@@ -97,4 +97,16 @@ test('день РОП: слоты и записи консультанта, «с
   // права: оператор — 403; плохая дата — 400
   await assert.rejects(getConsultDay(deps, opA, { date: DAY }), (e: unknown) => e instanceof ForbiddenError);
   await assert.rejects(getConsultDay(deps, rop, { date: '03.11.2026' }), (e: unknown) => e instanceof BadRequestError);
+});
+
+test('полоса подбора несёт шаг прогона автоназначения из настроек: подсказка «подберём в ближайшие N минут» без числа в локали', async () => {
+  await setSchedule(deps, rop, { resourceId: 'sch', windows: [w(2, '10:00', '11:30')] });
+  await setGreyConfig({ mode: 'assign', stepMin: 60 });
+  try {
+    const strip = await getConsultStrip(deps, rop, { cardId: 'cd-a-80', eventTypeKey: 'bk', directionKey: 'marketing' });
+    assert.ok(strip.days.length > 0);
+    assert.deepEqual([...new Set(strip.days.map((d) => d.greyStepMin))], [60]);
+  } finally {
+    await setGreyConfig({ mode: 'assign' });
+  }
 });

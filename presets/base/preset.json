@@ -228,7 +228,7 @@
       "grey": { "mode": "suggest", "schedule": { "first": "09:00", "last": "18:00", "stepMin": 30 } },
       "duty": { "defaultRole": "manager" },
       "noShow": { "callbackAt": "nextWorkday@10:00" },
-      "attendance": { "autoNoShowWorkdays": 2, "sweepAt": "10:00" },
+      "attendance": { "autoNoShowWorkdays": 2 },
       "nextStep": { "taskAt": "nextWorkday@10:00" },
       "seedSeries": []
     },

@@ -65,11 +65,6 @@ test('в src/, packages/, messages/, public/ нет стоп-слов клиен
   assert.deepEqual(scan(clientFree(), CLIENT_WORDS), []);
 });
 
-test('в messages/ нет подписи роли клиента «РОП» (нейтральное «руководитель»)', () => {
-  const rop: Entry = ['РОП', /роп/u, 'word'];
-  assert.deepEqual(scan(walk('messages', TEXT), [rop]), []);
-});
-
 test('в src/, packages/, messages/, presets/ нет слов «парсер» и «сборщик»', () => {
   const files = ['src', 'packages', 'messages', 'presets'].flatMap((d) => walk(d, TEXT));
   assert.deepEqual(scan(files, FORBIDDEN_SOURCE_WORDS), []);

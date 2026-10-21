@@ -261,7 +261,7 @@ const Booking = obj({
   grey: obj({ mode: z.enum(['assign', 'suggest']), schedule: obj({ first: HHMM, last: HHMM, stepMin: int(5, 240) }) }),
   duty: obj({ defaultRole: Key }),
   noShow: obj({ callbackAt: stepOf('plus', 'nextWorkday') }),
-  attendance: obj({ autoNoShowWorkdays: int(1, 10).nullable(), sweepAt: HHMM.optional() }),
+  attendance: obj({ autoNoShowWorkdays: int(1, 10).nullable() }),
   nextStep: obj({ taskAt: stepOf('plus', 'nextWorkday') }),
   seedSeries: keyedList(SeedSeries),
 });

@@ -68,7 +68,7 @@ export function ConsultPicker({ cardId, eventTypeKey, directionKey, refreshKey, 
   const slot = day?.slots.find((s) => s.time === time);
   const pickConsultant = (c: SuggestedConsultant) =>
     day && slot && onPick({ kind: 'individual', eventTypeKey, directionKey, date: day.date, time: slot.time, consultant: { resourceId: c.resourceId, name: c.name, reserve: c.reserve } });
-  const greyHint = day?.greyTiming === 'next_run' ? t('greyNextRun') : day?.greyTiming === 'too_late' ? t('greyTooLate') : t('greyNextDay');
+  const greyHint = day?.greyTiming === 'next_run' ? t('greyNextRun', { minutes: day.greyStepMin }) : day?.greyTiming === 'too_late' ? t('greyTooLate') : t('greyNextDay');
 
   return (
     <div className="flex flex-col gap-4">
