@@ -176,9 +176,10 @@ test('отсутствие лицензии → missing; invalid не по сб�
 
 const WRONG_BUILD = { ok: false as const, reason: 'wrong_build' as const };
 
-/** Правило часов без опоры процесса и без эпизода «часы позади» (их — clock.test.ts). */
+/** Правило часов в живом процессе без хода монотонного времени и без эпизода «часы позади» (их и перезапуски —
+ *  clock.test.ts). */
 const adv = (clock: number, lastSeenAt: number | null, lastStepAt: number | null) =>
-  advanceClock({ clock, lastSeenAt, lastStepAt, realAt: null, behind: null, mono: 0, anchor: null });
+  advanceClock({ clock, lastSeenAt, lastStepAt, realAt: null, behind: null, mono: 0, anchor: { mono: 0, realAt: lastSeenAt ?? clock } });
 
 test('правило часов: назад — не продлевает; вперёд — шаг 48 ч не чаще раза в час; обычный ход', () => {
   // Обычный ход

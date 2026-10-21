@@ -21,6 +21,7 @@ export {
   CLOCK_BEHIND_LOCK_MS,
   CLOCK_JUMP_STEP_INTERVAL_MS,
   CLOCK_MAX_STEP_MS,
+  CLOCK_RESTART_STEP_MS,
   advanceClock,
 } from './clock';
 export type { ClockAnchor, ClockBehind, ClockInput, ClockJump, ClockResult } from './clock';

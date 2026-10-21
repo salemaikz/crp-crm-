@@ -11,8 +11,11 @@
 // realAt — та же оценка, но без вклада шагов вперёд: после починки ушедших вперёд часов время лицензии стоит,
 // пока часы не догонят lastSeenAt (как до D-306), и блокировки нет — шаги вперёд уже «состарили» лицензию.
 // Отставание до 10 минут — дрейф: время ждёт часы, но не дольше допуска по монотонному времени.
-// Не закрыто (D-306): часы назад вместе с правкой license_state; часы, возвращаемые в одну точку перед каждым
-// пересчётом вместе с перезапуском процессов (опоры нет, ход часов нулевой).
+// Пересчёт без опоры процесса (первый после старта) при часах позади двигает realAt не меньше чем на шаг
+// CLOCK_RESTART_STEP_MS — срок кэша состояния процесса: снимок этого пересчёта обслуживает запросы не дольше шага,
+// дальше нужен новый пересчёт. Поэтому перезапуск перед каждым пересчётом с часами в одной точке время не
+// замораживает: время лицензии растёт не медленнее времени работы процессов, через 48 ч — «только чтение».
+// Не закрыто (D-306): часы назад вместе с правкой license_state.
 // Date.now() здесь не вызывается: часы и монотонное время — параметры.
 export const CLOCK_MAX_STEP_MS = 48 * 3_600_000;
 export const CLOCK_JUMP_STEP_INTERVAL_MS = 3_600_000;
@@ -22,6 +25,9 @@ export const CLOCK_BACKWARD_TOLERANCE_MS = 10 * 60_000;
 export const CLOCK_BEHIND_LOCK_MS = 48 * 3_600_000;
 /** Пока эпизод длится, тревога повторяется с этим шагом. */
 export const CLOCK_BEHIND_ALERT_EVERY_MS = 24 * 3_600_000;
+/** Пересчёт без опоры процесса при часах позади двигает время лицензии не меньше чем на этот шаг. Не меньше срока
+ *  кэша состояния процесса (LICENSE_CACHE_TTL_MS): снимок пересчёта живёт не дольше шага. */
+export const CLOCK_RESTART_STEP_MS = 60_000;
 
 /** Опора процесса: монотонное время и оценка realAt на его прошлом пересчёте. Живёт в памяти процесса. */
 export type ClockAnchor = { mono: number; realAt: number };
@@ -75,12 +81,15 @@ export function advanceClock(input: ClockInput): ClockResult {
   const real0 = Math.min(input.realAt ?? lastSeenAt, lastSeenAt);
   // Прошедшее по монотонному времени этого процесса сверх того, что уже учтено в БД (в том числе другими
   // процессами): опора хранит realAt своего прошлого пересчёта, поэтому интервалы процессов не складываются
-  const byMono = anchor !== null && mono >= anchor.mono ? Math.max(0, anchor.realAt + (mono - anchor.mono) - real0) : 0;
+  const fresh = anchor === null || mono < anchor.mono;
+  const byMono = fresh ? 0 : Math.max(0, anchor.realAt + (mono - anchor.mono) - real0);
+  // Без опоры прошедшее процессу не видно: не меньше шага, иначе перезапуск перед каждым пересчётом стопорит время
+  const byStart = fresh ? CLOCK_RESTART_STEP_MS : 0;
 
   if (lastSeenAt - clock > CLOCK_BACKWARD_TOLERANCE_MS) {
     // Ход часов от прошлого пересчёта в эпизоде: виден и после перезапуска; скачок вперёд — не больше 48 ч
     const byClock = behind !== null && clock >= behind.lastClock ? Math.min(clock - behind.lastClock, CLOCK_MAX_STEP_MS) : 0;
-    const realAt = real0 + Math.max(byMono, byClock);
+    const realAt = real0 + Math.max(byMono, byClock, byStart);
     const now = Math.max(lastSeenAt, realAt);
     const since = behind?.since ?? lastSeenAt;
     const behindForMs = now - since;
@@ -100,9 +109,11 @@ export function advanceClock(input: ClockInput): ClockResult {
     };
   }
   // Дрейф назад в пределах допуска: время стоит, пока часы не догонят (как было). Но если часы стоят дольше
-  // допуска (их возвращают в одну точку), время идёт по монотонному с отставанием на допуск
+  // допуска (их возвращают в одну точку), время идёт по монотонному с отставанием на допуск. realAt здесь
+  // бывает впереди lastSeenAt не больше чем на допуск: накопленное перезапусками не обрезается до lastSeenAt
   if (clock < lastSeenAt) {
-    const realAt = real0 + byMono;
+    const drift0 = Math.min(input.realAt ?? lastSeenAt, lastSeenAt + CLOCK_BACKWARD_TOLERANCE_MS);
+    const realAt = drift0 + Math.max(fresh ? 0 : Math.max(0, anchor.realAt + (mono - anchor.mono) - drift0), byStart);
     const now = Math.max(lastSeenAt, realAt - CLOCK_BACKWARD_TOLERANCE_MS);
     return calm(now, now, step, realAt, 'none', false, mono);
   }

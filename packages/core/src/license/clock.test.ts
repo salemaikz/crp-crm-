@@ -82,11 +82,11 @@ test('часы позади дольше 48 ч подряд: «только чт
   const ev = (c: ClockResult) => evaluateLicense({ verdict: v, now: c.now, previous: null, invalidSince: null, anchor: null, builtAt: null, clockLocked: c.locked });
   const seen: ClockResult[] = [];
   for (let k = 1; k <= 4; k++) seen.push(s.check(T0 + k * DAY_MS - 30 * DAY_MS, 1_000, { restart: true }));
-  // 1-я проверка после перезапуска — время стоит (интервала не видно), дальше идёт по ходу часов
-  assert.deepEqual(seen.map((c) => c.now - T0), [0, DAY_MS, 2 * DAY_MS, 3 * DAY_MS]);
-  assert.deepEqual(seen.map((c) => c.locked), [false, false, false, true]);
-  assert.equal(seen[2]!.behindForMs, CLOCK_BEHIND_LOCK_MS, 'ровно 48 ч — ещё не блокировка');
-  const locked = ev(seen[3]!);
+  // 1-я проверка после перезапуска — интервала не видно, время идёт на шаг CLOCK_RESTART_STEP_MS; дальше — по ходу часов
+  assert.deepEqual(seen.map((c) => c.now - T0), [MIN, DAY_MS + MIN, 2 * DAY_MS + MIN, 3 * DAY_MS + MIN]);
+  assert.deepEqual(seen.map((c) => c.locked), [false, false, true, true]);
+  assert.equal(seen[2]!.behindForMs, CLOCK_BEHIND_LOCK_MS + MIN, '48 ч и шаг перезапуска — уже блокировка');
+  const locked = ev(seen[2]!);
   assert.deepEqual([locked.status, locked.access, locked.reason], ['read_only', 'read_only', 'clock']);
   assert.equal(locked.license?.lid, 'lic-clock');
   // Часы починили (chrony): эпизод кончился, блокировки нет
@@ -178,4 +178,59 @@ test('часы держат в пределах допуска (на 9 мину�
 test('без lastSeenAt (первая проверка) — по часам', () => {
   const c = advanceClock({ clock: T0, lastSeenAt: null, lastStepAt: null, realAt: null, behind: null, mono: 0, anchor: null });
   assert.deepEqual([c.now, c.lastSeenAt, c.realAt, c.behind, c.anchor], [T0, T0, T0, null, { mono: 0, realAt: T0 }]);
+});
+
+// ── Перезапуск перед каждым пересчётом (круг 1 волны B, D-306): опоры процесса нет, ход часов нулевой ──────────
+
+test('часы в одной точке и перезапуск перед каждым пересчётом: каждый пересчёт двигает время на шаг, 48 ч — read_only', () => {
+  const v = verdictFor({ expiresAt: T0 + DAY_MS, graceDays: 0 });
+  const s = server(T0);
+  const held = T0 - YEAR;
+  let c: ClockResult | null = null;
+  let k = 0;
+  while (k < 3_000) {
+    k++;
+    c = s.check(held, 5_000, { restart: true });
+    assert.ok(c.now >= T0 + k * MIN, `пересчёт ${k}: ${(c.now - T0) / MIN} мин`);
+    assert.equal(c.jump, 'backward');
+    if (k === 24 * 60 + 1) {
+      // Срок наступил: время лицензии не стоит
+      const e = evaluateLicense({ verdict: v, now: c.now, previous: null, invalidSince: null, anchor: null, builtAt: null, clockLocked: c.locked });
+      assert.equal(e.access, 'read_only', `пересчёт ${k}`);
+    }
+    if (c.locked) break;
+  }
+  assert.equal(c!.locked, true, `48 ч по времени лицензии — «только чтение», пересчётов ${k}`);
+  assert.equal(k, 48 * 60 + 1);
+});
+
+test('часы в пределах допуска позади и перезапуск перед каждым пересчётом: время идёт, затем эпизод и read_only', () => {
+  const s = server(T0);
+  const held = T0 - 5 * MIN;
+  let c: ClockResult | null = null;
+  let prev = T0;
+  let k = 0;
+  while (k < 3_100) {
+    k++;
+    c = s.check(held, 5_000, { restart: true });
+    assert.ok(c.now >= prev, `пересчёт ${k}: время назад`);
+    prev = c.now;
+    if (k > 30) assert.ok(c.now >= T0 + (k - 30) * MIN, `пересчёт ${k}: ${(c.now - T0) / MIN} мин`);
+    if (c.locked) break;
+  }
+  assert.equal(c!.locked, true, `пересчётов ${k}`);
+  assert.ok(k <= 48 * 60 + 30, `пересчётов ${k}`);
+});
+
+test('законные перезапуски при верных часах: ни тревоги, ни эпизода; гонка процессов на старте — тоже', () => {
+  const s = server(T0);
+  // Два процесса стартуют вместе: второй прочитал часы на 200 мс раньше, чем первый записал своё показание
+  const a = s.check(T0 + 1_000, 5, { restart: true });
+  const b = s.check(T0 + 800, 7, { restart: true });
+  assert.deepEqual([a.jump, b.jump, b.now, b.alert, b.behind], ['none', 'none', T0 + 1_000, false, null]);
+  // Дальше — перезапуск раз в минуту при идущих часах (падающий контейнер): время по часам, без тревог
+  for (let m = 1; m <= 120; m++) {
+    const c = s.check(T0 + 1_000 + m * MIN, 5, { restart: true });
+    assert.deepEqual([c.now, c.jump, c.alert, c.locked], [T0 + 1_000 + m * MIN, 'none', false, false], `минута ${m}`);
+  }
 });

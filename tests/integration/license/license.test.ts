@@ -505,7 +505,9 @@ test('часы позади дольше 48 ч: read_only с причиной cl
     restart();
     seen.push(await state(t + k * DAY - 30 * DAY));
   }
-  assert.deepEqual(seen, ['valid', 'valid', 'valid', 'read_only']);
+  // 1-я проверка после перезапуска двигает время на шаг перезапуска (минута), поэтому на 3-и сутки эпизод уже
+  // длиннее 48 ч (D-306)
+  assert.deepEqual(seen, ['valid', 'valid', 'read_only', 'read_only']);
   assert.equal((await row()).reason, 'clock');
   assert.equal((await row()).state, 'read_only');
   assert.equal((await writeRoute(req(), ctx)).status, 423);
@@ -513,7 +515,7 @@ test('часы позади дольше 48 ч: read_only с причиной cl
   assert.equal(await resetPassword(), 200, 'мутации безопасности D-054 работают');
   const jumps = await backward();
   assert.equal(jumps.length - before, 4, 'начало эпизода и раз в сутки');
-  assert.equal(jumps.filter((m) => m.locked === true).length - lockedBefore, 1, 'тревога о блокировке — одна, на 4-е сутки');
+  assert.equal(jumps.filter((m) => m.locked === true).length - lockedBefore, 2, 'тревоги о блокировке — на 3-и и 4-е сутки');
   assert.ok((await audit('license.state_change')).some((m) => m.to === 'read_only' && m.reason === 'clock'));
   // Часы починили (chrony): эпизод кончился, лицензия снова по часам
   assert.equal(await state(t + 4 * DAY + H), 'valid');
@@ -536,5 +538,25 @@ test('часы держат в одной точке без перезапуск
   assert.equal((await row()).lastSeenAt, t + 49 * H);
   assert.equal(await state(t - 365 * DAY), 'read_only');
   mono = 0;
+  restart();
+});
+
+test('часы в одной точке и перезапуск перед каждым пересчётом: время лицензии идёт не меньше минуты на пересчёт', async () => {
+  const t = (await row()).lastSeenAt + H;
+  const lic = signed({ lid: 'lic-clock-4', expiresAt: t + 30 * 60_000, graceDays: 0 });
+  await fresh(lic, t);
+  await put(lic);
+  restart();
+  assert.equal(await state(t), 'valid');
+  const seen: string[] = [];
+  for (let k = 1; k <= 31; k++) {
+    // Процесс перезапущен, часы перед пересчётом возвращены в одну и ту же точку
+    restart();
+    seen.push(await state(t - 365 * DAY));
+  }
+  assert.ok((await row()).lastSeenAt >= t + 31 * 60_000, `время лицензии: +${((await row()).lastSeenAt - t) / 60_000} мин`);
+  assert.equal(seen.at(-1), 'read_only', seen.join(','));
+  assert.equal((await writeRoute(req(), ctx)).status, 423);
+  assert.equal((await exportRoute(req(), ctx)).status, 200);
   restart();
 });
