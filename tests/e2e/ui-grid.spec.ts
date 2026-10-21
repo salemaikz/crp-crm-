@@ -59,7 +59,8 @@ async function measure(page: Page): Promise<Geo> {
       .filter((el) => {
         const b = r(el);
         const lh = parseFloat(getComputedStyle(el).lineHeight) || 20;
-        return el.tagName === 'TD' ? b.height > lh * 2.6 : b.height > lh * 1.6;
+        // ячейка с числом: запрет переноса в стиле (внутри могут стоять отдельные строки, например «был в сети»)
+        return el.tagName === 'TD' ? getComputedStyle(el).whiteSpace !== 'nowrap' : b.height > lh * 1.6;
       })
       .map((el) => (el.textContent ?? '').trim().slice(0, 30));
     const canvas = getComputedStyle(document.documentElement).getPropertyValue('--canvas').trim();
