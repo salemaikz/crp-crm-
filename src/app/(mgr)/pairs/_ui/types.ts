@@ -24,6 +24,8 @@ export type PairRow = {
 
 export type PairsData = {
   items: PairRow[];
+  /** Курсор следующей страницы пар; null — всё показано. */
+  next: string | null;
   /** Право решать по паре (`card.assign`). */
   canResolve: boolean;
   /** Слияние включено флагом и есть право `client.merge`. */

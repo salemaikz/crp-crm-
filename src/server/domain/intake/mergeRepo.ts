@@ -276,13 +276,15 @@ export async function repointPairs(tx: Sql, a: { pairId: string; loserId: string
 /**
  * Снять задержку «Возможный дубль» у карточек клиентов, у которых не осталось открытых пар (D-272): после решения
  * РОП по паре или слияния карточка возвращается в «Готовы к раздаче», двойники — по правилам D-174.
+ * Служебный запрос без охвата: вызывающий уже проверил видимость пары (решение) или право на все карточки сторон
+ * (слияние, конфликт `other_space`). Пара общая для установки, поэтому задержка снимается и у стороны в чужом
+ * отделе — иначе она осталась бы в «Возможный дубль» навсегда.
  */
-export async function releaseDupPairHolds(tx: Sql, viewer: Viewer, perm: Permission, clientIds: readonly string[], now: number): Promise<number> {
-  const rows = await scoped(tx)<{ id: string }>`
+export async function releaseDupPairHolds(tx: Sql, clientIds: readonly string[], now: number): Promise<number> {
+  const rows = await tx<{ id: string }>`
     UPDATE cards c SET hold_reason = '', version = c.version + 1, updated_at = ${now}
      WHERE c.client_id = ANY(${[...clientIds]}::text[]) AND c.hold_reason = 'dup_pair'
        AND NOT EXISTS (SELECT 1 FROM dup_pairs p WHERE p.status = 'open' AND (p.a_client_id = c.client_id OR p.b_client_id = c.client_id))
-       AND ${scopeSql(viewer, 'card', perm)}
      RETURNING c.id`;
   return rows.length;
 }

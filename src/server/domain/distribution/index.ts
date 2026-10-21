@@ -12,5 +12,5 @@ export { listProposals, resolveProposal, type ProposalView, type ResolveProposal
 export { loadDistributionConfig, parseDistributionConfig } from './settings';
 export { runTick } from './tick';
 export * from './types';
-export { listPairs, PAIRS_LIMIT, resolvePair, type PairPhoneView, type PairSideView, type PairView, type ResolvePairInput, type ResolvePairResult } from './pairs';
+export { listPairs, PAIRS_LIMIT, resolvePair, type PairPhoneView, type PairSideView, type PairView, type PairsPage, type ResolvePairInput, type ResolvePairResult } from './pairs';
 export type { PairReason, PairStatus } from './pairsRepo';

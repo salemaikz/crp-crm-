@@ -23,6 +23,20 @@ export function PairsScreen({ data }: { data: PairsData }) {
   const [error, setError] = useState<string | null>(null);
   const [split, setSplit] = useState<PairRow | null>(null);
   const [merge, setMerge] = useState<PairRow | null>(null);
+  // Следующие страницы по курсору; после решения список перечитывается с первой страницы
+  const [more, setMore] = useState<{ items: PairRow[]; next: string | null } | null>(null);
+  const items = more ? [...data.items, ...more.items.filter((p) => !data.items.some((d) => d.id === p.id))] : data.items;
+  const next = more ? more.next : data.next;
+
+  async function loadMore() {
+    if (!next || busy) return;
+    setBusy('more');
+    setError(null);
+    const r = await call<{ items: PairRow[]; next: string | null }>('GET', `/api/distribution/pairs?cursor=${encodeURIComponent(next)}`);
+    setBusy(null);
+    if (!r.ok) return setError(r.key);
+    setMore({ items: [...(more?.items ?? []), ...r.data.items], next: r.data.next });
+  }
 
   async function distinct(pair: PairRow) {
     if (busy) return;
@@ -32,6 +46,7 @@ export function PairsScreen({ data }: { data: PairsData }) {
     setBusy(null);
     if (!r.ok) return setError(r.key);
     toast.show({ message: t('done.distinct'), tone: 'success' });
+    setMore(null);
     router.refresh();
   }
 
@@ -39,6 +54,7 @@ export function PairsScreen({ data }: { data: PairsData }) {
     setSplit(null);
     setMerge(null);
     toast.show({ message: t(`done.${key}`), tone: 'success' });
+    setMore(null);
     router.refresh();
   };
 
@@ -46,11 +62,11 @@ export function PairsScreen({ data }: { data: PairsData }) {
     <>
       <PageHeader title={t('title')} lead={t('lead')} />
       {error && <Alert tone="danger">{te(error as 'generic')}</Alert>}
-      {data.items.length === 0 ? (
+      {items.length === 0 ? (
         <EmptyState title={t('empty.title')} description={t('empty.description')} />
       ) : (
         <ul className="flex min-w-0 flex-col gap-4">
-          {data.items.map((pair) => (
+          {items.map((pair) => (
             <li key={pair.id} className="min-w-0">
               <Card as="article" aria-label={t(`reason.${pair.reason}`)} className="flex min-w-0 flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -80,6 +96,13 @@ export function PairsScreen({ data }: { data: PairsData }) {
             </li>
           ))}
         </ul>
+      )}
+      {next && (
+        <div>
+          <Button variant="secondary" disabled={busy !== null} onClick={() => void loadMore()}>
+            {t('more')}
+          </Button>
+        </div>
       )}
       {split && <SplitDialog pair={split} onClose={() => setSplit(null)} onDone={() => done('split_allowed')} />}
       {merge && <MergeDialog pair={merge} onClose={() => setMerge(null)} onDone={() => done('merged')} />}

@@ -71,7 +71,9 @@ export const OwnerlessAssignBody = z
 export const ProposalResolveBody = z.object({ opId: z.string().uuid(), decision: z.enum(['create', 'reject']) }).strict();
 
 // B9b: спорные пары и слияние
-export const PairsQuery = z.object({ status: z.enum(['open', 'merged', 'distinct', 'split_allowed']).optional() }).strict();
+export const PairsQuery = z
+  .object({ status: z.enum(['open', 'merged', 'distinct', 'split_allowed']).optional(), cursor: z.string().max(200).optional(), limit: int(1, 100).optional() })
+  .strict();
 export const PairResolveBody = z.object({ decision: z.enum(['distinct', 'split_allowed']), comment: z.string().max(1000).default('') }).strict();
 export const MergeChoiceQuery = z.object({ survivor: z.enum(['a', 'b']), owner: z.enum(['auto', 'survivor', 'other']).default('auto') }).strict();
 export const MergeBody = z

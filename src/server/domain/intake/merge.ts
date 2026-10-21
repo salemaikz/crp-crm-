@@ -316,7 +316,7 @@ async function mergeTx(tx: Sql, viewer: Viewer, pairId: string, input: MergeInpu
 
   // 6. пары; задержка «Возможный дубль» снимается, если открытых пар не осталось
   await repointPairs(tx, { pairId, loserId: l, survivorId: s, by: viewer.userId, now });
-  counts.released = await releaseDupPairHolds(tx, viewer, 'client.merge', [s], now);
+  counts.released = await releaseDupPairHolds(tx, [s], now);
 
   // 7. лента выжившего в каждом пространстве его карточек, аудит с ответом для повтора
   const spaces = [...new Set(state.cards.map((c) => c.spaceId))].sort();

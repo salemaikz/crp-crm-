@@ -8,20 +8,21 @@ import { writeAudit } from '@/server/platform/audit';
 import { getDb } from '@/server/platform/db';
 import { phoneHmac } from '@/server/platform/hmac';
 import { requireRole, requireSpace } from './guards';
+import { decodeCursor, encodeCursor } from './pool';
 import {
   lockPair,
   pairSideVisible,
   resolvePairRow,
   selectPairPhones,
   selectPairSides,
-  selectPairsByStatus,
+  selectPairsPage,
   sharedWorkingPhone,
   stopListedHmacs,
   type PairReason,
   type PairStatus,
 } from './pairsRepo';
 
-/** Сколько пар показывает список за раз. */
+/** Сколько пар показывает список за раз (больше — по курсору). */
 export const PAIRS_LIMIT = 100;
 
 export interface PairPhoneView {
@@ -56,11 +57,22 @@ export interface PairView {
   b: PairSideView | null;
 }
 
-export async function listPairs(viewer: Viewer, q: { status?: PairStatus } = {}): Promise<PairView[]> {
+export interface PairsPage {
+  items: PairView[];
+  /** Курсор следующей страницы; null — последняя. */
+  next: string | null;
+}
+
+export async function listPairs(viewer: Viewer, q: { status?: PairStatus; cursor?: string | null; limit?: number } = {}): Promise<PairsPage> {
   requireRole(viewer, 'pool.read');
   const spaceId = requireSpace(viewer);
+  const limit = Math.min(Math.max(1, q.limit ?? PAIRS_LIMIT), PAIRS_LIMIT);
+  const after = decodeCursor(q.cursor ?? null);
   const db = await getDb();
-  const pairs = await selectPairsByStatus(db.sql, q.status ?? 'open', PAIRS_LIMIT);
+  const rows = await selectPairsPage(db.sql, viewer, { spaceId, status: q.status ?? 'open', perm: 'pool.read', after, limit: limit + 1 });
+  const pairs = rows.slice(0, limit);
+  const last = pairs[pairs.length - 1];
+  const next = rows.length > limit && last ? encodeCursor({ createdAt: Number(last.createdAt), id: last.id }) : null;
   const clientIds = [...new Set(pairs.flatMap((p) => [p.aClientId, p.bClientId]))];
   const sides = await selectPairSides(db.sql, viewer, { spaceId, clientIds, perm: 'pool.read' });
   const phones = await selectPairPhones(db.sql, viewer, { clientIds: sides.map((s) => s.clientId), perm: 'pool.read' });
@@ -90,14 +102,15 @@ export async function listPairs(viewer: Viewer, q: { status?: PairStatus } = {})
     };
   };
 
-  const out: PairView[] = [];
+  const items: PairView[] = [];
   for (const p of pairs) {
     const a = view(p.aClientId, p.bClientId);
     const b = view(p.bClientId, p.aClientId);
+    // Видимость уже отобрана в SQL; сторона могла исчезнуть между запросами — тогда пару не показываем
     if (!a && !b) continue;
-    out.push({ id: p.id, reason: p.reason, status: p.status, createdAt: Number(p.createdAt), a, b });
+    items.push({ id: p.id, reason: p.reason, status: p.status, createdAt: Number(p.createdAt), a, b });
   }
-  return out;
+  return { items, next };
 }
 
 export interface ResolvePairInput {
@@ -127,7 +140,8 @@ export async function resolvePair(viewer: Viewer, id: string, input: ResolvePair
     if (pair.status !== 'open') throw mergeConflict('not_open');
     if (input.decision === 'split_allowed' && comment === '' && (await sharedWorkingPhone(tx, pair))) throw mergeBadRequest('comment_required');
     await resolvePairRow(tx, { id, status: input.decision, comment, by: viewer.userId, now });
-    const released = await releaseDupPairHolds(tx, viewer, 'card.assign', [pair.aClientId, pair.bClientId], now);
+    // Видимость пары проверена выше; задержка снимается у обеих сторон, в том числе невидимой решающему (D-272)
+    const released = await releaseDupPairHolds(tx, [pair.aClientId, pair.bClientId], now);
     await writeAudit(tx, {
       actorId: viewer.userId,
       action: 'pair.resolve',

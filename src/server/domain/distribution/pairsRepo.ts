@@ -18,12 +18,25 @@ export interface PairDbRow {
   createdAt: number;
 }
 
-/** Пары со статусом по давности (dup_pairs_open_idx для `open`). */
-export async function selectPairsByStatus(sql: Sql, status: PairStatus, limit: number): Promise<PairDbRow[]> {
-  return sql<PairDbRow>`
+/**
+ * Страница пар со статусом по давности (dup_pairs_open_idx для `open`): только пары, у которых хотя бы одна сторона —
+ * карточка пространства зрителя, видимая по разрешению. Охват стоит в SQL до LIMIT, поэтому чужие пары не вытесняют свои;
+ * курсор — (created_at, id) последней пары.
+ */
+export async function selectPairsPage(
+  sql: Sql,
+  viewer: Viewer,
+  a: { spaceId: string; status: PairStatus; perm: Permission; after: { createdAt: number; id: string } | null; limit: number },
+): Promise<PairDbRow[]> {
+  const after = a.after ?? { createdAt: -1, id: '' };
+  return scoped(sql)<PairDbRow>`
     SELECT p.id, p.a_client_id, p.b_client_id, p.reason, p.status, p.comment, p.created_at
-      FROM dup_pairs p WHERE p.status = ${status}
-     ORDER BY p.created_at, p.id LIMIT ${limit}`;
+      FROM dup_pairs p
+     WHERE p.status = ${a.status}
+       AND (p.created_at, p.id) > (${after.createdAt}::bigint, ${after.id}::text)
+       AND EXISTS (SELECT 1 FROM cards c WHERE c.client_id IN (p.a_client_id, p.b_client_id) AND c.space_id = ${a.spaceId}
+                     AND ${scopeSql(viewer, 'card', a.perm)})
+     ORDER BY p.created_at, p.id LIMIT ${a.limit}`;
 }
 
 export interface PairSideRow {

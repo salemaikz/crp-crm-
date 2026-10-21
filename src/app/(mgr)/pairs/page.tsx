@@ -9,8 +9,10 @@ import type { PairsData } from './_ui/types';
 
 export default page<unknown, ReactNode>({ perm: 'pool.read' }, async ({ viewer }) => {
   // присваивание проверяет, что формы из домена совместимы с типами клиентского экрана
+  const first = await listPairs(viewer);
   const data: PairsData = {
-    items: await listPairs(viewer),
+    items: first.items,
+    next: first.next,
     canResolve: can(viewer, 'card.assign'),
     canMerge: mergeEnabled() && can(viewer, 'client.merge'),
     timeZone: viewer.timeZone,

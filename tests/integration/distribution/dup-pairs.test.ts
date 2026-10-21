@@ -48,7 +48,7 @@ test('список: стороны с номерами и отметкой об�
                VALUES ('cl-pr-y', 'company', 'ТОО Пример Скрытый 2', 'пример скрытый 2', 'manual', ${SEED_NOW}, ${SEED_NOW})`;
   await pair('pr-62', 'cl-pr-x', 'cl-pr-y');
 
-  const items = await listPairs(rop);
+  const { items } = await listPairs(rop);
   const p60 = items.find((p) => p.id === 'pr-60');
   assert.ok(p60?.a && p60.b);
   assert.equal(p60.a.name, 'ТОО Синтетика Альфа 60');
@@ -119,4 +119,53 @@ test('решение: оператору — 403, директору — нет 
   assert.ok((await failure(resolvePair(rop, 'pr-62', { decision: 'distinct', comment: '' }))) instanceof NotFoundError);
   const [row] = await db.sql<{ status: string }>`SELECT status FROM dup_pairs WHERE id = 'pr-62'`;
   assert.equal(row?.status, 'open');
+});
+
+test('охват — в SQL до LIMIT: 120 старых пар чужого отдела не вытесняют свою; курсор листает без пропусков и повторов', async () => {
+  // Все стороны чужих пар — только в пространстве sp-pr-2 (создано первым тестом), пары старше своей
+  const ids = Array.from({ length: 121 }, (_, i) => `cl-pf-${String(i).padStart(3, '0')}`);
+  for (const id of ids) {
+    await db.sql`INSERT INTO clients (id, kind, name, name_norm, source_kind, created_at, updated_at)
+                 VALUES (${id}, 'company', ${`ТОО Пример Чужой ${id}`}, ${`пример чужой ${id}`}, 'manual', ${SEED_NOW}, ${SEED_NOW})`;
+    await db.sql`INSERT INTO cards (id, space_id, client_id, state, created_at, updated_at) VALUES (${`cd-${id}`}, 'sp-pr-2', ${id}, 'new', ${SEED_NOW}, ${SEED_NOW})`;
+  }
+  for (let i = 0; i < 120; i++) {
+    await db.sql`INSERT INTO dup_pairs (id, a_client_id, b_client_id, reason, created_at)
+                 VALUES (${`pr-f-${String(i).padStart(3, '0')}`}, ${ids[i]!}, ${ids[i + 1]!}, 'shared_phone', ${SEED_NOW - 86_400_000 + i})`;
+  }
+  await db.sql`INSERT INTO dup_pairs (id, a_client_id, b_client_id, reason, created_at) VALUES ('pr-70', 'cl-a-70', 'cl-b-70', 'shared_phone', ${SEED_NOW + 1})`;
+
+  const first = await listPairs(rop);
+  assert.ok(first.items.some((p) => p.id === 'pr-70'), 'своя пара видна, хотя чужих открытых пар больше 100');
+  assert.equal(first.items.some((p) => p.id.startsWith('pr-f-')), false);
+  assert.doesNotMatch(JSON.stringify(first), /Чужой/);
+
+  // Курсор: по одной паре, тот же порядок, что и одной страницей
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < 50; i++) {
+    const page: Awaited<ReturnType<typeof listPairs>> = await listPairs(rop, { cursor, limit: 1 });
+    seen.push(...page.items.map((p) => p.id));
+    cursor = page.next;
+    if (cursor === null) break;
+  }
+  assert.equal(cursor, null);
+  assert.deepEqual(seen, first.items.map((p) => p.id));
+  assert.equal(new Set(seen).size, seen.length);
+  assert.equal(first.next, null);
+});
+
+test('решение по паре снимает «Возможный дубль» и у невидимой решающему стороны (D-272)', async () => {
+  await db.sql`INSERT INTO clients (id, kind, name, name_norm, source_kind, created_at, updated_at)
+               VALUES ('cl-pr-z', 'company', 'ТОО Пример Скрытый 3', 'пример скрытый 3', 'manual', ${SEED_NOW}, ${SEED_NOW})`;
+  await db.sql`INSERT INTO cards (id, space_id, client_id, state, hold_reason, created_at, updated_at)
+               VALUES ('cd-pr-z', 'sp-pr-2', 'cl-pr-z', 'new', 'dup_pair', ${SEED_NOW}, ${SEED_NOW})`;
+  await setCard(db.sql, 'cd-a-71', { owner: null, state: 'new', holdReason: 'dup_pair' });
+  await pair('pr-71', 'cl-a-71', 'cl-pr-z');
+  const r = await resolvePair(rop, 'pr-71', { decision: 'distinct', comment: '' });
+  assert.equal(r.status, 'distinct');
+  const holds = await db.sql<{ id: string; hold: string; version: number }>`
+    SELECT id, hold_reason AS hold, version FROM cards WHERE id IN ('cd-a-71','cd-pr-z') ORDER BY id`;
+  assert.deepEqual(holds.map((h) => [h.id, h.hold]), [['cd-a-71', ''], ['cd-pr-z', '']]);
+  assert.equal(holds.find((h) => h.id === 'cd-pr-z')?.version, 1, 'версия невидимой стороны выросла');
 });
