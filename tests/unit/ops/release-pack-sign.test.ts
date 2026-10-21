@@ -8,11 +8,11 @@ import { mkdir, mkdtemp, readFile, stat, writeFile, readdir } from 'node:fs/prom
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { run } from '../../../scripts/crmctl';
-import { readState } from '../../../scripts/crmctl/state';
+import { readState, writeState } from '../../../scripts/crmctl/state';
 import { hashFile, keyFingerprint, scanArchive } from '../../../scripts/crmctl/package-format';
 import { assertAllowedPath, assertNodeZstd, main as packMain, packRelease, type PackDeps, type PackInput } from '../../../scripts/release-pack';
 import { main as signMain, type SignIo } from '../../../scripts/release-sign';
-import { imageId, makeFake } from './crmctl-fakes';
+import { imageId, makeFake, seedInstalled } from './crmctl-fakes';
 
 const REPO = process.cwd();
 
@@ -213,6 +213,67 @@ test('прогон: собрать пакет на тестовом ключе -
   const p3 = await pack(dir, '0.9.2', keys);
   const c = cli(['0.9.2']);
   assert.equal(await signMain(['sign', p3.archive, '--key', stranger.key, '--kid', 'rel-test', '--expect-sha256', p3.archiveSha256], c.io), 1, 'ключ другого владельца под kid rel-test: отпечаток не входит в манифест');
+});
+
+// RUNBOOK «Откат на версию до O4c»: владелец пакует ту же сборку прежней версии с --release-keys, подписывает,
+// root кладёт manifest.json и подпись в packages/<клиент>-<версия>/, rollback дописывает запись о проверке.
+test('откат на версию до O4c по RUNBOOK: release-pack --release-keys -> release-sign sign -> crmctl rollback', async () => {
+  const dir = await tmp();
+  const owner = await keygen(dir, 'rel-test');
+  const f = await makeFake();
+  f.deps.trust.release = { 'rel-test': owner.pub }; // текущий crmctl на хосте знает только этот ключ релизов
+  await seedInstalled(f, '1.1.0', '1.0.0');
+  // 1.0.0 поставлена crmctl до O4c: в state.json нет записи о проверке, в packages/ ничего нет
+  const st = (await readState(f.deps.paths))!;
+  delete st.previous!.manifestSha256;
+  delete st.previous!.verified;
+  delete st.previous!.kid;
+  await writeState(f.deps.paths, st);
+  const pdir = path.join(f.dirs.lib, 'packages', 'crp-1.0.0');
+  const { rm } = await import('node:fs/promises');
+  await rm(pdir, { recursive: true, force: true });
+
+  const tar = path.join(dir, 'images-1.0.0.tar');
+  await writeFile(tar, 'синтетический docker save 1.0.0');
+  const packWith = async (keys: Record<string, string>, out: string) => {
+    const keysFile = path.join(dir, `${out}.json`);
+    await writeFile(keysFile, JSON.stringify(keys));
+    const { deps } = packDeps(0);
+    assert.equal(await packMain([
+      '--customer', 'crp', '--version', '1.0.0', '--build-id', st.previous!.buildId, '--built-at', '1790000000000',
+      '--commit', 'b'.repeat(40), '--config-schema', '1', '--repo', REPO, '--out-dir', path.join(dir, out),
+      '--images-tar', tar, '--image-digest', imageId('crm-app:1.0.0'), '--release-keys', keysFile,
+    ], deps), 0);
+    const archive = path.join(dir, out, 'crm-crp-1.0.0.tar.zst');
+    return { archive, sha: (await hashFile(archive)).sha256 };
+  };
+  const signArgs = (p: { archive: string; sha: string }) => ['sign', p.archive, '--key', owner.key, '--kid', 'rel-test', '--expect-sha256', p.sha];
+
+  // прежняя редакция RUNBOOK: файл ключей `{}` — release-sign такой манифест не подписывает
+  const empty = await packWith({}, 'out-empty');
+  let c = cli(['1.0.0']);
+  assert.equal(await signMain(signArgs(empty), c.io), 1);
+  assert.match(c.err.join('\n'), /общей сборки/);
+
+  // файл ключей — текущий открытый ключ релизов rel-…
+  const p = await packWith({ 'rel-test': owner.pub }, 'out-rel');
+  c = cli(['1.0.0']);
+  assert.equal(await signMain(signArgs(p), c.io), 0, c.err.join('\n'));
+  const { manifestBytes } = await scanArchive(p.archive, { verifyManifest: () => {} });
+  await mkdir(pdir, { recursive: true });
+  await writeFile(path.join(pdir, 'manifest.json'), manifestBytes);
+  await writeFile(path.join(pdir, 'manifest.sig'), await readFile(p.archive.replace(/\.tar\.zst$/, '.manifest.sig')));
+
+  assert.equal(await run(['rollback', '--wait-seconds', '1'], f.deps), 0, f.err.join('\n'));
+  assert.match(f.out.join('\n'), /запись о проверке подписи 1\.0\.0 восстановлена .*ключ rel-test/);
+  const after = await readState(f.deps.paths);
+  assert.equal(after?.current.version, '1.0.0');
+  assert.equal(after?.current.kid, 'rel-test');
+  assert.equal(after?.current.verified, 'signature');
+  assert.equal(after?.current.manifestSha256, createHash('sha256').update(manifestBytes).digest('hex'));
+  assert.equal(f.server.running, '1.0.0');
+  assert.equal(f.calls.some((x) => x.cmd === 'docker' && (x.args[0] === 'create' || x.args[0] === 'cp')), false, 'crmctl на хосте остаётся текущим');
+  assert.match(f.err.join('\n'), /остаётся текущий crmctl/);
 });
 
 // ------------------------------------------- release-pack --image: проверка образа check-image.sh (Q2a, круг 2)
