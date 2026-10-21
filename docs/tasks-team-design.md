@@ -128,7 +128,8 @@ client_id = $c AND status = 'open'` (индекс `deals_client_idx`). Выиг�
   (подхватывает карточки, срок которых попал в отсутствие позже). Повтор идемпотентен: карточка с уже
   заданным временным не трогается.
 - **Снятие**: задача `absence` снимает `acting_*` у карточек с `acting_until_day < сегодня`; отмена
-  отсутствия снимает сразу у всех карточек `owner = U`. Строка `assign_log` `kind='absence'`,
+  отсутствия снимает сразу у карточек этого отсутствия: `owner = U` и `acting_until_day = to_day` (D-304).
+  Видимость временного ограничена сроком в охвате (`acting_until_day >= сегодня`, D-303) и от задачи не зависит. Строка `assign_log` `kind='absence'`,
   `from = временный`, `to = владелец` (нужна D-175 «был владельцем в момент звонка»), лента `card.acting`
   `{actingUserId: null, untilDay: ''}`. Ядро события снятия не имеет — запись пакетом, тест паритета
   полей с ядром не нужен (меняются только два поля и версия).
@@ -174,11 +175,12 @@ untilDay}, now, {opId: absence.id})`. Уведомление каждому вр
 
 **`cancelAbsence(viewer, id)`**: тх, advisory; `UPDATE absences a SET cancelled_at = $now WHERE a.id = $id
 AND a.space_id = $s AND a.cancelled_at IS NULL RETURNING a.user_id` (0 строк: нет → 404, уже отменено →
-прежний ответ); снятие временных §2.5.4 для `owner = U`; аудит `distribution.absence_cancel`.
+прежний ответ); снятие временных §2.5.4 для `owner = U` и `acting_until_day = to_day` (D-304); аудит
+`distribution.absence_cancel`.
 
 **Задача `absence`** (SystemActor, по пространству): тх, advisory; снятие по сроку §2.5.4; для каждого
 отсутствия, активного сегодня, — `applyAbsences`. Отчёт `{ended, released, acting}` в `job_runs.stats`.
-Строку в `src/server/jobs/registry.ts` добавляет координатор (T0).
+Строка в `src/server/jobs/registry.ts` (`absenceJob` в `jobDefinitions`) и проверка в `registry.test.ts`.
 
 **`setPause(viewer, {userId, paused})`**: тх, advisory; `UPDATE memberships m SET paused_on = $v, updated_at
 = $now WHERE m.user_id = $u AND m.space_id = $s AND m.status = 'active' RETURNING …` (0 → 404); аудит
@@ -209,7 +211,8 @@ SELECT c.id, c.client_id, c.state, c.acting_until_day FROM cards c
 ```sql
 SELECT c.id, c.client_id, c.owner_user_id, c.acting_user_id FROM cards c
  WHERE c.space_id = $s AND c.acting_user_id IS NOT NULL
-   AND (($owner::text IS NULL AND c.acting_until_day < $today) OR c.owner_user_id = $owner)
+   AND (($owner::text IS NULL AND c.acting_until_day < $today)
+        OR (c.owner_user_id = $owner AND c.acting_until_day = $toDay))   -- отмена: только это отсутствие (D-304)
  ORDER BY c.id FOR UPDATE OF c;
 UPDATE cards SET acting_user_id = NULL, acting_until_day = '', version = version + 1, updated_at = $now WHERE id = ANY($ids);
 INSERT INTO assign_log (…kind 'absence', from_user_id = acting, to_user_id = owner, counts_to_cap = FALSE, run_id = $runId, day, actor_id…) SELECT … FROM unnest(…);
@@ -499,7 +502,8 @@ NOTHING`; лента `task.comment` `{taskId, commentId}` (текста в ле�
 
 `src/server/access/scope.ts` `taskPred.own()`: `(X.assignee_user_id = me OR EXISTS (SELECT 1 FROM cards
 acc_ta WHERE acc_ta.space_id = X.space_id AND acc_ta.client_id = X.client_id AND acc_ta.acting_user_id = me
-AND acc_ta.owner_user_id = X.assignee_user_id)) AND <карточка видна>`. Это задача platform (T2: architect
+AND acc_ta.acting_until_day >= $today AND acc_ta.owner_user_id = X.assignee_user_id)) AND <карточка видна>`;
+охват карточки `own`/`team` для временного — тоже только при `acting_until_day >= $today` (D-303). Это задача platform (T2: architect
 пишет, reviewer проверяет), 26.10 не нужна, к B7 27.10. Тест изоляции: временный видит задачи владельца по
 карточкам, где он временный, и только их; после снятия — 404.
 
@@ -720,9 +724,10 @@ Unit-тест паритета: для одной карточки строки 
 
 ### 7.2. Пары
 
-`GET /api/distribution/pairs?status=open` (`pool.read`): `SELECT p.id, p.a_client_id, p.b_client_id, p.reason,
-p.status, p.created_at FROM dup_pairs p WHERE p.status = $st ORDER BY p.created_at LIMIT 100`
-(`dup_pairs_open_idx`) + по каждой стороне карточка пространства через `S('card','pool.read')` (название,
+`GET /api/distribution/pairs?status=open&cursor=` (`pool.read`): `SELECT p.id, p.a_client_id, p.b_client_id,
+p.reason, p.status, p.created_at FROM dup_pairs p WHERE p.status = $st AND (p.created_at, p.id) > $cursor AND EXISTS
+(SELECT 1 FROM cards c WHERE c.client_id IN (p.a_client_id, p.b_client_id) AND c.space_id = $s AND S('card','pool.read'))
+ORDER BY p.created_at, p.id LIMIT 101` (`dup_pairs_open_idx`; охват до `LIMIT`, ответ `{items, next}`, D-272) + по каждой стороне карточка пространства через `S('card','pool.read')` (название,
 номера, состояние, владелец); пара, у которой ни одной стороны не видно, не выводится.
 `POST …/[id]/resolve` `{decision: 'distinct' | 'split_allowed', comment}` (`card.assign`): `split_allowed`
 требует комментарий, если общий номер рабочий у обеих сторон (PROCESS 7.6); `UPDATE dup_pairs SET status,
