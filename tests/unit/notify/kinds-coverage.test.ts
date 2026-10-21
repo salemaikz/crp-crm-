@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { hrefForKind, isKnownKind } from '../../../src/app/(op)/notifications/kinds';
+import { hrefForKind, isKnownKind, isTextOnlyKind } from '../../../src/app/(op)/notifications/kinds';
 
 const root = join(import.meta.dirname, '..', '..', '..');
 const msgs = JSON.parse(readFileSync(join(root, 'messages', 'ru', 'notify.json'), 'utf8')) as { kinds: Record<string, string> };
@@ -23,6 +23,10 @@ function createdKinds(): Set<string> {
   for (const file of walk(join(root, 'src', 'server'))) {
     const src = readFileSync(file, 'utf8');
     for (const m of src.matchAll(/insert\w*Notifications?\([^)]*?kind:\s*'([a-z_]+)'/gs)) kinds.add(m[1]!);
+    // Уведомления интеграций и мессенджера (`insert…Notice(…)`), в том числе вид, выбранный условием `a ? 'x' : 'y'`
+    for (const m of src.matchAll(/insert\w*Notice\([^)]*?kind:\s*([^,\n]+)/gs)) {
+      for (const lit of m[1]!.matchAll(/(?<!===\s*)'([a-z_]+)'/g)) kinds.add(lit[1]!);
+    }
     for (const m of src.matchAll(/out\.notifications\.push\(\{[^}]*?kind:\s*'([a-z_]+)'/gs)) kinds.add(m[1]!);
     for (const m of src.matchAll(/INSERT INTO notifications[\s\S]{0,400}?SELECT[^;]*?'([a-z_]+)'\s*,\s*''/g)) kinds.add(m[1]!);
   }
@@ -31,7 +35,11 @@ function createdKinds(): Set<string> {
 
 test('виды уведомлений из кода найдены (страховка от пустого сканирования)', () => {
   const kinds = createdKinds();
-  for (const k of ['absence_acting', 'absence_no_substitute', 'task_assigned', 'task_comment', 'cards_assigned']) {
+  for (const k of [
+    'absence_acting', 'absence_no_substitute', 'task_assigned', 'task_comment', 'cards_assigned',
+    // записи, сделки и передачи (B5, B6) и интеграции (O6, O7a)
+    'reserve_promoted', 'deal_won', 'handoff_new', 'messenger_channel_new', 'messenger_dnc_unknown', 'integration_inbox_failed',
+  ]) {
     assert.ok(kinds.has(k), `сканер не нашёл ${k}`);
   }
 });
@@ -40,6 +48,7 @@ test('для каждого созданного вида есть текст и
   for (const kind of createdKinds()) {
     assert.ok(msgs.kinds[kind], `нет текста ${kind}`);
     assert.ok(isKnownKind(kind), `нет вида в HREF ${kind}`);
-    assert.ok(hrefForKind(kind), `нет ссылки ${kind}`);
+    // Без ссылки — только виды, явно объявленные текстовыми (у получателей нет общего экрана)
+    assert.ok(hrefForKind(kind) || isTextOnlyKind(kind), `нет ссылки ${kind}`);
   }
 });
