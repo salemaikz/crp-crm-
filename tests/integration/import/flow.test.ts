@@ -10,6 +10,7 @@ import { newId } from '../../../src/server/platform/db';
 import { INTAKE_LOCK_KEY } from '../../../src/server/platform/db/locks';
 import { createTestDb, type TestDb } from '../../../src/server/platform/db/testing';
 import { SpreadsheetError } from '../../../src/server/platform/files';
+import { digitRunsExcept } from '../../helpers/piiDigits';
 import { zip } from '../../unit/import/xlsxBuilder';
 import { T0, makeWorld, mainCsv, snapshot, upload, type World } from './helpers';
 
@@ -57,11 +58,13 @@ test('загрузка: 2 200 строк в import_rows, ИИН ИП тольк�
   const withHmac = await db.sql<any>`SELECT row_no FROM import_rows WHERE import_id = ${up.importId} AND parsed ->> 'orgId' LIKE 'iin:%'`;
   assert.equal(withHmac.length, 20);
   const [imp] = await db.sql<any>`SELECT report::text AS report, file_name FROM imports WHERE id = ${up.importId}`;
-  assert.doesNotMatch(imp.report, /\d{10,}/, 'в отчёте нет номеров');
+  // id импорта (UUID) бывает с 10+ цифрами подряд — вырезается только он, остальное проверяется
+  assert.deepEqual(digitRunsExcept(imp.report, [up.importId]), [], 'в отчёте нет номеров');
   assert.doesNotMatch(imp.report, /ТОО|Альфа|Оператор/, 'в отчёте нет названий');
   const audit = await db.sql<any>`SELECT meta::text AS meta FROM audit_log WHERE entity = 'import' AND action = 'import.upload'`;
   assert.equal(audit.length, 1);
-  assert.doesNotMatch(audit[0].meta, /журнал|\d{10,}/);
+  assert.doesNotMatch(audit[0].meta, /журнал/);
+  assert.deepEqual(digitRunsExcept(audit[0].meta, [up.importId]), [], 'в журнале нет номеров');
 });
 
 test('предпросмотр: каждому оператору N, ИП задержаны, пересечение диапазонов — import_conflict', async () => {

@@ -18,7 +18,8 @@
 
 ```
 docker build -t crm-app:<версия> --build-arg BUILD_ID=<sha> .
-# клиентский образ: + --build-arg CUSTOMER_ID=<клиент> --secret id=license_keys,src=<keys.json>
+# клиентский образ: + --build-arg CUSTOMER_ID=<клиент> --build-arg BUILT_AT=$(date +%s%3N) --secret id=license_keys,src=<keys.json>
+# BUILT_AT — время сборки в водяном знаке: лицензия прежней сборки работает не дольше 7 суток от него (D-290)
 scripts/check-image.sh crm-app:<версия>
 ```
 

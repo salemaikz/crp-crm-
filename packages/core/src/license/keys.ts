@@ -1,7 +1,8 @@
 // Открытые ключи лицензий и водяной знак сборки (D-028, D-101, D-211).
 // В сборке поставки packages/core/build.mjs подставляет через esbuild `define`:
 //   __CRM_LICENSE_KEYS__ — JSON `{ "<kid>": "<base64 32 байта открытого ключа Ed25519>" }` (ключи владельца);
-//   __CRM_CUSTOMER_ID__, __CRM_BUILD_ID__ — водяной знак клиента.
+//   __CRM_CUSTOMER_ID__, __CRM_BUILD_ID__, __CRM_BUILT_AT__ — водяной знак клиента (время сборки — epoch-мс
+//   строкой; от него считается льгота лицензии прежней сборки, D-290).
 // В dev и тестах констант нет: ядро доверяет только тестовому ключу `test-1` ниже. Его закрытая половина
 // в репозиторий не попадает (у владельца; тесты подписывают одноразовыми ключами). В сборке клиента
 // (водяной знак задан) ключи `test-*` не принимаются никогда — даже если её по ошибке собрали без своих ключей.
@@ -10,12 +11,17 @@ import { createPublicKey, type KeyObject } from 'node:crypto';
 declare const __CRM_LICENSE_KEYS__: unknown;
 declare const __CRM_CUSTOMER_ID__: unknown;
 declare const __CRM_BUILD_ID__: unknown;
+declare const __CRM_BUILT_AT__: unknown;
 
 /** kid → открытый ключ Ed25519 (base64 сырых 32 байт). */
 export type TrustedKeys = Readonly<Record<string, string>>;
 
-/** Водяной знак сборки; null — общая сборка (dev, тесты, общий образ без слоя клиента). */
-export type Watermark = { customer: string | null; buildId: string | null };
+/**
+ * Водяной знак сборки; null — общая сборка (dev, тесты, общий образ без слоя клиента).
+ * builtAt — время сборки ядра (epoch-мс); null — не вшито (dev, общая сборка, образы до D-290): льготы
+ * для лицензии прежней сборки тогда нет.
+ */
+export type Watermark = { customer: string | null; buildId: string | null; builtAt: number | null };
 
 /** Тестовый ключ репозитория. Только для dev, тестов и общей сборки; в сборке клиента не действует. */
 export const TEST_KEYS: TrustedKeys = Object.freeze({ 'test-1': 'tW3RIfHgQEA86ddaG5bkfbGdcHTeADZt8khVP8s+5LI=' });
@@ -34,11 +40,19 @@ function definedString(read: () => unknown): string | null {
   return typeof v === 'string' && v !== '' && v !== UNSET ? v : null;
 }
 
-/** Водяной знак, вшитый при сборке ядра (build.mjs --customer/--build-id). */
+const BUILT_AT_RE = /^[1-9][0-9]{12}$/;
+
+/** Время сборки из строки epoch-мс (13 цифр); иное — null. */
+export function parseBuiltAt(v: string | null): number | null {
+  return v !== null && BUILT_AT_RE.test(v) ? Number(v) : null;
+}
+
+/** Водяной знак, вшитый при сборке ядра (build.mjs --customer/--build-id/--built-at). */
 export function buildWatermark(): Watermark {
   return {
     customer: definedString(() => (typeof __CRM_CUSTOMER_ID__ !== 'undefined' ? __CRM_CUSTOMER_ID__ : undefined)),
     buildId: definedString(() => (typeof __CRM_BUILD_ID__ !== 'undefined' ? __CRM_BUILD_ID__ : undefined)),
+    builtAt: parseBuiltAt(definedString(() => (typeof __CRM_BUILT_AT__ !== 'undefined' ? __CRM_BUILT_AT__ : undefined))),
   };
 }
 

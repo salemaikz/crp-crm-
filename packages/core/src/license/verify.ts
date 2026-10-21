@@ -14,6 +14,22 @@ export type VerifyExpect = {
 };
 
 export function verifyLicense(raw: string, expect: VerifyExpect): Verdict {
+  return check(raw, expect, true);
+}
+
+/**
+ * Опора льготы `wrong_build` (D-290): копия license_raw из БД, заново проверенная подписью, installId и клиентом.
+ * Строке license_state не доверяем: опорой служит только то, что подписал владелец для этой установки.
+ * buildId не сверяется — льгота и нужна, когда лицензия, привязанная к прежней сборке, перестала сходиться
+ * после обновления. Срок проверяет evaluateLicense (buildGraceUntil). null — копии нет или она не проходит проверку.
+ */
+export function verifyStoredCopy(raw: string, expect: VerifyExpect): LicensePayload | null {
+  if (raw.trim() === '') return null;
+  const v = check(raw, expect, false);
+  return v.ok ? v.license : null;
+}
+
+function check(raw: string, expect: VerifyExpect, checkBuild: boolean): Verdict {
   const d = decodeLicense(raw);
   if (!d.ok) return d;
   const { payload, signed, signature } = d.value;
@@ -30,6 +46,6 @@ export function verifyLicense(raw: string, expect: VerifyExpect): Verdict {
   if (!good) return { ok: false, reason: 'bad_signature' };
   if (payload.installId !== expect.installId) return { ok: false, reason: 'wrong_install' };
   if (expect.watermark.customer !== null && payload.customer !== expect.watermark.customer) return { ok: false, reason: 'wrong_customer' };
-  if (payload.buildId !== undefined && payload.buildId !== expect.watermark.buildId) return { ok: false, reason: 'wrong_build' };
+  if (checkBuild && payload.buildId !== undefined && payload.buildId !== expect.watermark.buildId) return { ok: false, reason: 'wrong_build' };
   return { ok: true, license: payload };
 }

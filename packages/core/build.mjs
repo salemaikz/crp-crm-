@@ -4,10 +4,13 @@
 // В dev и тестах ядро берётся из исходников (tsconfig paths); dist нужен только production-сборке Next.
 //
 //   node packages/core/build.mjs                   общая сборка (водяной знак «unset»)
-//   node packages/core/build.mjs --customer <клиент> --build-id <id> --license-keys <файл>
+//   node packages/core/build.mjs --customer <клиент> --build-id <id> --license-keys <файл> [--built-at <epoch-мс>]
 //                                                  сборка ядра клиента (слой образа); файл — JSON
 //                                                  { "<kid>": "<base64 32 байта открытого ключа>" } (D-211).
 //                                                  Для клиента ключи обязательны; тестовые `test-*` — запрещены.
+//                                                  --built-at (или CRM_BUILT_AT) — время сборки в водяной знак,
+//                                                  по умолчанию «сейчас»; от него 7 суток льготы лицензии
+//                                                  прежней сборки (D-290). Не позже «сейчас» + 1 сут.
 //   node packages/core/build.mjs --check           + проверки: нет карт и путей, экспорт совпадает,
 //                                                  тесты ядра и тест-векторы на обфусцированной сборке
 //   node packages/core/build.mjs --no-obfuscate    только esbuild + минификация (диагностика, запасной вариант)
@@ -35,6 +38,7 @@ const { values: args } = parseArgs({
     customer: { type: 'string', default: process.env.CRM_CUSTOMER_ID ?? 'unset' },
     'build-id': { type: 'string', default: process.env.CRM_BUILD_ID ?? 'unset' },
     'license-keys': { type: 'string', default: process.env.CRM_LICENSE_KEYS_FILE },
+    'built-at': { type: 'string', default: process.env.CRM_BUILT_AT || undefined },
     check: { type: 'boolean', default: false },
     'no-obfuscate': { type: 'boolean', default: false },
   },
@@ -76,6 +80,20 @@ function loadLicenseKeys() {
 }
 const licenseKeys = loadLicenseKeys();
 
+/**
+ * Время сборки (D-290): только в сборке клиента, в общей — «unset» (у неё нет лицензии, а файл ядра остаётся
+ * одинаковым от сборки к сборке). Будущее дальше суток — ошибка: иначе льгота прежней лицензии растянулась бы.
+ */
+function builtAt() {
+  const v = args['built-at'];
+  if (args.customer === 'unset') return 'unset';
+  if (v === undefined) return String(Date.now());
+  if (!/^[1-9][0-9]{12}$/.test(v)) fail('--built-at: epoch-мс, 13 цифр');
+  if (Number(v) > Date.now() + 86_400_000) fail('--built-at: время сборки в будущем');
+  return v;
+}
+const builtAtValue = builtAt();
+
 // Внешние зависимости ядра: только zod (D-011) и встроенные модули — их не бандлим и не обфусцируем.
 const EXTERNAL = ['zod', 'node:*'];
 
@@ -83,6 +101,7 @@ const EXTERNAL = ['zod', 'node:*'];
 const define = {
   __CRM_CUSTOMER_ID__: JSON.stringify(args.customer),
   __CRM_BUILD_ID__: JSON.stringify(args['build-id']),
+  __CRM_BUILT_AT__: JSON.stringify(builtAtValue),
   // Без файла константы нет: ядро доверяет только тестовому ключу репозитория (dev и общая сборка)
   ...(licenseKeys === null ? {} : { __CRM_LICENSE_KEYS__: JSON.stringify(licenseKeys) }),
 };
@@ -166,7 +185,7 @@ async function buildCore() {
     `core build: ${relative(process.cwd(), OUT)} · esbuild ${(t1 - t0).toFixed(0)} мс · ` +
       `обфускация ${args['no-obfuscate'] ? 'выкл' : `${(t2 - t1).toFixed(0)} мс`} · ` +
       `${kb(plain.length)} → ${kb(code.length)} (gzip ${kb(gzipSync(code).length)}) · ` +
-      `клиент ${args.customer}, сборка ${args['build-id']}, ключи лицензий ${licenseKeys === null ? 'тестовый' : Object.keys(JSON.parse(licenseKeys)).join(',')}`,
+      `клиент ${args.customer}, сборка ${args['build-id']}${builtAtValue === 'unset' ? '' : ` от ${new Date(Number(builtAtValue)).toISOString()}`}, ключи лицензий ${licenseKeys === null ? 'тестовый' : Object.keys(JSON.parse(licenseKeys)).join(',')}`,
   );
   return { plain, code };
 }

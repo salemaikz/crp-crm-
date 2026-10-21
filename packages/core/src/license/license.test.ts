@@ -17,15 +17,19 @@ import {
   missingAllowed,
   signingInput,
   verifyLicense,
+  verifyStoredCopy,
   CLOCK_MAX_STEP_MS,
+  INVALID_GRACE_DAYS,
+  type EvaluateInput,
   type LicensePayload,
   type Watermark,
 } from './index';
+import { parseBuiltAt } from './keys';
 
 const H = 3_600_000;
 const T0 = Date.UTC(2026, 9, 24, 6, 0, 0);
 const INSTALL = '11111111-2222-3333-4444-555555555555';
-const NO_MARK: Watermark = { customer: null, buildId: null };
+const NO_MARK: Watermark = { customer: null, buildId: null, builtAt: null };
 
 function keypair() {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
@@ -55,6 +59,10 @@ function signWith(p: LicensePayload, key = K.privateKey): string {
   const signed = signingInput(p);
   return assembleLicense(signed, sign(null, Buffer.from(signed, 'ascii'), key));
 }
+
+/** Оценка с опорой по умолчанию — рабочая подписанная копия payload() и сборка от T0. */
+const ev = (i: Omit<EvaluateInput, 'builtAt' | 'anchor'> & Partial<Pick<EvaluateInput, 'builtAt' | 'anchor'>>) =>
+  evaluateLicense({ builtAt: T0, anchor: payload(), ...i });
 
 const expect = (watermark: Watermark = NO_MARK, keys: Record<string, string> = KEYS) => ({ installId: INSTALL, keys, watermark });
 
@@ -92,7 +100,7 @@ test('чужой installId, чужой клиент, привязка к сбо�
     ok: false,
     reason: 'wrong_install',
   });
-  const mark: Watermark = { customer: 'demo-co', buildId: 'b-42' };
+  const mark: Watermark = { customer: 'demo-co', buildId: 'b-42', builtAt: T0 };
   assert.equal(verifyLicense(signWith(payload()), expect(mark)).ok, true);
   assert.deepEqual(verifyLicense(signWith(payload({ customer: 'other-co' })), expect(mark)), { ok: false, reason: 'wrong_customer' });
   assert.equal(verifyLicense(signWith(payload({ buildId: 'b-42' })), expect(mark)).ok, true);
@@ -106,25 +114,25 @@ test('тестовые ключи в сборке клиента не прини
   const testKeys = { 'test-x': K.pub };
   const raw = signWith(payload({ kid: 'test-x' }));
   assert.equal(verifyLicense(raw, expect(NO_MARK, testKeys)).ok, true);
-  assert.deepEqual(verifyLicense(raw, expect({ customer: 'demo-co', buildId: null }, testKeys)), { ok: false, reason: 'test_key_in_client_build' });
+  assert.deepEqual(verifyLicense(raw, expect({ customer: 'demo-co', buildId: null, builtAt: null }, testKeys)), { ok: false, reason: 'test_key_in_client_build' });
   assert.deepEqual(embeddedKeys(), TEST_KEYS);
   assert.deepEqual(buildWatermark(), NO_MARK);
 });
 
 test('общая сборка: без лицензии работает (missing → valid); сборка клиента — missing блокирует', () => {
   assert.equal(missingAllowed(NO_MARK), true);
-  assert.equal(missingAllowed({ customer: 'demo-co', buildId: 'b-1' }), false);
-  const dev = evaluateLicense({ verdict: null, now: T0, previous: null, invalidSince: null, allowMissing: true });
+  assert.equal(missingAllowed({ customer: 'demo-co', buildId: 'b-1', builtAt: T0 }), false);
+  const dev = ev({ verdict: null, now: T0, previous: null, invalidSince: null, allowMissing: true });
   assert.deepEqual([dev.status, dev.access], ['missing', 'valid']);
   // Загруженная, но плохая лицензия в общей сборке не прощается
-  const bad = evaluateLicense({ verdict: { ok: false, reason: 'bad_signature' }, now: T0, previous: 'missing', invalidSince: null, allowMissing: true });
+  const bad = ev({ verdict: { ok: false, reason: 'bad_signature' }, now: T0, previous: 'missing', invalidSince: null, allowMissing: true });
   assert.equal(bad.access, 'invalid');
 });
 
 test('проверка срока не в подписи: подпись верна, но notBefore в будущем — invalid', () => {
   const v = verifyLicense(signWith(payload({ notBefore: T0 + DAY_MS })), expect());
   assert.equal(v.ok, true);
-  const e = evaluateLicense({ verdict: v, now: T0, previous: null, invalidSince: null });
+  const e = ev({ verdict: v, now: T0, previous: null, invalidSince: null });
   assert.equal(e.status, 'invalid');
   assert.equal(e.reason, 'not_yet_valid');
   assert.equal(e.access, 'invalid');
@@ -132,7 +140,7 @@ test('проверка срока не в подписи: подпись вер�
 
 test('истечение → expiring → льгота (grace) → read_only; признаки модулей', () => {
   const v = verifyLicense(signWith(payload()), expect());
-  const at = (now: number) => evaluateLicense({ verdict: v, now, previous: 'valid', invalidSince: null });
+  const at = (now: number) => ev({ verdict: v, now, previous: 'valid', invalidSince: null });
   const exp = T0 + 30 * DAY_MS;
   assert.deepEqual([at(T0).status, at(T0).access], ['valid', 'valid']);
   assert.deepEqual([at(exp - 14 * DAY_MS).status, at(exp - 14 * DAY_MS).access], ['expiring', 'valid']);
@@ -148,59 +156,132 @@ test('истечение → expiring → льгота (grace) → read_only; п
   assert.equal(hasFeature(at(T0), 'messenger.wazzup'), false);
   // graceDays = 0: сразу после срока — «только чтение»
   const v0 = verifyLicense(signWith(payload({ graceDays: 0 })), expect());
-  assert.equal(evaluateLicense({ verdict: v0, now: exp, previous: 'expiring', invalidSince: null }).access, 'read_only');
+  assert.equal(ev({ verdict: v0, now: exp, previous: 'expiring', invalidSince: null }).access, 'read_only');
 });
 
-test('отсутствие лицензии → missing; invalid при первой установке → сразу invalid, после рабочей — льгота 7 дней', () => {
-  assert.deepEqual(evaluateLicense({ verdict: null, now: T0, previous: 'valid', invalidSince: null }).access, 'missing');
+test('отсутствие лицензии → missing; invalid не по сборке льготы не даёт, что бы ни было в прошлой проверке', () => {
+  assert.deepEqual(ev({ verdict: null, now: T0, previous: 'valid', invalidSince: null }).access, 'missing');
+  for (const reason of ['bad_signature', 'malformed', 'unknown_kid', 'wrong_install', 'wrong_customer', 'test_key_in_client_build'] as const) {
+    for (const previous of [null, 'missing', 'valid', 'expiring', 'expired', 'invalid'] as const) {
+      const e = ev({ verdict: { ok: false, reason }, now: T0, previous, invalidSince: null });
+      assert.deepEqual([e.status, e.access, e.graceUntil], ['invalid', 'invalid', null], `${reason} ${previous}`);
+    }
+  }
+  // invalid_since — только для показа: прежнее начало сохраняется, если прошлая проверка тоже invalid
   const bad = { ok: false as const, reason: 'bad_signature' as const };
-  const first = evaluateLicense({ verdict: bad, now: T0, previous: 'missing', invalidSince: null });
-  assert.deepEqual([first.status, first.access, first.invalidSince], ['invalid', 'invalid', null]);
-  const after = evaluateLicense({ verdict: bad, now: T0, previous: 'valid', invalidSince: null });
-  assert.deepEqual([after.status, after.access, after.invalidSince, after.graceUntil], ['invalid', 'grace', T0, T0 + 7 * DAY_MS]);
-  // Льгота считается от сохранённого начала, повторные проверки её не продлевают
-  const later = evaluateLicense({ verdict: bad, now: T0 + 7 * DAY_MS, previous: 'invalid', invalidSince: T0 });
-  assert.deepEqual([later.access, later.invalidSince], ['invalid', T0]);
-  // После «expired» льготы invalid нет: подмена файла не продлевает просроченную лицензию
-  assert.equal(evaluateLicense({ verdict: bad, now: T0, previous: 'expired', invalidSince: null }).access, 'invalid');
+  assert.equal(ev({ verdict: bad, now: T0, previous: 'invalid', invalidSince: T0 - DAY_MS }).invalidSince, T0 - DAY_MS);
+  assert.equal(ev({ verdict: bad, now: T0, previous: 'valid', invalidSince: T0 - DAY_MS }).invalidSince, T0);
+  assert.equal(ev({ verdict: bad, now: T0, previous: 'invalid', invalidSince: T0 + DAY_MS }).invalidSince, T0);
 });
+
+const WRONG_BUILD = { ok: false as const, reason: 'wrong_build' as const };
+
+/** Правило часов в живом процессе без хода монотонного времени и без эпизода «часы позади» (их и перезапуски —
+ *  clock.test.ts). */
+const adv = (clock: number, lastSeenAt: number | null, lastStepAt: number | null) =>
+  advanceClock({ clock, lastSeenAt, lastStepAt, realAt: null, behind: null, mono: 0, anchor: { mono: 0, realAt: lastSeenAt ?? clock } });
 
 test('правило часов: назад — не продлевает; вперёд — шаг 48 ч не чаще раза в час; обычный ход', () => {
   // Обычный ход
-  assert.deepEqual(advanceClock({ clock: T0 + H, lastSeenAt: T0, lastStepAt: T0 }), {
-    now: T0 + H,
-    lastSeenAt: T0 + H,
-    lastStepAt: T0 + H,
-    jump: 'none',
-    stepped: false,
-  });
+  const n = adv(T0 + H, T0, T0);
+  assert.deepEqual([n.now, n.lastSeenAt, n.lastStepAt, n.jump, n.stepped, n.locked], [T0 + H, T0 + H, T0 + H, 'none', false, false]);
   // Первая проверка
-  assert.equal(advanceClock({ clock: T0, lastSeenAt: null, lastStepAt: null }).lastSeenAt, T0);
-  // Назад на 40 дней: «сейчас» остаётся максимумом виденного
-  const back = advanceClock({ clock: T0 - 40 * DAY_MS, lastSeenAt: T0, lastStepAt: T0 });
-  assert.deepEqual([back.now, back.lastSeenAt, back.jump], [T0, T0, 'backward']);
+  assert.equal(adv(T0, null, null).lastSeenAt, T0);
+  // Назад на 40 дней: «сейчас» не меньше максимума виденного
+  const back = adv(T0 - 40 * DAY_MS, T0, T0);
+  assert.deepEqual([back.now, back.lastSeenAt, back.jump, back.alert], [T0, T0, 'backward', true]);
   // Дрейф на минуту — не тревога
-  assert.equal(advanceClock({ clock: T0 - 60_000, lastSeenAt: T0, lastStepAt: T0 }).jump, 'none');
+  assert.equal(adv(T0 - 60_000, T0, T0).jump, 'none');
   // Вперёд на 72 ч (сервер стоял): считаем по часам, максимум сдвигается на 48 ч; через минуту — догоняет
-  const fwd = advanceClock({ clock: T0 + 72 * H, lastSeenAt: T0, lastStepAt: T0 });
+  const fwd = adv(T0 + 72 * H, T0, T0);
   assert.deepEqual([fwd.now, fwd.lastSeenAt, fwd.jump, fwd.stepped], [T0 + 72 * H, T0 + CLOCK_MAX_STEP_MS, 'forward', true]);
-  const next = advanceClock({ clock: T0 + 72 * H + 60_000, lastSeenAt: fwd.lastSeenAt, lastStepAt: fwd.lastStepAt });
+  const next = adv(T0 + 72 * H + 60_000, fwd.lastSeenAt, fwd.lastStepAt);
   assert.deepEqual([next.lastSeenAt, next.jump], [T0 + 72 * H + 60_000, 'none']);
   // Часы ушли на год вперёд: шаг 48 ч, затем в течение часа шагов нет, через час — ещё 48 ч
   const year = T0 + 365 * DAY_MS;
-  const s1 = advanceClock({ clock: year, lastSeenAt: T0, lastStepAt: T0 });
-  const s2 = advanceClock({ clock: year + 59 * 60_000, lastSeenAt: s1.lastSeenAt, lastStepAt: s1.lastStepAt });
+  const s1 = adv(year, T0, T0);
+  const s2 = adv(year + 59 * 60_000, s1.lastSeenAt, s1.lastStepAt);
   assert.deepEqual([s2.lastSeenAt, s2.stepped, s2.jump], [T0 + 48 * H, false, 'forward']);
-  const s3 = advanceClock({ clock: year + H, lastSeenAt: s2.lastSeenAt, lastStepAt: s2.lastStepAt });
+  const s3 = adv(year + H, s2.lastSeenAt, s2.lastStepAt);
   assert.deepEqual([s3.lastSeenAt, s3.stepped], [T0 + 96 * H, true]);
   // После починки часов лицензия снова считается по ним: «сейчас» = максимум виденного (≈ +4 сут), а не год вперёд
-  const fixed = advanceClock({ clock: T0 + H, lastSeenAt: s3.lastSeenAt, lastStepAt: s3.lastStepAt });
+  const fixed = adv(T0 + H, s3.lastSeenAt, s3.lastStepAt);
   assert.equal(fixed.now, T0 + 96 * H);
 });
 
 test('перевод часов назад не возвращает лицензию из «только чтения»', () => {
   const v = verifyLicense(signWith(payload()), expect());
   const roAt = T0 + 40 * DAY_MS + H;
-  const c = advanceClock({ clock: T0, lastSeenAt: roAt, lastStepAt: roAt });
-  assert.equal(evaluateLicense({ verdict: v, now: c.now, previous: 'read_only', invalidSince: null }).access, 'read_only');
+  const c = adv(T0, roAt, roAt);
+  assert.equal(ev({ verdict: v, now: c.now, previous: 'read_only', invalidSince: null }).access, 'read_only');
+});
+
+test('часы позади дольше 48 ч (clockLocked): рабочая лицензия и льгота → read_only/clock; invalid и missing — как были', () => {
+  const v = verifyLicense(signWith(payload()), expect());
+  const ro = ev({ verdict: v, now: T0, previous: 'valid', invalidSince: null, clockLocked: true });
+  assert.deepEqual([ro.status, ro.access, ro.reason, ro.graceUntil, ro.license?.lid], ['read_only', 'read_only', 'clock', null, 'lic-0001']);
+  const grace = ev({ verdict: v, now: T0 + 31 * DAY_MS, previous: 'expired', invalidSince: null, clockLocked: true });
+  assert.deepEqual([grace.access, grace.reason], ['read_only', 'clock']);
+  const wb = ev({ verdict: WRONG_BUILD, now: T0 + H, previous: 'valid', invalidSince: null, clockLocked: true });
+  assert.deepEqual([wb.access, wb.reason], ['read_only', 'clock']);
+  const bad = ev({ verdict: { ok: false, reason: 'bad_signature' }, now: T0, previous: 'valid', invalidSince: null, clockLocked: true });
+  assert.deepEqual([bad.status, bad.access, bad.reason], ['invalid', 'invalid', 'bad_signature']);
+  const none = ev({ verdict: null, now: T0, previous: null, invalidSince: null, clockLocked: true, allowMissing: true });
+  assert.deepEqual([none.status, none.access], ['missing', 'valid']);
+  assert.equal(ev({ verdict: v, now: T0, previous: 'valid', invalidSince: null, clockLocked: false }).access, 'valid');
+});
+
+test('льгота wrong_build: до builtAt + 7 сут, строка license_state её не даёт и не продлевает (D-290)', () => {
+  const B = T0 - 2 * DAY_MS;
+  const end = B + INVALID_GRACE_DAYS * DAY_MS;
+  // previous и invalid_since на льготу не влияют: любые значения — один и тот же конец
+  for (const previous of [null, 'missing', 'valid', 'expiring', 'expired', 'invalid'] as const) {
+    for (const invalidSince of [null, T0, T0 + 1_000 * DAY_MS, T0 - 30 * DAY_MS]) {
+      const e = ev({ verdict: WRONG_BUILD, now: T0, previous, invalidSince, builtAt: B });
+      assert.deepEqual([e.status, e.access, e.graceUntil], ['invalid', 'grace', end], `${previous} ${invalidSince}`);
+    }
+  }
+  assert.equal(ev({ verdict: WRONG_BUILD, now: end - 1, previous: 'valid', invalidSince: null, builtAt: B }).access, 'grace');
+  // Сброс «state = valid, invalid_since = NULL» после конца не возвращает льготу
+  for (const d of [8, 30, 100]) {
+    const e = ev({ verdict: WRONG_BUILD, now: B + d * DAY_MS, previous: 'valid', invalidSince: null, builtAt: B });
+    assert.deepEqual([e.access, e.graceUntil], ['invalid', null], `сутки ${d}`);
+  }
+  // Сборка без времени (dev, образ до D-290) — без льготы
+  assert.equal(ev({ verdict: WRONG_BUILD, now: T0, previous: 'valid', invalidSince: null, builtAt: null }).access, 'invalid');
+});
+
+test('льгота wrong_build: нужна рабочая подписанная копия; не дальше её expiresAt + graceDays (D-290)', () => {
+  assert.equal(ev({ verdict: WRONG_BUILD, now: T0, previous: 'valid', invalidSince: null, anchor: null }).access, 'invalid');
+  // Копия кончилась (expiresAt + graceDays позади) или ещё не началась — льготы нет
+  const old = payload({ expiresAt: T0 - 11 * DAY_MS, notBefore: T0 - 40 * DAY_MS, issuedAt: T0 - 40 * DAY_MS });
+  assert.equal(ev({ verdict: WRONG_BUILD, now: T0, previous: 'valid', invalidSince: null, anchor: old }).access, 'invalid');
+  assert.equal(ev({ verdict: WRONG_BUILD, now: T0, previous: 'valid', invalidSince: null, anchor: payload({ notBefore: T0 + DAY_MS }) }).access, 'invalid');
+  // Конец — раньший из builtAt + 7 сут и срока копии: expiresAt через 2 дня, graceDays 1 → T0 + 3 сут
+  const short = payload({ expiresAt: T0 + 2 * DAY_MS, graceDays: 1 });
+  const g = ev({ verdict: WRONG_BUILD, now: T0, previous: 'valid', invalidSince: null, anchor: short, builtAt: T0 });
+  assert.deepEqual([g.access, g.graceUntil], ['grace', T0 + 3 * DAY_MS]);
+  assert.equal(ev({ verdict: WRONG_BUILD, now: T0 + 3 * DAY_MS, previous: 'valid', invalidSince: null, anchor: short }).access, 'invalid');
+  // Сборка, долго лежавшая до установки: льготы меньше или нет
+  assert.equal(ev({ verdict: WRONG_BUILD, now: T0, previous: 'valid', invalidSince: null, builtAt: T0 - 6 * DAY_MS }).graceUntil, T0 + DAY_MS);
+  assert.equal(ev({ verdict: WRONG_BUILD, now: T0, previous: 'valid', invalidSince: null, builtAt: T0 - 7 * DAY_MS }).access, 'invalid');
+});
+
+test('время сборки в водяном знаке: только 13 цифр epoch-мс', () => {
+  assert.equal(parseBuiltAt('1792000000000'), 1_792_000_000_000);
+  for (const v of [null, '', 'unset', '0', '179200000000', '1792000000000.5', '-1792000000000', '01792000000000', ' 1792000000000']) {
+    assert.equal(parseBuiltAt(v), null, String(v));
+  }
+});
+
+test('verifyStoredCopy: подпись, installId и клиент — да, buildId — нет; мусор и пусто → null', () => {
+  const mark: Watermark = { customer: 'demo-co', buildId: 'b-42', builtAt: T0 };
+  assert.equal(verifyStoredCopy('', expect(mark)), null);
+  assert.equal(verifyStoredCopy('x', expect(mark)), null);
+  assert.equal(verifyStoredCopy(signWith(payload(), OTHER.privateKey), expect(mark)), null);
+  assert.equal(verifyStoredCopy(signWith(payload({ installId: '99999999-0000-0000-0000-000000000000' })), expect(mark)), null);
+  assert.equal(verifyStoredCopy(signWith(payload({ customer: 'other-co' })), expect(mark)), null);
+  // Лицензия прежней сборки — опора льготы после обновления
+  assert.equal(verifyStoredCopy(signWith(payload({ buildId: 'b-41' })), expect(mark))?.lid, 'lic-0001');
+  assert.deepEqual(verifyLicense(signWith(payload({ buildId: 'b-41' })), expect(mark)), { ok: false, reason: 'wrong_build' });
 });

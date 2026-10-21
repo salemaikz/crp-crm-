@@ -23,15 +23,20 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /build/node_modules ./node_modules
 COPY . .
 # Ядро (D-028, D-101): esbuild + обфускация → packages/core/dist/index.cjs, ДО next build. Сборка клиента:
-#   docker build --build-arg CUSTOMER_ID=<клиент> --build-arg BUILD_ID=<id> --secret id=license_keys,src=<keys.json> .
+#   docker build --build-arg CUSTOMER_ID=<клиент> --build-arg BUILD_ID=<id> --build-arg BUILT_AT=$(date +%s%3N) \
+#     --secret id=license_keys,src=<keys.json> .
+# BUILT_AT (epoch-мс) — время сборки в водяном знаке: лицензия прежней сборки работает в льготе не дольше
+# 7 суток от него (D-290). Пусто — build.mjs берёт момент сборки слоя.
 # keys.json — JSON { "<kid>": "<открытый ключ Ed25519 base64>" } (только открытые половины; D-211). С CUSTOMER_ID
 # без ключей build.mjs падает: образ клиента без ключей не проверил бы ни одну лицензию. Без CUSTOMER_ID —
 # общая сборка (стенд, CI): водяного знака нет, лицензии проверяются тестовым ключом репозитория.
 ARG CUSTOMER_ID=
 ARG BUILD_ID=dev
+ARG BUILT_AT=
 RUN --mount=type=secret,id=license_keys,required=false \
     set -eu; set --; \
     if [ -n "$CUSTOMER_ID" ]; then set -- --customer "$CUSTOMER_ID" --build-id "$BUILD_ID"; fi; \
+    if [ -n "$CUSTOMER_ID" ] && [ -n "$BUILT_AT" ]; then set -- "$@" --built-at "$BUILT_AT"; fi; \
     if [ -s /run/secrets/license_keys ]; then set -- "$@" --license-keys /run/secrets/license_keys; fi; \
     node packages/core/build.mjs "$@"
 # Карт кода нет: next.config.ts ставит productionBrowserSourceMaps=false, ниже это ещё и проверяется
@@ -78,8 +83,12 @@ RUN rm -rf /app/src /app/packages/core/src /app/packages/core/build.mjs /app/tes
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
     /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn* /usr/local/include/node
 USER node
+# Глобальных каталогов модулей node (HOME/.node_modules, <prefix>/lib/node, NODE_PATH) в образе нет: сборка клиента
+# с ними не стартует (D-312), поэтому образ, где они появились, не собирается
+RUN node -e "const d=require('node:module').globalPaths.filter((p)=>require('node:fs').existsSync(p));if(d.length>0){console.error('global module dirs:',d.join(' '));process.exit(1)}"
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
-# app: server.js; worker — та же сборка, другая команда (dist/worker.mjs); migrate — dist/migrate.mjs
-CMD ["node", "server.js"]
+# app: server.js; worker — та же сборка, другая команда (dist/worker.mjs); migrate — dist/migrate.mjs.
+# --disable-sigusr1: инспектор не открывается сигналом; сборка клиента без него не стартует (D-312)
+CMD ["node", "--disable-sigusr1", "server.js"]
