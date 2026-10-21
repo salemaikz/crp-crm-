@@ -207,9 +207,12 @@ test('общий телефон: другой сотрудник подписа�
   await subscribePush(opA, await session(U.opA), device(7));
   const forA = await notify(U.opA, 'task_assigned', {});
   await fill();
-  assert.equal((await rowOf(forA))!.state, 'pending');
+  // у сотрудника A есть и другие подписки (прежние тесты): смотрим строку именно этого устройства
+  const sub7Id = (await subs()).find((s) => s.endpoint === EP(7))!.id;
+  const rowOn7 = async () => (await outbox()).find((o) => o.notificationId === forA && o.subscriptionId === sub7Id)!;
+  assert.equal((await rowOn7()).state, 'pending');
   await subscribePush(opB, await session(U.opB), device(7));
-  const r = (await rowOf(forA))!;
+  const r = await rowOn7();
   assert.deepEqual({ state: r.state, error: r.error }, { state: 'cancelled', error: 'owner_changed' });
   const sub7 = (await subs()).find((s) => s.endpoint === EP(7))!;
   assert.equal(sub7.userId, U.opB);

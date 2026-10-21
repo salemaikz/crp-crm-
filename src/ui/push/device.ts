@@ -138,3 +138,31 @@ export async function dropDevicePush(): Promise<void> {
     // нет поддержки или подписки — снимать нечего
   }
 }
+
+export type PushInfo =
+  | { kind: 'hidden' }
+  | { kind: 'unsupported'; ios: boolean }
+  | { kind: 'denied' }
+  | { kind: 'off' }
+  | { kind: 'on' };
+
+/** iPhone и iPad (в том числе iPadOS, который назвался Mac): push там — только из установленного приложения. */
+function isIos(): boolean {
+  const ua = navigator.userAgent;
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+/** Что показать в профиле. Push выключен на сервере (флаг, ключи, переключатель, лицензия) — кнопки нет вовсе. Не бросает. */
+export async function pushInfo(): Promise<PushInfo> {
+  try {
+    const st = await status();
+    if (!st?.available) return { kind: 'hidden' };
+    if (!pushSupported()) return { kind: 'unsupported', ios: isIos() };
+    if (Notification.permission === 'denied') return { kind: 'denied' };
+    const reg = await registration();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    return Notification.permission === 'granted' && sub ? { kind: 'on' } : { kind: 'off' };
+  } catch {
+    return { kind: 'hidden' };
+  }
+}
