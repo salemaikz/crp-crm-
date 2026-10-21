@@ -1,8 +1,13 @@
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { devices, defineConfig } from '@playwright/test';
 import { generateVapidKeys } from './src/server/platform/push/vapid';
 
 // E2E на собранном приложении (`next start`). Два мобильных проекта: iPhone 13 (WebKit) и Pixel 7 (Chromium).
 // E2E_PORT — для параллельных прогонов из разных рабочих копий.
+// Каталог ассетов (логотип, D-333): prepare-db копирует туда ассеты накладки, сервер отдаёт файл оттуда же.
+// Задаётся до defineConfig, чтобы его видели и воркеры тестов, и сервер.
+process.env.CRM_ASSETS_DIR ||= path.join(tmpdir(), `crm-e2e-assets-${process.env.E2E_PORT || 3100}`);
 const PORT = Number(process.env.E2E_PORT) || 3100;
 const isCI = !!process.env.CI;
 // Одноразовая пара VAPID для e2e: push на стенде включён, ключ нигде не хранится (P8b)
@@ -40,6 +45,7 @@ export default defineConfig({
     // запуска, D-155). Секрет — синтетика для e2e; запросы браузера идут мимо nginx, IP у всех «unknown».
     env: {
       APP_ORIGIN: `http://localhost:${PORT}`,
+      CRM_ASSETS_DIR: process.env.CRM_ASSETS_DIR,
       CRM_PROXY_SECRET: process.env.CRM_PROXY_SECRET || 'e2e-proxy-secret-synthetic-not-for-production',
       // Ключи HMAC номеров и ИИН: в production без них итог звонка отвечает 500 (fail closed). Только синтетика.
       CRM_PHONE_HMAC_KEY: process.env.CRM_PHONE_HMAC_KEY || 'e2e-phone-hmac-key-synthetic-not-for-production',

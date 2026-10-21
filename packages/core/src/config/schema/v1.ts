@@ -85,6 +85,8 @@ const Theme = obj({
   radius: z.enum(['sm', 'md', 'lg']),
   density: z.enum(['compact', 'normal']),
   logo: AssetKey,
+  /** Что стоит в шапке и на входе: название или логотип (D-333). Нет ключа — `name`; `logo` без файла работает как `name`. */
+  brandMark: z.enum(['name', 'logo']).optional(),
   statusStyle: z.enum(['color', 'color_text_icon']),
 });
 

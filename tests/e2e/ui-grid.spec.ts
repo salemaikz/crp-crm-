@@ -171,12 +171,30 @@ async function menuHrefs(page: Page, mobile: boolean): Promise<string[]> {
   return [...new Set(all)];
 }
 
-/** Критерий 10: в шапке — org.productName из настроек сида, а не запасная строка локали. */
+/**
+ * Критерий 10: в шапке — org.productName из настроек сида, а не запасная строка локали. Если в настройках
+ * theme.brandMark = 'logo' (D-333), вместо текста — логотип: <img alt=productName>, высота 28 px (и в боковом меню ноутбука), без искажения,
+ * помещается рядом с колокольчиком.
+ */
 async function expectBrand(page: Page): Promise<void> {
-  const [row] = await sql<{ name: string | null }[]>`
-    SELECT doc->'org'->'productName'->>'ru' AS name FROM config_revisions WHERE scope = 'global' ORDER BY rev DESC LIMIT 1`;
+  const [row] = await sql<{ name: string | null; mark: string | null }[]>`
+    SELECT doc->'org'->'productName'->>'ru' AS name, doc->'theme'->>'brandMark' AS mark
+    FROM config_revisions WHERE scope = 'global' ORDER BY rev DESC LIMIT 1`;
   expect(row?.name, 'productName в настройках сида').toBeTruthy();
-  await expect(page.getByTestId('shell-brand')).toHaveText(row!.name!.trim());
+  const brand = page.getByTestId('shell-brand');
+  if (row?.mark !== 'logo') {
+    await expect(brand).toHaveText(row!.name!.trim());
+    return;
+  }
+  const img = brand.locator('img');
+  await expect(img).toHaveAttribute('alt', row!.name!.trim());
+  await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth), 'логотип загрузился').toBeGreaterThan(0);
+  const m = await img.evaluate((el: HTMLImageElement) => ({ w: el.getBoundingClientRect().width, h: el.getBoundingClientRect().height, nw: el.naturalWidth, nh: el.naturalHeight, right: el.getBoundingClientRect().right }));
+  const wantH = 28;
+  expect(Math.abs(m.h - wantH), `высота логотипа ${m.h}`).toBeLessThanOrEqual(1);
+  const bellLeft = await page.locator('a[aria-label^="Уведомления"]').first().evaluate((el) => el.getBoundingClientRect().left);
+  expect(m.right, 'логотип не заходит на колокольчик').toBeLessThanOrEqual(bellLeft);
+  expect(Math.abs(m.w / m.h / (m.nw / m.nh) - 1), 'пропорции без искажения').toBeLessThanOrEqual(0.01);
 }
 
 async function makeStaff(role: string | null, name: string, isAdmin = false): Promise<Operator> {

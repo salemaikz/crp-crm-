@@ -6,6 +6,8 @@ import type { WrapperPolicy } from './wrapperRules';
 export const STATIC_POLICY: WrapperPolicy = {
   publicRoutes: {
     'GET /api/health': 'health',
+    // Логотип клиента (D-333): публичный ресурс без данных, файл только из настроек и каталога ассетов
+    'GET /api/brand/logo': 'asset',
     // Вход и приглашения (P3, auth-design §2): до сессии, Origin проверяет publicRoute
     'POST /api/auth/login': 'auth',
     'POST /api/auth/logout': 'auth',

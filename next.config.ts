@@ -42,7 +42,8 @@ const nextConfig: NextConfig = {
   outputFileTracingExcludes: { '**': ['packages/core/src/**', 'packages/core/build.mjs'] },
   // Стенд на Vercel (D-318): при открытии БД сервер сверяет migrations/*.sql с учётом (assertMigrated), а трассировка
   // этот каталог не видит — путь строится от process.cwd(). В образ его кладёт Dockerfile, поэтому только на Vercel.
-  ...(process.env.VERCEL === '1' ? { outputFileTracingIncludes: { '/**': ['./migrations/*.sql'] } } : {}),
+  // Так же — ассеты стенда (D-333): сид на сборке пишет логотип в stand-assets, функция отдаёт его из бандла.
+  ...(process.env.VERCEL === '1' ? { outputFileTracingIncludes: { '/**': ['./migrations/*.sql', './stand-assets/*'] } } : {}),
   // Признак сборки стенда на Vercel (D-318) вшивается в бандл: '1' ставит только scripts/vercel/build.sh, любая другая
   // сборка получает '0', и переменная при запуске режим стенда уже не включит (src/server/platform/stand/origin.ts)
   env: { CRM_VERCEL_STAND_BUILD: process.env.CRM_VERCEL_STAND_BUILD === '1' ? '1' : '0' },

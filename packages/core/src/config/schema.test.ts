@@ -164,3 +164,10 @@ test('parseStep', () => {
   assert.deepEqual(parseStep('nextEvent:group_session@09:30'), { kind: 'nextEvent', eventTypeKey: 'group_session', time: '09:30' });
   for (const bad of ['+0h', '2h', '+2d', '+721h', 'nextWorkday@24:00', 'nextEvent:Bad@10:00', 'nextEvent:x@10:00']) assert.equal(parseStep(bad), null, bad);
 });
+
+test('theme.brandMark необязателен: нет ключа, name и logo верны, иное — ошибка (D-333)', () => {
+  assert.deepEqual(issuesAfter((s) => s as unknown as Json), []);
+  assert.deepEqual(issuesAfter(at('global.theme.brandMark', 'name')), []);
+  assert.deepEqual(issuesAfter(at('global.theme.brandMark', 'logo')), []);
+  expectIssue(at('global.theme.brandMark', 'both'), 'brandMark');
+});

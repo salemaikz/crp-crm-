@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { PushSync } from '../push/PushSync';
 import { DeviceOwnerGuard } from './DeviceOwnerGuard';
 import type { BannerView } from './LicenseBannerBar';
+import { BrandMark } from './BrandMark';
 import { LogoutButton } from './LogoutButton';
 import { ShellBanner } from './ShellBanner';
 import { AccountLink, BottomNav, NotificationBell, SideNav, type NavEntry } from './ShellNav';
@@ -12,8 +13,8 @@ import type { MenuGroup } from './menu';
 
 export type AppShellProps = {
   variant: 'bottom' | 'side';
-  /** Название установки: org.productName из настроек (запасное — из локали). */
-  brand: string;
+  /** Название установки (org.productName, запасное — из локали) и адрес логотипа, если настроен (D-333). */
+  brand: { name: string; logoSrc: string | null };
   navLabel: string;
   items: readonly NavEntry[];
   /** Подписи групп бокового меню. */
@@ -46,11 +47,9 @@ export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots,
         className={`border-b ${side ? 'md:sticky md:top-0 md:flex md:h-dvh md:w-[var(--sidebar-w)] md:shrink-0 md:flex-col md:overflow-y-auto md:border-r md:border-b-0' : ''}`}
         style={{ borderColor: 'var(--border)', background: 'var(--surface)', paddingTop: 'env(safe-area-inset-top)' }}
       >
-        {/* Шапка: название на линии --gutter слева, колокольчик на линии --gutter справа */}
+        {/* Шапка: название или логотип на линии --gutter слева, колокольчик на линии --gutter справа */}
         <div className="flex min-h-14 items-center justify-between gap-3 px-[var(--gutter)] md:px-5">
-          <strong className="min-w-0 truncate text-lg" data-testid="shell-brand">
-            {brand}
-          </strong>
+          <BrandMark name={brand.name} logoSrc={brand.logoSrc} size={side ? 'side' : 'bar'} />
           <NotificationBell {...bell} />
         </div>
         {side ? <SideNav label={navLabel} items={items} groups={groups} /> : null}

@@ -4,11 +4,11 @@ import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import type { Viewer } from '@/server/access';
 import { unreadCount } from '@/server/domain/notify';
-import { getActiveConfigOrNull } from '@/server/platform/config/active';
 import { ChannelModesProvider } from '@/ui/channels';
 import { loadChannelModes } from '@/ui/channels/loadModes';
 import { AppShell } from './AppShell';
 import { loadLicenseBanner } from './loadBanner';
+import { loadBrand } from './loadBrand';
 import { loadMenu } from './loadMenu';
 import { foreignOutboxTtlMs } from './outboxTtl';
 import { MENU_GROUP, MENU_GROUPS, type ShellKind } from './menu';
@@ -23,15 +23,14 @@ type Props = {
 };
 
 export async function RoleShell({ viewer, force, bellCount, children }: Props) {
-  const [t, tc, menu, unread, modes, outboxTtlMs, config, banner] = await Promise.all([
+  const [t, menu, unread, modes, outboxTtlMs, brand, banner] = await Promise.all([
     getTranslations('shell'),
-    getTranslations('common.app'),
     loadMenu(viewer, force),
     bellCount === undefined ? unreadCount(viewer) : Promise.resolve(bellCount),
     // как звонить и писать (D-268): кнопки «Позвонить» и «WhatsApp» читают режим из контекста
     loadChannelModes(viewer),
     foreignOutboxTtlMs(),
-    getActiveConfigOrNull(),
+    loadBrand(),
     loadLicenseBanner(viewer),
   ]);
   const bannerView = banner
@@ -45,8 +44,6 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
     : null;
   const items = menu.items.map((i) => ({ ...i, label: t(`nav.${i.id}`), group: MENU_GROUP[i.id] }));
   const groups = Object.fromEntries(MENU_GROUPS.map((g) => [g, t(`group.${g}`)])) as Record<(typeof MENU_GROUPS)[number], string>;
-  // Название — из настроек установки (org.productName); нет настроек — запасное из локали
-  const brand = config?.global.org.productName?.ru?.trim() || tc('name');
   return (
     <AppShell
       variant={menu.shell === 'operator' ? 'bottom' : 'side'}

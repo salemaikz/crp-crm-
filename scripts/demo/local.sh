@@ -133,6 +133,8 @@ APP_PORT="$DEMO_APP_PORT"
 export MIGRATE_DATABASE_URL="$DATABASE_URL"
 # Часы и пояс: приложение считает в поясе установки (Asia/Almaty) само, но TZ процесса не мешает
 unset NODE_OPTIONS
+# Ассеты (логотип, D-333): сид копирует их сюда, приложение отдаёт файл оттуда же
+export CRM_ASSETS_DIR="$DEMO_DIR/assets"
 
 # --- 3. Postgres 16 ---
 if [ -z "${DEMO_DATABASE_URL:-}" ]; then

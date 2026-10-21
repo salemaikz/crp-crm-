@@ -511,6 +511,7 @@
       "radius": "md",
       "density": "normal",
       "logo": "crp-logo.svg",
+      "brandMark": "logo",
       "statusStyle": "color_text_icon"
     },
     "fields": [

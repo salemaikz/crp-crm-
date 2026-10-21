@@ -262,3 +262,9 @@ test('шаги сборки: прямой адрес Neon той же базы, 
   assert.ok('problems' in stepEnv(standEnv({ CRM_DEMO_SECRET: undefined })));
   assert.ok('problems' in stepEnv({ VERCEL: '1' }));
 });
+
+test('стенд: CRM_ASSETS_DIR всегда stand-assets, даже если задан другой (D-333)', () => {
+  assert.equal(vercelStandOverlay(standEnv()).set.CRM_ASSETS_DIR, 'stand-assets');
+  assert.equal(vercelStandOverlay(standEnv({ CRM_ASSETS_DIR: '/var/lib/crm/assets' })).set.CRM_ASSETS_DIR, 'stand-assets');
+  assert.equal(vercelStandOverlay(standEnv({ CRM_ASSETS_DIR: 'stand-assets' })).set.CRM_ASSETS_DIR, undefined);
+});

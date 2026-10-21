@@ -55,8 +55,8 @@ export type PublicRouteContext = { req: Request; params: RouteParams };
 export type RouteOptions = GuardOptions & { audit?: AuditSpec<RouteContext, unknown> };
 
 export type PublicRouteOptions = {
-  /** Зачем маршрут открыт без сессии: вход, приглашение, приём по ключу, вебхук, healthcheck. */
-  reason: 'auth' | 'invite' | 'ingest' | 'webhook' | 'health';
+  /** Зачем маршрут открыт без сессии: вход, приглашение, приём по ключу, вебхук, healthcheck, публичный ресурс без данных (логотип, D-333). */
+  reason: 'auth' | 'invite' | 'ingest' | 'webhook' | 'health' | 'asset';
   /**
    * Проверка Origin у мутирующих методов. `skip` — только машинные входы с ключом или подписью
    * (приём, вебхуки); вход и приглашение проверяют Origin.

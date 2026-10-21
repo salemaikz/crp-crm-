@@ -229,7 +229,8 @@ test('группы меню: у каждого пункта каталога е�
 
 test('оболочка берёт название из org.productName, а не из локали', () => {
   const src = readFileSync(join(ROOT, 'src/ui/shells/RoleShell.tsx'), 'utf8');
-  assert.match(src, /org\.productName/);
+  assert.match(src, /loadBrand\(\)/);
+  assert.match(readFileSync(join(ROOT, 'src/ui/shells/brandView.ts'), 'utf8'), /org\.productName/);
   const shell = readFileSync(join(ROOT, 'src/ui/shells/AppShell.tsx'), 'utf8');
   assert.match(shell, /data-shell=\{variant\}/);
   assert.ok(!/px-4 py-4 md:px-8/.test(shell), 'оболочка не задаёт отступы страницы');

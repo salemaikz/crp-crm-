@@ -24,6 +24,9 @@ stage-private*
 backup-recipients.secret*
 .claude/settings.local.json
 
+# Ассеты стенда Vercel: пишет сид на сборке (D-333)
+/stand-assets/
+
 # Next
 next-env.d.ts
 .next-*/

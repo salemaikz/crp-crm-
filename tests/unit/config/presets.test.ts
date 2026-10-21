@@ -226,6 +226,7 @@ test('снимок ЦРП: тема бренда и поля', () => {
     radius: 'md',
     density: 'normal',
     logo: 'crp-logo.svg',
+    brandMark: 'logo',
     statusStyle: 'color_text_icon',
   });
   assert.deepEqual(g.security, { sessionDays: 30, inviteTtlHours: 72, loginAttempts: { perPhone: 5, perIp: 20, windowMin: 15 }, phoneProbesPerDay: 20 });

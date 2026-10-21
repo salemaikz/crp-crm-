@@ -426,7 +426,8 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `theme.brandColor`, `theme.accentColor` | hex | нейтральные | токены бренда ЦРП (`docs/brand` crp-kz) | Администратор |
 | `theme.fontPreset` | ключ пресета шрифтов (с `cyrillic-ext`) | `system` | шрифты бренда ЦРП | CLI |
 | `theme.radius`, `theme.density` | `sm\|md\|lg`, `compact\|normal` | `md`, `normal` | по бренду | CLI |
-| `theme.logo` | ключ ассета в образе или в каталоге `assets/` накладки (копируется в том `crm_assets` при `config apply`, D-061) | нейтральный | логотипы из `docs/brand/logo/` crp-kz без перерисовки | CLI (загрузка файла в UI — после 1.11, через architect) |
+| `theme.logo` | ключ ассета (`.svg`/`.png`/`.webp`) из каталога `assets/` любого слоя; `config apply` копирует ассеты слоёв в том `crm_assets` (`CRM_ASSETS_DIR`), app отдаёт только этот файл по `GET /api/brand/logo` — имя из настроек, не из запроса (D-061, D-333) | `logo.svg` (нейтральный значок) | логотип ЦРП без перерисовки | CLI (загрузка файла в UI — после 1.11, через architect) |
+| `theme.brandMark` | `name\|logo`, необязательный; нет ключа = `name` | `name` — в шапке текст `org.productName` | `logo` — в шапке и на входе логотип `theme.logo` вместо текста, `alt` = `org.productName`; файла нет или не загрузился — текст (D-333, `docs/logo-design.md`) | CLI |
 | `theme.statusStyle` | `color\|color_text_icon` | `color_text_icon` | `color_text_icon` (красный бренда не путается с «Не целевой») | CLI |
 
 ### 6.15. Пространства (`global.spaces`)
@@ -467,6 +468,7 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `CRM_IIN_HMAC_KEY` | HMAC ИИН. Пишет `crmctl install` | да | да |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | web-push (D-328, D-329): пара P-256 в base64url (открытый — 65 байт, приватный — 32), сверяется при чтении; `VAPID_SUBJECT` — `mailto:` или `https:` для связи с push-сервисом. Генерирует `crmctl install` (`generateVapidKeys()`). Нет или неверны — push недоступен, приложение работает. Смена ключей обнуляет подписки устройств | при `FEATURE_PUSH` | приватный — да |
 | `LICENSE_PATH` | путь к файлу лицензии в томе. Пишет `crmctl install` | да | нет |
+| `CRM_ASSETS_DIR` | каталог ассетов слоёв пресета (D-061, D-333): `config apply` копирует туда ассеты, app отдаёт оттуда логотип темы. На установке — `/var/lib/crm/assets`, том `crm_assets`; значение задаёт `compose.yaml` у `app` (том только на чтение) и `ctl` (запись), в `app.env` не пишется (D-334). На стенде Vercel всегда `stand-assets`. Не задан — логотипа нет, в шапке название текстом | нет | нет |
 | `INGEST_PUBLIC` | `0` — `/api/ingest/` закрыт снаружи (по умолчанию): nginx и второй рубеж в приложении — запрос через nginx (верный `X-Proxy-Secret`) получает 404, запрос с `X-Via-Proxy` без верного секрета — 404 всегда | нет | нет |
 | `INGEST_ACCEPTING` | `1` — приём ingest/v1 включён; `0` — выключен целиком, ответ 423 (рубильник на время разбора проблем источника) | нет | нет |
 | `FEATURE_BK_WIZARD`, `FEATURE_PURCHASES`, `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_PUSH`, `FEATURE_MERGE`, `FEATURE_BULK_TRANSFER`, `FEATURE_IMPORT`, `FEATURE_IMPORT_BOOKINGS` (профиль «Записи», только вместе с `FEATURE_IMPORT`, D-324) | флаги модулей пилота — аварийные выключатели (D-047, D-062; таблица — PLAN §7.3) | нет | нет |

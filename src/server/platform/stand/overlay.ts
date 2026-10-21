@@ -2,7 +2,7 @@
 // водяного знака — их проверяют тесты; применяет их index.ts (хук старта Next) и scripts/vercel/stand-env.ts (сборка).
 // Режим только для тестового стенда на синтетике: в нём нет nginx и CRM_PROXY_SECRET, адрес — домен проекта Vercel,
 // секреты выводятся из одной переменной CRM_DEMO_SECRET. Явно заданные переменные не перезаписываются никогда,
-// кроме флагов интеграций: на стенде Vercel они выключены всегда.
+// кроме флагов интеграций (на стенде Vercel выключены всегда) и каталога ассетов CRM_ASSETS_DIR (всегда stand-assets).
 import { hkdfSync } from 'node:crypto';
 import { standDefaultOrigin, standRequested } from './origin';
 
@@ -39,6 +39,12 @@ const HKDF_SALT = 'crm-vercel-stand';
 export const STAND_FEATURES_ON = ['REPORTS', 'SALES_SETTINGS', 'BK_WIZARD', 'PURCHASES', 'KANBAN', 'MERGE', 'BULK_TRANSFER'] as const;
 /** Интеграции на стенде Vercel выключены всегда: стенд не принимает звонки и сообщения внешних сервисов. */
 export const STAND_FEATURES_OFF = ['WAZZUP', 'TELEPHONY_ZADARMA', 'TELEPHONY_BEELINE'] as const;
+
+/**
+ * Каталог ассетов стенда (D-333): относительный, от корня проекта. Сид на сборке пишет в `<корень>/stand-assets`,
+ * трассировка кладёт его в бандл функций, функция читает `/var/task/stand-assets`. `/tmp` сборки до запуска не доживает.
+ */
+export const STAND_ASSETS_DIR = 'stand-assets';
 
 /** Пул соединений функции Vercel: экземпляров много, каждому хватает трёх. */
 export const STAND_DB_POOL_MAX = '3';
@@ -115,6 +121,9 @@ export function vercelStandOverlay(e: Env): StandOverlay {
       problems.push(`${DEMO_SECRET_ENV} ${why}: из него выводятся ${missing.join(', ')}. Задайте ${DEMO_SECRET_ENV} (от ${DEMO_SECRET_MIN} символов, например openssl rand -base64 48) в Environment Variables проекта`);
     }
   }
+
+  // Ассеты стенда — всегда в бандле функции: явное значение сборка и функция увидели бы по-разному (как флаги интеграций)
+  if (e.CRM_ASSETS_DIR !== STAND_ASSETS_DIR) set.CRM_ASSETS_DIR = STAND_ASSETS_DIR;
 
   for (const f of STAND_FEATURES_ON) if (!has(e, `FEATURE_${f}`)) set[`FEATURE_${f}`] = '1';
   for (const f of STAND_FEATURES_OFF) if (e[`FEATURE_${f}`] !== '0') set[`FEATURE_${f}`] = '0';

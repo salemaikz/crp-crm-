@@ -62,6 +62,9 @@ async function readRegular(file: string, maxBytes: number): Promise<Buffer> {
   }
 }
 
+/** Чтение ассета для отдачи приложением (D-333): те же проверки, что у installAssets. */
+export { readRegular as readAssetFile };
+
 export async function loadLayers(specs: readonly string[], root: string = presetsRoot()): Promise<LoadedLayer[]> {
   if (specs.length === 0) throw new PresetFilesError('не указаны слои (--layers)');
   const out: LoadedLayer[] = [];
