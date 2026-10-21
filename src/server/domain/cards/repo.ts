@@ -12,6 +12,9 @@ import type { CardActor, CardEventPerm, LockedCardRow } from './types';
 
 export const actorUserId = (a: CardActor): string | null => (a.kind === 'user' ? a.userId : null);
 
+/** Источник строки стоп-листа, поставленной обезличиванием клиента: она не снимается ни одним путём (D-321). */
+export const STOP_SOURCE_DEPERSONALIZE = 'depersonalize';
+
 // ---------------------------------------------------------------------------
 // Снимок и блокировка
 // ---------------------------------------------------------------------------
@@ -40,8 +43,10 @@ async function loadPhones(sql: Sql, a: { clientId: string; spaceId: string }): P
       FROM client_phones p WHERE p.client_id = ${a.clientId}
      ORDER BY p.is_primary DESC, (p.kind = 'mobile') DESC, p.created_at, p.id`;
   const hmacs = rows.map((r) => phoneHmac(r.digits));
-  const stopped = hmacs.length === 0 ? [] : await sql<{ phoneHmac: string }>`SELECT phone_hmac FROM stop_list WHERE phone_hmac = ANY(${hmacs})`;
+  const stopped = hmacs.length === 0 ? [] : await sql<{ phoneHmac: string; source: string }>`SELECT phone_hmac, source FROM stop_list WHERE phone_hmac = ANY(${hmacs})`;
   const inStop = new Set(stopped.map((s) => s.phoneHmac));
+  // Строку обезличивания не снимает никто (D-321): для ядра номер «держит» другой — как клиент в «Не звонить»
+  const pinned = new Set(stopped.filter((s) => s.source === STOP_SOURCE_DEPERSONALIZE).map((s) => s.phoneHmac));
   return {
     phones: rows.map((r, i) => ({
       id: r.id,
@@ -50,7 +55,7 @@ async function loadPhones(sql: Sql, a: { clientId: string; spaceId: string }): P
       isPrimary: r.isPrimary,
       inStopList: inStop.has(hmacs[i]!),
       sharedWithOtherClient: r.sharedWithOtherClient,
-      heldByOtherDncClient: r.heldByOtherDncClient,
+      heldByOtherDncClient: r.heldByOtherDncClient || pinned.has(hmacs[i]!),
     })),
     digits: new Map(rows.map((r) => [r.id, r.digits])),
   };
@@ -220,8 +225,9 @@ export async function addToStopList(tx: Sql, a: { digits: string; reasonCode: st
     ON CONFLICT (phone_hmac) DO NOTHING`;
 }
 
+/** Снять номер со стоп-листа. Строка обезличивания остаётся всегда — второй рубеж после снимка карточки (D-321). */
 export async function removeFromStopList(tx: Sql, digits: string): Promise<void> {
-  await tx`DELETE FROM stop_list WHERE phone_hmac = ${phoneHmac(digits)}`;
+  await tx`DELETE FROM stop_list WHERE phone_hmac = ${phoneHmac(digits)} AND source <> ${STOP_SOURCE_DEPERSONALIZE}`;
 }
 
 export async function insertAssignLog(
