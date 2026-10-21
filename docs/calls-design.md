@@ -316,9 +316,13 @@ ON CONFLICT (user_id, device_id) DO UPDATE
   сервер отдаёт страницу текущей сессии или вход.
 - **Итоги сотрудника с истёкшей сессией** (D-293 п. 2): при загрузке страницы под другим сотрудником
   `sanitizeForeign` обезличивает их (`title = ''`), а записи со свободным текстом старше `calling.offlineWindowHours`
-  (наибольший срок из пространств; `foreignOutboxTtlMs`) удаляет — после ответа 200 от
+  (наибольший срок из пространств; `foreignOutboxTtlMs`) удаляет сразу и сообщает
   `POST /api/device/outbox-expired` (запись `audit_log` `user.outbox_expired`: actor — сотрудник телефона, объект —
-  автор итогов, `meta` — `count`, `opIds`, `deviceId`). Нет ответа — запись остаётся до следующей загрузки.
+  автор итогов, `meta.claimed` — `count`, `opIds`, `deviceId`, `meta.confirmed` — `authorExists`, `alreadyReceived`,
+  `authorPendingOnDevice`). Мутация безопасности `device.outbox_expire` (D-308). Не дошло (`retry`: сеть, 5xx, 429,
+  401) — сообщение ждёт в `meta.expiredReports` (`expiredReports.ts`) до следующей загрузки или `online`; 400/404 —
+  снимается. Сервер: автор существует (иначе 404), `opId` из `calls` отбрасываются, 20/ч на устройство и 60/ч на
+  сотрудника.
 - **Выход с итогами со свободным текстом** (D-293): `flushDeviceOutbox` возвращает `{ count, freeText }`;
   `freeText` — записи outbox с признаком `freeText` (ставит экран при постановке итога по видам полей из настроек;
   у старых записей — проверка с запасом, `freeText.ts`). При `freeText > 0` кнопки «Всё равно выйти» нет: «Остаться»
