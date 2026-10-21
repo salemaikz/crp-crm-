@@ -2,8 +2,8 @@
 // не чаще раза в минуту на процесс), воркер (задача `license` при старте и раз в час).
 // Источник текста: файл LICENSE_PATH (его пишет `crmctl license install`), иначе копия в license_state
 // (восстановление из копии БД на новой ВМ работает без файла). Файл не годится (битый, подменён, чужой,
-// срок не начался) — вердикт по копии, как без файла (D-290). Проверка — ядро: подпись, установка,
-// водяной знак, правило часов, состояния. Льгота `invalid` — только лицензии прежней сборки, до builtAt + 7 сут
+// срок не начался) или не читается (каталог, канал, нет прав) — вердикт по копии, как без файла (D-290, D-054).
+// Проверка — ядро: подпись, установка, водяной знак, правило часов, состояния. Льгота `invalid` — только лицензии прежней сборки, до builtAt + 7 сут
 // и не дальше срока подписанной копии (D-290): правка state/invalid_since/last_seen_at в обход crmctl
 // «только чтение» не снимает и не продлевает. Запись — под
 // блокировкой строки: несколько процессов не сдвигают часы дважды. Аудит — на новую лицензию, смену состояния,
@@ -27,8 +27,8 @@ export type LicenseSnapshot = Evaluation & {
   clockJump: 'none' | 'backward' | 'forward';
   /** Откуда текст лицензии: файл, копия в БД или нет вовсе. */
   source: 'file' | 'db' | 'none';
-  /** Файл есть, но не годится и вердикт взят по копии в БД: почему; иначе null. */
-  fileReason: InvalidReason | null;
+  /** Файл есть, но не годится и вердикт взят по копии в БД (`unreadable` — не читается, тогда как без файла): почему; иначе null. */
+  fileReason: InvalidReason | 'unreadable' | null;
 };
 
 type AnchorGlobal = typeof globalThis & { __crmLicenseClockAnchor?: ClockAnchor | null };
@@ -43,8 +43,21 @@ export function forgetProcessClock(): void {
 const usable = (v: Verdict | null, now: number): boolean => v !== null && v.ok && now >= v.license.notBefore;
 const reasonOf = (v: Verdict, now: number): InvalidReason => (v.ok ? (now < v.license.notBefore ? 'not_yet_valid' : 'malformed') : v.reason);
 
+/**
+ * Текст файла; не читается (каталог, канал, нет прав, EIO) — как без файла (D-054, D-290): вердикт по копии в БД,
+ * а не исключение, иначе порча файла клала бы в 500 и выгрузку, и мутации безопасности. Наружу — только код ошибки.
+ */
+async function readFileText(env: LicenseEnv): Promise<{ text: string | null; unreadable: string | null }> {
+  try {
+    return { text: await env.readFile(), unreadable: null };
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    return { text: null, unreadable: typeof code === 'string' && /^E[A-Z0-9]{1,15}$/.test(code) ? code : 'unknown' };
+  }
+}
+
 export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSnapshot> {
-  const fileText = await env.readFile();
+  const { text: fileText, unreadable } = await readFileText(env);
   const clock = env.clock();
   const mono = env.mono();
   const anchor = g.__crmLicenseClockAnchor ?? null;
@@ -69,9 +82,10 @@ export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSn
     const fileVerdict = fromFile === null ? null : verifyLicense(fromFile, expect);
     let raw = fromFile;
     let verdict = fileVerdict;
-    let fileReason: InvalidReason | null = null;
+    let fileReason: LicenseSnapshot['fileReason'] = null;
     if (!usable(fileVerdict, c.now) && stored !== null && stored !== fromFile) {
       if (fileVerdict !== null) fileReason = reasonOf(fileVerdict, c.now);
+      else if (unreadable !== null) fileReason = 'unreadable';
       raw = stored;
       verdict = verifyLicense(stored, expect);
     }
@@ -147,7 +161,9 @@ export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSn
         createdAt: at,
       });
     }
-    if (fileReason !== null) {
+    if (unreadable !== null) {
+      console.warn(JSON.stringify({ level: 'warn', code: 'license_file_rejected', reason: 'unreadable', errno: unreadable }));
+    } else if (fileReason !== null) {
       console.warn(JSON.stringify({ level: 'warn', code: 'license_file_rejected', reason: fileReason }));
     }
     if (c.jump !== 'none') {

@@ -6,7 +6,8 @@
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { access as coreAccess, license as core } from '@crm/core';
@@ -56,8 +57,9 @@ function signed(p: Partial<LicensePayload> = {}, key = privateKey): string {
 }
 
 async function put(text: string | null): Promise<void> {
-  if (text === null) await rm(file, { force: true });
-  else await writeFile(file, `${text}\n`);
+  // recursive: прошлый тест мог оставить на месте файла каталог (файл не читается)
+  await rm(file, { recursive: true, force: true });
+  if (text !== null) await writeFile(file, `${text}\n`);
 }
 
 /** Состояние, как его увидит следующий запрос (кэш процесса сброшен). */
@@ -559,4 +561,83 @@ test('часы в одной точке и перезапуск перед ка�
   assert.equal((await writeRoute(req(), ctx)).status, 423);
   assert.equal((await exportRoute(req(), ctx)).status, 200);
   restart();
+});
+
+// ── Файл есть, но не читается: как без файла (D-054, D-290) ─────────────────────────────────────────────────
+
+/** На месте файла — то, что не читается как файл. root (тесты в контейнере) права chmod 000 не держат,
+ *  поэтому EACCES и EIO — подменой чтения, остальное — настоящей файловой системой. */
+const UNREADABLE: [string, () => Promise<void>][] = [
+  ['каталог (EISDIR)', async () => mkdir(file)],
+  ['петля ссылок (ELOOP)', async () => symlink(file, file)],
+  ['родитель — файл (ENOTDIR)', async () => {
+    await writeFile(file, 'x');
+    overrideLicenseEnvForTests({ readFile: () => readLicenseFile(path.join(file, 'license.crm')) });
+  }],
+  // FIFO без писателя: чтение ждало бы вечно, и пересчёт (а с ним весь доступ) висел бы
+  ['канал FIFO', async () => void execFileSync('mkfifo', [file])],
+  ['нет прав (EACCES)', async () => overrideLicenseEnvForTests({ readFile: () => Promise.reject(Object.assign(new Error('denied'), { code: 'EACCES' })) })],
+  ['ошибка ввода-вывода (EIO)', async () => overrideLicenseEnvForTests({ readFile: () => Promise.reject(Object.assign(new Error('io'), { code: 'EIO' })) })],
+];
+
+/** Свежий процесс (кэша и опоры нет) — как после перезапуска контейнера с испорченным файлом. */
+async function statuses(): Promise<Record<string, number>> {
+  restart();
+  const out: Record<string, number> = {
+    read: (await readRoute(req('GET'), ctx)).status,
+    export: (await exportRoute(req(), ctx)).status,
+    write: (await writeRoute(req(), ctx)).status,
+    passwordReset: await resetPassword(),
+  };
+  for (const key of coreAccess.SECURITY_MUTATIONS) {
+    out[key] = (await route({ perm: 'authenticated', securityMutation: key }, ok)(req(), ctx)).status;
+  }
+  return out;
+}
+
+async function withWarnings<T>(fn: () => Promise<T>): Promise<[T, string[]]> {
+  const seen: string[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => void seen.push(a.map(String).join(' '));
+  try {
+    return [await fn(), seen];
+  } finally {
+    console.warn = orig;
+  }
+}
+
+test('файл есть, но не читается, при рабочей копии в БД: вердикт по копии — ни 500, ни зависания (D-054, D-290)', { timeout: 60_000 }, async () => {
+  const t = (await row()).lastSeenAt + H;
+  const lic = signed({ lid: 'lic-unreadable', expiresAt: t + 365 * DAY });
+  for (const [name, spoil] of UNREADABLE) {
+    await fresh(lic, t);
+    await put(null);
+    await spoil();
+    const [got, warns] = await withWarnings(statuses);
+    const want = Object.fromEntries(Object.keys(got).map((k) => [k, 200]));
+    assert.deepEqual(got, want, name);
+    const r = await row();
+    assert.deepEqual([r.state, r.licenseRaw], ['valid', lic], name);
+    const rejected = warns.map((w) => JSON.parse(w) as Record<string, unknown>).filter((w) => w.code === 'license_file_rejected');
+    assert.equal(rejected.at(-1)?.reason, 'unreadable', name);
+    // В журнал — код ошибки, без пути и текста
+    assert.ok(!warns.some((w) => w.includes(dir)), name);
+    overrideLicenseEnvForTests({ readFile: () => readLicenseFile(file) });
+  }
+  await put(null);
+});
+
+test('файл не читается и копии в БД нет: как без файла — missing, мутации 423, чтение, выгрузка и D-054 работают', { timeout: 60_000 }, async () => {
+  const t = (await row()).lastSeenAt + H;
+  for (const [name, spoil] of UNREADABLE) {
+    await fresh('', t);
+    await put(null);
+    await spoil();
+    const got = await statuses();
+    const want = Object.fromEntries(Object.keys(got).map((k) => [k, k === 'write' ? 423 : 200]));
+    assert.deepEqual(got, want, name);
+    assert.equal((await row()).state, 'missing', name);
+    overrideLicenseEnvForTests({ readFile: () => readLicenseFile(file) });
+  }
+  await put(null);
 });
