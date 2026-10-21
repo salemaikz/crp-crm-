@@ -195,8 +195,9 @@ UPDATE bookings b SET status = 'no_show', version = b.version + 1, updated_at = 
 **Не найден** (новый клиент):
 
 1. `pg_advisory_xact_lock(INTAKE_LOCK_KEY)` (D-022) → повторить поиск шага 4 (гонка — уйти в «найден»).
-2. `phoneHmac(digits)` в `stop_list` → клиента не создаём, `audit_log` `booking.walk_in_skipped {eventId}`,
-   ответ тот же, что у нового гостя, байт в байт (не раскрываем стоп-лист; D-301).
+2. `phoneHmac(digits)` в `stop_list` → клиента не создаём, `audit_log` `booking.walk_in_skipped {eventId,
+   requestId, answer}`, ответ и его повтор (`answer` из журнала) те же, что у нового гостя (D-301). Остаточный
+   признак — у стоп-листа в списке гостей не появляется маскированная строка — принят (D-301 п. 5, D-241, D-040).
 3. `INSERT clients` (`kind` = `company`, если указана компания, иначе `person`; `name` = компания или имя;
    `name_norm` — `names.normalizeCompanyName`/`normalizePersonName`; `search_norm` —
    `fields.buildSearchNorm({ name, orgId: '', phones: [digits], custom: {}, searchable: [] })`;
@@ -485,7 +486,11 @@ schedules, bookings }`. Снимок читается **после** блоки�
 консультанту → колокол консультанту `booking_consult_new` (`consult_new:<bookingId>`). Отмена и перенос записи с
 `resource_id` → `promoteReserve` старого слота в той же транзакции; отмена консультации закрывает
 `grey_unassigned:<id>`. То же — у отмены эффектом карточки `cancel_future` (проигрыш, «Не целевой», «Не звонить»):
-дни консультаций клиента блокируются до записей и до сделок (`lockClientConsultDays`, D-251, D-301).
+дни консультаций клиента блокируются до записей (`lockClientConsultDays`, D-251, D-301); в проигрыше сделки сервисом
+(`loseDeal`) — и до сделки. **Оговорка:** в пути итога звонка (`cards/effects.ts`) день пока берётся после группы
+задач и сделок: `closeAutoTasks` с `sources: 'all'` уже держит строку `grey_unassigned:<id>`, а `grey-assign` держит
+день и ждёт эту строку — возможна взаимоблокировка 40P01. Обе транзакции её повторяют, данные не теряются. Исправление —
+у потока обзвона: при `cancel_future` звать `lockClientConsultDays` до группы задач.
 
 **Полоса подбора** (`getConsultStrip`): ближайшие `consult.stripDays` рабочих дней в горизонте; на день —
 снимок (без блокировки, только чтение); времена = объединение сетки `consult.hours` и стартов слотов
