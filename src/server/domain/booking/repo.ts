@@ -967,6 +967,16 @@ export async function findProbeOwner(sql: Sql, id: string): Promise<string | nul
   return rows[0]?.userId ?? null;
 }
 
+/** Ответ попытки гостя с номером из стоп-листа (журнал `booking.walk_in_skipped` этого мероприятия) или null. */
+export async function findSkippedWalkInAnswer(sql: Sql, a: { eventId: string; requestId: string }): Promise<string | null> {
+  const rows = await sql<{ answer: string | null }>`
+    SELECT a.meta->>'answer' AS answer FROM audit_log a
+     WHERE a.entity = 'event' AND a.entity_id = ${a.eventId} AND a.action = 'booking.walk_in_skipped'
+       AND a.meta->>'requestId' = ${a.requestId}
+     LIMIT 1`;
+  return rows[0] ? (rows[0].answer ?? 'new') : null;
+}
+
 /** Запись истории по id (id = ключ попытки гостя): повтор отдаёт прежний ответ. */
 export async function findHistoryRow(sql: Sql, id: string): Promise<{ bookingId: string; meta: Record<string, unknown> } | null> {
   const rows = await sql<{ bookingId: string; meta: Record<string, unknown> }>`SELECT h.booking_id, h.meta FROM booking_history h WHERE h.id = ${id}`;

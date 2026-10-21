@@ -23,6 +23,7 @@ import {
   findHistoryRow,
   findOpenDealOfClient,
   findProbeOwner,
+  findSkippedWalkInAnswer,
   findWalkInCandidates,
   hasOtherFutureBooking,
   insertCardCreatedFeed,
@@ -73,11 +74,14 @@ async function replayOf(tx: Sql, viewer: Viewer, input: WalkInInput): Promise<Wa
     const answer = h.meta.answer === 'recorded' || h.meta.answer === 'new' ? h.meta.answer : 'found';
     return { answer: answer as WalkInAnswer, replayed: true };
   }
-  // Номер из стоп-листа: записи нет, след только в счётчике проверок
+  // Номер из стоп-листа: записи нет, след — проверка в счётчике и запись журнала с ответом попытки. Повтор отдаёт
+  // тот ответ, что ушёл в первый раз (`recorded` сверх лимита), и как у обычного гостя: другое мероприятие — request_reused
   const owner = await findProbeOwner(tx, input.requestId);
   if (owner === null) return null;
   if (owner !== viewer.userId) throw new BookingDomainError('request_reused');
-  return { answer: 'new', replayed: true };
+  const skipped = await findSkippedWalkInAnswer(tx, { eventId: input.eventId, requestId: input.requestId });
+  if (skipped === null) throw new BookingDomainError('request_reused');
+  return { answer: skipped === 'recorded' ? 'recorded' : 'new', replayed: true };
 }
 
 export const registerWalkIn: RegisterWalkIn = async (deps, viewer, input) => {
@@ -227,9 +231,17 @@ async function newGuest(c: Ctx): Promise<WalkInResult> {
   const { tx, viewer, now, input, ops } = c;
   const answer: WalkInAnswer = c.overLimit ? 'recorded' : 'new';
 
-  // Стоп-лист: ничего не создаём, ответ тот же, что у «нового», байт в байт — стоп-лист не раскрываем (D-241, D-301)
+  // Стоп-лист: ничего не создаём (D-241), ответ и его повтор — те же, что у нового гостя (D-301). Остаточный
+  // признак — в списке гостей не появилась строка — принят (D-301 п. 5)
   if (await isPhoneStopListed(tx, phoneHmac(c.digits))) {
-    await writeAudit(tx, { actorId: viewer.userId, action: 'booking.walk_in_skipped', entity: 'event', entityId: input.eventId, spaceId: c.spaceId, meta: { eventId: input.eventId } });
+    await writeAudit(tx, {
+      actorId: viewer.userId,
+      action: 'booking.walk_in_skipped',
+      entity: 'event',
+      entityId: input.eventId,
+      spaceId: c.spaceId,
+      meta: { eventId: input.eventId, requestId: input.requestId, answer },
+    });
     await insertWalkInProbe(tx, { id: input.requestId, userId: viewer.userId, day: viewer.today, matched: false, at: now });
     return { answer, replayed: false };
   }

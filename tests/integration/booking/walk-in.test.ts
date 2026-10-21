@@ -199,6 +199,22 @@ test('21-я проверка за день: ответ «recorded», запис�
   assert.equal(r2.answer, 'recorded', 'и новый гость при превышении — тот же нейтральный ответ');
 });
 
+test('сверх лимита проверок: повтор попытки с номером из стоп-листа отвечает так же, как повтор нового гостя', async () => {
+  assert.ok((await probes()) >= 20, 'лимит уже превышен предыдущим тестом');
+  await db.sql`INSERT INTO stop_list (phone_hmac, reason_code, source, created_at) VALUES (${phoneHmac('77091234574')}, 'x', 'manual', ${SEED_NOW})`;
+  const stoppedIn = guest('ev-w', '+7 709 123 45 74');
+  const freshIn = guest('ev-w', '+7 709 123 45 75');
+  const stopped = [await registerWalkIn(deps, duty, stoppedIn), await registerWalkIn(deps, duty, stoppedIn)];
+  const fresh = [await registerWalkIn(deps, duty, freshIn), await registerWalkIn(deps, duty, freshIn)];
+  assert.deepEqual(stopped, fresh);
+  assert.deepEqual(stopped, [
+    { answer: 'recorded', replayed: false },
+    { answer: 'recorded', replayed: true },
+  ]);
+  // тот же ключ на другом мероприятии — как у обычного гостя
+  await assert.rejects(registerWalkIn(deps, duty, { ...stoppedIn, eventId: 'ev-small' }), failsWith('request_reused'));
+});
+
 test('двое дежурных вводят один новый номер одновременно: один клиент и одна запись', async () => {
   await db.sql`INSERT INTO event_duty (event_id, user_id, created_at) VALUES ('ev-w', ${U.rop}, ${SEED_NOW}) ON CONFLICT DO NOTHING`;
   const rop = await viewerOf(U.rop);
