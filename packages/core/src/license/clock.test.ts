@@ -103,6 +103,31 @@ test('часы на год назад за сутки до срока, без п
   assert.deepEqual([back.jump, back.locked, ev(back).access, ev(back).reason], ['none', false, 'read_only', 'expired']);
 });
 
+// Остаток D-314 (а), круг 4 красной команды: документы обещали «часы назад без правки БД — не больше 48 ч сверх
+// срока». Неверно: эпизод кончается, когда хоть одна проверка видит часы в окне [L − 10 мин, L), и длительность не
+// переносится. Это тот же класс, что часы, которые держат стоящими: без доверенного времени не отличить от честной
+// установки, у которой спешившие часы догнали время лицензии (заплатка «конец эпизода только при часах ≥ L»
+// обходится возвратом на L + 1 с). Тест фиксирует поведение, чтобы D-314, §8.4 и RUNBOOK описывали его честно.
+test('остаток (а): часы на год назад, раз в 47 ч одна проверка у last_seen_at − 5 мин — 30 суток время лицензии стоит, read_only нет', () => {
+  const v = verdictFor({ expiresAt: T0 + DAY_MS, graceDays: 0 });
+  const s = server(T0);
+  const ev = (c: ClockResult) => evaluateLicense({ verdict: v, now: c.now, previous: null, invalidSince: null, anchor: null, builtAt: null, clockLocked: c.locked });
+  let maxEpisode = 0;
+  let lastReturn = 0;
+  // Пересчёт раз в минуту 30 реальных суток; mono — время процесса без перезапусков
+  for (let t = MIN; t <= 30 * DAY_MS; t += MIN) {
+    const back = t - lastReturn >= 47 * H;
+    if (back) lastReturn = t;
+    const clock = back ? s.row.lastSeenAt! - 5 * MIN : T0 + t - YEAR;
+    const c = s.check(clock, t);
+    maxEpisode = Math.max(maxEpisode, c.behindForMs);
+    assert.equal(c.now, T0, 'время лицензии не идёт');
+    assert.equal(c.locked, false);
+    assert.equal(ev(c).access, 'valid');
+  }
+  assert.ok(maxEpisode < 47 * H && maxEpisode > 46 * H, String(maxEpisode));
+});
+
 test('часы позади дольше 48 ч: «только чтение» с причиной clock при долгой лицензии; тревога раз в сутки; починили — блокировки нет', () => {
   const v = verdictFor({ expiresAt: T0 + YEAR, graceDays: 30 });
   const s = server(T0);

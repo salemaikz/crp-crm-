@@ -62,7 +62,7 @@ test('license-clock в реестре и в справке; run() доходит
 
 test('каждая команда crmctl, которую называют RUNBOOK и DEPLOY, есть в реестре', async () => {
   const docs = (await Promise.all(['docs/ops/RUNBOOK.md', 'docs/DEPLOY.md'].map((p) => readFile(p, 'utf8')))).join('\n');
-  const named = new Set([...docs.matchAll(/crmctl ([a-z][a-z-]*)/g)].map((m) => m[1]));
+  const named = new Set([...docs.matchAll(/crmctl ([a-z][a-z-]*)/g)].map((m) => m[1] as string));
   assert.ok(named.has('license-clock') && named.has('update'), 'документы читаются');
   const missing = [...named].filter((c) => !commands[c] && !rawCommands[c]);
   assert.deepEqual(missing, [], 'операторские документы обещают незарегистрированные команды');
