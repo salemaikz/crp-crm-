@@ -1,13 +1,16 @@
 // Среда выполнения сборки клиента (D-312). Подпись лицензии проверяет живой node:crypto, поэтому предзагрузка
 // (--require/--import/--loader в NODE_OPTIONS или аргументах node), инспектор (--inspect, сигнал SIGUSR1), чужая
-// точка входа (скрипт из stdin или /tmp, который подменяет проверку и потом грузит server.js) и переменные загрузчика
-// (LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH, OPENSSL_CONF…) подменяют проверку без правки кода образа. Сборка клиента
-// такой процесс не запускает: приложение (src/instrumentation.ts) и воркер (scripts/worker/run.ts) выходят с кодом 1
-// и тревогой license.runtime_tamper. Это планка, а не защита от root: обёртка, которая подделывает process.argv,
-// execArgv и inspector под эту проверку, её обходит (ARCHITECTURE §8.4).
+// точка входа (скрипт из stdin или /tmp, который подменяет проверку и потом грузит server.js), переменные загрузчика
+// (LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH, OPENSSL_CONF…) и глобальные каталоги модулей node (HOME/.node_modules и
+// др.: Next до приложения грузит оттуда необязательный @opentelemetry/api) подменяют проверку без правки кода образа.
+// Сборка клиента такой процесс не запускает: приложение (src/instrumentation.ts) и воркер (scripts/worker/run.ts)
+// выходят с кодом 1 и тревогой license.runtime_tamper. Это планка, а не защита от root: проверка идёт уже после
+// чужого кода, и полезная нагрузка, написанная под неё (стирает свой каталог или переменную, подделывает
+// process.argv, execArgv, inspector), её обходит (ARCHITECTURE §8.4).
 // Общая сборка (dev, CI, стенд, e2e с предзагрузкой ядра рабочей копии) не проверяется.
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import inspector from 'node:inspector';
+import Module from 'node:module';
 import type { Env } from '../env';
 import { licenseEnv } from './env';
 
@@ -30,6 +33,9 @@ export type RuntimeFacts = {
   env: Env;
   /** Адрес открытого инспектора (inspector.url()); undefined — закрыт. */
   inspectorUrl: string | undefined;
+  /** Существующие каталоги из Module.globalPaths (HOME/.node_modules, HOME/.node_libraries, <prefix>/lib/node,
+   *  NODE_PATH): в образе их нет, а node ищет в них пакеты, которых нет в приложении. */
+  globalModuleDirs: readonly string[];
 };
 
 /** Белый список флагов node в поставке: память и запрет инспектора по сигналу. Остальное — только новым выпуском. */
@@ -72,7 +78,27 @@ export function runtimeTamperProblems(f: RuntimeFacts): string[] {
     .sort();
   if (loaders.length > 0) problems.push(`заданы переменные подгрузки кода: ${loaders.join(' ')}`);
   if (f.inspectorUrl !== undefined) problems.push('открыт инспектор node');
+  if (f.globalModuleDirs.length > 0) {
+    const kinds = [...new Set(f.globalModuleDirs.map(globalDirKind))].sort().join(' ');
+    problems.push(`есть глобальный каталог модулей node: ${kinds}`);
+  }
   return problems;
+}
+
+/** Вид глобального каталога без пути: путь (HOME, том) в сообщение не попадает. */
+function globalDirKind(dir: string): string {
+  const d = dir.replace(/\/+$/, '');
+  if (d.endsWith('/.node_modules')) return 'HOME/.node_modules';
+  if (d.endsWith('/.node_libraries')) return 'HOME/.node_libraries';
+  if (d.endsWith('/lib/node')) return 'prefix/lib/node';
+  return 'NODE_PATH';
+}
+
+/** Каталоги, где node ищет пакеты сверх node_modules приложения; считаются при старте процесса (Module._initPaths). */
+function existingGlobalModuleDirs(): string[] {
+  // globalPaths нет в типах @types/node, но это открытое свойство модульного загрузчика CommonJS
+  const paths = (Module as unknown as { globalPaths?: readonly string[] }).globalPaths ?? [];
+  return paths.filter((p) => existsSync(p));
 }
 
 /** realpath скрипта: ссылка на server.js из другого места — тот же файл образа, а не чужой вход. */
@@ -96,6 +122,7 @@ export function currentRuntimeFacts(role: RuntimeRole): RuntimeFacts {
     execArgv: process.execArgv,
     env: process.env,
     inspectorUrl: inspector.url(),
+    globalModuleDirs: existingGlobalModuleDirs(),
   };
 }
 

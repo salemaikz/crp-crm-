@@ -83,6 +83,9 @@ RUN rm -rf /app/src /app/packages/core/src /app/packages/core/build.mjs /app/tes
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
     /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn* /usr/local/include/node
 USER node
+# Глобальных каталогов модулей node (HOME/.node_modules, <prefix>/lib/node, NODE_PATH) в образе нет: сборка клиента
+# с ними не стартует (D-312), поэтому образ, где они появились, не собирается
+RUN node -e "const d=require('node:module').globalPaths.filter((p)=>require('node:fs').existsSync(p));if(d.length>0){console.error('global module dirs:',d.join(' '));process.exit(1)}"
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]

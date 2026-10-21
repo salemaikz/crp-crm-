@@ -4,7 +4,7 @@
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RUNTIME_ENTRY, runtimeTamperProblems, type RuntimeFacts } from '../../../src/server/platform/license/runtime';
@@ -21,6 +21,7 @@ const CLEAN: RuntimeFacts = {
   execArgv: ['--disable-sigusr1'],
   env: { NODE_OPTIONS: '--max-old-space-size=1024' },
   inspectorUrl: undefined,
+  globalModuleDirs: [],
 };
 const facts = (patch: Partial<RuntimeFacts>): RuntimeFacts => ({ ...CLEAN, ...patch });
 
@@ -82,6 +83,7 @@ test('общая сборка (без водяного знака клиента
       execArgv: ['--inspect'],
       env: { NODE_OPTIONS: '--require x.cjs', LD_PRELOAD: 'y', LD_AUDIT: 'z' },
       inspectorUrl: 'ws://x',
+      globalModuleDirs: ['/tmp/h/.node_modules'],
     }),
     [],
   );
@@ -146,6 +148,8 @@ test('воркер: сборка клиента с предзагрузкой �
 test('поставка: app и worker запускаются с --disable-sigusr1 (Dockerfile и compose)', () => {
   const dockerfile = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
   assert.match(dockerfile, /^CMD \["node", "--disable-sigusr1", "server\.js"\]$/m);
+  // Образ сам не содержит глобальных каталогов модулей: иначе сборка клиента не стартовала бы
+  assert.match(dockerfile.slice(dockerfile.indexOf('AS runtime')), /^USER node\n(?:#[^\n]*\n)*RUN node -e "[^\n]*globalPaths[^\n]*existsSync[^\n]*process\.exit\(1\)/m);
   const compose = readFileSync(join(ROOT, 'deploy', 'compose', 'compose.yaml'), 'utf8');
   assert.match(compose, /command: \["node", "--disable-sigusr1", "server\.js"\]/);
   assert.match(compose, /command: \["node", "--disable-sigusr1", "dist\/worker\.mjs"\]/);
@@ -212,4 +216,51 @@ test('поставка: /tmp и кэш Next в контейнерах app и wor
     for (const o of ['noexec', 'nosuid', 'nodev']) assert.ok(opts.includes(o), `${m[1]}: ${o}`);
   }
   assert.match(compose, /- \/tmp:[^\n]*noexec/);
+});
+
+// ── Глобальные каталоги модулей node (круг 2 раунда 4 волны B): HOME=/tmp/h с .node_modules/@opentelemetry/api ──
+// Next при старте делает require('@opentelemetry/api'); в образе пакета нет, и node ищет его в Module.globalPaths:
+// $HOME/.node_modules, $HOME/.node_libraries, <prefix>/lib/node и NODE_PATH. Подложенный туда модуль исполняется до
+// приложения без флагов, без чужого входа и без подделки.
+
+test('живая проба: HOME с .node_modules/@opentelemetry/api — модуль грузится до приложения, проверка запуска — отказ', () => {
+  const runtimeTs = join(ROOT, 'src', 'server', 'platform', 'license', 'runtime.ts');
+  const home = mkdtempSync(join(tmpdir(), 'crm-home-'));
+  try {
+    const pkg = join(home, '.node_modules', '@opentelemetry', 'api');
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(join(pkg, 'index.js'), 'globalThis.__planted = true; module.exports = {};');
+    const probe = [
+      `import { createRequire } from 'node:module';`,
+      `import { currentRuntimeFacts, runtimeTamperProblems } from ${JSON.stringify(runtimeTs)};`,
+      // Как tracer.js в Next: необязательный пакет из каталога приложения
+      `try { createRequire(${JSON.stringify(join(ROOT, 'package.json'))})('@opentelemetry/api'); } catch {}`,
+      `const f = { ...currentRuntimeFacts('app'), customerBuild: true, entry: '/app/server.js', mainModule: '/app/server.js', execArgv: ['--disable-sigusr1'], env: {} };`,
+      `process.stdout.write(JSON.stringify({ planted: globalThis.__planted === true, problems: runtimeTamperProblems(f) }));`,
+    ].join('\n');
+    const env = { ...process.env, HOME: home, NODE_PATH: '' };
+    const out = JSON.parse(
+      execFileSync(process.execPath, ['--disable-sigusr1', '--import', 'tsx', '--input-type=module', '-'], { cwd: ROOT, input: probe, env, encoding: 'utf8' }),
+    ) as { planted: boolean; problems: string[] };
+    assert.equal(out.planted, true, 'вектор настоящий: модуль из $HOME/.node_modules исполнился');
+    assert.ok(out.problems.some((x) => /каталог модулей node/.test(x) && x.includes('HOME/.node_modules')), JSON.stringify(out));
+    assert.ok(!out.problems.join('\n').includes(home), 'путь в сообщение не попадает');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('сборка клиента: любой существующий глобальный каталог модулей node — отказ; нет таких — без замечаний', () => {
+  const cases: [string, string][] = [
+    ['/tmp/h/.node_modules', 'HOME/.node_modules'],
+    ['/tmp/h/.node_libraries', 'HOME/.node_libraries'],
+    ['/usr/local/lib/node', 'prefix/lib/node'],
+    ['/srv/x', 'NODE_PATH'],
+  ];
+  for (const [dir, label] of cases) {
+    const p = runtimeTamperProblems(facts({ globalModuleDirs: [dir] }));
+    assert.ok(p.some((x) => x.includes(label)), `${dir}: ${JSON.stringify(p)}`);
+    assert.ok(!p.join('\n').includes(dir), `${dir}: путь в сообщение не попадает`);
+  }
+  assert.deepEqual(runtimeTamperProblems(facts({ globalModuleDirs: [] })), []);
 });
