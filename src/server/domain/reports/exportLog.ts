@@ -43,6 +43,23 @@ export async function writeExportLogIn(sql: Sql, viewer: Viewer, input: ExportLo
   });
 }
 
+/**
+ * Отметка «полная выгрузка дописана до конца» (D-294): после finish() архива, отдельной строкой — таблица аудита
+ * только для добавления. Время — начало выгрузки (`viewer.now`): выгрузка засчитывается в сутки, когда её начали.
+ * В meta — только число строк.
+ */
+export async function writeFullExportDone(sql: Sql, viewer: Viewer, rows: number): Promise<void> {
+  await writeAudit(sql, {
+    actorId: viewer.userId,
+    action: 'export.full_done',
+    entity: 'export',
+    entityId: viewer.userId,
+    spaceId: viewer.spaceId,
+    meta: { rows: count(rows) },
+    createdAt: viewer.now,
+  });
+}
+
 /** Запись журнала до отдачи тела выгрузки (журнал остаётся, даже если скачивание оборвали). */
 export const writeExportLog: WriteExportLog = async (viewer, input) => writeExportLogIn((await getDb()).sql, viewer, input);
 

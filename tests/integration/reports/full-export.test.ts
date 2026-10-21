@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
 import * as fullRoute from '../../../src/app/api/export/full/route';
 import * as ticketRoute from '../../../src/app/api/export/full/ticket/route';
+import { getExportJournal } from '../../../src/server/domain/reports/exportLog';
 import { fullExportRunning } from '../../../src/server/domain/reports/fullExport';
 import { resetTicketsForTests } from '../../../src/server/domain/reports/tickets';
 import { resetConfigCache } from '../../../src/server/platform/config/active';
@@ -14,7 +15,7 @@ import { writeConfig } from '../../../src/server/platform/config/write';
 import { inflateEntry, newBudget, readZipDirectory } from '../../../src/server/platform/files/zip';
 import { resetRateLimit } from '../../../src/server/platform/ratelimit';
 import type { TestDb } from '../../../src/server/platform/db/testing';
-import { actAs, enterSeedWorld } from '../../isolation/harness/actors';
+import { actAs, enterSeedWorld, viewerOf } from '../../isolation/harness/actors';
 import { SEED_NOW, SPACE, U } from '../../isolation/harness/seed';
 import { closeWorld, openWorld } from '../access/world';
 import { WORLD_FIELDS, worldConfig } from '../clients/world';
@@ -206,6 +207,23 @@ test('лицензия «только чтение»: полная выгруз�
   }
 });
 
+test('полная выгрузка не стоит за флагами отчётов (D-295): FEATURE_REPORTS=0 и FEATURE_REPORTS_EXPORT=0 — архив скачивается', async () => {
+  resetLimits();
+  resetTicketsForTests();
+  const prev = { r: process.env.FEATURE_REPORTS, x: process.env.FEATURE_REPORTS_EXPORT };
+  process.env.FEATURE_REPORTS = '0';
+  process.env.FEATURE_REPORTS_EXPORT = '0';
+  try {
+    const { files } = await exportAs(U.rop);
+    assert.ok(files.has('clients.csv'));
+  } finally {
+    for (const [k, v] of [['FEATURE_REPORTS', prev.r], ['FEATURE_REPORTS_EXPORT', prev.x]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
 test('лимит: 3 полные выгрузки за местные сутки, четвёртая — 429 export_limit; попытки пароля — 429 rate_limited', async () => {
   resetLimits();
   // у директора уже две выгрузки сегодня (архив и «только чтение»): третья проходит, четвёртая — нет
@@ -215,7 +233,7 @@ test('лимит: 3 полные выгрузки за местные сутки
   assert.equal(over.status, 429);
   assert.deepEqual(await over.json(), { error: 'rate_limited', detail: 'export_limit' });
   // выгрузка вчера в счёт не идёт: сутки — местные
-  await db.sql`UPDATE audit_log SET created_at = ${SEED_NOW - 12 * 3_600_000} WHERE action = 'export.full' AND actor_id = ${U.director}`;
+  await db.sql`UPDATE audit_log SET created_at = ${SEED_NOW - 12 * 3_600_000} WHERE action IN ('export.full', 'export.full_done') AND actor_id = ${U.director}`;
   assert.equal((await ticket(U.director)).status, 200);
   // пять попыток пароля за 15 минут, шестая — 429 с Retry-After
   resetLimits();
@@ -244,6 +262,111 @@ test('одна полная выгрузка одновременно: втор�
   // получатель закрыл соединение: запись прекращается, семафор свободен
   await first.body!.cancel();
   await idle();
-  // билет, погашенный ответом busy, повторно не годится
+  // ответ busy билет не гасит (D-294): в пределах его 60 с повтор без нового пароля
+  const retry = await download(U.rop, t2);
+  assert.equal(retry.status, 200);
+  await retry.body!.cancel();
+  await idle();
+  // а успешно использованный — гаснет
   assert.equal((await download(U.rop, t2)).status, 404);
+});
+
+/** Сдвинуть полные выгрузки сотрудника на позавчера: сегодняшние счётчики с нуля. */
+async function clearToday(userId: string): Promise<void> {
+  await db.sql`UPDATE audit_log SET created_at = ${SEED_NOW - 2 * 86_400_000} WHERE action IN ('export.full', 'export.full_done') AND actor_id = ${userId}`;
+}
+
+/** Синтетические строки журнала за сегодня: начатые и завершённые полные выгрузки. */
+async function seedToday(userId: string, action: 'export.full' | 'export.full_done', n: number): Promise<void> {
+  for (let i = 0; i < n; i++) {
+    await db.sql`INSERT INTO audit_log (id, actor_id, space_id, action, entity, entity_id, meta, created_at)
+                 VALUES (${`al-fx-${action}-${userId}-${i}-${Math.random().toString(36).slice(2)}`}, ${userId}, ${SPACE}, ${action}, 'export', ${userId}, '{}', ${SEED_NOW - 1000})`;
+  }
+}
+
+async function abortedExport(as: string): Promise<void> {
+  const tr = await ticket(as);
+  assert.equal(tr.status, 200);
+  const res = await download(as, ((await tr.json()) as { ticket: string }).ticket);
+  assert.equal(res.status, 200);
+  await res.body!.cancel();
+  await idle();
+}
+
+test('лимит считает завершённые: оборванная выгрузка не съедает лимит, завершение отмечается после записи архива (D-294)', async () => {
+  resetLimits();
+  resetTicketsForTests();
+  await clearToday(U.rop);
+  for (let i = 0; i < 3; i++) {
+    resetLimits();
+    await abortedExport(U.rop);
+  }
+  const done = () => db.sql`SELECT id FROM audit_log WHERE action = 'export.full_done' AND actor_id = ${U.rop} AND created_at >= ${SEED_NOW - 86_400_000}`;
+  assert.equal((await done()).length, 0, 'оборванные не отмечены завершёнными');
+  // три оборванных начала — четвёртая выгрузка всё ещё доступна и доходит до конца
+  resetLimits();
+  await exportAs(U.rop);
+  const marks = await db.sql<{ meta: Record<string, unknown>; spaceId: string }>`
+    SELECT meta, space_id FROM audit_log WHERE action = 'export.full_done' AND actor_id = ${U.rop} AND created_at >= ${SEED_NOW - 86_400_000}`;
+  assert.equal(marks.length, 1, 'завершённая отмечена');
+  assert.deepEqual(Object.keys(marks[0]!.meta), ['rows']);
+  assert.equal(marks[0]!.spaceId, SPACE);
+  // ещё две завершённых — и лимит исчерпан
+  await seedToday(U.rop, 'export.full_done', 2);
+  resetLimits();
+  const over = await ticket(U.rop);
+  assert.equal(over.status, 429);
+  assert.deepEqual(await over.json(), { error: 'rate_limited', detail: 'export_limit' });
+  // отметка завершения — служебная: в журнале выгрузок одна строка на выгрузку (её начало)
+  const journal = await getExportJournal(await viewerOf(U.director), { before: null, limit: 50 });
+  const starts = await db.sql`SELECT id FROM audit_log WHERE action = 'export.full' AND space_id = ${SPACE}`;
+  assert.ok(starts.length < 50);
+  assert.equal(journal.rows.filter((r) => r.kind === 'full').length, starts.length);
+});
+
+test('начатых полных выгрузок за сутки не больше 10, даже если все оборвались (D-294)', async () => {
+  resetLimits();
+  resetTicketsForTests();
+  await clearToday(U.rop);
+  await seedToday(U.rop, 'export.full', 9);
+  assert.equal((await ticket(U.rop)).status, 200, 'девять оборванных — ещё можно');
+  resetTicketsForTests();
+  await seedToday(U.rop, 'export.full', 1);
+  resetLimits();
+  const over = await ticket(U.rop);
+  assert.equal(over.status, 429);
+  assert.deepEqual(await over.json(), { error: 'rate_limited', detail: 'export_limit' });
+  await clearToday(U.rop);
+});
+
+test('билет бронирует выгрузку на 60 с: другой сотрудник получает busy, после использования или истечения — свободно (D-294)', async () => {
+  resetLimits();
+  resetTicketsForTests();
+  await clearToday(U.rop);
+  await clearToday(U.director);
+  const tr = await ticket(U.rop);
+  assert.equal(tr.status, 200);
+  const t = ((await tr.json()) as { ticket: string }).ticket;
+  // директор не перехватывает выгрузку, на которую РОП уже ввёл пароль
+  const held = await ticket(U.director);
+  assert.equal(held.status, 429);
+  assert.deepEqual(await held.json(), { error: 'rate_limited', detail: 'busy' });
+  // сам РОП может получить ещё билет (например, закрыл окно и открыл снова)
+  resetLimits();
+  assert.equal((await ticket(U.rop)).status, 200);
+  const res = await download(U.rop, t);
+  assert.equal(res.status, 200);
+  await res.arrayBuffer();
+  await idle();
+  // второй билет РОП ещё жив и держит бронь до истечения; после 60 с директор проходит
+  resetLimits();
+  assert.equal((await ticket(U.director)).status, 429);
+  enterSeedWorld({ now: SEED_NOW + 60_000 });
+  try {
+    resetLimits();
+    assert.equal((await ticket(U.director)).status, 200);
+  } finally {
+    enterSeedWorld();
+    resetTicketsForTests();
+  }
 });

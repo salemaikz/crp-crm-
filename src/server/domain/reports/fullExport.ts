@@ -15,15 +15,20 @@ import { getDb, newId, type Db, type Sql } from '@/server/platform/db';
 import { createZipWriter, toExcelCsvLines, type CsvCellValue, type ZipWriter } from '@/server/platform/files';
 import { rateLimit } from '@/server/platform/ratelimit';
 import { ExportLimitError, PasswordInvalidError } from './exportErrors';
-import { writeExportLogIn } from './exportLog';
-import { countFullExportsSince } from './exportRepo';
+import { writeExportLogIn, writeFullExportDone } from './exportLog';
+import { countFullExportsSince, type FullExportCounts } from './exportRepo';
 import * as repo from './fullExportRepo';
 import type { FullExportTable } from './fullExportRepo';
 import type { IssueFullExportTicket, StreamFullExport } from './reportTypes';
-import { consumeTicket, issueTicket } from './tickets';
+import { consumeTicket, heldByOther, issueTicket, ticketValid } from './tickets';
 
-/** Успешных полных выгрузок сотрудника за местные сутки (D-264, вопрос владельцу §14 п. 2). */
+/** Завершённых полных выгрузок сотрудника за местные сутки (D-264, D-294; вопрос владельцу §14 п. 2). */
 export const FULL_EXPORTS_PER_DAY = 3;
+/**
+ * Начатых за местные сутки, считая оборванные (D-294): обрыв связи не съедает лимит, но и не даёт бесконечных
+ * попыток. Каждое начало и так пишется в журнал и уведомляет директора, РОП и администраторов.
+ */
+export const FULL_EXPORT_STARTS_PER_DAY = 10;
 /** Попыток пароля за окно. */
 export const PASSWORD_ATTEMPTS = 5;
 export const PASSWORD_WINDOW_MS = 15 * 60_000;
@@ -47,8 +52,13 @@ type Gate = { running: boolean };
 const g = globalThis as typeof globalThis & { __crmFullExportGate?: Gate };
 const gate: Gate = (g.__crmFullExportGate ??= { running: false });
 
-function acquire(): boolean {
-  if (gate.running) return false;
+/** Свободно ли: никто не выгружает и нет брони чужим живым билетом (D-294). */
+function freeFor(userId: string, now: number): boolean {
+  return !gate.running && !heldByOther(userId, now);
+}
+
+function acquire(userId: string, now: number): boolean {
+  if (!freeFor(userId, now)) return false;
   gate.running = true;
   return true;
 }
@@ -62,8 +72,13 @@ export function fullExportRunning(): boolean {
   return gate.running;
 }
 
-async function exportsToday(sql: Sql, viewer: Viewer): Promise<number> {
+async function exportsToday(sql: Sql, viewer: Viewer): Promise<FullExportCounts> {
   return countFullExportsSince(sql, { userId: viewer.userId, since: time.fromLocalTime(viewer.today, '00:00', viewer.timeZone) });
+}
+
+/** Лимиты суток (D-294): завершённых — 3, начатых (с оборванными) — 10. Оба исчерпания — один код `export_limit`. */
+function underLimits(c: FullExportCounts): boolean {
+  return c.completed < FULL_EXPORTS_PER_DAY && c.started < FULL_EXPORT_STARTS_PER_DAY;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,8 +92,9 @@ export const issueFullExportTicket: IssueFullExportTicket = async (viewer, input
   // неверный пароль: 403 без записи в журнал; хеш не покидает платформу
   if (!(await verifyUserPassword(viewer.userId, input.password))) throw new PasswordInvalidError();
   const db = await getDb();
-  if ((await exportsToday(db.sql, viewer)) >= FULL_EXPORTS_PER_DAY) throw new ExportLimitError('export_limit');
-  if (gate.running) throw new ExportLimitError('busy');
+  if (!underLimits(await exportsToday(db.sql, viewer))) throw new ExportLimitError('export_limit');
+  // проверка и выдача — без await между ними: живой билет и есть бронь на 60 с (D-294)
+  if (!freeFor(viewer.userId, viewer.now)) throw new ExportLimitError('busy');
   return issueTicket(viewer.userId, viewer.now);
 };
 
@@ -359,6 +375,9 @@ async function produce(viewer: Viewer, db: Db, zip: ZipWriter, ctx: Ctx, expecte
       }),
     );
     await zip.finish();
+    // отметка завершения (D-294) — только после того, как архив дописан; оборванная или упавшая по пределу
+    // времени выгрузка её не получает и в лимит завершённых не идёт
+    await writeFullExportDone(db.sql, viewer, Object.values(written).reduce((s, n) => s + (n ?? 0), 0));
   } catch (e) {
     const code = (e as { code?: unknown } | null)?.code;
     zip.abort(typeof code === 'string' ? code : 'failed');
@@ -383,16 +402,22 @@ function modifiedAtOf(viewer: Viewer): Date {
 
 export const streamFullExport: StreamFullExport = async (viewer, input) => {
   const spaceId = requireFullExport(viewer);
-  // билет гасится сразу; нет, просрочен или чужой — 404, как у несуществующего
-  if (!consumeTicket(input.ticket, viewer.userId, viewer.now)) throw new NotFoundError();
-  if (!acquire()) throw new ExportLimitError('busy');
+  // нет, просрочен или чужой — билет гасится и 404, как у несуществующего
+  if (!ticketValid(input.ticket, viewer.userId, viewer.now)) {
+    consumeTicket(input.ticket, viewer.userId, viewer.now);
+    throw new NotFoundError();
+  }
+  // «занято» билет не гасит (D-294): повтор с ним же в пределах 60 с, без нового пароля. Проверка, захват и
+  // погашение идут подряд без await — второй запрос с тем же билетом между ними не пройдёт
+  if (!acquire(viewer.userId, viewer.now)) throw new ExportLimitError('busy');
+  consumeTicket(input.ticket, viewer.userId, viewer.now);
   let handedOver = false;
   try {
     const ctx = await contextOf(viewer, spaceId);
     const db = await getDb();
     const expected = await db.tx(async (sql) => {
       // повторная проверка лимита под семафором: два билета подряд не дают четвёртую выгрузку
-      if ((await exportsToday(sql, viewer)) >= FULL_EXPORTS_PER_DAY) throw new ExportLimitError('export_limit');
+      if (!underLimits(await exportsToday(sql, viewer))) throw new ExportLimitError('export_limit');
       const counts = await repo.countFullExport(viewer, sql, { spaceId, kinds: ctx.kinds, visibleRefs: ctx.visibleRefs });
       const rows = Object.values(counts).reduce((s, n) => s + n, 0);
       await writeExportLogIn(sql, viewer, { kind: 'full', reportKey: null, format: 'zip', rows, filterKeys: [], periodDays: null });

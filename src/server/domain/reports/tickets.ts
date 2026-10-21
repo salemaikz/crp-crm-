@@ -27,6 +27,31 @@ export function issueTicket(userId: string, now: number): { ticket: string; expi
   return { ticket, expiresAt };
 }
 
+const sameUser = (a: string, b: string): boolean => {
+  const x = Buffer.from(a, 'utf8');
+  const y = Buffer.from(b, 'utf8');
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+
+/**
+ * Годен ли билет, не гася его: свой и не просроченный. Нужен, чтобы ответ «занято» не сжигал билет (D-294):
+ * проверка, захват семафора и погашение идут подряд без await — между ними чужой запрос не вклинится.
+ */
+export function ticketValid(ticket: string, userId: string, now: number): boolean {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(ticket)) return false;
+  const e = store.get(digest(ticket));
+  return e !== undefined && sameUser(e.userId, userId) && e.expiresAt > now;
+}
+
+/**
+ * Бронь выгрузки (D-294): живой билет другого сотрудника. Пароль введён — 60 с выгрузка за ним, иначе его шаг 2
+ * мог бы получить «занято» от того, кто ввёл пароль позже.
+ */
+export function heldByOther(userId: string, now: number): boolean {
+  for (const e of store.values()) if (e.expiresAt > now && !sameUser(e.userId, userId)) return true;
+  return false;
+}
+
 /**
  * Погасить билет: удаляется сразу, при любом исходе проверки. Годен — только свой и не просроченный. Вход
  * проверяется по форме до хэширования (чужая строка любой длины не нагружает процесс).
@@ -37,10 +62,7 @@ export function consumeTicket(ticket: string, userId: string, now: number): bool
   const e = store.get(key);
   if (!e) return false;
   store.delete(key);
-  const a = Buffer.from(e.userId, 'utf8');
-  const b = Buffer.from(userId, 'utf8');
-  const same = a.length === b.length && timingSafeEqual(a, b);
-  return same && e.expiresAt > now;
+  return sameUser(e.userId, userId) && e.expiresAt > now;
 }
 
 /** Только тесты: сбросить билеты. */

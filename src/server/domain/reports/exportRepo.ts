@@ -30,10 +30,22 @@ export async function selectExportJournal(
      LIMIT ${a.limit + 1}`;
 }
 
-/** Полных выгрузок сотрудника с момента `since` (начало местных суток): лимит в сутки (D-264). */
-export async function countFullExportsSince(sql: Sql, a: { userId: string; since: number }): Promise<number> {
-  const rows = await sql<{ n: number }>`
-    SELECT count(*)::int AS n FROM audit_log
-     WHERE action = 'export.full' AND actor_id = ${a.userId} AND created_at >= ${a.since}::bigint`;
-  return rows[0]?.n ?? 0;
+/** Отметка завершения полной выгрузки (D-294): служебная строка, в журнал выгрузок не попадает. */
+export const FULL_EXPORT_DONE = 'export.full_done';
+
+export interface FullExportCounts {
+  /** Начатых: журнал пишется до первого байта (D-264). */
+  started: number;
+  /** Завершённых: архив дописан до конца (D-294). */
+  completed: number;
+}
+
+/** Полные выгрузки сотрудника с момента `since` (начало местных суток): лимиты в сутки (D-264, D-294). */
+export async function countFullExportsSince(sql: Sql, a: { userId: string; since: number }): Promise<FullExportCounts> {
+  const rows = await sql<FullExportCounts>`
+    SELECT count(*) FILTER (WHERE action = 'export.full')::int AS started,
+           count(*) FILTER (WHERE action = ${FULL_EXPORT_DONE})::int AS completed
+      FROM audit_log
+     WHERE action IN ('export.full', ${FULL_EXPORT_DONE}) AND actor_id = ${a.userId} AND created_at >= ${a.since}::bigint`;
+  return rows[0] ?? { started: 0, completed: 0 };
 }

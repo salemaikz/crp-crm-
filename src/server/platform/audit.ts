@@ -53,6 +53,8 @@ export const AUDIT_ACTIONS = [
   'export.report',
   'export.full',
   'export.guests',
+  // D-294: полная выгрузка дописана до конца (лимит в сутки считает только такие); в meta — только rows
+  'export.full_done',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

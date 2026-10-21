@@ -6,7 +6,7 @@ import { createTranslator } from 'next-intl';
 import reportsMessages from '../../../messages/ru/reports.json';
 import { exportMeta } from '../../../src/server/domain/reports/exportLog';
 import { exportTranslator, labelKey, toExportTable } from '../../../src/server/domain/reports/exportTable';
-import { consumeTicket, issueTicket, resetTicketsForTests, TICKET_TTL_MS, TICKETS_MAX, ticketCount } from '../../../src/server/domain/reports/tickets';
+import { consumeTicket, heldByOther, issueTicket, resetTicketsForTests, TICKET_TTL_MS, TICKETS_MAX, ticketCount, ticketValid } from '../../../src/server/domain/reports/tickets';
 import type { AttendanceReport, FunnelReport, OperatorsReport, ReasonsReport, ResolvedPeriod, RevenueReport } from '../../../src/server/domain/reports/reportTypes';
 import { toExcelCsv } from '../../../src/server/platform/files';
 
@@ -133,6 +133,23 @@ test('билеты: одноразовые, 60 с, только свои; хра
   assert.equal(consumeTicket('not a ticket', 'u-a', now), false);
   for (let i = 0; i < TICKETS_MAX + 20; i++) issueTicket(`u${i}`, now);
   assert.ok(ticketCount() <= TICKETS_MAX);
+  resetTicketsForTests();
+});
+
+test('билеты: проверка без погашения и бронь чужим живым билетом (D-294)', () => {
+  resetTicketsForTests();
+  const now = 2_000_000;
+  const a = issueTicket('u-a', now);
+  assert.equal(ticketValid(a.ticket, 'u-a', now), true);
+  assert.equal(ticketValid(a.ticket, 'u-a', now), true, 'проверка билет не гасит');
+  assert.equal(ticketValid(a.ticket, 'u-b', now), false, 'чужой');
+  assert.equal(ticketValid(a.ticket, 'u-a', now + TICKET_TTL_MS), false, 'просрочен');
+  assert.equal(ticketValid('not a ticket', 'u-a', now), false);
+  assert.equal(heldByOther('u-b', now), true, 'живой билет u-a бронирует выгрузку для других');
+  assert.equal(heldByOther('u-a', now), false, 'свой билет не мешает');
+  assert.equal(heldByOther('u-b', now + TICKET_TTL_MS), false, 'бронь кончается вместе с билетом');
+  assert.equal(consumeTicket(a.ticket, 'u-a', now + 1), true);
+  assert.equal(heldByOther('u-b', now + 1), false, 'погашенный билет брони не держит');
   resetTicketsForTests();
 });
 
