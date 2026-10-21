@@ -140,14 +140,14 @@
     "systemActor": "Система"
   },
   "history": {
-    "deal.created": "Сделка создана",
-    "deal.stage": "Этап изменён",
-    "deal.won": "Покупка зарегистрирована",
-    "deal.lost": "Сделка проиграна",
-    "deal.purchase_edited": "Покупка исправлена",
-    "deal.purchase_cancelled": "Покупка отменена",
-    "handoff.created": "Передано в отдел",
-    "note.created": "Заметка",
+    "deal_created": "Сделка создана",
+    "deal_stage": "Этап изменён",
+    "deal_won": "Покупка зарегистрирована",
+    "deal_lost": "Сделка проиграна",
+    "deal_purchase_edited": "Покупка исправлена",
+    "deal_purchase_cancelled": "Покупка отменена",
+    "handoff_created": "Передано в отдел",
+    "note_created": "Заметка",
     "other": "Событие"
   },
   "purchase": {

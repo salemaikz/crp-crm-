@@ -5,8 +5,9 @@ import { NotFoundError, page } from '@/server/access';
 import { pickLabel } from '@/server/domain/booking';
 import { dealsDeps, getDealPage } from '@/server/domain/deals';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { Badge, Button, Card, EmptyState, Page, PageHeader } from '@/ui/kit';
+import { Badge, Button, Card, DataList, EmptyState, Page, PageHeader, type DataListItem } from '@/ui/kit';
 import { DealActions } from '../_components/DealActions';
+import { bookingDayLabel, historyLabelKey } from '../_components/dealFormat';
 
 type Props = { params: Promise<{ dealId: string }> };
 
@@ -35,49 +36,42 @@ export default page<Props, ReactNode>({ perm: 'deal.read', target: 'object' }, a
   const money = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
   const dateFmt = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: tz });
   const timeFmt = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: tz });
-  const historyText = (kind: string) => (t.has(`history.${kind}`) ? t(`history.${kind}`) : t('history.other'));
+  const historyText = (kind: string) => t(`history.${historyLabelKey(kind, (k) => t.has(`history.${k}`))}`);
+  const summary: DataListItem[] = [
+    { label: t('page.owner'), value: view.ownerName ?? t('page.noOwner') },
+    ...(deal.status === 'won'
+      ? [
+          { label: t('page.service'), value: service ? pickLabel(service.label, locale) : deal.serviceTypeKey },
+          ...(deal.amountKzt !== null ? [{ label: t('page.amount'), value: <span className="k-num" data-testid="deal-amount">{`${money.format(deal.amountKzt)} ₸`}</span> }] : []),
+          { label: t('page.wonAt'), value: deal.wonAt !== null ? dateFmt.format(new Date(deal.wonAt)) : '' },
+        ]
+      : []),
+    ...(deal.status === 'lost' && deal.lostReasonCode !== ''
+      ? [{ label: t('page.lostReason'), value: reason ? pickLabel(reason.label, locale) : deal.lostReasonCode }]
+      : []),
+  ];
   const tone = deal.status === 'won' ? 'success' : deal.status === 'lost' ? 'danger' : 'info';
 
   return (
     <Page width="form">
-      <PageHeader title={view.clientName} lead={`${t('page.title')} · ${pickLabel(pipeline.label, locale)}`} />
-      <div className="flex flex-col gap-4">
+      <PageHeader
+        title={view.clientName}
+        lead={`${t('page.title')} · ${pickLabel(pipeline.label, locale)}`}
+        actions={
+          <Button href={`/clients/${encodeURIComponent(deal.clientId)}`} variant="secondary" size="sm">
+            {t('page.toClient')}
+          </Button>
+        }
+      />
+      <div className="flex flex-col gap-[var(--space-stack)]">
         <Card as="section" data-testid="deal-summary">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="text-lg font-semibold">{stageName}</span>
             <Badge tone={tone}>{t(`page.status.${deal.status}`)}</Badge>
             {deal.needsRebook && <Badge tone="warning">{t('page.needsRebook')}</Badge>}
             {deal.staleDays !== null && <Badge tone="warning">{t('page.stale', { days: deal.staleDays })}</Badge>}
           </div>
-          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-            <dt className="text-[var(--text-2)]">{t('page.owner')}</dt>
-            <dd>{view.ownerName ?? t('page.noOwner')}</dd>
-            {deal.status === 'won' && (
-              <>
-                <dt className="text-[var(--text-2)]">{t('page.service')}</dt>
-                <dd>{service ? pickLabel(service.label, locale) : deal.serviceTypeKey}</dd>
-                {deal.amountKzt !== null && (
-                  <>
-                    <dt className="text-[var(--text-2)]">{t('page.amount')}</dt>
-                    <dd data-testid="deal-amount">{`${money.format(deal.amountKzt)} ₸`}</dd>
-                  </>
-                )}
-                <dt className="text-[var(--text-2)]">{t('page.wonAt')}</dt>
-                <dd>{deal.wonAt !== null ? dateFmt.format(new Date(deal.wonAt)) : ''}</dd>
-              </>
-            )}
-            {deal.status === 'lost' && deal.lostReasonCode !== '' && (
-              <>
-                <dt className="text-[var(--text-2)]">{t('page.lostReason')}</dt>
-                <dd>{reason ? pickLabel(reason.label, locale) : deal.lostReasonCode}</dd>
-              </>
-            )}
-          </dl>
-          <div className="mt-3">
-            <Button href={`/clients/${encodeURIComponent(deal.clientId)}`} variant="secondary" size="sm">
-              {t('page.toClient')}
-            </Button>
-          </div>
+          <DataList items={summary} />
         </Card>
 
         <DealActions
@@ -94,32 +88,29 @@ export default page<Props, ReactNode>({ perm: 'deal.read', target: 'object' }, a
         />
 
         {view.handoff && (
-          <Card as="section">
-            <h2 className="mb-2 text-base font-semibold">{t('page.handoff')}</h2>
+          <Card as="section" title={t('page.handoff')}>
             <p className="text-sm" data-testid="deal-handoff">
               {t(`page.handoffStatus.${view.handoff.status}`)}
             </p>
           </Card>
         )}
 
-        <Card as="section">
-          <h2 className="mb-2 text-base font-semibold">{t('page.bookings')}</h2>
+        <Card as="section" title={t('page.bookings')}>
           {view.bookings.length === 0 ? (
             <p className="text-sm text-[var(--text-2)]">{t('page.noBookings')}</p>
           ) : (
-            <ul className="flex flex-col gap-1 text-sm">
+            <ul className="flex flex-col gap-2 text-sm">
               {view.bookings.map((b) => (
-                <li key={b.id} className="flex justify-between gap-2">
-                  <span>{t('page.bookingRow', { date: b.bookingDate, time: b.startTime })}</span>
-                  <span className="text-[var(--text-2)]">{t(`page.bookingStatus.${b.status}`)}</span>
+                <li key={b.id} className="flex items-center justify-between gap-2">
+                  <span className="k-num">{t('page.bookingRow', { date: bookingDayLabel(b.bookingDate, locale), time: b.startTime })}</span>
+                  <Badge tone={b.status === 'attended' ? 'success' : b.status === 'no_show' || b.status === 'cancelled' ? 'danger' : 'neutral'}>{t(`page.bookingStatus.${b.status}`)}</Badge>
                 </li>
               ))}
             </ul>
           )}
         </Card>
 
-        <Card as="section">
-          <h2 className="mb-2 text-base font-semibold">{t('page.history')}</h2>
+        <Card as="section" title={t('page.history')}>
           {view.history.length === 0 ? (
             <EmptyState framed={false} title={t('page.noHistory')} />
           ) : (
