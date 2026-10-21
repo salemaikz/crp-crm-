@@ -56,6 +56,34 @@ export const EVENT_KINDS = {
   'client.merged': { group: 'system', dataKeys: ['otherClientId'] },
 } as const satisfies Record<string, KindSpec>;
 
+/**
+ * Виды событий, которые модули пишут в `client_events` с `deal_id`: их отдаёт история сделки
+ * (`deals/repo.read.ts`, `listDealHistory`). Подпись каждого — `deals.history.<вид с «_» вместо точки>`; тест сверяет
+ * список и с локалью, и с видами `kind: '…'` в коде доменов, чтобы новый вид не показался как «Событие».
+ */
+export const DEAL_HISTORY_KINDS = [
+  'deal.created',
+  'deal.stage',
+  'deal.won',
+  'deal.lost',
+  'deal.purchase_edited',
+  'deal.purchase_cancelled',
+  'booking.created',
+  'booking.moved',
+  'booking.status',
+  'booking.assigned',
+  'booking.result',
+  'handoff.created',
+  'handoff.accepted',
+  'handoff.declined',
+  'handoff.assigned',
+  'task.created',
+  'task.done',
+  'task.cancelled',
+  'task.comment',
+  'note.created',
+] as const;
+
 export type EventKind = keyof typeof EVENT_KINDS;
 
 export function isKnownKind(kind: string): kind is EventKind {

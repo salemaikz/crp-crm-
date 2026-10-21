@@ -91,4 +91,19 @@ test('консультант: покупка с передачей, двойно
   expect([after?.status, after?.stageKey, after?.amount]).toEqual(['open', 'offer', '0']);
   const [ho] = await sql<{ status: string }[]>`SELECT status FROM handoffs WHERE deal_id = ${dealId}`;
   expect(ho?.status).toBe('cancelled');
+
+  // UI-8: события записи, передачи и задач с deal_id подписаны своим текстом, а не «Событие» (итог встречи пишет их)
+  const [bk] = await sql<{ id: string }[]>`SELECT id FROM bookings WHERE deal_id = ${dealId}`;
+  const ev = (kind: string, data: Record<string, unknown>) =>
+    sql`INSERT INTO client_events (id, client_id, space_id, deal_id, kind, actor_id, at, ref_type, ref_id, data)
+        VALUES (${randomUUID()}, ${clientId}, ${spaceId}, ${dealId}, ${kind}, ${consultant.userId}, ${Date.now()}, 'booking', ${bk!.id}, ${sql.json(data as never)})`;
+  await ev('booking.status', { bookingId: bk!.id, from: 'registered', to: 'attended' });
+  await ev('booking.result', { bookingId: bk!.id });
+  await ev('booking.assigned', { bookingId: bk!.id, resourceId: consultant.resourceId });
+  await page.reload();
+  const history = page.getByTestId('deal-history');
+  await expect(history.getByText('Изменён статус записи')).toBeVisible();
+  await expect(history.getByText('Итог встречи')).toBeVisible();
+  await expect(history.getByText('Консультант назначен')).toBeVisible();
+  await expect(history.getByText('Событие', { exact: true })).toHaveCount(0);
 });
