@@ -14,6 +14,8 @@ export const FEATURES = [
   'MERGE',
   'BULK_TRANSFER',
   'IMPORT',
+  // D-324: профиль «Записи» импорта; действует только вместе с FEATURE_IMPORT
+  'IMPORT_BOOKINGS',
   // D-295: отчёты за период, их CSV/XLSX и панель директора; настройки продаж в интерфейсе
   'REPORTS',
   'SALES_SETTINGS',

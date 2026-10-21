@@ -155,8 +155,42 @@ export function checkConfigSet(set: SetInput, ctx: z.RefinementCtx): void {
         const allowed = t.object === 'client' ? clientFields : cardFields;
         ref(pp('fieldTargets', from, 'fieldKey'), t.fieldKey, allowed, t.object === 'client' ? 'поля клиента' : 'поля карточки');
       }
+      if ((p.kind ?? 'clients') === 'bookings') checkBookingsProfile(p, pp, issue, ref, eventTypes, groupTypes);
+      else {
+        // Ключи профиля «Записи» у таблиц клиентов не используются: тихо оставленный ключ ввёл бы в заблуждение
+        if (p.valueMaps.eventType !== undefined) issue(pp('valueMaps', 'eventType'), 'карта видов мероприятий — только у профиля bookings');
+        if (p.defaultEventTypeKey !== undefined) issue(pp('defaultEventTypeKey'), 'вид по умолчанию — только у профиля bookings');
+        if (p.maxRows !== undefined) issue(pp('maxRows'), 'предел строк профиля — только у bookings');
+      }
     });
   }
+}
+
+type ImportProfileDoc = SpaceConfigV1['import']['profiles'][number];
+
+/** Профиль «Записи» (D-324, import-bookings-design §3): колонка владельца, поля записи, виды мероприятий пространства. */
+function checkBookingsProfile(
+  p: ImportProfileDoc,
+  pp: (...x: P) => P,
+  issue: (p: P, m: string) => void,
+  ref: (p: P, v: string, allowed: ReadonlySet<string>, what: string) => void,
+  eventTypes: ReadonlySet<string>,
+  groupTypes: ReadonlySet<string>,
+): void {
+  const fieldsSet = new Set(Object.values(p.columns));
+  if (p.ownerBy !== 'column') issue(pp('ownerBy'), 'у профиля bookings автор берётся из колонки: ownerBy = column');
+  if ((p.ownerSlots ?? []).length > 0) issue(pp('ownerSlots'), 'слоты владельцев не используются профилем bookings');
+  if (Object.keys(p.fieldTargets ?? {}).length > 0) issue(pp('fieldTargets'), 'fieldTargets не используются профилем bookings');
+  if ((p.noteMarkers ?? []).length > 0) issue(pp('noteMarkers'), 'noteMarkers не используются профилем bookings');
+  if (Object.keys(p.valueMaps.outcome).length + Object.keys(p.valueMaps.lpr).length + Object.keys(p.valueMaps.target).length > 0) {
+    issue(pp('valueMaps'), 'valueMaps.outcome, lpr и target не используются профилем bookings');
+  }
+  if (p.outcomePriority.length > 0) issue(pp('outcomePriority'), 'outcomePriority не используется профилем bookings');
+  if (!fieldsSet.has('eventDate')) issue(pp('columns'), 'нужна колонка поля eventDate (дата мероприятия)');
+  if (!fieldsSet.has('phones') && !fieldsSet.has('orgId')) issue(pp('columns'), 'нужна колонка phones или orgId: по чему искать клиента');
+  if (!fieldsSet.has('eventType') && p.defaultEventTypeKey === undefined) issue(pp('columns'), 'нужна колонка eventType или defaultEventTypeKey');
+  for (const [cell, key] of Object.entries(p.valueMaps.eventType ?? {})) ref(pp('valueMaps', 'eventType', cell), key, eventTypes, 'типа мероприятия');
+  if (p.defaultEventTypeKey !== undefined) ref(pp('defaultEventTypeKey'), p.defaultEventTypeKey, groupTypes, 'группового типа мероприятия');
 }
 
 const REMINDER_PLACEHOLDER_SET: ReadonlySet<string> = new Set(REMINDER_PLACEHOLDERS);

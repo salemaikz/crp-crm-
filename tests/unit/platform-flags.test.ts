@@ -5,7 +5,7 @@ import { FEATURES, isFeatureEnabled } from '../../src/server/platform/flags';
 test('список флагов совпадает с CONFIG §7', () => {
   assert.deepEqual(
     [...FEATURES].sort(),
-    ['BK_WIZARD', 'BULK_TRANSFER', 'IMPORT', 'KANBAN', 'MERGE', 'PURCHASES', 'PUSH', 'REPORTS', 'REPORTS_EXPORT', 'SALES_SETTINGS', 'TELEPHONY_BEELINE', 'TELEPHONY_ZADARMA', 'WAZZUP'],
+    ['BK_WIZARD', 'BULK_TRANSFER', 'IMPORT', 'IMPORT_BOOKINGS', 'KANBAN', 'MERGE', 'PURCHASES', 'PUSH', 'REPORTS', 'REPORTS_EXPORT', 'SALES_SETTINGS', 'TELEPHONY_BEELINE', 'TELEPHONY_ZADARMA', 'WAZZUP'],
   );
 });
 
