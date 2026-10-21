@@ -67,6 +67,14 @@ export async function upsertSubscription(sql: Sql, a: NewSubscription): Promise<
   return { id, ownerChanged };
 }
 
+/** Есть ли у сотрудника действующая подписка, привязанная к этой сессии. Нет — после входа её надо привязать заново. */
+export async function hasSessionSubscription(sql: Sql, a: { userId: string; sessionId: string }): Promise<boolean> {
+  const [row] = await sql<{ found: boolean }>`
+    SELECT EXISTS (SELECT 1 FROM push_subscriptions
+                    WHERE user_id = ${a.userId} AND session_id = ${a.sessionId} AND disabled_at IS NULL) AS found`;
+  return row?.found === true;
+}
+
 /** Сверх `keep` действующих подписок сотрудника — старейшие выключаются. Возвращает число выключенных. */
 export async function trimSubscriptions(sql: Sql, a: { userId: string; keep: number; now: number }): Promise<number> {
   const rows = await sql<{ id: string }>`

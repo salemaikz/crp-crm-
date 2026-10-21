@@ -1,6 +1,7 @@
-// Web-push на общем телефоне (D-328): выход снимает подписку push в браузере первым делом, а после входа без
-// разрешения на уведомления страница ничего не подписывает сама. Push-сервиса в e2e нет: PushManager подменён
-// заглушкой, которая считает снятия подписки в sessionStorage (переживает переход на вход). Синтетика: +7 709 …
+// Web-push на общем телефоне (D-328): выход снимает подписку push в браузере первым делом и шлёт отписку на
+// сервер, а после входа без разрешения на уведомления страница ничего не подписывает сама. Push-сервиса в e2e нет:
+// PushManager подменён заглушкой, которая считает снятия подписки в sessionStorage (переживает переход на вход).
+// Синтетика: +7 709 …
 import { expect, test } from '@playwright/test';
 import { DB_URL, makeOperator, openCall, prepareDb } from './support/calling';
 
@@ -33,8 +34,10 @@ test('выход снимает подписку push этого устройс�
     }
   });
   const subscribeCalls: string[] = [];
+  const unsubscribeBodies: string[] = [];
   page.on('request', (r) => {
     if (r.url().includes('/api/push/subscribe')) subscribeCalls.push(r.method());
+    if (r.url().includes('/api/push/unsubscribe')) unsubscribeBodies.push(r.postData() ?? '');
   });
   const op = await makeOperator(1);
   await openCall(page, op);
@@ -48,4 +51,6 @@ test('выход снимает подписку push этого устройс�
   await page.getByTestId('logout').click();
   await page.waitForURL(/\/login/);
   expect(await page.evaluate(() => sessionStorage.getItem('e2e-push-unsub'))).toBe('1');
+  // Затем — отписка на сервере без ожидания ответа (дизайн §2.4): строка не живёт до удаления сессии
+  expect(unsubscribeBodies.map((b) => JSON.parse(b) as unknown)).toEqual([{ endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic-e2e-0001' }]);
 });

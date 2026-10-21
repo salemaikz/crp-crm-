@@ -118,7 +118,7 @@ const badRequest = (detail: string) => (e: unknown) => e instanceof BadRequestEr
 
 test('пока администратор не отметил решение клиента и не включил — push недоступен, подписка не принимается', async () => {
   const opA = await viewerOf(U.opA);
-  assert.deepEqual(await pushStatus(opA), { available: false, publicKey: null });
+  assert.deepEqual(await pushStatus(opA, null), { available: false, publicKey: null, bound: false });
   await assert.rejects(subscribePush(opA, await session(U.opA), device(1)), badRequest('push_off'));
   const state = await pushAdminState(await viewerOf(U.admin));
   assert.equal(state.usable, false);
@@ -138,7 +138,7 @@ test('отметка решения требует дату; включение 
   assert.deepEqual({ usable: on.usable, enabled: on.enabled, approved: on.crossborderApprovedAt !== null }, { usable: true, enabled: true, approved: true });
   const log = await db.sql<{ meta: Record<string, unknown> }>`SELECT meta FROM audit_log WHERE action = 'push.settings' ORDER BY created_at, id`;
   assert.ok(log.some((r) => r.meta.decisionDate === '2026-10-27' && r.meta.enabled === true));
-  const st = await pushStatus(await viewerOf(U.opA));
+  const st = await pushStatus(await viewerOf(U.opA), null);
   assert.equal(st.available, true);
   assert.equal(st.publicKey, vapidEnv.VAPID_PUBLIC_KEY);
 });
@@ -248,6 +248,34 @@ test('отписка: своя сессия и свой адрес; чужую �
   assert.equal((await subs()).find((x) => x.endpoint === EP(9))!.disabledAt, null);
   assert.deepEqual(await unsubscribePush(opA, sA, null), { disabled: 1 });
   assert.notEqual((await subs()).find((x) => x.endpoint === EP(9))!.disabledAt, null);
+});
+
+test('привязка к сессии (bound): после нового входа сервер говорит, что устройство надо привязать заново', async () => {
+  const opA = await viewerOf(U.opA);
+  const s1 = await session(U.opA);
+  assert.equal((await pushStatus(opA, s1)).bound, false);
+  await subscribePush(opA, s1, device(12));
+  assert.equal((await pushStatus(opA, s1)).bound, true);
+  // «выйти везде», простой idleHours, сброс пароля и новый вход на том же телефоне: сессия другая, подписка — прежняя
+  const s2 = await session(U.opA);
+  assert.equal((await pushStatus(opA, s2)).bound, false, 'старый признак не выдаёт себя за привязку новой сессии');
+  await subscribePush(opA, s2, device(12));
+  assert.equal((await pushStatus(opA, s2)).bound, true);
+  const sub = (await subs()).find((x) => x.endpoint === EP(12))!;
+  assert.deepEqual({ sessionId: sub.sessionId, disabledAt: sub.disabledAt }, { sessionId: s2, disabledAt: null });
+  await db.sql`DELETE FROM sessions WHERE id = ${s1}`;
+  await fill(SEED_NOW + 4 * MIN);
+  assert.equal((await subs()).find((x) => x.endpoint === EP(12))!.disabledAt, null, 'смерть прежней сессии подписку не выключает');
+  assert.equal((await pushStatus(await viewerOf(U.opB), s2)).bound, false, 'чужая сессия — не своя привязка');
+  await unsubscribePush(opA, s2, EP(12));
+  assert.equal((await pushStatus(opA, s2)).bound, false);
+});
+
+test('роль «только чтение» (директор): push недоступен — подписка для неё мутация и получила бы 423', async () => {
+  const dir = await viewerOf(U.director);
+  assert.equal(dir.readOnly, true);
+  assert.deepEqual(await pushStatus(dir, await session(U.director)), { available: false, publicKey: null, bound: false });
+  assert.equal((await pushStatus(await viewerOf(U.rop), null)).available, true, 'push при этом включён');
 });
 
 test('ответы push-сервиса: 410 выключает подписку, 503 — повтор, 400 — окончательно', async () => {

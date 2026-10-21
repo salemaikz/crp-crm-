@@ -14,6 +14,7 @@ import { b64u, checkPushEndpoint, isUncompressedPoint, readVapidKeys, sendWebPus
 import {
   disableDeadSubscriptions,
   disableOwnSubscriptions,
+  hasSessionSubscription,
   insertOutbox,
   loadOutboxItem,
   markSubscriptionGone,
@@ -78,15 +79,29 @@ async function gate(sql: Sql, deps: PushDeps): Promise<Gate> {
 // Сотрудник: можно ли включить, подписка, отписка
 // ---------------------------------------------------------------------------
 
+export interface PushStatus {
+  available: boolean;
+  publicKey: string | null;
+  /** Есть действующая подписка, привязанная к текущей сессии. Нет — страница привязывает подписку браузера заново. */
+  bound: boolean;
+}
+
+const SESSION_ID_RE = /^[0-9a-f]{64}$/;
+const PUSH_OFF: PushStatus = { available: false, publicKey: null, bound: false };
+
 /**
- * Для кнопки «Уведомления на телефон»: доступен ли push и ключ сервера для подписки. Причин не раскрываем. При лицензии
- * «только чтение» push не рассылается (очередь — деловая запись), поэтому и кнопки нет.
+ * Для кнопки «Уведомления на телефон» и привязки после входа: доступен ли push, ключ сервера для подписки и привязана
+ * ли подписка к этой сессии. Причин не раскрываем. При лицензии «только чтение» push не рассылается (очередь — деловая
+ * запись), а роли «только чтение» подписка запрещена как мутация (423), поэтому кнопки нет ни там, ни там.
  */
-export async function pushStatus(viewer: Viewer): Promise<{ available: boolean; publicKey: string | null }> {
+export async function pushStatus(viewer: Viewer, sessionId: string | null): Promise<PushStatus> {
   const deps = pushDeps();
-  if (!deps.flagOn() || LOCKING_LICENSE_STATES.has(viewer.license)) return { available: false, publicKey: null };
-  const g = await gate((await getDb()).sql, deps);
-  return g.usable ? { available: true, publicKey: b64u.encode(g.keys.publicKey) } : { available: false, publicKey: null };
+  if (!deps.flagOn() || viewer.readOnly || LOCKING_LICENSE_STATES.has(viewer.license)) return PUSH_OFF;
+  const sql = (await getDb()).sql;
+  const g = await gate(sql, deps);
+  if (!g.usable) return PUSH_OFF;
+  const bound = sessionId !== null && SESSION_ID_RE.test(sessionId) && (await hasSessionSubscription(sql, { userId: viewer.userId, sessionId }));
+  return { available: true, publicKey: b64u.encode(g.keys.publicKey), bound };
 }
 
 export interface SubscribeInput {
@@ -96,7 +111,6 @@ export interface SubscribeInput {
   deviceId: string;
 }
 
-const SESSION_ID_RE = /^[0-9a-f]{64}$/;
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{0,64}$/;
 
 /** Ключ устройства: несжатая точка P-256 на кривой. */

@@ -1,11 +1,13 @@
 // Push на устройстве (P8b, D-328): включить, сверить привязку к сессии после входа, снять при выходе.
 // Сервер шлёт push, только пока жива сессия, которая подписала устройство; поэтому после каждого входа подписка
 // заново привязывается к новой сессии (syncPush), а при выходе снимается в браузере первым делом — без сети тоже.
+// Привязан ли браузер к текущей сессии, знает только сервер (`bound`): «выйти везде», простой и сброс пароля меняют
+// сессию без обычного выхода, поэтому признак в хранилище вкладки здесь не годится.
 // Кнопку «Уведомления на телефон» (жест пользователя для запроса разрешения) рисует экран профиля (P8b-2).
 import { createDeviceStore } from '../call/outboxStore';
 import { ensureDeviceId } from '../call/device';
 
-type PushStatus = { available: boolean; publicKey: string | null };
+type PushStatus = { available: boolean; publicKey: string | null; bound: boolean };
 
 export function pushSupported(): boolean {
   return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -89,36 +91,61 @@ export async function enablePush(): Promise<EnableResult> {
   }
 }
 
+/** Отписка на сервере: подписки этой сессии и своя с этим адресом. `keepalive` — запрос переживёт уход со страницы. */
+function postUnsubscribe(endpoint: string | null, keepalive: boolean): Promise<unknown> {
+  return fetch('/api/push/unsubscribe', {
+    method: 'POST',
+    credentials: 'same-origin',
+    keepalive,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint }),
+  }).catch(() => undefined);
+}
+
 /** Выключить push на этом устройстве (кнопка в профиле): подписка снимается и в браузере, и на сервере. */
 export async function disablePush(): Promise<void> {
   const reg = await registration();
   const sub = await reg?.pushManager.getSubscription().catch(() => null);
   const endpoint = sub?.endpoint ?? null;
   await sub?.unsubscribe().catch(() => false);
-  await fetch('/api/push/unsubscribe', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint }),
-  }).catch(() => undefined);
+  await postUnsubscribe(endpoint, false);
 }
 
-const SYNC_KEY = 'crm-push-sync';
+/**
+ * Подписка браузера есть, а сервер не видит её за текущей сессией (`bound` ложно) или ключ сервера сменился —
+ * привязать заново. true — подписка привязана к этой сессии.
+ */
+async function bind(reg: ServiceWorkerRegistration, st: PushStatus): Promise<boolean> {
+  const current = await reg.pushManager.getSubscription();
+  if (!current || !st.publicKey) return false;
+  const sub = await browserSubscription(reg, st.publicKey, true);
+  if (!sub) return false;
+  if (st.bound && sub === current) return true;
+  return postSubscription(sub);
+}
+
+// Одна привязка за раз: оболочка (syncPush) и экран профиля (pushInfo) спрашивают одновременно
+let binding: Promise<boolean> | null = null;
+
+function ensureBound(reg: ServiceWorkerRegistration, st: PushStatus): Promise<boolean> {
+  binding ??= bind(reg, st).finally(() => {
+    binding = null;
+  });
+  return binding;
+}
 
 /**
- * После входа: разрешение уже дано и подписка есть — привязать её к текущей сессии (раз на сессию вкладки и
- * сотрудника). Push недоступен — ничего не делаем. Не бросает.
+ * После входа (на каждой загрузке оболочки): разрешение дано и подписка в браузере есть — убедиться, что сервер
+ * держит её за текущей сессией, иначе привязать. Push недоступен — ничего не делаем. Не бросает.
  */
-export async function syncPush(userId: string): Promise<void> {
+export async function syncPush(): Promise<void> {
   try {
     if (!pushSupported() || Notification.permission !== 'granted') return;
-    if (window.sessionStorage.getItem(SYNC_KEY) === userId) return;
     const reg = await registration();
     if (!reg || !(await reg.pushManager.getSubscription())) return;
     const st = await status();
-    if (!st?.available || !st.publicKey) return;
-    const sub = await browserSubscription(reg, st.publicKey, true);
-    if (sub && (await postSubscription(sub))) window.sessionStorage.setItem(SYNC_KEY, userId);
+    if (!st?.available) return;
+    await ensureBound(reg, st);
   } catch {
     // push — не основной канал: колокол работает всегда
   }
@@ -126,17 +153,20 @@ export async function syncPush(userId: string): Promise<void> {
 
 /**
  * Выход (D-063, D-310): подписка снимается в браузере первым делом и без сети — следующий человек на этом телефоне
- * push прежнего не получит. Сервер и так не шлёт: сессия, подписавшая устройство, закрыта. Не бросает.
+ * push прежнего не получит. Затем отписка на сервере без ожидания ответа: сервер и так не шлёт после закрытия
+ * сессии, а так строка выключается сразу. Не бросает.
  */
 export async function dropDevicePush(): Promise<void> {
+  let endpoint: string | null = null;
   try {
-    window.sessionStorage.removeItem(SYNC_KEY);
     const reg = await registration();
     const sub = await reg?.pushManager.getSubscription();
+    endpoint = sub?.endpoint ?? null;
     await sub?.unsubscribe();
   } catch {
     // нет поддержки или подписки — снимать нечего
   }
+  if (endpoint !== null) void postUnsubscribe(endpoint, true);
 }
 
 export type PushInfo =
@@ -152,16 +182,19 @@ function isIos(): boolean {
   return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
 
-/** Что показать в профиле. Push выключен на сервере (флаг, ключи, переключатель, лицензия) — кнопки нет вовсе. Не бросает. */
+/**
+ * Что показать в профиле. Push выключен на сервере (флаг, ключи, переключатель, лицензия, роль «только чтение») —
+ * кнопки нет вовсе. «Включены» — только когда подписка браузера привязана к текущей сессии. Не бросает.
+ */
 export async function pushInfo(): Promise<PushInfo> {
   try {
     const st = await status();
     if (!st?.available) return { kind: 'hidden' };
     if (!pushSupported()) return { kind: 'unsupported', ios: isIos() };
     if (Notification.permission === 'denied') return { kind: 'denied' };
+    if (Notification.permission !== 'granted') return { kind: 'off' };
     const reg = await registration();
-    const sub = reg ? await reg.pushManager.getSubscription() : null;
-    return Notification.permission === 'granted' && sub ? { kind: 'on' } : { kind: 'off' };
+    return reg && (await ensureBound(reg, st)) ? { kind: 'on' } : { kind: 'off' };
   } catch {
     return { kind: 'hidden' };
   }
