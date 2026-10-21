@@ -1,7 +1,7 @@
 // POST — загрузка файла сырым телом (D-112): не multipart, потому что Next читает его без предела.
 // ?profile=<ключ>&sheet=<имя|номер>&snapshotDay=YYYY-MM-DD, имя файла — заголовок X-File-Name.
 import { route } from '@/server/access';
-import { importService, uploadLimitBytes } from '@/server/domain/import';
+import { importApi, uploadLimitBytes } from '@/server/domain/import';
 import { rateLimit } from '@/server/platform/ratelimit';
 import { SpreadsheetError, readBodyLimited } from '@/server/platform/files';
 import { actorOf, guarded, queryOf, UploadQuery } from '../_lib';
@@ -28,7 +28,7 @@ export const POST = route({ perm: 'import.run' }, ({ req, viewer }) =>
       return Response.json({ error: 'rate_limited' }, { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } });
     }
     const body = await readBodyLimited(req, await uploadLimitBytes(actor));
-    const result = await importService.upload(
+    const result = await importApi.upload(
       actor,
       { profileKey: q.profile, snapshotDay: q.snapshotDay, fileName: fileName(req), body, ...(q.sheet !== undefined ? { sheet: q.sheet } : {}) },
       Date.now(),

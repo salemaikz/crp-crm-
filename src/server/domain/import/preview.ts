@@ -24,6 +24,15 @@ export function loadImportOrThrow(imp: repo.ImportRow | null): repo.ImportRow {
   return imp;
 }
 
+/**
+ * Загрузка принадлежит профилю нужного вида (таблицы клиентов или «Записи», D-324). Чужой вид — `bad_profile`:
+ * вход для клиентов не применяет записи, а вход «Записи» не пишет клиентов.
+ */
+export function assertKind(ctx: ImportContext, imp: Pick<repo.ImportRow, 'profileKey'>, kind: 'clients' | 'bookings'): void {
+  const profile = ctx.settings.profiles.find((p) => p.key === imp.profileKey);
+  if ((profile?.kind ?? 'clients') !== kind) throw new ImportError('bad_profile');
+}
+
 /** Ревизии настроек, на которых сделан разбор, совпадают с текущими (иначе файл надо загрузить заново). */
 export function configUnchanged(report: ImportReportV1, ctx: ImportContext): boolean {
   const was = report.input.parseConfigRev;
@@ -87,7 +96,7 @@ export function stampOf(comp: Computation, ctx: ImportContext, actorId: string, 
 
 /** Карта владельцев из последнего предпросмотра: ярлык → id по хэшу ярлыка (без имён в отчёте). */
 export function restoreOwnerMap(report: ImportReportV1, labels: readonly string[]): OwnerMap {
-  const ref = report.preview?.ownerMapRef ?? {};
+  const ref = report.preview && report.preview.kind !== 'bookings' ? report.preview.ownerMapRef : {};
   const out: Record<string, string> = {};
   for (const l of labels) {
     const id = ref[labelRef(l)];

@@ -1413,6 +1413,39 @@
               "no_answer"
             ],
             "snapshotDate": null
+          },
+          {
+            "key": "bookings_table",
+            "label": {
+              "ru": "Записи на мероприятия ЦРП"
+            },
+            "kind": "bookings",
+            "columns": {
+              "Наименование": "name",
+              "Телефон": "phones",
+              "БИН": "orgId",
+              "Дата": "eventDate",
+              "Время": "eventTime",
+              "Оператор": "operator",
+              "Мероприятие": "eventType"
+            },
+            "valueMaps": {
+              "outcome": {},
+              "lpr": {},
+              "target": {},
+              "eventType": {
+                "БР": "br",
+                "Бизнес-разбор": "br",
+                "Бизнес разбор": "br",
+                "БК": "bk",
+                "Бизнес-консультация": "bk"
+              }
+            },
+            "defaultEventTypeKey": "br",
+            "maxRows": 2000,
+            "ownerBy": "column",
+            "outcomePriority": [],
+            "snapshotDate": null
           }
         ]
       }

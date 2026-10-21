@@ -204,6 +204,19 @@ test('снимок ЦРП: отчёты, выгрузка, уведомлени�
   assert.equal(s.import.maxRows, 20000);
 });
 
+test('снимок ЦРП: профиль «Записи» — колонки по синтетике README, карта видов, групповой вид по умолчанию (D-324)', () => {
+  const { s } = crp();
+  const prof = byKey(s.import.profiles, 'bookings_table');
+  assert.equal(prof.kind, 'bookings');
+  assert.equal(prof.ownerBy, 'column');
+  assert.deepEqual(Object.values(prof.columns).sort(), ['eventDate', 'eventTime', 'eventType', 'name', 'operator', 'orgId', 'phones']);
+  assert.equal(prof.valueMaps.eventType['БР'], 'br');
+  assert.equal(prof.valueMaps.eventType['БК'], 'bk', 'индивидуальный вид в карте есть: строка уйдёт в «нет мероприятия», а не в ошибки разбора');
+  assert.equal(prof.defaultEventTypeKey, 'br');
+  assert.equal(prof.maxRows, 2000);
+  assert.deepEqual([prof.outcomePriority, prof.ownerSlots], [[], undefined]);
+});
+
 test('снимок ЦРП: тема бренда и поля', () => {
   const { g } = crp();
   assert.deepEqual(g.theme, {

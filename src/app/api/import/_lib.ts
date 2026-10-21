@@ -8,7 +8,7 @@ import { SpreadsheetError, type SpreadsheetErrorCode } from '@/server/platform/f
 /** Охват импорта — пространство; у пользователя без пространства раздела нет. */
 export function actorOf(viewer: Viewer): ImportActor {
   if (viewer.spaceId === null) throw new NotFoundError();
-  return { userId: viewer.userId, spaceId: viewer.spaceId };
+  return { userId: viewer.userId, spaceId: viewer.spaceId, viewer };
 }
 
 const FILE_STATUS: Record<SpreadsheetErrorCode, number> = {
@@ -35,6 +35,7 @@ const IMPORT_STATUS: Record<string, number> = {
   blocked: 409,
   rows_expired: 410,
   bad_owner: 400,
+  bad_author: 400,
   bad_profile: 400,
   header_not_found: 422,
   stand_unavailable: 409,
@@ -80,12 +81,19 @@ export async function readJson<T>(req: Request, schema: { parse(raw: unknown): T
 
 const OwnerMap = z.record(z.string().min(1).max(200), z.string().min(1).max(64)).refine((m) => Object.keys(m).length <= 200, 'ownerMap');
 
-export const PreviewBody = z.object({ ownerMap: OwnerMap }).strict();
-export const ApplyBody = z.object({ fingerprint: z.string().regex(/^[0-9a-f]{64}$/), ownerMap: OwnerMap }).strict();
+/** Карта авторов профиля «Записи»: ярлык → id сотрудника или null («автор неизвестен»); ≤ 200 ключей. */
+const AuthorMap = z.record(z.string().min(1).max(200), z.string().min(1).max(64).nullable()).refine((m) => Object.keys(m).length <= 200, 'authorMap');
+
+export const PreviewBody = z.object({ ownerMap: OwnerMap.default({}), authorMap: AuthorMap.optional() }).strict();
+export const ApplyBody = z.object({ fingerprint: z.string().regex(/^[0-9a-f]{64}$/), ownerMap: OwnerMap.default({}), authorMap: AuthorMap.optional() }).strict();
 
 export const ROW_FILTERS = [
   'all', 'create', 'merge', 'update_state', 'kept_in_crm', 'skip_same', 'invalid', 'duplicate_in_file', 'stop_list', 'rejected_rule',
   'held', 'dup_pair', 'import_conflict', 'no_working_phone', 'unowned', 'need_review', 'note_flag', 'agreed_without_booking',
+  // Профиль «Записи» (D-324): действия строки и группы отчёта
+  'changed_in_file', 'unsupported_type', 'client_not_found', 'client_ambiguous', 'past_event', 'no_event',
+  'event_cancelled', 'event_ambiguous', 'booking_exists', 'booking_conflict', 'state_conflict', 'event_full',
+  'group_errors', 'group_client_not_found', 'group_no_event', 'group_author_unknown', 'group_duplicate', 'group_review',
 ] as const;
 
 export const RowsQuery = z

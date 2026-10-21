@@ -7,7 +7,7 @@ import { calling, dedup, fields, imports, names, phone, time } from '@crm/core';
 import type { GlobalConfigV1, SpaceConfigV1 } from '@crm/core/config';
 import { NotFoundError } from '@/server/access/errors';
 import { getActiveConfig } from '@/server/platform/config/active';
-import type { ConfigRevPair, FieldTarget, ImportProfileSetting, ImportSettings } from './types';
+import { BOOKINGS_DEFAULT_MAX_ROWS, type ConfigRevPair, type FieldTarget, type ImportProfileSetting, type ImportSettings } from './types';
 
 const DAY_STEP = 'nextWorkday@10:00';
 
@@ -31,6 +31,11 @@ export interface ImportContext {
   searchable: readonly string[];
   /** Подписи итогов для экрана: ключ → ru. */
   outcomeLabels: Readonly<Record<string, string>>;
+  /** Профиль «Записи» (D-324): виды мероприятий пространства — подписи для экрана и ключи групповых. */
+  eventTypeLabels: Readonly<Record<string, string>>;
+  groupTypeKeys: ReadonlySet<string>;
+  /** Итог вида `agreed` для перехода «Договорились» (первый не архивный); нет — блокер `no_agreed_outcome`. */
+  agreedOutcomeKey: string | null;
 }
 
 function lprOf(v: boolean | string): 'yes' | 'no' {
@@ -92,8 +97,16 @@ export function buildImportContext(input: { spaceId: string; spaceKey: string; r
       return {
         key: p.key,
         label: p.label.ru,
-        // Профиль «Записи» (C4b) появится отдельным ключом схемы; пока все профили — таблицы клиентов
-        kind: 'clients',
+        kind: p.kind ?? 'clients',
+        ...(p.kind === 'bookings'
+          ? {
+              bookings: {
+                eventTypeMap: p.valueMaps.eventType ?? {},
+                ...(p.defaultEventTypeKey !== undefined ? { defaultEventTypeKey: p.defaultEventTypeKey } : {}),
+                maxRows: p.maxRows ?? BOOKINGS_DEFAULT_MAX_ROWS,
+              },
+            }
+          : {}),
         columns: p.columns,
         valueMaps: { outcome: { ...aliasMap, ...p.valueMaps.outcome }, lpr: lprMap, target: targetMap },
         ownerBy: p.ownerBy === 'row_ranges' ? { kind: 'row_ranges', slots } : { kind: 'column' },
@@ -161,6 +174,9 @@ export function buildImportContext(input: { spaceId: string; spaceKey: string; r
     fieldDefs: defs,
     searchable: fields.searchableKeys(defs, roles),
     outcomeLabels: Object.fromEntries(outcomes.map((o) => [o.key, o.label.ru])),
+    eventTypeLabels: Object.fromEntries(space.booking.eventTypes.map((t) => [t.key, t.label.ru])),
+    groupTypeKeys: new Set(space.booking.eventTypes.filter((t) => t.behavior === 'group' && !t.archived).map((t) => t.key)),
+    agreedOutcomeKey: outcomes.find((o) => o.kind === 'agreed' && !o.archived)?.key ?? null,
   };
 }
 
