@@ -3,7 +3,7 @@
 // определяется по адресу, поэтому компоненты клиентские; подписи приходят готовыми из локали.
 import {
   Archive, ArrowRightLeft, Bell, CalendarDays, ChartColumn, Ellipsis, Handshake, Headset, IdCard, Inbox, Kanban,
-  LayoutDashboard, ListChecks, Phone, Settings, Shuffle, Sun, Upload, UserCheck, User, UserCog, Users,
+  FileDown, Gauge, LayoutDashboard, ListChecks, Phone, Settings, Shuffle, Sun, Upload, UserCheck, User, UserCog, Users,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -16,7 +16,7 @@ export type NavEntry = { id: MenuId; href: string; label: string };
 
 const ICONS: Record<MenuId, LucideIcon> = {
   call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive, myDay: Sun,
-  summary: LayoutDashboard, distribution: Shuffle, cards: IdCard, kanban: Kanban, reports: ChartColumn,
+  summary: LayoutDashboard, director: Gauge, exports: FileDown, distribution: Shuffle, cards: IdCard, kanban: Kanban, reports: ChartColumn,
   settings: Settings, pool: Inbox, import: Upload, handoffs: ArrowRightLeft, team: UserCog,
   consultations: Headset, duty: UserCheck,
 };

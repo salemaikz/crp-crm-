@@ -18,3 +18,6 @@ export { exportTranslator, labelKey, toExportTable, type ExportLabels } from './
 export { canSeeExportJournal, exportMeta, FILTER_KEYS, getExportJournal, JOURNAL_PAGE, writeExportLog, writeExportLogIn } from './exportLog';
 export { ExportLimitError, ExportTooLargeError, PasswordInvalidError, type ExportLimitCode } from './exportErrors';
 export { FULL_EXPORTS_PER_DAY, issueFullExportTicket, streamFullExport } from './fullExport';
+
+// Панель директора (R4)
+export { getDirectorDashboard, stockDays } from './director';

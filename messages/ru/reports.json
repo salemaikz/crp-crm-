@@ -298,5 +298,60 @@
       "group": "группировка",
       "by": "разрез"
     }
+  },
+  "director": {
+    "title": "Панель директора",
+    "lead": "Текущая неделя: {from} — {to}. Только просмотр.",
+    "updatedAt": "Обновлено в {time}",
+    "refresh": "Обновить",
+    "tilesLabel": "Показатели недели",
+    "prevWeek": "Прошлая неделя: {value}",
+    "more": "Подробнее",
+    "tiles": {
+      "calls": {
+        "title": "Итоги и дозвоны",
+        "value": "{outcomes} / {connects}",
+        "hint": "итогов / дозвонов"
+      },
+      "bookings": {
+        "title": "Записи",
+        "value": "{groups} / {consults}",
+        "hint": "на группу / на консультацию"
+      },
+      "attendance": {
+        "title": "Явка",
+        "value": "{attended} из {total}",
+        "hint": "не пришли: {noShow}"
+      },
+      "purchases": {
+        "title": "Покупки",
+        "value": "{count}",
+        "hint": "на сумму {sum}"
+      },
+      "stock": {
+        "title": "Запас пула",
+        "value": "{days} дн.",
+        "hint": "готово в пуле: {ready}, выдача в день: {capacity}",
+        "none": "нет выдачи"
+      }
+    },
+    "funnel": {
+      "title": "Воронка недели"
+    },
+    "revenue": {
+      "title": "Выручка по типам услуг",
+      "empty": "Покупок за неделю нет"
+    },
+    "export": {
+      "revenue": "Выручка, CSV"
+    },
+    "errors": {
+      "forbidden": "Панель доступна директору и руководителю отдела.",
+      "unauthorized": "Войдите заново.",
+      "network": "Нет связи. Показаны прежние данные.",
+      "generic": "Не удалось обновить панель."
+    },
+    "moreOperators": "Операторы — подробнее",
+    "moreAttendance": "Явка — подробнее"
   }
 }

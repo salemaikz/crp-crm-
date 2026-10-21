@@ -34,11 +34,11 @@ const hrefs = (m: { items: readonly { href: string }[] }) => m.items.map((i) => 
 const SNAP = {
   lead: ['/summary', '/distribution', '/cards', '/clients', '/bookings', '/deals', '/reports', '/settings', '/pool', '/tasks', '/import'],
   manager: ['/call', '/clients', '/tasks', '/bookings', '/my-day'],
-  observer: ['/summary', '/cards', '/clients', '/deals', '/reports'],
+  observer: ['/director', '/cards', '/clients', '/deals', '/reports', '/reports/exports'],
   operator: ['/call', '/clients', '/tasks', '/bookings', '/archive', '/my-day'],
   rop: ['/summary', '/distribution', '/cards', '/clients', '/bookings', '/deals', '/reports', '/settings', '/pool', '/tasks', '/import'],
   consultant: ['/consultations', '/tasks', '/my-day'],
-  director: ['/summary', '/cards', '/clients', '/deals', '/reports'],
+  director: ['/director', '/cards', '/clients', '/deals', '/reports', '/reports/exports'],
   marketing_head: ['/handoffs', '/clients', '/reports', '/tasks'],
   marketer: ['/handoffs', '/clients', '/tasks'],
 };
@@ -49,7 +49,7 @@ test('base: меню по ролям', () => {
   assert.deepEqual(snap, {
     lead: { shell: 'manager', items: SNAP.lead, home: '/summary' },
     manager: { shell: 'operator', items: SNAP.manager, home: '/call' },
-    observer: { shell: 'manager', items: SNAP.observer, home: '/summary' },
+    observer: { shell: 'manager', items: SNAP.observer, home: '/director' },
   });
 });
 
@@ -60,7 +60,7 @@ test('crp: меню по ролям', () => {
     operator: { shell: 'operator', items: SNAP.operator, home: '/call' },
     rop: { shell: 'manager', items: SNAP.rop, home: '/summary' },
     consultant: { shell: 'consultant', items: SNAP.consultant, home: '/consultations' },
-    director: { shell: 'manager', items: SNAP.director, home: '/summary' },
+    director: { shell: 'manager', items: SNAP.director, home: '/director' },
     marketing_head: { shell: 'manager', items: SNAP.marketing_head, home: '/handoffs' },
     marketer: { shell: 'manager', items: SNAP.marketer, home: '/handoffs' },
   });
@@ -86,10 +86,10 @@ test('«Сотрудники» — только администратору, д
   assert.ok(hrefs(menuOf(rop, { isAdmin: true })).includes('/team'));
 });
 
-test('администратор без роли: «Настройки» и «Сотрудники», главная — «Сотрудники»', () => {
+test('администратор без роли: «Выгрузки», «Настройки» и «Сотрудники», главная — «Сотрудники»', () => {
   const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
   const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
-  assert.deepEqual(hrefs(m), ['/settings', '/team']); // «Настройки» открыты администратору (orAdmin, R2b)
+  assert.deepEqual(hrefs(m), ['/reports/exports', '/settings', '/team']); // «Выгрузки» и «Настройки» открыты администратору (orAdmin, R2b, M-1)
   assert.equal(m.home, '/team', 'главная — не пункт orAdmin');
 });
 
@@ -147,4 +147,19 @@ test('администратор без роли видит «Настройки
   const noRole = (isAdmin: boolean) => buildMenu({ shell: 'manager', menu: [], can: () => false, isAdmin, features: ALL });
   assert.ok(hrefs(noRole(true)).includes('/settings'));
   assert.ok(!hrefs(noRole(false)).includes('/settings'));
+});
+
+test('директор видит «Панель директора» вместо «Сводки», РОП — наоборот', () => {
+  const dir = rolesOf('clients/crp').find((r) => r.key === 'director')!;
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  assert.ok(hrefs(menuOf(dir)).includes('/director') && !hrefs(menuOf(dir)).includes('/summary'));
+  assert.ok(hrefs(menuOf(rop)).includes('/summary') && !hrefs(menuOf(rop)).includes('/director'));
+});
+
+test('«Выгрузки»: директору (export.journal) и администратору; РОП без права — нет', () => {
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  assert.ok(!hrefs(menuOf(rop)).includes('/reports/exports'));
+  const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
+  const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
+  assert.ok(hrefs(m).includes('/reports/exports'));
 });

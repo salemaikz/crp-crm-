@@ -10,4 +10,7 @@ export default defineManifest('reports', [
   { kind: 'route', path: '/api/reports/[key]', method: 'GET', perm: 'report.view', target: 'section', mutation: false },
   // Выгрузка отчёта (R3b): только report.export, выгрузка — не мутация (журнал пишется и при «только чтении»)
   { kind: 'route', path: '/api/reports/[key]/export', method: 'GET', perm: 'report.export', target: 'section', mutation: false },
+  // Панель директора (R4): те же права и охват, только чтение
+  { kind: 'page', path: '/(mgr)/director', method: 'GET', perm: 'report.view', target: 'section', mutation: false },
+  { kind: 'route', path: '/api/reports/director', method: 'GET', perm: 'report.view', target: 'section', mutation: false },
 ]);

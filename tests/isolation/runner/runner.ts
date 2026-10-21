@@ -142,6 +142,18 @@ export async function createRunner(opts: RunnerOptions = {}): Promise<Runner> {
           enterSeedWorld();
         }
       }
+
+      // Директор — роль «только чтение» (R4, D-265): любая обёрнутая мутация → 423, кроме мутаций безопасности (D-054);
+      // выгрузки мутациями не считаются (mutation: false) и сюда не попадают
+      if (wrapped && entry.mutation && entry.perm !== 'public') {
+        const id = entry.idParam ? FOREIGN[entry.idParam.entity].id : undefined;
+        const asDirector: Reply = await invoke(unit, entry, { userId: U.director, ...(id ? { id } : {}) });
+        if (entry.securityMutation) {
+          if (asDirector.status === 423) v.push('директор: мутация безопасности (D-054) заблокирована');
+        } else if (asDirector.status !== 423) {
+          v.push(`директор (только чтение): мутация не заблокирована (статус ${asDirector.status}, ждали 423)`);
+        }
+      }
     } catch (e) {
       v.push(`прогон упал: ${String((e as { message?: unknown } | null)?.message ?? e).slice(0, 300)}`);
     } finally {

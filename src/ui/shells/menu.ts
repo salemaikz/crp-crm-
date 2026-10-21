@@ -8,7 +8,7 @@ export type ShellKind = 'operator' | 'manager' | 'consultant' | 'duty';
 /** Идентификатор пункта: он же ключ подписи `shell.nav.<id>` и иконки. */
 export type MenuId =
   | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive' | 'myDay'
-  | 'summary' | 'distribution' | 'cards' | 'kanban' | 'reports' | 'settings' | 'pool' | 'import' | 'handoffs' | 'team'
+  | 'summary' | 'director' | 'exports' | 'distribution' | 'cards' | 'kanban' | 'reports' | 'settings' | 'pool' | 'import' | 'handoffs' | 'team'
   | 'consultations' | 'duty';
 
 export type MenuItem = { id: MenuId; href: string };
@@ -51,7 +51,8 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
   manager: {
     bottomSlots: 4,
     items: [
-      { id: 'summary', href: '/summary', keys: ['summary', 'dashboard'], perm: 'report.view' },
+      { id: 'summary', href: '/summary', keys: ['summary'], perm: 'report.view' },
+      { id: 'director', href: '/director', keys: ['dashboard'], perm: 'report.view' },
       { id: 'handoffs', href: '/handoffs', keys: ['handoffs'], perm: 'handoff.read' },
       { id: 'distribution', href: '/distribution', keys: ['distribution'], perm: 'distribution.manage' },
       { id: 'cards', href: '/cards', keys: ['cards'], perm: 'card.read' },
@@ -59,6 +60,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'bookings', href: '/bookings', keys: ['bookings'], perm: 'booking.read' },
       { id: 'kanban', href: '/deals', keys: ['deals'], perm: 'deal.read', feature: 'KANBAN' },
       { id: 'reports', href: '/reports', keys: ['reports'], perm: 'report.view' },
+      { id: 'exports', href: '/reports/exports', keys: ['reports'], perm: 'export.journal', orAdmin: true },
       { id: 'settings', href: '/settings', keys: ['settings'], perm: 'settings.sales', orAdmin: true },
       { id: 'pool', href: '/pool', keys: ['pool'], perm: 'pool.read' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
