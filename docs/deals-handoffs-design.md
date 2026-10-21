@@ -197,7 +197,10 @@ UPDATE bookings b SET status = 'no_show', version = b.version + 1, updated_at = 
 1. `pg_advisory_xact_lock(INTAKE_LOCK_KEY)` (D-022) → повторить поиск шага 4 (гонка — уйти в «найден»).
 2. `phoneHmac(digits)` в `stop_list` → клиента не создаём, `audit_log` `booking.walk_in_skipped {eventId,
    requestId, answer}`, ответ и его повтор (`answer` из журнала) те же, что у нового гостя (D-301). Остаточный
-   признак — у стоп-листа в списке гостей не появляется маскированная строка — принят (D-301 п. 5, D-241, D-040).
+   признак — у стоп-листа в списке гостей не появляется маскированная строка — принят (D-301 п. 5, D-241). Лимит
+   D-040 его не закрывает: сверх лимита нейтрален только ответ, обычный номер всё так же создаёт клиента, карточку
+   и строку в списке. Перебор сдерживают видимые следы каждой пробы: клиент, карточка, запись и задача руководителю
+   `walk_in_new` у обычного номера, запись журнала `booking.walk_in_skipped` с автором — у номера из стоп-листа.
 3. `INSERT clients` (`kind` = `company`, если указана компания, иначе `person`; `name` = компания или имя;
    `name_norm` — `names.normalizeCompanyName`/`normalizePersonName`; `search_norm` —
    `fields.buildSearchNorm({ name, orgId: '', phones: [digits], custom: {}, searchable: [] })`;

@@ -158,6 +158,8 @@ test('номер в стоп-листе без клиента: ничего не
   assert.equal(await probes(), before.probes + 1);
   const a = await db.sql<{ action: string; meta: { eventId: string } }>`SELECT action, meta FROM audit_log WHERE action = 'booking.walk_in_skipped'`;
   assert.deepEqual(a.map((x) => [x.action, x.meta.eventId]), [['booking.walk_in_skipped', 'ev-w']]);
+  // состав meta — как в реестре действий журнала (platform/audit.ts): без номера и ПДн
+  assert.deepEqual(Object.keys(a[0]!.meta).sort(), ['answer', 'eventId', 'requestId']);
 });
 
 test('ответ дежурному у номера из стоп-листа и у нового гостя одинаков: стоп-лист не различим', async () => {
@@ -211,6 +213,17 @@ test('сверх лимита проверок: повтор попытки с �
     { answer: 'recorded', replayed: false },
     { answer: 'recorded', replayed: true },
   ]);
+  // D-301 п. 5: лимит закрывает только ответ, а не след. Обычный номер сверх лимита всё так же создаёт клиента,
+  // запись и задачу руководителю (видимый след пробы), номер из стоп-листа — ничего, кроме журнала с автором
+  const freshBooking = await attemptBooking(freshIn.requestId);
+  assert.ok(freshBooking, 'у обычного номера сверх лимита запись есть');
+  const freshClient = (await bookingOf(freshBooking)).clientId;
+  assert.equal((await openTasks(`walk_in_new:${freshClient}`)).length, 1);
+  assert.equal(await attemptBooking(stoppedIn.requestId), null, 'у номера из стоп-листа записи нет');
+  assert.equal((await db.sql`SELECT 1 FROM client_phones WHERE digits = '77091234574'`).length, 0);
+  const skipped = await db.sql<{ actorId: string; meta: { requestId: string; answer: string } }>`
+    SELECT actor_id, meta FROM audit_log WHERE action = 'booking.walk_in_skipped' AND meta->>'requestId' = ${stoppedIn.requestId}`;
+  assert.deepEqual(skipped.map((x) => [x.actorId, x.meta.answer]), [[U.duty, 'recorded']]);
   // тот же ключ на другом мероприятии — как у обычного гостя
   await assert.rejects(registerWalkIn(deps, duty, { ...stoppedIn, eventId: 'ev-small' }), failsWith('request_reused'));
 });
