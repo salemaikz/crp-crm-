@@ -490,10 +490,10 @@ schedules, bookings }`. Снимок читается **после** блоки�
 `resource_id` → `promoteReserve` старого слота в той же транзакции; отмена консультации закрывает
 `grey_unassigned:<id>`. То же — у отмены эффектом карточки `cancel_future` (проигрыш, «Не целевой», «Не звонить»):
 дни консультаций клиента блокируются до записей (`lockClientConsultDays`, D-251, D-301); в проигрыше сделки сервисом
-(`loseDeal`) — и до сделки. **Оговорка:** в пути итога звонка (`cards/effects.ts`) день пока берётся после группы
-задач и сделок: `closeAutoTasks` с `sources: 'all'` уже держит строку `grey_unassigned:<id>`, а `grey-assign` держит
-день и ждёт эту строку — возможна взаимоблокировка 40P01. Обе транзакции её повторяют, данные не теряются. Исправление —
-у потока обзвона: при `cancel_future` звать `lockClientConsultDays` до группы задач.
+(`loseDeal`) — и до сделки. В пути итога звонка исполнитель эффектов (`cards/effects.ts`) при `cancel_future` берёт
+дни первыми, до группы задач и сделок: иначе `closeAutoTasks` с `sources: 'all'` держал бы строку
+`grey_unassigned:<id>`, пока `grey-assign` держит день и ждёт эту строку (40P01). Тест —
+`tests/integration/booking/grey-lock-order.test.ts`.
 
 **Полоса подбора** (`getConsultStrip`): ближайшие `consult.stripDays` рабочих дней в горизонте; на день —
 снимок (без блокировки, только чтение); времена = объединение сетки `consult.hours` и стартов слотов
@@ -721,7 +721,8 @@ UPDATE handoffs SET status = 'pending', assignee_user_id = NULL, accepted_at = N
 - `moveDealStage`: сделка (`deal.edit`) → карточка `FOR UPDATE` → сделка `FOR UPDATE` → повтор → `version` →
   `status = 'open'` (иначе `deal_closed`) → целевой этап открытый (`won` → 400 `use_purchase`, `lost` → 400
   `use_lose`, нет → 400 `stage_unknown`) → назад (`order` меньше) без `deal.move_back` → 403 → требования
-  (`assertStageRequirements` в `deals/requirements.ts` — одна проверка и для итога встречи §4.9, D-301):
+  (`assertStageRequirements` в `deals/requirements.ts` — одна проверка и для итога встречи §4.9, D-301): этап требует
+  поле, скрытое роли зрителя, — 409 `stage_restricted` без списка до чтения значений (D-323);
   `nextTask` — `nextStep` в теле или открытая задача со сроком по сделке, иначе 409
   `next_step_required`; `fields` — непустые ключи в `deals.custom`, иначе 409 `stage_fields_required`
   (`detail` + список ключей); `booking`/`attendance` — есть запись / явка по сделке (`bookings_deal_idx`) →
@@ -795,7 +796,8 @@ UPDATE handoffs SET status = 'pending', assignee_user_id = NULL, accepted_at = N
 | чужое и несуществующее (`*_not_found`, `consultant_not_found`, чужая карточка покупки) | 404 | `NotFoundError` — тело как у несуществующего |
 | `slot_taken` | 409 | `{ error: 'conflict', detail: 'slot_taken', alternatives: SuggestedConsultant[] }` |
 | `pool_full`, `consultant_inactive`, `consultant_exists`, `not_attended`, `walk_in_closed`, `walk_in_source_missing`, `outcome_required`, `request_reused`, `deal_closed`, `deal_not_won`, `next_step_required`, `service_type_locked`, `invalid_settings`, `already_handled`, коды автомата записи (`too_early`, `event_cancelled` …) | 409 | `{ error: 'conflict', detail: <код> }` |
-| `stage_fields_required` | 409 | `{ error: 'conflict', detail, fields: string[] }` |
+| `stage_fields_required` | 409 | `{ error: 'conflict', detail, fields: string[] }` — только поля, видимые роли (D-323) |
+| `stage_restricted` | 409 | `{ error: 'conflict', detail }` — этап требует поле, скрытое роли; исход не зависит от значения (D-323) |
 | `phone_invalid`, `schedule_overlap`, `service_type_unknown`, `amount_invalid`, `won_at_invalid`, `stage_unknown`, `use_purchase`, `use_lose`, `reason_unknown`, `reason_text_required`, `reason_required`, `not_team_member`, плохое тело | 400 | `BadRequestError(<код>)` / ZodError |
 | этап назад без `deal.move_back` | 403 | `ForbiddenError` |
 | устаревшая `version` / `seenUpdatedAt` | 409 | `ConflictError` |

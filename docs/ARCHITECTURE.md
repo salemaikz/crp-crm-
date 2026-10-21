@@ -354,7 +354,7 @@ CREATE INDEX IF NOT EXISTS client_phones_digits_idx  ON client_phones (digits);
 CREATE INDEX IF NOT EXISTS client_phones_digits_trgm ON client_phones USING GIN (digits gin_trgm_ops); -- поиск по 5+ цифрам
 
 CREATE TABLE IF NOT EXISTS stop_list (
-  phone_hmac TEXT PRIMARY KEY,                 -- HMAC номера: переживает слияние и обезличивание
+  phone_hmac TEXT PRIMARY KEY,                 -- HMAC номера: переживает слияние и обезличивание; строку source='depersonalize' не снимает никто (D-321)
   reason_code TEXT NOT NULL, source TEXT NOT NULL CHECK (source IN ('outcome','manual','depersonalize','import')),
   created_by TEXT, created_at BIGINT NOT NULL
 );
