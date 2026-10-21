@@ -30,6 +30,13 @@ const guest = (eventId: string, phone: string, over: { name?: string; company?: 
 const probes = async () => (await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM phone_probes WHERE user_id = ${U.duty}`)[0]!.n;
 const countClients = async () => (await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM clients`)[0]!.n;
 const bookingOf = async (id: string) => (await db.sql<{ status: string; via: string; bookedByUserId: string | null; responsibleUserId: string | null; clientId: string; eventId: string }>`SELECT * FROM bookings WHERE id = ${id}`)[0]!;
+/** Запись попытки гостя: ответ дежурному её id не несёт, тест берёт его из истории (id строки = ключ попытки). */
+const attemptBooking = async (requestId: string): Promise<string | null> =>
+  (await db.sql<{ bookingId: string }>`SELECT booking_id FROM booking_history WHERE id = ${requestId}`)[0]?.bookingId ?? null;
+const walkIn = async (v: Viewer, input: ReturnType<typeof guest>) => {
+  const r = await registerWalkIn(deps, v, input);
+  return { ...r, bookingId: await attemptBooking(input.requestId) };
+};
 const openTasks = async (key: string) => db.sql<{ assigneeUserId: string | null; source: string; kind: string }>`SELECT assignee_user_id, source, kind FROM tasks WHERE source_key = ${key} AND status = 'open'`;
 
 before(async () => {
@@ -48,8 +55,10 @@ after(() => closeDutyWorld(db));
 test('найден («Договорились»): запись walk_in/attended, заслуга владельцу, событие «Пришёл», ответ без данных клиента', async () => {
   port.reset();
   const before = { probes: await probes(), clients: await countClients() };
-  const r = await registerWalkIn(deps, duty, guest('ev-w', dialA(5)));
-  assert.deepEqual(Object.keys(r).sort(), ['answer', 'bookingId', 'replayed']);
+  const attempt = guest('ev-w', dialA(5));
+  const raw = await registerWalkIn(deps, duty, attempt);
+  assert.deepEqual(Object.keys(raw).sort(), ['answer', 'replayed']);
+  const r = { ...raw, bookingId: await attemptBooking(attempt.requestId) };
   assert.equal(r.answer, 'found');
   assert.equal(r.replayed, false);
   const b = await bookingOf(r.bookingId!);
@@ -68,7 +77,7 @@ test('найден с записью «Не пришёл» на это меро�
   port.reset();
   const [bk] = await seedBookings(db.sql, 'ev-w', clientsOf('a', 6, 6), { status: 'no_show', bookedBy: U.opA });
   await setCardState(db.sql, 'cd-a-6', 'callback');
-  const r = await registerWalkIn(deps, duty, guest('ev-w', dialA(6)));
+  const r = await walkIn(duty, guest('ev-w', dialA(6)));
   assert.equal(r.answer, 'found');
   assert.equal(r.bookingId, bk);
   assert.equal((await bookingOf(bk!)).status, 'attended');
@@ -80,7 +89,7 @@ test('найден с записью «Не пришёл» на это меро�
 test('найден в «Перезвонить»: задача «следующий шаг» владельцу, состояние карточки то же', async () => {
   port.reset();
   await setCardState(db.sql, 'cd-a-7', 'callback');
-  const r = await registerWalkIn(deps, duty, guest('ev-w', dialA(7)));
+  const r = await walkIn(duty, guest('ev-w', dialA(7)));
   assert.equal(r.answer, 'found');
   const t = await openTasks(`next_step:${r.bookingId}`);
   assert.deepEqual(t.map((x) => [x.assigneeUserId, x.source, x.kind]), [[U.opA, 'next_step', 'call']]);
@@ -90,7 +99,7 @@ test('найден в «Перезвонить»: задача «следующ�
 
 test('найден в «Не звонить»: задача РОП, состояние не меняется', async () => {
   await setCardState(db.sql, 'cd-a-8', 'do_not_call');
-  const r = await registerWalkIn(deps, duty, guest('ev-w', dialA(8)));
+  const r = await walkIn(duty, guest('ev-w', dialA(8)));
   const t = await openTasks(`walk_in:${r.bookingId}`);
   assert.deepEqual(t.map((x) => [x.assigneeUserId, x.source, x.kind]), [[U.rop, 'review', 'check']]);
   assert.equal((await db.sql<{ state: string }>`SELECT state FROM cards WHERE id = 'cd-a-8'`)[0]?.state, 'do_not_call');
@@ -103,7 +112,7 @@ test('два клиента с номером: запись к последне�
   await db.sql`INSERT INTO cards (id, space_id, client_id, owner_user_id, state, last_touch_at, created_at, updated_at)
                VALUES ('cd-dup', ${SPACE}, 'cl-dup', ${U.opA}, 'agreed', ${SEED_NOW}, ${SEED_NOW}, ${SEED_NOW})`;
   await db.sql`UPDATE cards SET last_touch_at = ${SEED_NOW - 1000} WHERE id = 'cd-a-9'`;
-  const r = await registerWalkIn(deps, duty, guest('ev-w', dialA(9)));
+  const r = await walkIn(duty, guest('ev-w', dialA(9)));
   assert.equal((await bookingOf(r.bookingId!)).clientId, 'cl-dup');
   const t = await openTasks(`walk_in_review:${r.bookingId}`);
   assert.deepEqual(t.map((x) => x.assigneeUserId), [U.rop]);
@@ -111,7 +120,7 @@ test('два клиента с номером: запись к последне�
 
 test('не найден: новый клиент walk_in, карточка new в «Задержаны правилом», запись без заслуги, задача РОП, ответ без имён', async () => {
   const before = await countClients();
-  const r = await registerWalkIn(deps, duty, guest('ev-w', '+7 709 123 45 67', { name: 'Гостья Синтетик' }));
+  const r = await walkIn(duty, guest('ev-w', '+7 709 123 45 67', { name: 'Гостья Синтетик' }));
   assert.equal(r.answer, 'new');
   assert.equal(JSON.stringify(r).includes('Синтетик'), false);
   assert.equal(await countClients(), before + 1);
@@ -130,7 +139,7 @@ test('не найден: новый клиент walk_in, карточка new �
 });
 
 test('не найден, назвал компанию: клиент-компания с названием компании, гость — контакт', async () => {
-  const r = await registerWalkIn(deps, duty, guest('ev-w', '+7 709 123 45 68', { name: 'Гость Контактов', company: 'ТОО «Пример Синтетика»' }));
+  const r = await walkIn(duty, guest('ev-w', '+7 709 123 45 68', { name: 'Гость Контактов', company: 'ТОО «Пример Синтетика»' }));
   const b = await bookingOf(r.bookingId!);
   const c = (await db.sql<{ kind: string; name: string; nameNorm: string }>`SELECT kind, name, name_norm FROM clients WHERE id = ${b.clientId}`)[0]!;
   assert.deepEqual([c.kind, c.name], ['company', 'ТОО «Пример Синтетика»']);
@@ -141,19 +150,29 @@ test('не найден, назвал компанию: клиент-компа�
 test('номер в стоп-листе без клиента: ничего не создано, ответ «новый», проверка засчитана', async () => {
   await db.sql`INSERT INTO stop_list (phone_hmac, reason_code, source, created_at) VALUES (${phoneHmac('77091234569')}, 'x', 'manual', ${SEED_NOW})`;
   const before = { clients: await countClients(), probes: await probes() };
-  const r = await registerWalkIn(deps, duty, guest('ev-w', '+7 709 123 45 69'));
-  assert.deepEqual([r.answer, r.bookingId], ['new', null]);
+  const attempt = guest('ev-w', '+7 709 123 45 69');
+  const r = await registerWalkIn(deps, duty, attempt);
+  assert.equal(r.answer, 'new');
+  assert.equal(await attemptBooking(attempt.requestId), null, 'записи нет');
   assert.equal(await countClients(), before.clients);
   assert.equal(await probes(), before.probes + 1);
   const a = await db.sql<{ action: string; meta: { eventId: string } }>`SELECT action, meta FROM audit_log WHERE action = 'booking.walk_in_skipped'`;
   assert.deepEqual(a.map((x) => [x.action, x.meta.eventId]), [['booking.walk_in_skipped', 'ev-w']]);
 });
 
+test('ответ дежурному у номера из стоп-листа и у нового гостя одинаков: стоп-лист не различим', async () => {
+  await db.sql`INSERT INTO stop_list (phone_hmac, reason_code, source, created_at) VALUES (${phoneHmac('77091234572')}, 'x', 'manual', ${SEED_NOW})`;
+  const stopped = await registerWalkIn(deps, duty, guest('ev-w', '+7 709 123 45 72'));
+  const fresh = await registerWalkIn(deps, duty, guest('ev-w', '+7 709 123 45 73'));
+  assert.deepEqual(stopped, fresh);
+  assert.deepEqual(fresh, { answer: 'new', replayed: false });
+});
+
 test('повтор requestId: replayed, одна запись, счётчик проверок не растёт; чужой гость тем же ключом — request_reused', async () => {
   const input = guest('ev-w', dialA(10));
-  const first = await registerWalkIn(deps, duty, input);
+  const first = await walkIn(duty, input);
   const n = await probes();
-  const again = await registerWalkIn(deps, duty, input);
+  const again = await walkIn(duty, input);
   assert.deepEqual([again.replayed, again.bookingId, again.answer], [true, first.bookingId, first.answer]);
   assert.equal(await probes(), n);
   assert.equal((await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM bookings WHERE client_id = 'cl-a-10' AND event_id = 'ev-w'`)[0]?.n, 1);
@@ -162,7 +181,7 @@ test('повтор requestId: replayed, одна запись, счётчик п
 
 test('вместимость 1/1: гость всё равно записан', async () => {
   await seedBookings(db.sql, 'ev-small', clientsOf('a', 30, 30), { bookedBy: U.opA });
-  const r = await registerWalkIn(deps, duty, guest('ev-small', dialA(31)));
+  const r = await walkIn(duty, guest('ev-small', dialA(31)));
   assert.equal(r.answer, 'found');
   assert.equal((await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM bookings WHERE event_id = 'ev-small'`)[0]?.n, 2);
 });
@@ -173,10 +192,10 @@ test('21-я проверка за день: ответ «recorded», запис�
     await db.sql`INSERT INTO phone_probes (id, user_id, day, path, matched, created_at) VALUES (${`pp-fill-${i}`}, ${U.duty}, '2026-10-28', 'walk_in', FALSE, ${SEED_NOW})`;
   }
   assert.equal(await probes(), 20);
-  const r = await registerWalkIn(deps, duty, guest('ev-w', dialA(32)));
+  const r = await walkIn(duty, guest('ev-w', dialA(32)));
   assert.equal(r.answer, 'recorded');
   assert.equal((await bookingOf(r.bookingId!)).status, 'attended');
-  const r2 = await registerWalkIn(deps, duty, guest('ev-w', '+7 709 123 45 70'));
+  const r2 = await walkIn(duty, guest('ev-w', '+7 709 123 45 70'));
   assert.equal(r2.answer, 'recorded', 'и новый гость при превышении — тот же нейтральный ответ');
 });
 
@@ -184,8 +203,8 @@ test('двое дежурных вводят один новый номер од
   await db.sql`INSERT INTO event_duty (event_id, user_id, created_at) VALUES ('ev-w', ${U.rop}, ${SEED_NOW}) ON CONFLICT DO NOTHING`;
   const rop = await viewerOf(U.rop);
   const results = await Promise.all([
-    registerWalkIn(deps, duty, guest('ev-w', '+7 709 123 45 71')),
-    registerWalkIn(deps, rop, guest('ev-w', '+7 709 123 45 71')),
+    walkIn(duty, guest('ev-w', '+7 709 123 45 71')),
+    walkIn(rop, guest('ev-w', '+7 709 123 45 71')),
   ]);
   assert.equal((await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM client_phones WHERE digits = '77091234571'`)[0]?.n, 1);
   const ids = new Set(results.map((r) => r.bookingId));

@@ -39,7 +39,8 @@ D-040, D-049, D-072, D-131…D-137, D-176, D-201…D-205; дизайны `bookin
 
 - **SQL — только в `repo.ts`** своего модуля, первый аргумент — исполнитель; строки клиентов, карточек,
   записей, сделок, задач, передач — через `scoped(sql)` + `scopeSql`. Исключения перечислены явно (§2.6 поиск
-  номера гостя, §4.9 своё расписание консультанта) и записаны в решениях.
+  номера гостя, §4.9 своё расписание консультанта, §5.4–5.6 запись покупки, её отмены и передачи по сделке, уже
+  взятой `FOR UPDATE` в охвате действия или исполнителем эффектов, D-302) и записаны в решениях.
 - **Порядок блокировок** — единый порядок D-251 (`tasks-team-design.md` §1.2): приём (`INTAKE_LOCK_KEY`) →
   клиенты → **карточки по возрастанию `id` → мероприятие или блокировка дня консультаций (D-245) → записи →
   сделки → передача → задачи**. Блокировка приёма — только у нового гостя (§2.6). Транзакция, берущая advisory,
@@ -195,7 +196,7 @@ UPDATE bookings b SET status = 'no_show', version = b.version + 1, updated_at = 
 
 1. `pg_advisory_xact_lock(INTAKE_LOCK_KEY)` (D-022) → повторить поиск шага 4 (гонка — уйти в «найден»).
 2. `phoneHmac(digits)` в `stop_list` → клиента не создаём, `audit_log` `booking.walk_in_skipped {eventId}`,
-   ответ как у «нового» с `bookingId: null` (не раскрываем стоп-лист).
+   ответ тот же, что у нового гостя, байт в байт (не раскрываем стоп-лист; D-301).
 3. `INSERT clients` (`kind` = `company`, если указана компания, иначе `person`; `name` = компания или имя;
    `name_norm` — `names.normalizeCompanyName`/`normalizePersonName`; `search_norm` —
    `fields.buildSearchNorm({ name, orgId: '', phones: [digits], custom: {}, searchable: [] })`;
@@ -208,7 +209,9 @@ UPDATE bookings b SET status = 'no_show', version = b.version + 1, updated_at = 
 
 **Всегда:** `INSERT phone_probes (user_id, day, path 'walk_in', matched)`; `booking_history` (`action
 'walk_in'`, meta `{ requestId, walkIn: 'found'|'new', ambiguous }`); лента `booking.created {via: 'walk_in'}`.
-Ответ: `overLimit` → `recorded`, иначе `found`/`new`. В ответе нет имени, id клиента и владельца.
+Ответ — `{ answer, replayed }` одной формы при любом исходе: `overLimit` → `recorded`, иначе `found`/`new`. В ответе
+нет имени, id клиента, владельца и id записи (у стоп-листа записи нет — иначе он был бы различим, D-301); запись
+попытки — `booking_history.id = requestId`.
 
 ### 2.7. Список гостей: маска гостя без записи (D-241)
 
@@ -480,7 +483,9 @@ schedules, bookings }`. Снимок читается **после** блоки�
 
 Время в будущем и в горизонте — всегда. Повтор вида = перенос (D-042) — как B3a. Новая запись к
 консультанту → колокол консультанту `booking_consult_new` (`consult_new:<bookingId>`). Отмена и перенос записи с
-`resource_id` → `promoteReserve` старого слота в той же транзакции.
+`resource_id` → `promoteReserve` старого слота в той же транзакции; отмена консультации закрывает
+`grey_unassigned:<id>`. То же — у отмены эффектом карточки `cancel_future` (проигрыш, «Не целевой», «Не звонить»):
+дни консультаций клиента блокируются до записей и до сделок (`lockClientConsultDays`, D-251, D-301).
 
 **Полоса подбора** (`getConsultStrip`): ближайшие `consult.stripDays` рабочих дней в горизонте; на день —
 снимок (без блокировки, только чтение); времена = объединение сетки `consult.hours` и стартов слотов
@@ -550,7 +555,8 @@ SELECT b.id, b.booking_date, b.start_time, b.duration_min, b.status, b.direction
 `notes.id = opId`, `deal_id = b.deal_id`, `body ≤ 2000`, лента `note.created`; есть экспорт `timeline/notes.ts` —
 звать его, нет — тот же `INSERT` в `booking/repo.ts`) → `nextStep` → ручная задача себе как в B7 (`source
 'manual'`, `tasks.id` — новый (повтор отсёк шаг `opId`), `source_key NULL`, `deal_id`; её можно закрыть руками,
-в отличие от `next_step`) → `toStageKey` → `moveDealStage` той же транзакцией (§5.7; шаг уже есть) → лента
+в отличие от `next_step`) → `toStageKey` → перенос той же транзакцией с проверкой требований этапа §5.7
+(`assertStageRequirements`, шаг этого итога засчитан; отказ — 409 с кодом сделок, D-301) → лента
 `booking.result` с `id = opId` (`{ bookingId, noteId, taskId, toStageKey }`). Пустая заметка без шага и этапа — 400.
 
 ### 4.10. Тесты B5
@@ -697,15 +703,18 @@ UPDATE handoffs SET status = 'pending', assignee_user_id = NULL, accepted_at = N
 - Тревога «передача не принята» уже считает `notify/alarms.ts` (`status = 'pending' AND due_at <= now`) — B6
   только ставит `due_at` правильно.
 
-`cancelHandoffOfDeal`: `UPDATE handoffs SET status = 'cancelled' WHERE deal_id AND status IN ('pending','accepted')`
-→ закрыть `handoff:`, `handoff_nolead:`, `handoff_work:` → колокол руководителю и исполнителю `handoff_cancelled`.
+`cancelHandoffOfDeal`: `UPDATE handoffs SET status = 'cancelled' WHERE deal_id AND status IN ('pending','accepted','declined')`
+→ закрыть `handoff:`, `handoff_nolead:`, `handoff_work:`, `handoff_declined:` → колокол руководителю и исполнителю
+`handoff_cancelled`, если передача была `pending`/`accepted` (отказавшему отделу — нет). Отклонённая строка иначе
+держала бы `ON CONFLICT (deal_id)`, и исправленная покупка не дошла бы до отдела (D-301).
 
 ### 5.7. Этап и проигрыш
 
 - `moveDealStage`: сделка (`deal.edit`) → карточка `FOR UPDATE` → сделка `FOR UPDATE` → повтор → `version` →
   `status = 'open'` (иначе `deal_closed`) → целевой этап открытый (`won` → 400 `use_purchase`, `lost` → 400
   `use_lose`, нет → 400 `stage_unknown`) → назад (`order` меньше) без `deal.move_back` → 403 → требования
-  (`stageRequirements`): `nextTask` — `nextStep` в теле или открытая задача со сроком по сделке, иначе 409
+  (`assertStageRequirements` в `deals/requirements.ts` — одна проверка и для итога встречи §4.9, D-301):
+  `nextTask` — `nextStep` в теле или открытая задача со сроком по сделке, иначе 409
   `next_step_required`; `fields` — непустые ключи в `deals.custom`, иначе 409 `stage_fields_required`
   (`detail` + список ключей); `booking`/`attendance` — есть запись / явка по сделке (`bookings_deal_idx`) →
   `UPDATE deals SET stage_key, stage_changed_at = now, version + 1 WHERE id AND version AND status = 'open' AND
@@ -847,7 +856,8 @@ UPDATE handoffs h SET assignee_user_id = ${userId}, status = 'accepted',
 ```
 
 Каждое действие: блокировка строки передачи (`SELECT … FOR UPDATE` с тем же охватом) → повтор
-(`client_events.id = opId`, вид `handoff.*`) → `UPDATE` → эффекты → лента `handoff.accepted|declined|assigned`
+(`client_events.id = opId`, вид `handoff.*`; ответ повтора — только если передача и сейчас в охвате действия при
+статусе, из которого оно выполнялось, иначе тот же 404, D-301) → `UPDATE` → эффекты → лента `handoff.accepted|declined|assigned`
 (`id = opId`, `data {handoffId, assigneeUserId?}`, без текста причины).
 
 | Действие | Эффекты |
@@ -1012,7 +1022,8 @@ booking`), `/deals/[dealId]` (`idParam deal`), `/deals/purchase/[cardId]` (`idPa
    руководителя отдела», передача ждёт (D-250). Вариант PROCESS — задача каждому сотруднику отдела — не
    работает: принять передачу может только руководитель (отношение `handoff_to_my_team`).
 2. **Видит ли отдел сумму покупки?** Рекомендую: нет — отделу нужны услуга, дата и кто продал; сумма
-   остаётся у РОП и директора (меньше коммерческих данных в чужом отделе).
+   остаётся у РОП и директора (меньше коммерческих данных в чужом отделе). До ответа действует D-300: по
+   отношениям передачи видна только сделка передачи, без суммы и денежных полей истории.
 3. **Имена клиентов будущих БК у консультанта.** Рекомендую: как в PROCESS 8.4 — только с дня перед встречей;
    дальше консультант видит время и направление (D-246). Если консультантам нужно готовиться за неделю —
    меняется параметр роли `fromDays`, код тот же.

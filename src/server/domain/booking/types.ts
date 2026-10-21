@@ -246,13 +246,15 @@ export interface DealLink {
   ensureOpen(tx: Sql, actor: BookingActor, card: LockedCard, args: { requestId: string; at: number; stages: DealStages | null }): Promise<string | null>;
   /** Только вперёд (PROCESS 4.2). */
   advanceOnAttended(tx: Sql, actor: BookingActor, args: { dealId: string; bookingId: string; at: number; stages: DealStages | null }): Promise<void>;
+  /** Открытые этапы воронки после `fromStageKey` по порядку (выбор этапа в итоге встречи); пусто — дальше некуда. */
+  laterOpenStages(spaceId: string, pipelineKey: string, fromStageKey: string): Promise<{ key: string; label: LocalizedLabel | null }[]>;
   /**
    * Итог встречи консультанта (B5c): сделка на открытый этап воронки, версия и охват `deal.edit` проверяются здесь.
    * Тот же этап — пустая операция (`same`); этап назад без `deal.move_back` — 403. Неизвестный этап — 400.
+   * Требования этапа — та же проверка, что у ручного переноса (`deals/requirements.ts`, D-301): `hasNextStep` —
+   * в этом же итоге есть следующий шаг с датой. Не выполнено — `DealDomainError` (409 с кодом).
    */
-  /** Открытые этапы воронки после `fromStageKey` по порядку (выбор этапа в итоге встречи); пусто — дальше некуда. */
-  laterOpenStages(spaceId: string, pipelineKey: string, fromStageKey: string): Promise<{ key: string; label: LocalizedLabel | null }[]>;
-  moveToStage(tx: Sql, viewer: Viewer, args: { dealId: string; version: number; toStageKey: string; bookingId: string; at: number }): Promise<'moved' | 'same'>;
+  moveToStage(tx: Sql, viewer: Viewer, args: { dealId: string; version: number; toStageKey: string; bookingId: string; hasNextStep: boolean; at: number }): Promise<'moved' | 'same'>;
 }
 
 export interface BookingDeps {

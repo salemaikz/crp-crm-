@@ -3,6 +3,17 @@
 import { z } from 'zod';
 import { getActiveConfig } from '@/server/platform/config/active';
 import type { DealStages } from '@/server/domain/booking/types';
+import type { StageRequires } from './rules';
+
+// Требования ручного переноса (PROCESS 4.2); нет раздела — требований нет (как в settings.ts)
+const Requires = z
+  .object({
+    fields: z.array(z.string()).default([]),
+    booking: z.boolean().default(false),
+    attendance: z.boolean().default(false),
+    nextTask: z.boolean().default(false),
+  })
+  .passthrough();
 
 const Stage = z
   .object({
@@ -10,6 +21,7 @@ const Stage = z
     kind: z.enum(['open', 'won', 'lost']),
     order: z.number().int(),
     auto: z.enum(['on_agreed', 'on_attended']).nullable(),
+    requires: Requires.optional(),
     label: z.object({ ru: z.string(), kk: z.string().optional() }).passthrough().optional(),
     archived: z.boolean().optional(),
   })
@@ -33,6 +45,8 @@ export interface PipelineStage {
   auto: 'on_agreed' | 'on_attended' | null;
   /** Подпись из настроек; у минимальных воронок (тесты) её нет. */
   label?: { ru: string; kk?: string };
+  /** Требования ручного переноса на этап (итог встречи проверяет их так же, как POST /api/deals/[id]/stage). */
+  requires?: StageRequires;
 }
 
 export interface PipelineInfo {
@@ -51,7 +65,14 @@ export function parsePipelines(raw: unknown): PipelineInfo[] {
       createDealOn: p.createDealOn,
       stages: p.stages
         .filter((s) => !s.archived)
-        .map((s) => ({ key: s.key, kind: s.kind, order: s.order, auto: s.auto, ...(s.label ? { label: { ru: s.label.ru, ...(s.label.kk !== undefined ? { kk: s.label.kk } : {}) } } : {}) }))
+        .map((s) => ({
+          key: s.key,
+          kind: s.kind,
+          order: s.order,
+          auto: s.auto,
+          ...(s.label ? { label: { ru: s.label.ru, ...(s.label.kk !== undefined ? { kk: s.label.kk } : {}) } } : {}),
+          ...(s.requires ? { requires: { fields: s.requires.fields, booking: s.requires.booking, attendance: s.requires.attendance, nextTask: s.requires.nextTask } } : {}),
+        }))
         .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key)),
     }));
 }

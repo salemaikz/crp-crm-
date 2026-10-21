@@ -106,6 +106,40 @@ test('правка: смена услуги — 409 service_type_locked; эта�
   assert.deepEqual([cancel.status, cancel.json.detail], [409, 'deal_not_won']);
 });
 
+test('изоляция: глава отдела видит сделку передачи без суммы и денежных полей истории; другая сделка клиента — 404', async () => {
+  await db.sql`UPDATE cards SET state = 'agreed' WHERE id = 'cd-b-70'`;
+  await seedDeal(db.sql, { id: 'dl-r70', client: 'cl-b-70', card: 'cd-b-70', stage: 'offer', owner: U.opB });
+  await seedDeal(db.sql, { id: 'dl-r70b', client: 'cl-b-70', card: 'cd-b-70', stage: 'booked', owner: U.opB });
+  const bought = await call(purchaseRoute.POST, 'POST', {
+    as: U.rop,
+    body: { requestId: uuid(), cardId: 'cd-b-70', dealId: 'dl-r70', serviceTypeKey: 'smm', amountKzt: 777_000, wonDay: null },
+  });
+  assert.equal(bought.status, 201);
+  const v = (await db.sql<{ version: number }>`SELECT version FROM deals WHERE id = 'dl-r70'`)[0]!.version;
+  assert.equal((await call(editRoute.PATCH, 'PATCH', { as: U.rop, id: 'dl-r70', body: { opId: uuid(), version: v, amountKzt: 778_000 } })).status, 200);
+
+  const money = /amountKzt|fromAmount|toAmount|77[78]/;
+  const head = await call(dealRoute.GET, 'GET', { as: U.mktHead, id: 'dl-r70' });
+  assert.equal(head.status, 200);
+  const deal = head.json.deal as Record<string, unknown>;
+  assert.deepEqual([deal.status, deal.serviceTypeKey, deal.amountKzt], ['won', 'smm', null]);
+  const history = head.json.history as Array<{ kind: string; data: Record<string, unknown> }>;
+  assert.ok(history.some((h) => h.kind === 'deal.won') && history.some((h) => h.kind === 'deal.purchase_edited'));
+  for (const h of history) assert.ok(!money.test(JSON.stringify(h.data)), `денежное поле в ${h.kind}`);
+  assert.ok(!/77[78]/.test(JSON.stringify(head.json)));
+
+  // другая сделка того же клиента — тот же 404, что у несуществующей
+  const other = await call(dealRoute.GET, 'GET', { as: U.mktHead, id: 'dl-r70b' });
+  const missing = await call(dealRoute.GET, 'GET', { as: U.mktHead, id: 'dl-нет' });
+  assert.deepEqual([other.status, other.json], [missing.status, missing.json]);
+  assert.equal(other.status, 404);
+
+  // РОП (охват роли) видит сумму и историю с деньгами
+  const rop = await call(dealRoute.GET, 'GET', { as: U.rop, id: 'dl-r70' });
+  assert.equal((rop.json.deal as Record<string, unknown>).amountKzt, 778_000);
+  assert.ok(money.test(JSON.stringify(rop.json.history)));
+});
+
 test('флаг PURCHASES выключен: все маршруты сделок — 404', async () => {
   process.env['FEATURE_PURCHASES'] = '0';
   try {

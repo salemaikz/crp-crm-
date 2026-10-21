@@ -1,7 +1,8 @@
 // Ручной этап и проигрыш сделки (B6, docs/deals-handoffs-design.md §5.7, PROCESS 4.2, 3.5 № 21).
-// Блокировки: карточка → сделка; повтор — `client_events.id = opId`; версия сделки — токен правки.
+// Блокировки: карточка → (дни консультаций у проигрыша) → сделка; повтор — `client_events.id = opId`; версия сделки — токен правки.
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, scopeOf, type Viewer } from '@/server/access';
 import { throwNotFoundOrConflict } from '@/server/access/scope';
+import { lockClientConsultDays } from '@/server/domain/booking/effects';
 import type { LockedCard } from '@/server/domain/booking/types';
 import type { Sql } from '@/server/platform/db';
 import { CardRejectedError, DealDomainError } from './errors';
@@ -9,10 +10,8 @@ import { requirePurchases, requireSpace } from './guards';
 import { pipelineOf, toDealView } from './read';
 import { updateDealStageScoped } from './repo';
 import {
-  dealBookingFacts,
   findDealScoped,
   findFeedById,
-  hasOpenStepTask,
   hasOtherDeal,
   insertDealFeedWithId,
   insertStepTask,
@@ -22,7 +21,8 @@ import {
   loseDealScoped,
   type DealFullRow,
 } from './repo.purchase';
-import { isEmptyFieldValue, lostStageOf, stageRequirements } from './rules';
+import { assertStageRequirements } from './requirements';
+import { lostStageOf } from './rules';
 import { inDealsTx } from './tx';
 import type { DealView, DealsSettings, LoseDeal, MoveDealStage } from './types';
 
@@ -30,11 +30,22 @@ const REASON_TEXT_MAX = 500;
 /** Шаг «в прошлом» допустим на 5 минут (часы телефона и сервера расходятся). */
 const NEXT_STEP_PAST_TOLERANCE_MS = 5 * 60_000;
 
-async function lockForEdit(viewer: Viewer, tx: Sql, dealId: string, spaceId: string): Promise<{ card: LockedCard; deal: DealFullRow }> {
+/**
+ * Карточка → (`beforeDeal`: то, что по D-251 стоит между карточкой и сделкой) → сделка под блокировкой.
+ * Проигрыш может отменить будущие консультации клиента (эффект карточки), поэтому берёт дни консультаций до сделки.
+ */
+async function lockForEdit(
+  viewer: Viewer,
+  tx: Sql,
+  dealId: string,
+  spaceId: string,
+  beforeDeal?: (card: LockedCard) => Promise<void>,
+): Promise<{ card: LockedCard; deal: DealFullRow }> {
   const probe = await findDealScoped(viewer, tx, dealId, 'deal.edit');
   if (!probe || probe.spaceId !== spaceId) throw new NotFoundError();
   const card = await lockCardById(tx, probe.cardId);
   if (!card) throw new NotFoundError();
+  if (beforeDeal) await beforeDeal(card);
   const deal = await lockDealScoped(viewer, tx, { dealId, perm: 'deal.edit' });
   if (!deal) throw new NotFoundError();
   return { card, deal };
@@ -82,15 +93,7 @@ export const moveDealStage: MoveDealStage = async (deps, viewer, input) => {
     // Назад — только с правом `deal.move_back` по роли (PROCESS 4.2)
     if (current && target.order < current.order && scopeOf(viewer, 'deal.move_back') === null) throw new ForbiddenError();
 
-    const req = stageRequirements(target);
-    if (req.nextTask && !input.nextStep && !(await hasOpenStepTask(tx, deal.id))) throw new DealDomainError('next_step_required');
-    const missing = req.fields.filter((k) => isEmptyFieldValue(deal.custom?.[k]));
-    if (req.booking || req.attendance) {
-      const facts = await dealBookingFacts(tx, deal.id);
-      if (req.booking && !facts.booking) missing.push('booking');
-      if (req.attendance && !facts.attended) missing.push('attendance');
-    }
-    if (missing.length > 0) throw new DealDomainError('stage_fields_required', missing);
+    await assertStageRequirements(tx, { dealId: deal.id, custom: deal.custom, stage: target, hasNextStep: Boolean(input.nextStep) });
 
     const ok = await updateDealStageScoped(viewer, tx, { id: deal.id, version: input.version, stageKey: target.key, at: now });
     if (!ok) await throwNotFoundOrConflict(viewer, tx, 'deal', deal.id);
@@ -124,7 +127,9 @@ export const loseDeal: LoseDeal = async (deps, viewer, input) => {
   if (reason.needsText && text === '') throw new DealDomainError('reason_text_required');
 
   return inDealsTx(async (tx) => {
-    const { card, deal } = await lockForEdit(viewer, tx, input.dealId, spaceId);
+    const { card, deal } = await lockForEdit(viewer, tx, input.dealId, spaceId, async (c) => {
+      if (c.state === 'agreed') await lockClientConsultDays(tx, { spaceId: c.spaceId, clientId: c.clientId, after: now });
+    });
     const replay = await replayOf(viewer, tx, { opId: input.opId, kind: 'deal.lost', dealId: deal.id, settings, now });
     if (replay) return replay;
     if (deal.version !== input.version) throw new ConflictError();

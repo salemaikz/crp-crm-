@@ -65,7 +65,7 @@ export interface ConsultationView {
   /** Имя консультанта записи; null — «серая». */
   consultantName: string | null;
   deal: { id: string; stageKey: string; status: 'open' | 'won' | 'lost'; version: number } | null;
-  /** Открытые этапы воронки сделки впереди текущего («Переговоры / КП», «Счёт»): итог может перевести сделку на один из них. */
+  /** Открытые этапы воронки сделки впереди текущего: итог может перевести сделку на один из них. */
   laterStages: { key: string; label: LocalizedLabel | null }[];
   /** Итог можно писать только после «Пришёл» (иначе `not_attended`). */
   canRecordResult: boolean;
@@ -151,7 +151,7 @@ export const recordConsultResult: RecordConsultResult = async (deps, viewer, inp
 
     if (input.toStageKey !== null) {
       if (!b.dealId) throw new BadRequestError('no_deal');
-      await deps.deals.moveToStage(tx, viewer, { dealId: b.dealId, version: input.dealVersion as number, toStageKey: input.toStageKey, bookingId: b.id, at: now });
+      await deps.deals.moveToStage(tx, viewer, { dealId: b.dealId, version: input.dealVersion as number, toStageKey: input.toStageKey, bookingId: b.id, hasNextStep: taskId !== null, at: now });
     }
 
     const written = await insertFeedWithId(tx, {

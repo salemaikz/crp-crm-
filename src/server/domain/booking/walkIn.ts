@@ -71,13 +71,13 @@ async function replayOf(tx: Sql, viewer: Viewer, input: WalkInInput): Promise<Wa
   if (h) {
     if ((await eventIdOfBooking(tx, h.bookingId)) !== input.eventId) throw new BookingDomainError('request_reused');
     const answer = h.meta.answer === 'recorded' || h.meta.answer === 'new' ? h.meta.answer : 'found';
-    return { answer: answer as WalkInAnswer, bookingId: h.bookingId, replayed: true };
+    return { answer: answer as WalkInAnswer, replayed: true };
   }
   // Номер из стоп-листа: записи нет, след только в счётчике проверок
   const owner = await findProbeOwner(tx, input.requestId);
   if (owner === null) return null;
   if (owner !== viewer.userId) throw new BookingDomainError('request_reused');
-  return { answer: 'new', bookingId: null, replayed: true };
+  return { answer: 'new', replayed: true };
 }
 
 export const registerWalkIn: RegisterWalkIn = async (deps, viewer, input) => {
@@ -227,11 +227,11 @@ async function newGuest(c: Ctx): Promise<WalkInResult> {
   const { tx, viewer, now, input, ops } = c;
   const answer: WalkInAnswer = c.overLimit ? 'recorded' : 'new';
 
-  // Стоп-лист: ничего не создаём, ответ как у «нового» — стоп-лист не раскрываем (D-241)
+  // Стоп-лист: ничего не создаём, ответ тот же, что у «нового», байт в байт — стоп-лист не раскрываем (D-241, D-301)
   if (await isPhoneStopListed(tx, phoneHmac(c.digits))) {
     await writeAudit(tx, { actorId: viewer.userId, action: 'booking.walk_in_skipped', entity: 'event', entityId: input.eventId, spaceId: c.spaceId, meta: { eventId: input.eventId } });
     await insertWalkInProbe(tx, { id: input.requestId, userId: viewer.userId, day: viewer.today, matched: false, at: now });
-    return { answer, bookingId: null, replayed: false };
+    return { answer, replayed: false };
   }
   if (ops.walkInSourceKey === null) throw new BookingDomainError('walk_in_source_missing');
 
@@ -332,5 +332,5 @@ async function finish(c: Ctx, d: Done): Promise<WalkInResult> {
       data: { bookingId: d.bookingId, eventId: d.event.id, eventTypeKey: d.event.eventTypeKey, eventDate: d.event.eventDate, startTime: d.event.startTime, via: 'walk_in' },
     });
   }
-  return { answer, bookingId: d.bookingId, replayed: false };
+  return { answer, replayed: false };
 }

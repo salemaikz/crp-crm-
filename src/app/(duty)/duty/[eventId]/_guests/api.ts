@@ -36,4 +36,4 @@ export const markRest = (eventId: string, bookingIds: string[]) =>
   call<{ marked: number; skipped: number }>('POST', `/api/events/${encodeURIComponent(eventId)}/no-show-rest`, { opId: newKey(), bookingIds });
 
 export const postWalkIn = (eventId: string, body: { requestId: string; phone: string; name: string; company: string }) =>
-  call<{ answer: 'found' | 'new' | 'recorded'; bookingId: string | null; replayed: boolean }>('POST', `/api/events/${encodeURIComponent(eventId)}/walk-in`, body);
+  call<{ answer: 'found' | 'new' | 'recorded'; replayed: boolean }>('POST', `/api/events/${encodeURIComponent(eventId)}/walk-in`, body);

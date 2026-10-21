@@ -85,6 +85,21 @@ export async function lockHandoffScoped(viewer: Viewer, tx: Sql, a: { id: string
   return rows[0] ?? null;
 }
 
+/**
+ * Повтор действия (D-301): была бы передача в охвате этого действия у зрителя сейчас, если бы её статус был тем,
+ * из которого действие выполнялось (`asStatus`). Статус после действия отношение главы отдела может уже не
+ * покрывать (отказ), а сменённый глава не покрыт никаким статусом — ему тот же 404, что у чужой.
+ * Строка подставляется целиком (`jsonb_populate_record`), меняется только статус: охват считает тот же scopeSql.
+ */
+export async function inActionScopeAsOf(viewer: Viewer, tx: Sql, a: { id: string; perm: 'handoff.accept' | 'handoff.assign'; asStatus: 'pending' | 'accepted' }): Promise<boolean> {
+  const rows = await scoped(tx)<{ id: string }>`
+    SELECT h.id
+      FROM handoffs h0
+     CROSS JOIN LATERAL jsonb_populate_record(NULL::handoffs, to_jsonb(h0) || jsonb_build_object('status', ${a.asStatus}::text)) h
+     WHERE h0.id = ${a.id} AND ${scopeSql(viewer, 'handoff', a.perm)}`;
+  return rows.length > 0;
+}
+
 export interface ReplayRow {
   kind: string;
   refId: string | null;

@@ -8,6 +8,9 @@ import { BookingDomainError } from '../../../src/server/domain/booking/errors';
 import { getMyConsultation, listMyConsultations, recordConsultResult } from '../../../src/server/domain/booking/consultations';
 import type { ConsultResultInput } from '../../../src/server/domain/booking/consultTypes';
 import type { BookingDeps } from '../../../src/server/domain/booking/types';
+import { createDealLink } from '../../../src/server/domain/deals/effects';
+import { DealDomainError } from '../../../src/server/domain/deals/errors';
+import type { PipelineInfo } from '../../../src/server/domain/deals/pipelines';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { FX, U } from '../../isolation/harness/seed';
 import { SEED_NOW, closeConsultWorld, fakeCardPort, insertGrey, makeDeps, openConsultWorld, uuid, viewerOf } from './helpers';
@@ -127,4 +130,45 @@ test('этап: назад без deal.move_back — 403, на неизвест�
   assert.ok(plain.noteId);
   assert.equal(await stage(), 'offer');
   assert.equal((await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM notes`)[0]!.n, notesBefore + 1);
+});
+
+test('этап итога проходит общую проверку требований: шаг с датой (шаг этого же итога засчитан) и поля сделки', async () => {
+  const NONE = { fields: [], booking: false, attendance: false, nextTask: false };
+  const withRequires: PipelineInfo[] = [
+    {
+      key: 'sales',
+      createDealOn: 'agreed',
+      stages: [
+        { key: 'booked', kind: 'open', order: 10, auto: 'on_agreed', requires: NONE },
+        { key: 'attended', kind: 'open', order: 20, auto: 'on_attended', requires: NONE },
+        { key: 'offer', kind: 'open', order: 30, auto: null, requires: { ...NONE, nextTask: true } },
+        { key: 'contract', kind: 'open', order: 35, auto: null, requires: { ...NONE, fields: ['budget'] } },
+        { key: 'lost', kind: 'lost', order: 50, auto: null, requires: NONE },
+      ],
+    },
+  ];
+  const strict: BookingDeps = { ...deps, deals: createDealLink(async () => withRequires) };
+  await db.sql`
+    INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, stage_changed_at, version, created_by, created_at, updated_at)
+    VALUES ('dl-req', 'sp-sales', 'sales', 'attended', 'open', ${FX.bkInWindow.client}, ${FX.bkInWindow.card}, ${U.opB}, ${SEED_NOW}, 0, ${U.opB}, ${SEED_NOW}, ${SEED_NOW})`;
+  await db.sql`UPDATE bookings SET deal_id = 'dl-req' WHERE id = ${FX.bkInWindow.booking}`;
+  const stageOf = async () => (await db.sql<{ stageKey: string; version: number }>`SELECT stage_key, version FROM deals WHERE id = 'dl-req'`)[0]!;
+  const notesBefore = (await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM notes`)[0]!.n;
+  const dealFails = (code: string, fields?: string[]) => (e: unknown) =>
+    e instanceof DealDomainError && e.code === code && (fields === undefined || JSON.stringify(e.fields) === JSON.stringify(fields));
+
+  // «Переговоры» требуют шаг с датой: итог без шага — тот же отказ, что у POST /api/deals/[id]/stage; ничего не записано
+  await assert.rejects(recordConsultResult(strict, cons, input({ note: 'x', nextStep: null, toStageKey: 'offer', dealVersion: 0 })), dealFails('next_step_required'));
+  assert.deepEqual([(await stageOf()).stageKey, (await stageOf()).version], ['attended', 0]);
+  assert.equal((await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM notes`)[0]!.n, notesBefore);
+  // шаг этого же итога засчитан
+  await recordConsultResult(strict, cons, input({ note: 'x', toStageKey: 'offer', dealVersion: 0 }));
+  assert.deepEqual([(await stageOf()).stageKey, (await stageOf()).version], ['offer', 1]);
+
+  // «Договор» требует поле сделки
+  await assert.rejects(recordConsultResult(strict, cons, input({ note: 'x', nextStep: null, toStageKey: 'contract', dealVersion: 1 })), dealFails('stage_fields_required', ['budget']));
+  assert.equal((await stageOf()).stageKey, 'offer');
+  await db.sql`UPDATE deals SET custom = '{"budget": "синтетика"}'::jsonb WHERE id = 'dl-req'`;
+  await recordConsultResult(strict, cons, input({ note: 'x', nextStep: null, toStageKey: 'contract', dealVersion: 1 }));
+  assert.equal((await stageOf()).stageKey, 'contract');
 });

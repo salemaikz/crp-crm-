@@ -5,7 +5,9 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConflictError, NotFoundError } from '../../../src/server/access';
 import type { Viewer } from '../../../src/server/access/types';
+import { overrideDealsDepsForTests } from '../../../src/server/domain/deals/deps';
 import { cancelPurchase, editPurchase, registerPurchase } from '../../../src/server/domain/deals/purchase';
+import { declineHandoff } from '../../../src/server/domain/handoffs/actions';
 import { DealDomainError } from '../../../src/server/domain/deals/errors';
 import type { DealsDeps } from '../../../src/server/domain/deals/types';
 import type { TestDb } from '../../../src/server/platform/db/testing';
@@ -87,6 +89,34 @@ test('ошибка после «Переговоров» → снова «Пер
   assert.deepEqual([ho.length, ho[0]?.status, ho[0]?.assigneeUserId], [1, 'pending', null]);
   assert.equal(await count(db.sql`SELECT count(*)::int AS n FROM tasks WHERE source_key = ${`handoff:${b.handoffId}`} AND status = 'open'`), 1);
   assert.equal(await count(db.sql`SELECT count(*)::int AS n FROM notifications WHERE kind = 'handoff_new' AND entity_id = ${b.handoffId!}`), 2);
+});
+
+test('отказ отдела → отмена «ошибкой» → новая покупка: передача снова ждёт отдел, задача «отказ» у РОП закрыта', async () => {
+  overrideDealsDepsForTests(deps);
+  try {
+    const b = await bought(47);
+    const head = await viewerOf(U.mktHead);
+    await declineHandoff(head, { handoffId: b.handoffId!, opId: uuid(), reason: 'Синтетическая причина отказа' });
+    assert.equal(await count(db.sql`SELECT count(*)::int AS n FROM tasks WHERE source_key = ${`handoff_declined:${b.handoffId}`} AND status = 'open'`), 1);
+
+    const v = await cancelPurchase(deps, rop, { dealId: b.dealId, opId: uuid(), version: b.version, mode: 'error', comment: 'Не та услуга' });
+    assert.equal(v.status, 'open');
+    const cancelled = await db.sql<{ status: string }>`SELECT status FROM handoffs WHERE id = ${b.handoffId!}`;
+    assert.deepEqual(cancelled.map((h) => h.status), ['cancelled']);
+    assert.equal(await count(db.sql`SELECT count(*)::int AS n FROM tasks WHERE source_key = ${`handoff_declined:${b.handoffId}`} AND status = 'open'`), 0);
+    // главе, который уже отказал, колокол об отмене не нужен
+    assert.equal(await count(db.sql`SELECT count(*)::int AS n FROM notifications WHERE kind = 'handoff_cancelled' AND entity_id = ${b.handoffId!}`), 0);
+
+    const again = await registerPurchase(deps, rop, { requestId: uuid(), cardId: 'cd-b-47', dealId: b.dealId, serviceTypeKey: 'smm', amountKzt: 310_000, wonDay: null });
+    assert.equal(again.handoffId, b.handoffId);
+    const ho = await db.sql<{ status: string; declinedReason: string }>`SELECT status, declined_reason FROM handoffs WHERE deal_id = ${b.dealId}`;
+    assert.deepEqual(ho.map((h) => [h.status, h.declinedReason]), [['pending', '']]);
+    const accept = await db.sql<{ assigneeUserId: string }>`SELECT assignee_user_id FROM tasks WHERE source_key = ${`handoff:${b.handoffId}`} AND status = 'open'`;
+    assert.deepEqual(accept.map((t) => t.assigneeUserId), [U.mktHead]);
+    assert.equal(await count(db.sql`SELECT count(*)::int AS n FROM notifications WHERE kind = 'handoff_new' AND entity_id = ${b.handoffId!}`), 2);
+  } finally {
+    overrideDealsDepsForTests(null);
+  }
 });
 
 test('ошибка у сделки, созданной сразу выигранной → проигран/input_error', async () => {

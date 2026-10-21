@@ -4,7 +4,7 @@ import type { SystemActor, Viewer } from '@/server/access';
 import { resolveLead } from '@/server/domain/cards';
 import { newId } from '@/server/platform/db';
 import {
-  cancelLiveHandoff,
+  cancelOpenHandoff,
   cancelTasksByKeys,
   ensureHandoffTask,
   findHandoffIdOfDeal,
@@ -73,9 +73,13 @@ export const createHandoffForDeal: CreateHandoffForDeal = async (tx, actor, inpu
 };
 
 export const cancelHandoffOfDeal: CancelHandoffOfDeal = async (tx, _actor, input) => {
-  const h = await cancelLiveHandoff(tx, input.dealId);
+  const h = await cancelOpenHandoff(tx, input.dealId);
   if (!h) return false;
-  await cancelTasksByKeys(tx, [HANDOFF_TASK_KEYS.accept(h.id), HANDOFF_TASK_KEYS.noLead(h.id), HANDOFF_TASK_KEYS.work(h.id)], input.at);
+  // Отклонённая: задача РОП «отдел отказал» решена отменой покупки (D-301)
+  const keys = [HANDOFF_TASK_KEYS.accept(h.id), HANDOFF_TASK_KEYS.noLead(h.id), HANDOFF_TASK_KEYS.work(h.id), HANDOFF_TASK_KEYS.declined(h.id)];
+  await cancelTasksByKeys(tx, keys, input.at);
+  // Отдел, который уже отказал, об отмене не уведомляем: передачи у него нет с момента отказа
+  if (h.prevStatus === 'declined') return true;
   const to = [...new Set([h.leadUserId, h.assigneeUserId].filter((u): u is string => u !== null))];
   for (const userId of to) {
     await insertHandoffNotification(tx, { userId, kind: 'handoff_cancelled', handoffId: h.id, dedupeKey: `handoff_cancelled:${h.id}:${userId}:${input.at}`, at: input.at });

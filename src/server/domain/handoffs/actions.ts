@@ -16,6 +16,7 @@ import {
   declineScoped,
   findHandoffScoped,
   findOpEvent,
+  inActionScopeAsOf,
   insertHandoffFeedWithId,
   isActiveTeamMember,
   lockHandoffScoped,
@@ -30,21 +31,30 @@ const REASON_MAX = 500;
 
 type Kind = 'handoff.accepted' | 'handoff.declined' | 'handoff.assigned';
 
-/** Ответ после действия: строка в охвате действия уже проверена, поэтому чтение без охвата чтения. */
+/** Ответ после действия: строка в охвате действия уже проверена (у повтора — `inActionScopeAsOf`), поэтому чтение без охвата чтения. */
 async function viewAfter(viewer: Viewer, tx: Sql, id: string, now: number): Promise<HandoffView> {
   const row = await findHandoffScoped(viewer, tx, { id, afterAction: true });
   if (!row) throw new NotFoundError();
   return toHandoffView(row, now);
 }
 
+/** Охват действия и статус, из которого оно выполняется (для проверки повтора). */
+const ACTION_SCOPE: Readonly<Record<Kind, { perm: 'handoff.accept' | 'handoff.assign'; asStatus: 'pending' | 'accepted' }>> = {
+  'handoff.accepted': { perm: 'handoff.accept', asStatus: 'pending' },
+  'handoff.declined': { perm: 'handoff.accept', asStatus: 'pending' },
+  'handoff.assigned': { perm: 'handoff.assign', asStatus: 'accepted' },
+};
+
 /**
  * Повтор действия: событие с этим `opId` уже записано тем же сотрудником по этой передаче → текущее состояние
- * без новых эффектов. Чужой или другого вида `opId` — `request_reused`.
+ * без новых эффектов, но только если передача и сейчас в охвате этого действия (D-301): сменённый глава отдела
+ * получает тот же 404, что и чужой. Чужой или другого вида `opId` — `request_reused`.
  */
 async function replayOf(viewer: Viewer, tx: Sql, a: { opId: string; kind: Kind; handoffId: string; now: number }): Promise<HandoffView | null> {
   const seen = await findOpEvent(tx, a.opId);
   if (!seen) return null;
   if (seen.kind !== a.kind || seen.refId !== a.handoffId || seen.actorId !== viewer.userId) throw new DealDomainError('request_reused');
+  if (!(await inActionScopeAsOf(viewer, tx, { id: a.handoffId, ...ACTION_SCOPE[a.kind] }))) throw new NotFoundError();
   return viewAfter(viewer, tx, a.handoffId, a.now);
 }
 

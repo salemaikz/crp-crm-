@@ -132,3 +132,20 @@ test('без руководителя отдела задача «назначь
   await acceptHandoff(head, { handoffId, opId: uuid() });
   assert.equal((await taskStatus(`handoff_nolead:${handoffId}`))?.status, 'cancelled');
 });
+
+test('повтор opId сменённым главой отдела — 404: ответ повтора только в охвате действия', async () => {
+  const { handoffId } = await buy(58);
+  const head = await viewerOf(U.mktHead);
+  const opId = uuid();
+  await acceptHandoff(head, { handoffId, opId });
+  const team = (await db.sql<{ teamId: string }>`SELECT team_id FROM handoffs WHERE id = ${handoffId}`)[0]!.teamId;
+  // главу сменили: отдел ведёт другой сотрудник
+  await db.sql`UPDATE teams SET lead_user_id = ${OTHER_HEAD} WHERE id = ${team}`;
+  try {
+    await assert.rejects(() => acceptHandoff(head, { handoffId, opId }), NotFoundError);
+  } finally {
+    await db.sql`UPDATE teams SET lead_user_id = ${U.mktHead} WHERE id = ${team}`;
+  }
+  // вернули — повтор снова отдаёт текущее состояние
+  assert.equal((await acceptHandoff(head, { handoffId, opId })).status, 'accepted');
+});

@@ -11,6 +11,7 @@ import { bookingPipeline, configPipelineResolver, toDealStages, type PipelineRes
 import { findFeedById, findDealByRequest, lockDealById, type DealFullRow } from './repo.purchase';
 import { writeCancel, writeWin } from './purchase';
 import { pipelineOf } from './read';
+import { assertStageRequirements } from './requirements';
 import { wonStageOf } from './rules';
 import { loadDealsSettings } from './settings';
 import type { LoadDealsSettings } from './types';
@@ -84,12 +85,15 @@ async function advanceFor(
   });
 }
 
-/** Ручной перевод сделки на этап (итог встречи консультанта): только открытые этапы, назад — по праву `deal.move_back`. */
+/**
+ * Ручной перевод сделки на этап (итог встречи консультанта): только открытые этапы, назад — по праву `deal.move_back`,
+ * требования этапа — общей проверкой `assertStageRequirements`.
+ */
 async function moveToStageFor(
   sql: Sql,
   viewer: Viewer,
   resolve: PipelineResolver,
-  args: { dealId: string; version: number; toStageKey: string; bookingId: string; at: number },
+  args: { dealId: string; version: number; toStageKey: string; bookingId: string; hasNextStep: boolean; at: number },
 ): Promise<'moved' | 'same'> {
   const deal = await lockDealForStage(viewer, sql, args.dealId);
   if (!deal) throw new NotFoundError();
@@ -103,6 +107,8 @@ async function moveToStageFor(
   const current = pipeline.stages.find((s) => s.key === deal.stageKey);
   if (current && current.key === target.key) return 'same';
   if (current && current.order > target.order && scopeOf(viewer, 'deal.move_back') === null) throw new ForbiddenError();
+  // Требования этапа — та же проверка, что у POST /api/deals/[id]/stage; шаг этого же итога засчитан (D-301)
+  await assertStageRequirements(sql, { dealId: deal.id, custom: deal.custom, stage: target, hasNextStep: args.hasNextStep });
   const ok = await updateDealStageScoped(viewer, sql, { id: deal.id, version: args.version, stageKey: target.key, at: args.at });
   if (!ok) await throwNotFoundOrConflict(viewer, sql, 'deal', deal.id);
   await insertDealFeed(sql, {

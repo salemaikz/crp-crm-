@@ -15,8 +15,12 @@ export interface DealPageRow extends DealFullRow {
   canMoveBack: boolean;
 }
 
-/** Сделка в охвате `deal.read` с именами и тем, что зритель может с ней сделать (по охвату, не по роли). */
-export async function findDealPageRow(viewer: Viewer, sql: Sql, dealId: string): Promise<DealPageRow | null> {
+/**
+ * Сделка в охвате `deal.read` с именами и тем, что зритель может с ней сделать (по охвату, не по роли).
+ * `departmentOnly` — зритель видит сделки только как отдел передачи (D-300): видна лишь сделка самой передачи в
+ * охвате `handoff.read`; другая сделка того же клиента — как чужая (null → 404).
+ */
+export async function findDealPageRow(viewer: Viewer, sql: Sql, dealId: string, departmentOnly: boolean): Promise<DealPageRow | null> {
   const rows = await scoped(sql)<DealPageRow>`
     SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.amount_kzt,
            d.won_at, d.lost_at, d.lost_reason_code, d.needs_rebook, d.stage_changed_at, d.custom, d.request_id, d.version, d.created_at,
@@ -25,7 +29,9 @@ export async function findDealPageRow(viewer: Viewer, sql: Sql, dealId: string):
            (${scopeSql(viewer, 'deal', 'deal.purchase')}) AS can_purchase,
            (${scopeSql(viewer, 'deal', 'deal.move_back')}) AS can_move_back
       FROM deals d JOIN clients cl ON cl.id = d.client_id LEFT JOIN users ou ON ou.id = d.owner_user_id
-     WHERE d.id = ${dealId} AND ${scopeSql(viewer, 'deal', 'deal.read')}`;
+     WHERE d.id = ${dealId} AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${departmentOnly}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))`;
   return rows[0] ?? null;
 }
 

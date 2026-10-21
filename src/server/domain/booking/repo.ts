@@ -768,6 +768,20 @@ export async function lockFutureActiveBookings(sql: Sql, a: { spaceId: string; c
        FOR UPDATE OF b`;
 }
 
+/**
+ * Даты будущих активных консультаций клиента в пространстве (без блокировки): какие дни консультаций взять под
+ * блокировку до записей (карточка → день → записи, D-251). Карточка заблокирована вызывающим, поэтому набор дат
+ * не меняется: перенос и новая запись клиента идут через ту же карточку.
+ */
+export async function listFutureIndividualDays(sql: Sql, a: { spaceId: string; clientId: string; after: number }): Promise<string[]> {
+  const rows = await sql<{ day: string }>`
+    SELECT DISTINCT b.booking_date AS day FROM bookings b
+     WHERE b.space_id = ${a.spaceId} AND b.client_id = ${a.clientId} AND b.kind = 'individual'
+       AND b.status = ANY(${ACTIVE}) AND b.starts_at > ${a.after}
+     ORDER BY 1`;
+  return rows.map((r) => r.day);
+}
+
 export async function reassignBookings(sql: Sql, ids: readonly string[], to: string, at: number): Promise<void> {
   if (ids.length === 0) return;
   await sql`UPDATE bookings b SET responsible_user_id = ${to}, updated_at = ${at} WHERE b.id = ANY(${[...ids]})`;

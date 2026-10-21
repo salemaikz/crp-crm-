@@ -100,12 +100,14 @@ export async function insertDealFeed(
 
 export interface DealStageRow extends DealRow {
   version: number;
+  /** Поля сделки — для требований этапа. */
+  custom: Record<string, unknown> | null;
 }
 
 /** Сделка под блокировкой для ручной смены этапа: охват `deal.edit` (консультанту — по отношению, в окне). */
 export async function lockDealForStage(viewer: Viewer, sql: Sql, id: string): Promise<DealStageRow | null> {
   const rows = await scoped(sql)<DealStageRow>`
-    SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.request_id, d.version
+    SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.request_id, d.version, d.custom
       FROM deals d WHERE d.id = ${id} AND ${scopeSql(viewer, 'deal', 'deal.edit')} FOR UPDATE OF d`;
   return rows[0] ?? null;
 }

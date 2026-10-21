@@ -56,8 +56,12 @@ export default page<Props, ReactNode>({ perm: 'deal.read', target: 'object' }, a
               <>
                 <dt className="text-[var(--text-2)]">{t('page.service')}</dt>
                 <dd>{service ? pickLabel(service.label, locale) : deal.serviceTypeKey}</dd>
-                <dt className="text-[var(--text-2)]">{t('page.amount')}</dt>
-                <dd data-testid="deal-amount">{`${money.format(deal.amountKzt)} ₸`}</dd>
+                {deal.amountKzt !== null && (
+                  <>
+                    <dt className="text-[var(--text-2)]">{t('page.amount')}</dt>
+                    <dd data-testid="deal-amount">{`${money.format(deal.amountKzt)} ₸`}</dd>
+                  </>
+                )}
                 <dt className="text-[var(--text-2)]">{t('page.wonAt')}</dt>
                 <dd>{deal.wonAt !== null ? dateFmt.format(new Date(deal.wonAt)) : ''}</dd>
               </>
@@ -81,7 +85,7 @@ export default page<Props, ReactNode>({ perm: 'deal.read', target: 'object' }, a
           cardId={deal.cardId}
           version={deal.version}
           can={view.can}
-          amountKzt={deal.amountKzt}
+          amountKzt={deal.amountKzt ?? 0}
           wonDay={deal.wonAt !== null && settings ? settings.calendar.localDay(deal.wonAt) : null}
           stages={pipeline.stages
             .filter((s) => s.kind === 'open' && s.key !== deal.stageKey)

@@ -7,11 +7,15 @@ import { requirePurchases, requireSpace } from './guards';
 import type { DealFullRow } from './repo.purchase';
 import { findCardForPurchase, findDealHandoff, findDealPageRow, listDealBookings, listDealHistory, listOpenDealsOfCard } from './repo.read';
 import { staleDaysOf } from './rules';
+import { seesDealsOnlyAsDepartment, withoutMoney } from './visibility';
 import { DealDomainError } from './errors';
 import type { DealHistoryItem, DealPipelineInfo, DealView, DealsSettings, GetDealPage, GetPurchaseForm } from './types';
 
-/** Строка сделки → проекция (без ПДн: текст причины проигрыша и поля сделки не входят). */
-export function toDealView(r: DealFullRow, pipeline: DealPipelineInfo | undefined, now: number): DealView {
+/**
+ * Строка сделки → проекция (без ПДн: текст причины проигрыша и поля сделки не входят). `hideMoney` — зритель видит
+ * сделку только как отдел передачи (D-300): суммы нет.
+ */
+export function toDealView(r: DealFullRow, pipeline: DealPipelineInfo | undefined, now: number, opts: { hideMoney?: boolean } = {}): DealView {
   const stage = pipeline?.stages.find((s) => s.key === r.stageKey);
   return {
     id: r.id,
@@ -22,7 +26,7 @@ export function toDealView(r: DealFullRow, pipeline: DealPipelineInfo | undefine
     cardId: r.cardId,
     ownerUserId: r.ownerUserId,
     serviceTypeKey: r.serviceTypeKey,
-    amountKzt: r.amountKzt,
+    amountKzt: opts.hideMoney ? null : r.amountKzt,
     wonAt: r.wonAt,
     lostAt: r.lostAt,
     lostReasonCode: r.lostReasonCode,
@@ -39,11 +43,15 @@ export function pipelineOf(settings: DealsSettings, key: string): DealPipelineIn
   return settings.pipelines.find((p) => p.key === key) ?? { key, label: { ru: key }, createDealOn: 'manual', stages: [] };
 }
 
-/** История: у событий сделки и передачи — коды и числа; у остальных (заметка, запись) — только вид и время. */
-function toHistoryItem(r: { id: string; kind: string; at: number; actorName: string | null; data: Record<string, unknown> }): DealHistoryItem {
+/**
+ * История: у событий сделки и передачи — коды и числа; у остальных (заметка, запись) — только вид и время.
+ * `hideMoney` — без денежных ключей (отдел передачи, D-300).
+ */
+function toHistoryItem(r: { id: string; kind: string; at: number; actorName: string | null; data: Record<string, unknown> }, hideMoney: boolean): DealHistoryItem {
   const own = r.kind.startsWith('deal.') || r.kind.startsWith('handoff.');
-  const data: Record<string, unknown> = {};
+  let data: Record<string, unknown> = {};
   if (own) for (const [k, v] of Object.entries(r.data ?? {})) if (v === null || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') data[k] = v;
+  if (hideMoney) data = withoutMoney(data);
   return { id: r.id, kind: r.kind, at: r.at, actorName: r.actorName, data };
 }
 
@@ -51,7 +59,9 @@ export const getDealPage: GetDealPage = async (deps, viewer, dealId) => {
   requirePurchases();
   const spaceId = requireSpace(viewer);
   const db = await getDb();
-  const row = await findDealPageRow(viewer, db.sql, dealId);
+  // Отдел передачи: только сделка передачи и без денег (D-300)
+  const hideMoney = seesDealsOnlyAsDepartment(viewer);
+  const row = await findDealPageRow(viewer, db.sql, dealId, hideMoney);
   if (!row || row.spaceId !== spaceId) throw new NotFoundError();
   const now = deps.now();
   const settings = await deps.settings(spaceId, now);
@@ -59,11 +69,11 @@ export const getDealPage: GetDealPage = async (deps, viewer, dealId) => {
   const [history, bookings, handoff] = await Promise.all([listDealHistory(viewer, db.sql, row.id), listDealBookings(viewer, db.sql, row.id), findDealHandoff(db.sql, row.id)]);
   const open = row.status === 'open';
   return {
-    deal: toDealView(row, pipeline, now),
+    deal: toDealView(row, pipeline, now, { hideMoney }),
     clientName: row.clientName,
     ownerName: row.ownerName,
     pipeline,
-    history: history.map(toHistoryItem),
+    history: history.map((h) => toHistoryItem(h, hideMoney)),
     bookings: bookings.map(toBookingView),
     handoff,
     can: {

@@ -42,10 +42,21 @@ export function isForward(p: Pick<DealPipelineInfo, 'stages'>, fromKey: string, 
   return to.order > from.order;
 }
 
-/** Что проверить при ручном переносе на этап (PROCESS 4.2): шаг с датой, поля, запись, явка. */
-export function stageRequirements(stage: Pick<DealStageInfo, 'requires'>): { nextTask: boolean; fields: string[]; booking: boolean; attendance: boolean } {
-  const r = stage.requires;
-  return { nextTask: r.nextTask, fields: [...r.fields], booking: r.booking, attendance: r.attendance };
+/** Требования этапа, которые проверяются при ручном переносе (PROCESS 4.2). */
+export interface StageRequires {
+  nextTask: boolean;
+  fields: string[];
+  booking: boolean;
+  attendance: boolean;
+}
+
+/**
+ * Что проверить при ручном переносе на этап (PROCESS 4.2): шаг с датой, поля, запись, явка. Этап без `requires`
+ * (так его отдаёт настройка без требований) — без требований, как `Requires` по умолчанию в settings.ts.
+ */
+export function stageRequirements(stage: { requires?: Partial<Pick<DealStageInfo['requires'], keyof StageRequires>> | undefined }): StageRequires {
+  const r = stage.requires ?? {};
+  return { nextTask: r.nextTask ?? false, fields: [...(r.fields ?? [])], booking: r.booking ?? false, attendance: r.attendance ?? false };
 }
 
 /** Сумма — целое число тенге от 0 до 1e12 (строка и дробь — нет). */

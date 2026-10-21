@@ -1,6 +1,6 @@
 // SQL передач в отдел (B6: создание при покупке и отмена; B6b добавит входящие). Создание и отмена идут
 // внутри транзакции покупки, где карточка и сделка уже заблокированы и проверены по охвату, поэтому строки
-// передачи выбираются по `deal_id`, а не через scopeSql. Чтение входящих (B6b) — только через scopeSql.
+// передачи выбираются по `deal_id`, а не через scopeSql (исключение D-302). Чтение входящих (B6b) — только через scopeSql.
 import { newId, type Sql } from '@/server/platform/db';
 import { jsonParam } from '@/server/platform/db/core';
 
@@ -54,17 +54,28 @@ export async function findHandoffIdOfDeal(tx: Sql, dealId: string): Promise<stri
 
 export interface CancelledHandoffRow {
   id: string;
+  /** Статус до отмены: `pending`, `accepted` или `declined`. */
+  prevStatus: 'pending' | 'accepted' | 'declined';
   leadUserId: string | null;
   assigneeUserId: string | null;
 }
 
-/** Живая передача сделки → `cancelled`; вернуть её и руководителя отдела (для колокола). */
-export async function cancelLiveHandoff(tx: Sql, dealId: string): Promise<CancelledHandoffRow | null> {
+/**
+ * Передача сделки, которую ещё ведут или по которой ждёт решения РОП (`pending`, `accepted`, `declined`) →
+ * `cancelled` (D-301): иначе отклонённая строка держала бы `ON CONFLICT (deal_id)` и новая покупка не дошла бы
+ * до отдела. Вернуть прежний статус, руководителя отдела и исполнителя (для колокола).
+ */
+export async function cancelOpenHandoff(tx: Sql, dealId: string): Promise<CancelledHandoffRow | null> {
   const rows = await tx<CancelledHandoffRow>`
+    WITH prev AS (
+      SELECT h0.id, h0.status FROM handoffs h0
+       WHERE h0.deal_id = ${dealId} AND h0.status IN ('pending', 'accepted', 'declined')
+         FOR UPDATE OF h0
+    )
     UPDATE handoffs h SET status = 'cancelled'
-      FROM teams t
-     WHERE h.deal_id = ${dealId} AND h.status IN ('pending', 'accepted') AND t.id = h.team_id
-    RETURNING h.id, t.lead_user_id, h.assignee_user_id`;
+      FROM prev, teams t
+     WHERE h.id = prev.id AND t.id = h.team_id
+    RETURNING h.id, prev.status AS prev_status, t.lead_user_id, h.assignee_user_id`;
   return rows[0] ?? null;
 }
 
