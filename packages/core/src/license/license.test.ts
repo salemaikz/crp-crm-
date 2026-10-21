@@ -179,7 +179,7 @@ const WRONG_BUILD = { ok: false as const, reason: 'wrong_build' as const };
 /** Правило часов в живом процессе без хода монотонного времени и без эпизода «часы позади» (их и перезапуски —
  *  clock.test.ts). */
 const adv = (clock: number, lastSeenAt: number | null, lastStepAt: number | null) =>
-  advanceClock({ clock, lastSeenAt, lastStepAt, realAt: null, behind: null, mono: 0, anchor: { mono: 0, realAt: lastSeenAt ?? clock } });
+  advanceClock({ clock, lastSeenAt, lastStepAt, behind: null, mono: 0, anchor: { mono: 0, since: null, forMs: 0 } });
 
 test('правило часов: назад — не продлевает; вперёд — шаг 48 ч не чаще раза в час; обычный ход', () => {
   // Обычный ход

@@ -48,6 +48,8 @@ export const rawCommands: Record<string, (argv: string[]) => Promise<number>> = 
   seed: async (argv) => (await import('./seed')).runSeedCommand(argv),
   job: async (argv) => (await import('./job')).runJob(argv),
   secrets: async (argv) => (await import('./secretsRotate')).runSecrets(argv),
+  // Сброс правила часов лицензии (D-314): единственный выход из блокировки «часы позади» после спешивших часов
+  'license-clock': async (argv) => (await import('./license-clock')).runLicenseClock(argv),
 };
 
 export const USAGE = `crmctl — сопровождение установки CRM
@@ -66,6 +68,7 @@ export const USAGE = `crmctl — сопровождение установки C
   ingest-key …    ключи источников лидов: create | list | revoke
   seed …          синтетические данные для стенда (только стенд; crmctl seed --help)
   license …       лицензия: install <файл> | status
+  license-clock … часы лицензии: status | reset --yes (после починки спешивших часов)
   job …           фоновые задачи: list | run <имя> [--space <ключ>] [--slot <ключ>]
   secrets rotate  перешифровать секреты интеграций текущим ключом [--check — только проверка]
 

@@ -8,14 +8,16 @@
 // «только чтение» не снимает и не продлевает. Запись — под
 // блокировкой строки: несколько процессов не сдвигают часы дважды. Аудит — на новую лицензию, смену состояния,
 // шаг при скачке часов вперёд и часы позади (начало эпизода и раз в сутки, D-306).
-// Часы позади (D-306): опора монотонного времени процесса — в памяти процесса (ниже), оценка и эпизод — в
-// license_state; первый пересчёт после старта (без опоры) двигает время не меньше чем на шаг CLOCK_RESTART_STEP_MS.
+// Часы позади (D-306, D-314): длительность эпизода — в license_state (clock_real_at − clock_behind_since), опора
+// монотонного времени процесса — в памяти процесса (ниже). Всё, что пишется в BIGINT, — целые мс (wholeMs в ядре и
+// в repo.ts). Ошибка пересчёта отсюда бросается; доступ получает «только чтение» с причиной error (current.ts).
 import { license as coreLicense } from '@crm/core';
-import type { ClockAnchor, Evaluation, InvalidReason, LicenseStatus, Verdict } from '@crm/core/license';
+import type { ClockAnchor, ClockBehind, Evaluation, InvalidReason, LicenseStatus, Verdict } from '@crm/core/license';
 import { writeAudit } from '../audit';
 import { newId, type Db } from '../db';
 import type { LicenseEnv } from './env';
-import { ensureLicenseRow, lockLicenseRow, saveLicenseRow } from './repo';
+import { ensureLicenseRow, lockLicenseRow, saveLicenseRow, type LicenseRow } from './repo';
+import { restoreRuntimeSignal, takeRuntimeSignal } from './runtime';
 
 const { advanceClock, evaluateLicense, missingAllowed, verifyLicense, verifyStoredCopy } = coreLicense;
 
@@ -56,12 +58,21 @@ async function readFileText(env: LicenseEnv): Promise<{ text: string | null; unr
   }
 }
 
+/** Эпизод «часы позади» из строки: длительность — clock_real_at − clock_behind_since (не меньше 0). */
+function behindOf(row: LicenseRow): ClockBehind | null {
+  if (row.clockBehindSince === null || row.clockBehindLast === null) return null;
+  const forMs = Math.max(0, (row.clockRealAt ?? row.clockBehindSince) - row.clockBehindSince);
+  return { since: row.clockBehindSince, lastClock: row.clockBehindLast, forMs };
+}
+
 export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSnapshot> {
   const { text: fileText, unreadable } = await readFileText(env);
   const clock = env.clock();
   const mono = env.mono();
   const anchor = g.__crmLicenseClockAnchor ?? null;
   let nextAnchor: ClockAnchor | null = null;
+  // Сигнал проверки запуска (D-314): в аудит один раз на процесс, вместе с пересчётом
+  const signal = takeRuntimeSignal();
   const snap = await db.tx(async (sql) => {
     let row = await lockLicenseRow(sql);
     if (!row) {
@@ -72,9 +83,8 @@ export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSn
     const fromFile = fileText !== null && fileText.trim() !== '' ? fileText.trim() : null;
     const stored = row.licenseRaw.trim() !== '' ? row.licenseRaw.trim() : null;
     const expect = { installId: row.installId, keys: env.keys, watermark: env.watermark };
-    const behind =
-      row.clockBehindSince !== null && row.clockBehindLast !== null ? { since: row.clockBehindSince, lastClock: row.clockBehindLast } : null;
-    const c = advanceClock({ clock, lastSeenAt: row.lastSeenAt, lastStepAt: row.checkedAt, realAt: row.clockRealAt, behind, mono, anchor });
+    const behind = behindOf(row);
+    const c = advanceClock({ clock, lastSeenAt: row.lastSeenAt, lastStepAt: row.checkedAt, behind, mono, anchor });
     nextAnchor = c.anchor;
 
     // Файл годится — по нему. Не годится, а в БД другая копия — вердикт по копии, как без файла (D-290):
@@ -114,12 +124,13 @@ export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSn
       checkedAt: c.lastStepAt,
       invalidSince: e.invalidSince,
       reason: e.reason,
-      clockRealAt: c.realAt,
+      // Эпизод хранится как начало и «начало + длительность»; вне эпизода — NULL (D-314)
+      clockRealAt: c.behind ? c.behind.since + c.behind.forMs : null,
       clockBehindSince: c.behind?.since ?? null,
       clockBehindLast: c.behind?.lastClock ?? null,
     });
 
-    const at = clock;
+    const at = coreLicense.wholeMs(clock);
     if (verdict?.ok && licenseRaw !== row.licenseRaw) {
       await writeAudit(sql, {
         actorId: null,
@@ -161,6 +172,16 @@ export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSn
         createdAt: at,
       });
     }
+    if (signal !== null) {
+      await writeAudit(sql, {
+        actorId: null,
+        action: 'license.runtime_signal',
+        entity: 'license',
+        entityId: row.installId,
+        meta: { role: signal.role, codes: signal.codes },
+        createdAt: at,
+      });
+    }
     if (unreadable !== null) {
       console.warn(JSON.stringify({ level: 'warn', code: 'license_file_rejected', reason: 'unreadable', errno: unreadable }));
     } else if (fileReason !== null) {
@@ -170,6 +191,9 @@ export async function refreshLicense(db: Db, env: LicenseEnv): Promise<LicenseSn
       console.warn(JSON.stringify({ level: 'warn', code: 'license_clock_jump', direction: c.jump, stepped: c.stepped, locked: c.locked }));
     }
     return { ...e, installId: row.installId, now: c.now, clockJump: c.jump, source, fileReason };
+  }).catch((err: unknown) => {
+    if (signal !== null) restoreRuntimeSignal(signal);
+    throw err;
   });
   // Опора — только после записи: несохранённый пересчёт не должен учитываться дважды
   g.__crmLicenseClockAnchor = nextAnchor;

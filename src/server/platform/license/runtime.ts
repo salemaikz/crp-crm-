@@ -1,12 +1,12 @@
-// Среда выполнения сборки клиента (D-312). Подпись лицензии проверяет живой node:crypto, поэтому предзагрузка
+// Среда выполнения сборки клиента (D-312, D-314). Подпись лицензии проверяет живой node:crypto, поэтому предзагрузка
 // (--require/--import/--loader в NODE_OPTIONS или аргументах node), инспектор (--inspect, сигнал SIGUSR1), чужая
-// точка входа (скрипт из stdin или /tmp, который подменяет проверку и потом грузит server.js), переменные загрузчика
-// (LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH, OPENSSL_CONF…) и глобальные каталоги модулей node (HOME/.node_modules и
-// др.: Next до приложения грузит оттуда необязательный @opentelemetry/api) подменяют проверку без правки кода образа.
-// Сборка клиента такой процесс не запускает: приложение (src/instrumentation.ts) и воркер (scripts/worker/run.ts)
-// выходят с кодом 1 и тревогой license.runtime_tamper. Это планка, а не защита от root: проверка идёт уже после
-// чужого кода, и полезная нагрузка, написанная под неё (стирает свой каталог или переменную, подделывает
-// process.argv, execArgv, inspector), её обходит (ARCHITECTURE §8.4).
+// точка входа (скрипт из stdin или /tmp), переменные загрузчика (LD_PRELOAD, LD_AUDIT, OPENSSL_CONF…) и глобальные
+// каталоги модулей node (HOME/.node_modules и др.) подменяют проверку без правки кода образа.
+// Отказ запуска (выход с кодом 1, license.runtime_tamper) — только при явной подгрузке кода или отладке: флаги
+// загрузчика и инспектора node, открытый инспектор, LD_PRELOAD/LD_AUDIT (runtimeRefusals). Остальное — сигнал
+// (D-314): строка license.runtime_signal в журнале контейнера и запись в аудит при ближайшем пересчёте лицензии,
+// запуск идёт. У таких признаков бывают честные причины (обёртка запуска, каталог в HOME, переменная в app.env),
+// а нагрузка, написанная под проверку, их всё равно обходит: проверка идёт уже после чужого кода (ARCHITECTURE §8.4).
 // Общая сборка (dev, CI, стенд, e2e с предзагрузкой ядра рабочей копии) не проверяется.
 import { existsSync, realpathSync } from 'node:fs';
 import inspector from 'node:inspector';
@@ -55,34 +55,61 @@ function nodeOptionTokens(env: Env): string[] {
   return raw.split(/\s+/).filter((t) => t !== '');
 }
 
+/** Флаги node, которые явно подгружают код или открывают отладку: с ними сборка клиента не стартует (D-314). */
+const REFUSED_FLAG = /^(-r|--require|--import|--loader|--experimental-loader|--inspect|--inspect-brk|--inspect-wait|--inspect-port|--debug|--debug-brk|--debug-port)$/;
+/** Переменные загрузчика ОС, которые явно подгружают библиотеку в процесс: отказ запуска (D-314). */
+const REFUSED_ENV = /^(LD_PRELOAD|LD_AUDIT)$/;
+
+/** Замечание о запуске: код для аудита, текст для журнала (имена флагов и переменных, без путей и значений). */
+export type RuntimeProblem = { code: string; text: string; refuse: boolean };
+
 /** Что в запуске процесса сборки клиента не совпадает с поставкой (пусто — запуск как в поставке). */
-export function runtimeTamperProblems(f: RuntimeFacts): string[] {
+export function runtimeProblems(f: RuntimeFacts): RuntimeProblem[] {
   if (!f.customerBuild) return [];
-  const problems: string[] = [];
+  const problems: RuntimeProblem[] = [];
   const fromOptions = nodeOptionTokens(f.env);
   const foreign = [...f.execArgv, ...fromOptions].filter((t) => !ALLOWED_FLAG.test(t));
-  if (foreign.length > 0) {
-    const names = [...new Set(foreign.map(flagName))].join(' ');
-    problems.push(`флаги node вне поставки (NODE_OPTIONS или команда): ${names}`);
+  const refusedFlags = [...new Set(foreign.map(flagName).filter((n) => REFUSED_FLAG.test(n)))];
+  if (refusedFlags.length > 0) {
+    problems.push({ code: 'node_loader_flags', text: `флаги подгрузки кода или отладки node: ${refusedFlags.join(' ')}`, refuse: true });
+  }
+  const otherFlags = [...new Set(foreign.map(flagName).filter((n) => !REFUSED_FLAG.test(n) && n !== '<значение>'))];
+  if (otherFlags.length > 0) {
+    problems.push({ code: 'node_flags', text: `флаги node вне поставки (NODE_OPTIONS или команда): ${otherFlags.join(' ')}`, refuse: false });
   }
   if (!f.execArgv.includes(DISABLE_SIGUSR1) && !fromOptions.includes(DISABLE_SIGUSR1)) {
-    problems.push(`node запущен без ${DISABLE_SIGUSR1}: инспектор открывается сигналом SIGUSR1`);
+    problems.push({ code: 'no_disable_sigusr1', text: `node запущен без ${DISABLE_SIGUSR1}: инспектор открывается сигналом SIGUSR1`, refuse: false });
   }
   // Свой скрипт перед server.js (stdin, /tmp) подменяет node:crypto до загрузки приложения; путь не повторяем
   const entry = RUNTIME_ENTRY[f.role];
   if (f.entry !== entry || (f.mainModule !== undefined && f.mainModule !== entry)) {
-    problems.push(`точка входа node не ${entry}: процесс запущен своим скриптом`);
+    problems.push({ code: 'entry', text: `точка входа node не ${entry}: процесс запущен своим скриптом`, refuse: false });
   }
   const loaders = Object.keys(f.env)
     .filter((k) => CODE_LOADING_ENV.test(k) && (f.env[k] ?? '').trim() !== '')
     .sort();
-  if (loaders.length > 0) problems.push(`заданы переменные подгрузки кода: ${loaders.join(' ')}`);
-  if (f.inspectorUrl !== undefined) problems.push('открыт инспектор node');
+  const refusedEnv = loaders.filter((k) => REFUSED_ENV.test(k));
+  if (refusedEnv.length > 0) problems.push({ code: 'loader_preload', text: `заданы переменные подгрузки кода: ${refusedEnv.join(' ')}`, refuse: true });
+  const otherEnv = loaders.filter((k) => !REFUSED_ENV.test(k));
+  if (otherEnv.length > 0) problems.push({ code: 'loader_env', text: `заданы переменные подгрузки кода: ${otherEnv.join(' ')}`, refuse: false });
+  if (f.inspectorUrl !== undefined) problems.push({ code: 'inspector_open', text: 'открыт инспектор node', refuse: true });
   if (f.globalModuleDirs.length > 0) {
     const kinds = [...new Set(f.globalModuleDirs.map(globalDirKind))].sort().join(' ');
-    problems.push(`есть глобальный каталог модулей node: ${kinds}`);
+    problems.push({ code: 'global_modules', text: `есть глобальный каталог модулей node: ${kinds}`, refuse: false });
   }
   return problems;
+}
+
+/** Все замечания текстом (журнал, тесты). */
+export function runtimeTamperProblems(f: RuntimeFacts): string[] {
+  return runtimeProblems(f).map((p) => p.text);
+}
+
+/** Замечания, с которыми сборка клиента не стартует: явная подгрузка кода или отладка (D-314). */
+export function runtimeRefusals(f: RuntimeFacts): string[] {
+  return runtimeProblems(f)
+    .filter((p) => p.refuse)
+    .map((p) => p.text);
 }
 
 /** Вид глобального каталога без пути: путь (HOME, том) в сообщение не попадает. */
@@ -126,7 +153,42 @@ export function currentRuntimeFacts(role: RuntimeRole): RuntimeFacts {
   };
 }
 
-/** Строка тревоги для журнала процесса (stderr контейнера). */
+/** Строка тревоги для журнала процесса (stderr контейнера): отказ запуска. */
 export function runtimeTamperMessage(problems: readonly string[]): string {
   return JSON.stringify({ level: 'error', code: 'license.runtime_tamper', problems });
+}
+
+/** Строка сигнала для журнала процесса: запуск идёт, но не как в поставке. */
+export function runtimeSignalMessage(problems: readonly string[]): string {
+  return JSON.stringify({ level: 'warn', code: 'license.runtime_signal', problems });
+}
+
+type SignalGlobal = typeof globalThis & { __crmRuntimeSignal?: { role: RuntimeRole; codes: string[] } | null };
+const sg = globalThis as SignalGlobal;
+
+/**
+ * Проверка запуска процесса: отказы — вернуть вызывающему (он завершает процесс); сигналы — в журнал сразу и в аудит
+ * при ближайшем пересчёте лицензии (service.ts, takeRuntimeSignal). Возвращает тексты отказов (пусто — запуск идёт).
+ */
+export function checkRuntime(role: RuntimeRole, facts: RuntimeFacts = currentRuntimeFacts(role)): string[] {
+  const problems = runtimeProblems(facts);
+  const refusals = problems.filter((p) => p.refuse).map((p) => p.text);
+  if (refusals.length > 0) return refusals;
+  if (problems.length > 0) {
+    console.warn(runtimeSignalMessage(problems.map((p) => p.text)));
+    sg.__crmRuntimeSignal = { role, codes: problems.map((p) => p.code) };
+  }
+  return [];
+}
+
+/** Сигнал запуска, ещё не записанный в аудит (один раз на процесс); null — нет. */
+export function takeRuntimeSignal(): { role: RuntimeRole; codes: string[] } | null {
+  const s = sg.__crmRuntimeSignal ?? null;
+  sg.__crmRuntimeSignal = null;
+  return s;
+}
+
+/** Вернуть сигнал, если запись в аудит не удалась (пересчёт откатился). */
+export function restoreRuntimeSignal(s: { role: RuntimeRole; codes: string[] }): void {
+  sg.__crmRuntimeSignal ??= s;
 }

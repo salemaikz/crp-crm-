@@ -89,6 +89,10 @@ export const AUDIT_ACTIONS = [
   'export.guests',
   // D-294: полная выгрузка дописана до конца (лимит в сутки считает только такие); в meta — только rows
   'export.full_done',
+  // D-314: crmctl license clock-reset — откат времени лицензии на показание часов (meta: часы отката, была ли блокировка)
+  'license.clock_reset',
+  // D-314: запуск сборки клиента не как в поставке, но без явной подгрузки кода (meta: role и коды признаков)
+  'license.runtime_signal',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
