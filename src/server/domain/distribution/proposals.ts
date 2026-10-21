@@ -3,7 +3,7 @@
 // и название целиком и решает: создать клиента (сразу владелец — предложивший) или отклонить.
 import { ConflictError, NotFoundError, type Viewer } from '@/server/access';
 import { loadClientsConfig } from '@/server/domain/clients/config';
-import { createProposalClient, lockIntake } from '@/server/domain/intake';
+import { createProposalClient, lockIntakeFirst } from '@/server/domain/intake';
 import { writeAudit } from '@/server/platform/audit';
 import { getDb } from '@/server/platform/db';
 import { phoneHmac } from '@/server/platform/hmac';
@@ -71,7 +71,7 @@ export async function resolveProposal(viewer: Viewer, id: string, input: Resolve
   const cfg = await loadClientsConfig(viewer);
   const db = await getDb();
   return db.tx(async (tx): Promise<ResolveProposalResult> => {
-    await lockIntake(tx);
+    await lockIntakeFirst(tx);
     await lockDistribution(tx);
     const p = await lockProposal(tx, { spaceId, id });
     if (!p) throw new NotFoundError();

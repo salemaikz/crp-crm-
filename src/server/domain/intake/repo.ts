@@ -78,6 +78,15 @@ export async function lockIntake(sql: Sql): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(${INTAKE_LOCK_KEY})`;
 }
 
+/**
+ * Блокировка приёма первой командой тх с ограничением ожидания (docs/tasks-team-design.md §1.2): `lock_timeout` 10 с
+ * ставится до advisory-блокировки и действует до конца тх. Для интерактивных путей (предложение контакта, разбор РОП).
+ */
+export async function lockIntakeFirst(sql: Sql): Promise<void> {
+  await sql`SET LOCAL lock_timeout = '10s'`;
+  await lockIntake(sql);
+}
+
 export async function findBatch(sql: Sql, sourceKey: string, batchId: string): Promise<{ requestHash: string; report: BatchReport } | null> {
   const [r] = await sql<{ requestHash: string; report: BatchReport }>`
     SELECT request_hash, report FROM ingest_batches WHERE source_key = ${sourceKey} AND batch_id = ${batchId}`;

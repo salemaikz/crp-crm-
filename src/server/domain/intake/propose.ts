@@ -87,7 +87,7 @@ export async function proposeContact(viewer: Viewer, input: ProposeInput): Promi
   if (name.length === 0 || name.length > 200) throw new BadRequestError('invalid');
   const db = await getDb();
   return db.tx(async (sql: Sql): Promise<ProposeResult> => {
-    await repo.lockIntake(sql);
+    await repo.lockIntakeFirst(sql);
     const prior = await repo.findProposal(sql, input.opId);
     if (prior) {
       if (prior.userId === viewer.userId) return { status: 'accepted' };
