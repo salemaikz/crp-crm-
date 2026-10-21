@@ -86,10 +86,17 @@ test('«Сотрудники» — только администратору, д
   assert.ok(hrefs(menuOf(rop, { isAdmin: true })).includes('/team'));
 });
 
-test('администратор без роли: «Выгрузки», «Настройки» и «Сотрудники», главная — «Сотрудники»', () => {
+test('«Интеграции» — adminOnly и без флага WAZZUP: иначе карточка Beeline недоступна', () => {
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  const none = { features: new Set<string>() };
+  assert.ok(hrefs(menuOf(rop, { ...none, isAdmin: true })).includes('/integrations'));
+  assert.ok(!hrefs(menuOf(rop, { ...none })).includes('/integrations'));
+});
+
+test('администратор без роли: «Выгрузки», «Настройки», «Сотрудники» и «Интеграции», главная — «Сотрудники»', () => {
   const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
   const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
-  assert.deepEqual(hrefs(m), ['/reports/exports', '/settings', '/team']); // «Выгрузки» и «Настройки» открыты администратору (orAdmin, R2b, M-1)
+  assert.deepEqual(hrefs(m), ['/reports/exports', '/settings', '/team', '/integrations']); // «Выгрузки» и «Настройки» открыты администратору (orAdmin, R2b, M-1), «Интеграции» — adminOnly
   assert.equal(m.home, '/team', 'главная — не пункт orAdmin');
 });
 

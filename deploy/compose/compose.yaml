@@ -137,6 +137,8 @@ services:
       - ${CRM_TLS_DIR:-/etc/crm/tls}:/etc/nginx/tls:ro
       # Секрет доверенного прокси (D-155): тот же путь, что в шаблоне; файл пишет crmctl install/update
       - ${CRM_NGINX_PROXY_DIR:-/etc/crm/nginx-proxy.d}:/etc/crm/nginx-proxy.d:ro
+      # frame-src окна чата Wazzup (D-270): файл пишет crmctl install/update только при FEATURE_WAZZUP=1
+      - ${CRM_NGINX_CSP_DIR:-/etc/crm/nginx-csp.d}:/etc/crm/nginx-csp.d:ro
     ports:
       - "80:80"
       - "443:443"

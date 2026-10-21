@@ -1,11 +1,13 @@
 'use client';
 
 // Карточка «Звонить»: компания, ЛПР, попытка, последний итог, поля, номера и действия. Одна главная кнопка —
-// большая зелёная «Позвонить» (tel:); остальное вторично.
+// большая зелёная «Позвонить» (по режиму телефонии: tel: звонилки или звонок через провайдера); остальное вторично.
 import { Phone } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
-import { formatKzPhone, telHref } from '@/shared/tel';
+import { formatKzPhone } from '@/shared/tel';
+import { useChannelModes } from '@/ui/channels';
 import { Badge, Button, Card, TextLink, type BadgeTone } from '@/ui/kit';
+import { dialAction } from './dial';
 import type { CallConfig, QueueCard, QueuePhone } from './types';
 
 const GROUP_TONE: Record<QueueCard['group'], BadgeTone> = { callbacks: 'warning', retries: 'info', returns: 'neutral', new: 'brand' };
@@ -39,6 +41,12 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
   const t = useTranslations('call');
   const f = useFormatter();
   const when = (ms: number) => f.dateTime(ms, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const modes = useChannelModes();
+  // tel: — ссылка звонилки; провайдер (post, O7b) — кнопка без ссылки, звонок начинает onCall
+  const dialProps = (p: QueuePhone) => {
+    const a = dialAction(p.digits, modes);
+    return a.kind === 'tel' ? { href: a.href, external: true } : {};
+  };
   const main = primaryPhone(card.phones);
   const others = card.phones.filter((p) => p.id !== main?.id);
   const lastLabel = card.lastOutcomeCode ? (config.outcomes.find((o) => o.key === card.lastOutcomeCode)?.label ?? card.lastOutcomeCode) : '';
@@ -101,8 +109,7 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
       <div className="flex flex-col gap-2">
         {main ? (
           <Button
-            href={telHref(main.digits)}
-            external
+            {...dialProps(main)}
             size="lg"
             block
             className="bg-success text-white"
@@ -120,7 +127,7 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
           </p>
         )}
         {others.map((p) => (
-          <Button key={p.id} href={telHref(p.digits)} external variant="secondary" block onClick={() => onCall(p)} data-testid="call-second">
+          <Button key={p.id} {...dialProps(p)} variant="secondary" block onClick={() => onCall(p)} data-testid="call-second">
             <Phone aria-hidden="true" />
             {t('call.second', { phone: formatKzPhone(p.digits) })}
           </Button>

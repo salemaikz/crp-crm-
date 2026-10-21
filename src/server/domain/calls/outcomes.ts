@@ -129,6 +129,8 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
       return duplicateOf(prior, wasOwner ? null : view(row.snapshot));
     }
 
+    // Версия с устаревшей доски: чужое изменение карточки не затираем (вне передачи — там пишется только факт)
+    if (!wasOwner && req.seenVersion != null && req.seenVersion !== row.snapshot.version) throw new CallsDomainError('version_conflict');
     assertPhonesOnCard(req, row);
     const writes: FieldWrite[] = fieldsCfg ? await validateOutcomeFields(tx, viewer, fieldsCfg, def, { id: row.snapshot.id, clientId: row.snapshot.clientId }, req.fields, req.outcomeKey) : [];
 

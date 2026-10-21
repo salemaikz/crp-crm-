@@ -125,3 +125,35 @@ test('проверки шторки: причина, ЛПР-номер и «пе
   assert.equal(await callsAll(), calls0);
   assert.equal((await cardOf(db.sql, 'cd-a-10')).state, 'new');
 });
+
+test('manual_entry (B8, D-266): РОП вносит итог за оператора; в ленте пометка «вручную», оператор не получает выдачу', async () => {
+  const rop = await viewerOf(U.rop);
+  await setCard(db.sql, 'cd-a-6', { state: 'new', attempts: 0, nextCallAt: null, lastOutcomeAt: null });
+  const req = outcomeReq({ cardId: 'cd-a-6', via: 'manual_entry' });
+  const r = await submitOutcome(deps, rop, req);
+  assert.equal(r.status, 'applied');
+  assert.equal(r.card?.state, 'retry');
+  const calls = await db.sql<{ via: string; userId: string }>`SELECT via, user_id FROM calls WHERE id = ${req.opId}`;
+  assert.deepEqual([calls[0]?.via, calls[0]?.userId], ['manual_entry', U.rop]);
+  const feed = await db.sql<{ data: { via?: string } }>`SELECT data FROM client_events WHERE kind = 'call' AND ref_id = ${req.opId}`;
+  assert.equal(feed[0]?.data.via, 'manual_entry');
+  // повтор того же opId не задваивает
+  assert.equal((await submitOutcome(deps, rop, req)).status, 'duplicate');
+});
+
+test('manual_entry от оператора на чужую карточку — как несуществующая', async () => {
+  await setCard(db.sql, 'cd-b-6', { state: 'new', attempts: 0, nextCallAt: null, lastOutcomeAt: null });
+  await assert.rejects(submitOutcome(deps, opA, outcomeReq({ cardId: 'cd-b-6', via: 'manual_entry' })), fails('not_found'));
+});
+
+test('seenVersion с устаревшей доски: 409 version_conflict, итог не записан; актуальная версия проходит', async () => {
+  await setCard(db.sql, 'cd-a-30', { state: 'new', attempts: 0, nextCallAt: null, lastOutcomeAt: null, version: 4 });
+  const stale = outcomeReq({ cardId: 'cd-a-30', via: 'manual_entry', seenVersion: 3 });
+  await assert.rejects(() => submitOutcome(deps, opA, stale), fails('version_conflict'));
+  assert.equal(await callsWhere(stale.opId), 0);
+  assert.equal((await cardOf(db.sql, 'cd-a-30')).attempts, 0);
+  const fresh = outcomeReq({ cardId: 'cd-a-30', via: 'manual_entry', seenVersion: 4 });
+  assert.equal((await submitOutcome(deps, opA, fresh)).status, 'applied');
+  const none = outcomeReq({ cardId: 'cd-a-30' });
+  assert.notEqual((await submitOutcome(deps, opA, none)).status, undefined);
+});

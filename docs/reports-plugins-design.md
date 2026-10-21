@@ -2,7 +2,8 @@
 
 Статус: дизайн architect, 24.10.2026. Нормативно: PROCESS §4.2–4.4, §8.1–8.3, §8.6, §9.1, §10, §11; CONFIG §2, §4–5,
 §6.2, §6.7, §6.12, §7–8; INTEGRATIONS §1–4, §7–8; D-016, D-017, D-024…D-026, D-039, D-042, D-047, D-054, D-055,
-D-074, D-122, D-153, D-202; решения этого дизайна **D-261…D-271**. Все примеры — синтетика (+7 709 …, «ТОО Пример»).
+D-074, D-122, D-153, D-202; решения этого дизайна **D-261…D-271**; правки по ревью линии integrations — **D-297…D-299**
+(21.10.2026). Все примеры — синтетика (+7 709 …, «ТОО Пример»).
 Next 16: перед маршрутами и страницами прочитай `node_modules/next/dist/docs/` (route handlers, `params` — Promise).
 Ядро — только корень `@crm/core`.
 
@@ -575,7 +576,7 @@ do_not_call`; в `new` и в ту же колонку — нельзя. Откр
 | `src/integrations/telephony/beeline/index.ts` | ops | заготовка Beeline |
 | `src/integrations/messenger/wa-link/index.ts` | ops | `messenger.wa_link` |
 | `src/server/platform/secrets/{types,keys,aesgcm,repo,index}.ts` | platform | секреты (§7.4); `types.ts` — **сигнатуры** (готово) |
-| `scripts/crmctl/secrets.ts`, `scripts/crmctl/index.ts` | ops | + команда `secrets rotate [--check]` |
+| `scripts/crmctl/secretsRotate.ts`, `scripts/crmctl/index.ts` | ops | + команда `secrets rotate [--check]` |
 | `src/server/domain/integrations/{types,repo,ctx,service,modes,webhook,index}.ts` | ops | подключения, контекст, режимы каналов, приём вебхука |
 | `src/server/jobs/integrations.ts`, `src/server/jobs/registry.ts` | ops | обработчики `webhook_inbox`, часть чистки `payload` |
 | `src/app/api/hooks/[pluginId]/[token]/route.ts` | ops | общий приём вебхуков |
@@ -617,7 +618,8 @@ do_not_call`; в `new` и в ту же колонку — нельзя. Откр
 - `telephony.manual.initiateCall` → `{kind:'tel', href: telHref(digits, ext)}` (для будущего `POST
   /api/telephony/initiate` и тестов); `messenger.wa_link.openChat` → `{kind:'link', href: waHref(digits, text)}`.
 - Лента «открыт WhatsApp, шаблон X» (INTEGRATIONS §3.1): `POST /api/messenger/opened {cardId, templateKey|null}`
-  (`card.read`, object) → `client_events` вида `messenger.link_opened {templateKey}`; клиент шлёт без ожидания,
+  (`note.write`, section — id в теле; запись: «только чтение» и запирающая лицензия — 423, не больше 20 в минуту на
+  сотрудника — 429, D-297) → `client_events` вида `messenger.link_opened {templateKey}`; клиент шлёт без ожидания,
   ошибка не мешает открыть ссылку; офлайн — не шлёт.
 
 ### 7.4. Секреты (D-269; покрывает O5)
@@ -641,11 +643,11 @@ do_not_call`; в `new` и в ту же колонку — нельзя. Откр
 | Маршрут | Что | Аудит |
 |---|---|---|
 | `GET /api/integrations` | по каждому плагину реестра: `flagOn, licensed, crossBorder, needsConnection, usability`; подключение `{id, enabled, status, lastEventAt, crossborderApprovedAt, secrets:[{name,last4}], channels}` | — |
-| `POST /api/integrations/connect {pluginId, apiKey}` | флаг и лицензия → иначе 404 / `403 not_licensed`; тх: строка `integrations` (пространство по умолчанию, `enabled=false`) + секрет `apiKey`; вне тх `healthCheck` и `listChannels` → upsert `messenger_channels` (только каналы компании), `status` | `integration.connect {pluginId, channels}` |
-| `POST /api/integrations/[id]/crossborder {approved, decisionDate}` | `true` → `crossborder_approved_at/by`; `false` → `NULL` и `enabled=false` | `integration.crossborder {approved, decisionDate}` |
-| `POST /api/integrations/[id]/enable` | пригодность без учёта `disabled` должна быть `usable` (иначе `409 <reason>`) → новый токен (32 байта, хранится `sha256`) → `subscribe(webhookUrl)` → `syncUsers(активные сотрудники пространства)` → `enabled=true`; ошибка провайдера → `502 provider_error`, остаётся выключенной | `integration.enable` |
-| `POST /api/integrations/[id]/disable` | `securityMutation: 'integration.disable'`; `enabled=false` | `integration.disable` |
-| `POST /api/integrations/[id]/rotate-webhook` | `securityMutation: 'integration.revoke_webhook'`; новый токен; включена → `subscribe` | `integration.revoke_webhook` |
+| `POST /api/integrations/connect {pluginId, apiKey}` | флаг и лицензия → иначе 404 / `403 not_licensed`; тх под `pg_advisory_xact_lock` плагина (одно подключение на плагин, D-298): строка `integrations` (пространство по умолчанию, `enabled=false`) + секрет `apiKey`; существующая строка — новый ключ: выключить, сбросить токен, выключить все каналы; вне тх `healthCheck` и `listChannels` → upsert `messenger_channels` (только каналы компании; новые — `is_enabled=false`), `status` | `integration.connect {pluginId, channels}` |
+| `POST /api/integrations/[id]/crossborder {approved, decisionDate}` | `true` → `crossborder_approved_at/by`; `false` → `NULL`, `enabled=false` и `webhook_token_hash=NULL` | `integration.crossborder {approved, decisionDate}` |
+| `POST /api/integrations/[id]/enable` | пригодность без учёта `disabled` должна быть `usable` (иначе `409 <reason>`) → новый токен (32 байта, хранится `sha256`) → `subscribe(webhookUrl)` → `syncUsers(активные сотрудники пространства)` → `UPDATE … SET enabled=true WHERE NOT enabled AND webhook_token_hash = <свой>` (D-298: «Выключить» или снятие отметки во время подписки сбросили токен → `409 state_changed`); ошибка провайдера → `502 provider_error`, остаётся выключенной, свой токен сбрасывается | `integration.enable` |
+| `POST /api/integrations/[id]/disable` | `securityMutation: 'integration.disable'`; `enabled=false`, `webhook_token_hash=NULL` | `integration.disable` |
+| `POST /api/integrations/[id]/rotate-webhook` | `securityMutation: 'integration.revoke_webhook'` (D-054, D-298): старый токен умирает всегда; включена, флаг и лицензия → новый токен и `subscribe`; иначе (выключена, флаг, лицензия «только чтение») и при любой ошибке переподписки → `enabled=false`, `webhook_token_hash=NULL`, ошибка переподписки — `502` | `integration.revoke_webhook {resubscribed, reason?}` |
 | `POST /api/integrations/[id]/health` | `healthCheck` + `listChannels` | — |
 | `PATCH /api/integrations/[id]/channels/[channelId] {ownerUserId|null, isEnabled}` | владелец — активный сотрудник пространства канала | `integration.channel` |
 
@@ -675,8 +677,10 @@ do_not_call`; в `new` и в ту же колонку — нельзя. Откр
 (`QueueItem.handlerKey`). Обработчик: `loadInboxItem(actor, id)` (домен integrations: `payload`, `kind`,
 `integration_id`) → `plugin.webhook.parse(kind, payload)` → для `messenger.*` — `applyMessengerEvents(actor, deps,
 …)` (§8.5) → `{status:'done'}` | `{status:'retry', error}` | `{status:'failed', error}`. `queueSpecs()` берёт эту
-карту; строки без обработчика по-прежнему уходят в `retry no_handler`. После 8 попыток `failed` → уведомление
-администраторам `integration_inbox_failed {count}` (dedupe `inbox_failed:<integrationId>:<день>`).
+карту; строки без обработчика по-прежнему уходят в `retry no_handler`. Строка уходит в `failed` сразу (исход
+`failed`: `invalid_settings`, разбор) или после 8 попыток (`WEBHOOK_MAX_ATTEMPTS`; исключение обработчика — тоже) →
+уведомление активным администраторам `integration_inbox_failed {count}` (`count` — failed за сутки, dedupe
+`inbox_failed:<integrationId>:<местный день>:<userId>`; `domain/integrations/inboxFailed.ts`, D-298).
 Чистка — часть `purgeParts` `webhook_payload`: `UPDATE webhook_inbox SET payload = NULL WHERE payload IS NOT NULL
 AND received_at < now − 14 дн` (индекс `webhook_inbox_purge_idx`). Строки не удаляются (`DELETE` `crm_app` на эту
 таблицу не выдан; к 01.11 не нужно).
@@ -690,7 +694,7 @@ AND received_at < now − 14 дн` (индекс `webhook_inbox_purge_idx`). С�
 
 ---
 
-## 8. O7a: `messenger.wazzup` за `FEATURE_WAZZUP` (D-270, D-271)
+## 8. O7a: `messenger.wazzup` за `FEATURE_WAZZUP` (D-270, D-271, D-297…D-299)
 
 ### 8.1. Файлы
 
@@ -702,7 +706,7 @@ AND received_at < now − 14 дн` (индекс `webhook_inbox_purge_idx`). С�
 | `src/server/domain/intake/inbound.ts` | base (пишет builder O7a, ревью оркестратора base) | новый клиент из входящего |
 | `src/server/domain/distribution/inbound.ts` | base (то же) | владелец карточки по `distribution.inbound` |
 | `src/server/domain/timeline/kinds.ts`, `timeline/repo.ts` | calling | виды `message`, `messenger.link_opened`; текст сообщения при чтении ленты |
-| `src/app/api/messenger/chat-window/route.ts`, `…/opened/route.ts`, `…/consent/route.ts` | ops | маршруты |
+| `src/app/api/messenger/chat-window/[cardId]/route.ts`, `…/opened/route.ts`, `…/consent/route.ts` | ops | маршруты |
 | `src/ui/messenger/ChatPanel.tsx`, `ConsentToggle.tsx` | ops | панель чата в карточке |
 | кнопка «WhatsApp» карточки C8 (`src/app/(op)/clients/…`) | calling | вызывает `chatAction` |
 | `deploy/nginx/crm.conf.template`, `scripts/crmctl/{install,update}.ts` | ops | CSP `frame-src` (§8.8) |
@@ -724,7 +728,8 @@ useMessageEvents:false}})`. Ошибки → `HealthCode` (`401` → `auth`, с�
    Провайдеру уходит только ключ — ПДн не уходят. На экране рекомендация: отдельный аккаунт Wazzup под CRM
    (подписка на вебхуки одна на аккаунт).
 2. **Отметить решение ЦРП о передаче за рубеж** (`crossborder`, с датой документа).
-3. **Привязать каналы** к операторам или оставить общими.
+3. **Привязать каналы** к операторам или оставить общими и **включить** нужные: каналы приходят выключенными
+   (D-298), сообщения выключенного канала CRM не принимает.
 4. **Включить**: токен → `PATCH /webhooks` (Wazzup шлёт `{"test":true}` — §7.6 п. 5) → `POST /users` (сотрудники
    пространства: id и имя) → `enabled=true`. Новые и переименованные сотрудники досылаются лениво: перед каждым
    открытием окна чата `syncUsers([viewer])` (идемпотентно по id) — модуль team не трогаем.
@@ -735,7 +740,9 @@ useMessageEvents:false}})`. Ошибки → `HealthCode` (`401` → `auth`, с�
 - `verify`: не `POST` или тело не объект → `bad_body`; `json.test === true` → `{ok:true, test:true}`; иначе
   `{ok:true, test:false}` (подлинность — токен пути + принадлежность канала + лимиты, INTEGRATIONS §3.2; сверка
   `crmKey` в `Authorization` добавляется сюда, когда песочница подтвердит, что его можно задать).
-- `split`: `messages[]` → `kind:'message'`, ключ `m:<messageId>:<isEdited?1:0>:<isDeleted?1:0>`; `statuses[]` →
+- `split`: `messages[]` → `kind:'message'`, ключ `m:<messageId>:<isEdited?1:0>:<isDeleted?1:0>`, у правки (не
+  удаления) — `m:<messageId>:1:0:<отпечаток>`, отпечаток — первые 16 hex `sha256(messageId + "\n" + text)` (D-299: у
+  Wazzup нет id правки; каждая правка — своя строка, повтор той же — тот же ключ, текста в ключе нет); `statuses[]` →
   `s:<messageId>:<status>`; `channelsUpdates[]` → `c:<channelId>:<state>:<timestamp>`. Из payload выбрасываются
   `qr`, `contact.avatarUri`, `contentUri`, `quotedMessage`, `oldInfo`. `messageId`/`channelId` не по формату
   `^[A-Za-z0-9-]{1,64}$` — строка пропускается. Прочие ключи тела (`createContact`, `templateStatus` …) — пусто.
@@ -754,14 +761,16 @@ useMessageEvents:false}})`. Ошибки → `HealthCode` (`401` → `auth`, с�
 integ = SELECT … FROM integrations WHERE id = $id FOR SHARE; не enabled → done (событие сбрасывается)
 для каждого события:
   channel = messenger_channels (integration_id, provider_channel_id = ev.channelRef)
-    нет → не чаще раза в 5 мин на подключение (память процесса) listChannels() и upsert; снова нет →
-          событие пропускается, счётчик foreign_channel (INTEGRATIONS §3.2 п. 3)
+    нет → не чаще раза в 5 мин на подключение (память процесса) listChannels() и upsert (новые каналы —
+          is_enabled = false, уведомление messenger_channel_new администраторам, dedupe 'mchnew:<channelId>:<user>',
+          D-298); снова нет → событие пропускается, счётчик foreign_channel (INTEGRATIONS §3.2 п. 3)
   channel: UPDATE state, state_changed_at = ev.at WHERE state_changed_at IS NULL OR state_changed_at <= ev.at;
-           state ≠ 'active' → уведомление messenger_channel_down {state} администраторам и РОП,
+           state ≠ 'active' и канал включён → уведомление messenger_channel_down {state} администраторам и РОП,
            dedupe 'mch:<channelId>:<state>:<день>'
   status:  UPDATE messenger_messages SET status, status_at WHERE integration_id AND provider_message_id
            AND (status_at IS NULL OR status_at <= ev.at); 0 строк → retry (сообщение ещё не пришло), с 3-й попытки done
   message:
+    канал выключен → событие пропускается (ни чата, ни клиента, ни текста, ни задач), счётчик channel_disabled (D-298)
     chat = INSERT messenger_chats (channel_id, chat_type, chat_id) ON CONFLICT (channel_id, chat_type, chat_id)
            DO UPDATE SET chat_id = EXCLUDED.chat_id RETURNING id, client_id
     chat.client_id пуст и chatDigits ≠ '' → resolveClient (§8.6) → UPDATE messenger_chats SET client_id
@@ -822,9 +831,12 @@ integ = SELECT … FROM integrations WHERE id = $id FOR SHARE; не enabled → 
 
 ### 8.7. Окно чата в карточке
 
-`POST /api/messenger/chat-window {cardId}` — `route({perm:'card.read', target:'object'})`, лимит 30 в минуту на
-сотрудника:
-1. карточка `WHERE c.id = $id AND S('card','card.read')` → нет → `404` (чужое = несуществующее);
+`POST /api/messenger/chat-window/[cardId]` — `route({perm:'note.write', target:'object'})` (D-297: окно — пишущее
+действие, сотрудник пишет клиенту от имени компании; «только чтение» и запирающая лицензия — 423 в обёртке, ни
+`syncUsers`, ни `/iframe`), лимит 30 в минуту на сотрудника:
+1. карточка `WHERE c.id = $id AND S('card','note.write')` → нет → `404` (чужое = несуществующее);
+1а. последняя отметка `consents` клиента карточки (охват — та же карточка, `note.write`) = `revoked` → `409
+   consent_revoked`, провайдер не вызывается;
 2. пригодное подключение `messenger.wazzup` пространства карточки → нет → `409 messenger_unavailable`;
 3. номер: основной рабочий мобильный клиента, видимый роли → нет → `409 no_phone`;
 4. канал: включённый канал владельца (`acting ?? owner`), иначе канал самого `viewer`, иначе общий (`owner_user_id
@@ -835,14 +847,16 @@ integ = SELECT … FROM integrations WHERE id = $id FOR SHARE; не enabled → 
 7. ответ `{url}`; `Cache-Control: no-store` (обёртка); URL не пишется ни в логи, ни в аудит.
 
 Интерфейс: кнопка «WhatsApp» карточки → `chatAction` → `panel`: `ChatPanel` (на телефоне — `BottomSheet` на всю
-высоту, на ноутбуке — боковая панель 480 px) с `<iframe src={url} allow="microphone *; clipboard-write *"
-referrerPolicy="no-referrer" title=…>` и ссылкой «Открыть в новой вкладке» (`target="_blank" rel="noopener
+высоту, на ноутбуке — боковая панель 480 px) с `<iframe src={url} allow="clipboard-write *"
+referrerPolicy="no-referrer" title=…>` (без микрофона, D-299: `Permissions-Policy microphone=()` остаётся) и ссылкой «Открыть в новой вкладке» (`target="_blank" rel="noopener
 noreferrer"`). Ссылка не сохраняется (новая на каждое открытие). Рядом — `ConsentToggle`.
 
 **Согласие** (INTEGRATIONS §3.2 п. 12): `POST /api/messenger/consent {clientId, action:'given'|'revoked'}` —
 `route({perm:'client.edit', target:'object'})`, клиент по `S('client','client.edit')` → `consents (kind
 'messenger_crossborder', action, text_hash = sha256 текста messages/ru `messenger.consent.text`)`. Окно чата без
-отметки **открывается** с предупреждением «Согласие не отмечено» (вопрос владельцу §14 п. 4).
+отметки **открывается** с предупреждением «Согласие не отмечено» (вопрос владельцу §14 п. 4); при последней отметке
+«отозвано» окно не открывается (D-297): сервер — `409 consent_revoked`, панель ссылку не запрашивает и показывает
+текст; новая отметка согласия в панели запрашивает окно заново.
 
 ### 8.8. CSP (ops)
 
@@ -869,7 +883,7 @@ noreferrer"`). Ссылка не сохраняется (новая на каж�
 | `PERMISSIONS` (ядро) | `export.journal` (read, minScope space) |
 | `AuditEntity` | `export`, `integration`, `messenger` |
 | `AUDIT_ACTIONS` | `export.report`, `export.full`, `export.guests`, `export.full_done` (D-294), `integration.connect`, `integration.crossborder`, `integration.enable`, `integration.disable`, `integration.revoke_webhook`, `integration.channel`, `messenger.open_chat` |
-| `notifications.kind` (тексты `notify.json`) | `export_full_done`, `messenger_channel_down`, `messenger_flood`, `messenger_dnc_unknown`, `integration_inbox_failed` |
+| `notifications.kind` (тексты `notify.json`) | `export_full_done`, `messenger_channel_down`, `messenger_channel_new`, `messenger_flood`, `messenger_dnc_unknown`, `integration_inbox_failed` |
 | `EVENT_KINDS` | `message`, `messenger.link_opened` |
 | `OUTCOME_VIAS` | `manual_entry` |
 | Флаги | `FEATURE_REPORTS` (§1, §2.3, §3) и `FEATURE_SALES_SETTINGS` (§5) — D-295; прежние: `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_BEELINE`. Полная выгрузка и журнал — без флага (D-055, D-295) |

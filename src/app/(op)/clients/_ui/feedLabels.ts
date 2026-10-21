@@ -43,6 +43,8 @@ export const DESCRIBED_KINDS = [
   'dnc.cleared',
   'import.row',
   'client.created',
+  'message',
+  'messenger.link_opened',
 ] as const;
 
 /** Состояния карточки, для которых в локали есть отдельная подпись `feed.kinds.cardState.<состояние>`. */
@@ -73,6 +75,8 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'contact.archived':
       return { key: `feed.kinds.${item.kind.replace('.', '_')}`, values: { contact: ctx.contactLabel(str(d.contactId)) } };
     case 'call':
+      // Итог внёс РОП с доски «Обзвон» (D-266): отдельная подпись
+      return { key: d.via === 'manual_entry' ? 'feed.kinds.call_manual' : 'feed.kinds.call', values: {} };
     case 'call.voided':
     case 'note.created':
     case 'booking.created':
@@ -91,6 +95,8 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'dnc.cleared':
     case 'import.row':
     case 'client.created':
+    case 'message':
+    case 'messenger.link_opened':
       return { key: `feed.kinds.${item.kind.replace('.', '_')}`, values: {} };
     case 'card.state': {
       // Новое состояние в подписи; незнакомое (новая версия ядра) — общая строка

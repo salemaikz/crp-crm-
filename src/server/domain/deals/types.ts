@@ -205,6 +205,11 @@ export interface MoveStageInput {
   stageKey: string;
   /** Обязателен, если у этапа `requires.nextTask` и открытой задачи со сроком по сделке нет. */
   nextStep: NextStepInput | null;
+  /**
+   * Значения обязательных полей этапа из панели доски (B8): проверяет `buildFieldValidator` в той же транзакции
+   * и пишет в `deals.custom`; ключи — только поля объекта `deal`, доступные роли на правку.
+   */
+  fieldsPatch?: Record<string, unknown>;
 }
 
 export type MoveDealStage = (deps: DealsDeps, viewer: Viewer, input: MoveStageInput) => Promise<DealView>;

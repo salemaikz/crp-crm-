@@ -6,6 +6,7 @@ import { countOwnerlessWorkingCards } from '@/server/domain/cards';
 import { purgeDeviceStatus } from '@/server/domain/calls';
 import { distributeJob } from '@/server/domain/distribution';
 import { purgeExpiredImportRows } from '@/server/domain/import';
+import { purgeWebhookPayloads } from '@/server/domain/integrations';
 import { alarmsJob, digestJob } from '@/server/domain/notify';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import {
@@ -18,6 +19,7 @@ import {
   type InvariantPart,
   type PurgePart,
 } from './platform';
+import { WEBHOOK_MAX_ATTEMPTS, webhookHandlers } from './integrations';
 
 const DAY_MS = 86_400_000;
 
@@ -33,21 +35,23 @@ export const purgeParts: PurgePart[] = [
   { key: 'device_status', run: (actor, now) => purgeDeviceStatus(actor, now - 30 * DAY_MS) },
   // строки импорта по сроку import.rowsRetentionDays каждого пространства (C4d §11)
   { key: 'import_rows', run: async (actor, now) => (await purgeExpiredImportRows(actor, now)).deleted },
+  // payload входящих вебхуков (ПДн): обнуляется через 14 дней, строки остаются (дизайн §7.7)
+  { key: 'webhook_payload', run: (actor, now) => purgeWebhookPayloads(actor, now - 14 * DAY_MS) },
 ];
 
 export function jobDefinitions(): JobDefinition[] {
   return [eventsEnsureJob, distributeJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob];
 }
 
-/** Очереди: обработчики появятся с плагинами (O6) и push (P8b); без обработчика строки уходят в retry no_handler. */
+/** Очереди: вебхуки — обработчики по pluginId (O6, применители — O7a), push — P8b; без обработчика — retry no_handler. */
 export function queueSpecs(): QueueSpec[] {
   return [
     {
       name: 'webhook_inbox',
       batch: 20,
       leaseMs: 60_000,
-      maxAttempts: 8,
-      handlers: new Map(),
+      maxAttempts: WEBHOOK_MAX_ATTEMPTS,
+      handlers: webhookHandlers(),
       enabled: () => true,
       writes: 'business',
     },

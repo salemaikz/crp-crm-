@@ -33,6 +33,21 @@ const INTEGRATION_PATTERNS = [
   msg([SYSTEM_ACTOR], 'SystemActor недоступен интеграциям.'),
 ];
 
+const POSTGRES_PATH = { name: 'postgres', message: 'SQL — только в репозиториях домена.' };
+const UI_PATTERNS = [
+  msg(['@/server/platform/db', '@/server/platform/db/*'], 'Интерфейс не работает с БД напрямую.'),
+  msg(['@/server/domain/*/repo', '@/server/domain/*/*Repo', '@/server/access/scope'], 'Репозитории и scopeSql — только для домена и доступа.'),
+  msg([SYSTEM_ACTOR], 'SystemActor недоступен в src/app и src/ui.'),
+];
+// Как звонить и писать решает сервер (D-268): интерфейс берёт ссылку из dialAction()/chatAction(), а не строит сам.
+// Дублирует tests/unit/layers.test.ts (там же — относительные пути).
+const CHANNEL_LINK_FILES = ['src/ui/call/dial.ts', 'src/ui/messenger/openChat.ts'];
+const CHANNEL_LINK_MESSAGE = 'tel: и wa.me — через dialAction() (src/ui/call/dial.ts) и chatAction() (src/ui/messenger/openChat.ts).';
+const CHANNEL_LINK_PATHS = [
+  { name: '@/shared/tel', importNames: ['telHref'], message: CHANNEL_LINK_MESSAGE },
+  { name: '@/shared/whatsapp', importNames: ['waHref'], message: CHANNEL_LINK_MESSAGE },
+];
+
 const config = [
   ...next,
   ...nextTs,
@@ -100,14 +115,12 @@ const config = [
   // Интерфейс: SQL и охват запросов — только через домен и доступ; SystemActor недоступен
   {
     files: ['src/app/**/*.{ts,tsx}', 'src/ui/**/*.{ts,tsx}'],
-    rules: restrictSrc(
-      [{ name: 'postgres', message: 'SQL — только в репозиториях домена.' }],
-      [
-        msg(['@/server/platform/db', '@/server/platform/db/*'], 'Интерфейс не работает с БД напрямую.'),
-        msg(['@/server/domain/*/repo', '@/server/domain/*/*Repo', '@/server/access/scope'], 'Репозитории и scopeSql — только для домена и доступа.'),
-        msg([SYSTEM_ACTOR], 'SystemActor недоступен в src/app и src/ui.'),
-      ],
-    ),
+    rules: restrictSrc([POSTGRES_PATH, ...CHANNEL_LINK_PATHS], UI_PATTERNS),
+  },
+  // Ссылки tel: и wa.me строят только действия кнопок по режиму каналов (D-268)
+  {
+    files: CHANNEL_LINK_FILES,
+    rules: restrictSrc([POSTGRES_PATH], UI_PATTERNS),
   },
   // Только src/server/access выдаёт запросы с охватом: scopeSql не импортируют ни скрипты, ни воркер
   {

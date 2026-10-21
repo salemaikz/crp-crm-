@@ -4,6 +4,8 @@ import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import type { Viewer } from '@/server/access';
 import { unreadCount } from '@/server/domain/notify';
+import { ChannelModesProvider } from '@/ui/channels';
+import { loadChannelModes } from '@/ui/channels/loadModes';
 import { AppShell } from './AppShell';
 import { loadMenu } from './loadMenu';
 import type { ShellKind } from './menu';
@@ -18,11 +20,13 @@ type Props = {
 };
 
 export async function RoleShell({ viewer, force, bellCount, children }: Props) {
-  const [t, tc, menu, unread] = await Promise.all([
+  const [t, tc, menu, unread, modes] = await Promise.all([
     getTranslations('shell'),
     getTranslations('common.app'),
     loadMenu(viewer, force),
     bellCount === undefined ? unreadCount(viewer) : Promise.resolve(bellCount),
+    // как звонить и писать (D-268): кнопки «Позвонить» и «WhatsApp» читают режим из контекста
+    loadChannelModes(viewer),
   ]);
   const items = menu.items.map((i) => ({ ...i, label: t(`nav.${i.id}`) }));
   return (
@@ -37,7 +41,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
       more={{ label: t('more'), closeLabel: t('close') }}
       userId={viewer.userId}
     >
-      {children}
+      <ChannelModesProvider modes={modes}>{children}</ChannelModesProvider>
     </AppShell>
   );
 }

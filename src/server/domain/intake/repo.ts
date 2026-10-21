@@ -4,6 +4,7 @@
 // ключ уже дал `IngestPrincipal`. Журналы и отчёты — без ПДн.
 import { dedup } from '@crm/core';
 import { jsonParam, type Sql } from '@/server/platform/db/core';
+import { newId } from '@/server/platform/db';
 import { INTAKE_LOCK_KEY } from '@/server/platform/db/locks';
 
 const { HIDDEN_ORG_ID_PREFIX } = dedup;
@@ -304,11 +305,11 @@ export async function addContact(sql: Sql, id: string, clientId: string, name: s
 
 export async function addSource(
   sql: Sql,
-  s: { id: string; clientId: string; sourceKey: string; keyId: string; externalId: string | null; now: number },
+  s: { id: string; clientId: string; sourceKey: string; keyId: string | null; externalId: string | null; now: number; sourceKind?: 'ingest' | 'messenger' },
 ): Promise<void> {
   await sql`
     INSERT INTO client_sources (id, client_id, source_kind, source_key, ingest_key_id, external_id, first_seen_at)
-    VALUES (${s.id}, ${s.clientId}, 'ingest', ${s.sourceKey}, ${s.keyId}, ${s.externalId}, ${s.now})
+    VALUES (${s.id}, ${s.clientId}, ${s.sourceKind ?? 'ingest'}, ${s.sourceKey}, ${s.keyId}, ${s.externalId}, ${s.now})
     ON CONFLICT DO NOTHING`;
 }
 
@@ -330,6 +331,8 @@ export interface NewClient {
   searchNorm: string;
   sourceKey: string;
   now: number;
+  /** Откуда клиент: по умолчанию приём по ключу; входящее из мессенджера — `messenger` (O7a). */
+  sourceKind?: 'ingest' | 'messenger';
 }
 
 export async function insertClient(sql: Sql, c: NewClient): Promise<void> {
@@ -337,7 +340,7 @@ export async function insertClient(sql: Sql, c: NewClient): Promise<void> {
     INSERT INTO clients (id, kind, name, name_norm, legal_form, org_id, iin_hmac, region, address, email, website, custom,
                          search_norm, source_kind, source_key, created_at, updated_at)
     VALUES (${c.id}, ${c.kind}, ${c.name}, ${c.nameNorm}, ${c.legalForm}, ${c.orgId}, ${c.iinHmac}, ${c.region}, ${c.address},
-            ${c.email}, ${c.website}, ${jsonParam(c.custom)}, ${c.searchNorm}, 'ingest', ${c.sourceKey}, ${c.now}, ${c.now})`;
+            ${c.email}, ${c.website}, ${jsonParam(c.custom)}, ${c.searchNorm}, ${c.sourceKind ?? 'ingest'}, ${c.sourceKey}, ${c.now}, ${c.now})`;
 }
 
 /** Карточка в пуле: без владельца, состояние «новая»; задержка — через `hold_reason`. */
@@ -413,4 +416,42 @@ export async function returnDates(sql: Sql, spaceId: string, untilMs: number): P
   const rows = await sql<{ returnAt: number }>`
     SELECT return_at FROM cards WHERE space_id = ${spaceId} AND state = 'not_interested' AND return_at IS NOT NULL AND return_at <= ${untilMs}`;
   return rows.map((r) => r.returnAt);
+}
+
+// ---------- Входящее из мессенджера (O7a, D-271) ----------
+
+/**
+ * Клиенты по рабочему номеру: слитые — к выжившему, без повторов. Для каждого — последнее касание карточки в
+ * пространстве (null — карточки нет). Служебное чтение под блокировкой приёма: охвата нет намеренно.
+ */
+export async function clientsByDigits(sql: Sql, a: { spaceId: string; digits: string }): Promise<{ clientId: string; lastTouchAt: number | null; createdAt: number }[]> {
+  return sql<{ clientId: string; lastTouchAt: number | null; createdAt: number }>`
+    WITH RECURSIVE chain(id, merged_into_id, depth) AS (
+      SELECT c.id, c.merged_into_id, 0 FROM clients c
+       WHERE c.id IN (SELECT cp.client_id FROM client_phones cp WHERE cp.digits = ${a.digits})
+      UNION ALL
+      SELECT c.id, c.merged_into_id, chain.depth + 1 FROM chain JOIN clients c ON c.id = chain.merged_into_id WHERE chain.depth < 20
+    )
+    SELECT c.id AS client_id, max(k.last_touch_at) AS last_touch_at, c.created_at
+      FROM (SELECT DISTINCT id FROM chain WHERE merged_into_id IS NULL) s
+      JOIN clients c ON c.id = s.id AND c.depersonalized_at IS NULL
+      LEFT JOIN cards k ON k.client_id = c.id AND k.space_id = ${a.spaceId}
+     GROUP BY c.id, c.created_at
+     ORDER BY max(k.last_touch_at) DESC NULLS LAST, c.created_at, c.id`;
+}
+
+/** Новых клиентов источника с момента `since` (суточный предел входящих из мессенджера). */
+export async function countSourceClientsSince(sql: Sql, a: { sourceKey: string; since: number }): Promise<number> {
+  const [r] = await sql<{ n: number }>`
+    SELECT count(*)::int AS n FROM client_sources WHERE source_kind = 'messenger' AND source_key = ${a.sourceKey} AND first_seen_at >= ${a.since}`;
+  return r?.n ?? 0;
+}
+
+export async function insertClientEventRow(
+  sql: Sql,
+  a: { clientId: string; spaceId: string; kind: string; at: number; data: Record<string, unknown> },
+): Promise<void> {
+  await sql`
+    INSERT INTO client_events (id, client_id, space_id, kind, actor_id, at, ref_type, ref_id, data)
+    VALUES (${newId()}, ${a.clientId}, ${a.spaceId}, ${a.kind}, NULL, ${a.at}, '', '', ${jsonParam(a.data)})`;
 }

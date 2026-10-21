@@ -17,7 +17,7 @@ export const EVENT_KINDS = {
   'contact.added': { group: 'system', dataKeys: ['contactId'] },
   'contact.archived': { group: 'system', dataKeys: ['contactId'] },
   // Звонки (C5): код итога, вид, состояния «было → стало», номер разговора, длительность.
-  call: { group: 'calls', dataKeys: ['outcome', 'outcomeKind', 'kind', 'fromState', 'toState', 'factReason', 'phoneId', 'durationSec'] },
+  call: { group: 'calls', dataKeys: ['outcome', 'outcomeKind', 'kind', 'fromState', 'toState', 'factReason', 'phoneId', 'durationSec', 'via'] },
   'call.voided': { group: 'calls', dataKeys: ['callId'] },
   // Текст заметки берётся из notes при чтении (C8)
   'note.created': { group: 'notes', dataKeys: ['noteId'] },
@@ -44,6 +44,9 @@ export const EVENT_KINDS = {
   // повторной загрузки), `deferred` — итог отложен; в ленту они не идут.
   'import.row': { group: 'system', dataKeys: ['importId', 'rowNo', 'action', 'outcomeKey'] },
   'client.created': { group: 'system', dataKeys: ['sourceKind', 'importId'] },
+  // Мессенджер (O7a): текст берётся из messenger_messages при чтении ленты; в data — только коды и признаки
+  message: { group: 'messages', dataKeys: ['direction', 'msgType', 'hasAttachment'] },
+  'messenger.link_opened': { group: 'messages', dataKeys: ['templateKey'] },
 } as const satisfies Record<string, KindSpec>;
 
 export type EventKind = keyof typeof EVENT_KINDS;

@@ -5,7 +5,7 @@
 import type { distribution as core } from '@crm/core';
 import { scopeSql, scoped } from '@/server/access/scope';
 import type { Permission } from '@/server/access/types';
-import type { Sql } from '@/server/platform/db';
+import { newId, type Sql } from '@/server/platform/db';
 import { DISTRIBUTION_LOCK_KEY } from '@/server/platform/db/locks';
 import { assignRows } from './assign';
 import {
@@ -359,3 +359,61 @@ export const writeAssignBatch: WriteAssignBatch = async (tx, actor, batch) => {
   const written: AssignWritten = { byOperator, raced };
   return written;
 };
+
+// ---------------------------------------------------------------------------
+// Входящее из мессенджера (O7a, D-271): владелец новой карточки вне тика
+// ---------------------------------------------------------------------------
+
+/** Участник раздачи, готовый принять карточку сегодня: в раздаче, не на «Паузе», не «Отсутствует». */
+export async function isReadyParticipant(sql: Sql, a: { spaceId: string; userId: string; roles: readonly string[]; today: string }): Promise<boolean> {
+  const r = { spaceId: a.spaceId, today: a.today, roles: [...a.roles] };
+  const rows = await sql<{ userId: string }>`
+    SELECT m.user_id FROM memberships m JOIN users u ON u.id = m.user_id AND u.status = 'active'
+     WHERE m.space_id = ${r.spaceId} AND m.user_id = ${a.userId} AND m.status = 'active' AND m.in_distribution
+       AND m.role_key = ANY(${r.roles}::text[]) AND m.paused_on <> ${r.today}::text
+       AND NOT EXISTS (SELECT 1 FROM absences ab WHERE ab.space_id = m.space_id AND ab.user_id = m.user_id
+                          AND ab.cancelled_at IS NULL AND ${r.today}::text BETWEEN ab.from_day AND ab.to_day)`;
+  return rows.length > 0;
+}
+
+/** Готовый участник с наименьшим числом выдач за сегодня любого вида (ничья — по id). */
+export async function leastLoadedParticipant(sql: Sql, a: { spaceId: string; roles: readonly string[]; today: string }): Promise<string | null> {
+  const r = { spaceId: a.spaceId, today: a.today, roles: [...a.roles] };
+  const rows = await sql<{ userId: string }>`
+    SELECT m.user_id FROM memberships m JOIN users u ON u.id = m.user_id AND u.status = 'active'
+     WHERE m.space_id = ${r.spaceId} AND m.status = 'active' AND m.in_distribution
+       AND m.role_key = ANY(${r.roles}::text[]) AND m.paused_on <> ${r.today}::text
+       AND NOT EXISTS (SELECT 1 FROM absences ab WHERE ab.space_id = m.space_id AND ab.user_id = m.user_id
+                          AND ab.cancelled_at IS NULL AND ${r.today}::text BETWEEN ab.from_day AND ab.to_day)
+     ORDER BY (SELECT count(*) FROM assign_log l WHERE l.space_id = m.space_id AND l.day = ${r.today}::text AND l.to_user_id = m.user_id),
+              m.user_id
+     LIMIT 1`;
+  return rows[0]?.userId ?? null;
+}
+
+/**
+ * Владелец новой карточки из пула: условное обновление (карточка ещё без владельца), `touched_in_crm`, журнал выдач
+ * (вид `inbound`), событие ленты и уведомление оператору. Возвращает false, если карточку уже раздали.
+ */
+export async function writeInboundAssignment(
+  tx: Sql,
+  a: { spaceId: string; cardId: string; clientId: string; toUserId: string; now: number; day: string; countsToCap: boolean },
+): Promise<boolean> {
+  const updated = await tx<{ id: string }>`
+    UPDATE cards SET owner_user_id = ${a.toUserId}, assigned_at = ${a.now}::bigint, touched_in_crm = TRUE,
+                     version = version + 1, updated_at = ${a.now}::bigint
+     WHERE id = ${a.cardId} AND space_id = ${a.spaceId} AND owner_user_id IS NULL RETURNING id`;
+  if (updated.length === 0) return false;
+  await tx`
+    INSERT INTO assign_log (id, space_id, card_id, from_user_id, to_user_id, kind, counts_to_cap, run_id, day, actor_id, created_at)
+    VALUES (${newId()}, ${a.spaceId}, ${a.cardId}, NULL, ${a.toUserId}, 'inbound', ${a.countsToCap}, NULL, ${a.day}, NULL, ${a.now})`;
+  await tx`
+    INSERT INTO client_events (id, client_id, space_id, deal_id, kind, actor_id, at, ref_type, ref_id, data)
+    VALUES (${newId()}, ${a.clientId}, ${a.spaceId}, NULL, 'card.assigned', NULL, ${a.now}, '', '',
+            jsonb_build_object('toUserId', ${a.toUserId}::text, 'mode', 'inbound'::text))`;
+  await tx`
+    INSERT INTO notifications (id, user_id, kind, entity_type, entity_id, params, dedupe_key, not_before, created_at)
+    VALUES (${newId()}, ${a.toUserId}, 'cards_assigned', '', '', jsonb_build_object('count', 1), ${`assign:inbound:${a.cardId}`}, ${a.now}::bigint, ${a.now}::bigint)
+    ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`;
+  return true;
+}

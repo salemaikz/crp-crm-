@@ -38,3 +38,33 @@ export function rateLimited(ms: number): Response {
   const sec = retryAfterSec(ms);
   return json(429, { error: 'rate_limited', retryAfterSec: sec }, { 'Retry-After': String(sec) });
 }
+
+/**
+ * Сырое тело не больше `max` байт (вебхуки, D-268): заявленная длина больше — сразу null, иначе поток читается до
+ * предела; превышение — null, остаток отбрасывается. Тело не логируется.
+ */
+export async function readBodyLimited(request: Request, max: number): Promise<Uint8Array | null> {
+  const declared = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > max) return null;
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
