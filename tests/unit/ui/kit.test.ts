@@ -6,6 +6,7 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup as render } from 'react-dom/server';
 import { ACTION_SEPARATE, ActionBar, Alert, Badge, Button, Card, DataList, FilterBar, FormGrid, Page, PageHeader, Section, Segmented, StatGrid, Checkbox, Chip, ChipGroup, EmptyState, Field, Input, List, ListItem, ProgressBar, Stat, Table, TextLink, buttonClass, cn, initials } from '../../../src/ui/kit';
 import { acquireLayer, openLayerCount, releaseLayer, resetLayers } from '../../../src/ui/kit/overlay';
+import { statCols } from '../../../src/ui/kit/statCols';
 import { DEFAULT_DURATION_MS, MAX_TOASTS, UNDO_DURATION_MS, durationFor, makeToast, toastReducer, type ToastItem } from '../../../src/ui/kit/toastState';
 
 // Тесты без JSX: типы children в createElement слишком строги для таких вызовов.
@@ -217,6 +218,24 @@ test('Table: numeric и nowrap в th и td, итоговая строка, ли�
   assert.match(html, /<tfoot>/);
   assert.match(html, /k-table--sticky-first/);
   assert.match(html, /<caption class="k-visually-hidden">/);
+});
+
+test('StatGrid: колонок по числу плиток без дыры в последнем ряду (D-331)', () => {
+  // до пяти — одним рядом; 6 → 3 + 3, 10 → 5 + 5; без делителя последний ряд заполнен хотя бы наполовину
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => statCols(n)), [1, 2, 3, 4, 5, 3, 4, 4, 3, 5, 4, 4]);
+  for (let n = 1; n <= 40; n++) {
+    const k = statCols(n);
+    const last = n % k || k;
+    assert.ok(n <= k || last * 2 >= k, `${n} плиток: последний ряд ${last} из ${k}`);
+  }
+  const tiles = (n: number) => Array.from({ length: n }, (_, i) => h(Stat, { key: i, value: i, label: `п${i}` }));
+  assert.match(render(h(StatGrid, null, ...tiles(6))), /style="--stat-cols:3"/);
+  assert.match(render(h(StatGrid, null, ...tiles(5))), /style="--stat-cols:5"/);
+  // скрытая условием плитка не считается
+  assert.match(render(h(StatGrid, null, h(Stat, { value: 1, label: 'a' }), false, h(Stat, { value: 2, label: 'b' }))), /style="--stat-cols:2"/);
+  assert.match(render(h(StatGrid, { cols: 2 }, ...tiles(6))), /style="--stat-cols:2"/);
+  const css = readFileSync(join(import.meta.dirname, '..', '..', '..', 'src/ui/kit/kit.css'), 'utf8');
+  assert.match(css, /\.k-statgrid \{[^}]*grid-template-columns: repeat\(\s*auto-fit,\s*minmax\(max\(var\(--stat-min\), calc\(\(100% - \(var\(--stat-cols\) - 1\)/);
 });
 
 test('StatGrid, DataList, FormGrid, FilterBar, Field width, Segmented', () => {

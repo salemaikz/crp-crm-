@@ -270,10 +270,25 @@
   }
 
   /* ---------- Плитки счётчиков ---------- */
+  /*
+   * Колонок не больше --stat-cols (StatGrid ставит его по числу плиток без дыры: 6 → 3 + 3): минимум трека — доля
+   * ширины на --stat-cols колонок. Узкий экран сокращает колонки сам (минимум плитки --stat-min): на телефоне — одна.
+   */
   .k-statgrid {
+    /* умолчание; StatGrid ставит своё значение в style */
+    --stat-cols: 3;
+    --stat-min: 200px;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(
+      auto-fit,
+      minmax(max(var(--stat-min), calc((100% - (var(--stat-cols) - 1) * var(--space-gap)) / var(--stat-cols))), 1fr)
+    );
     gap: var(--space-gap);
+  }
+  @media (min-width: 768px) {
+    .k-statgrid {
+      --stat-min: 168px;
+    }
   }
   .k-statgrid > .k-stat {
     padding: var(--space-card);

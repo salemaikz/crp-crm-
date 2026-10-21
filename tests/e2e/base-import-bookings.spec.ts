@@ -89,6 +89,16 @@ test('РОП загружает записи: автор, предпросмот
   const apply = page.getByRole('button', { name: 'Применить', exact: true });
   await expect(apply).toBeEnabled();
   expect(await noHScroll(page)).toBe(true);
+  // Плитки предпросмотра (D-331): каждая сетка — одним рядом или ровными рядами, без одной плитки в последнем ряду
+  const tileRows = await page.locator('.k-statgrid').evaluateAll((grids) =>
+    grids.map((g) => {
+      const tops = [...g.children].map((c) => Math.round(c.getBoundingClientRect().top));
+      const rows = [...new Set(tops)];
+      return { n: tops.length, first: tops.filter((x) => x === rows[0]).length, last: tops.filter((x) => x === rows[rows.length - 1]).length };
+    }),
+  );
+  expect(tileRows.length).toBeGreaterThan(0);
+  for (const g of tileRows) expect(g.n === g.first || g.last * 2 >= g.first, `плиток ${g.n}: ряд ${g.first}, последний ${g.last}`).toBe(true);
 
   await apply.click();
   await page.getByRole('dialog').getByRole('button', { name: 'Применить', exact: true }).click();

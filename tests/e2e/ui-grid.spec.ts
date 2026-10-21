@@ -30,6 +30,7 @@ type Geo = {
   lastBottom: number;
   smallTaps: string[];
   flushBad: string[];
+  statHoles: string[];
 };
 
 /** Все измерения одним проходом в странице: возвращаются числа, проверки — в тесте. */
@@ -90,6 +91,15 @@ async function measure(page: Page): Promise<Geo> {
       const textLeft = range.getBoundingClientRect().left;
       return Math.abs(textLeft - contentLeft) > 1 ? [`${(el.textContent ?? '').trim().slice(0, 30)}: ${Math.round(textLeft)} ≠ ${Math.round(contentLeft)}`] : [];
     });
+    // Плитки StatGrid (D-319, D-331): все в одном ряду или в последнем ряду не меньше половины колонок — без дыры
+    const statHoles = [...(main?.querySelectorAll('.k-statgrid:not(.k-statgrid--strip)') ?? [])].filter(visible).flatMap((grid) => {
+      const tops = [...grid.children].filter(visible).map((c) => Math.round(r(c).top));
+      const rows = [...new Set(tops)];
+      if (rows.length < 2) return [];
+      const cols = tops.filter((t) => t === rows[0]).length;
+      const last = tops.filter((t) => t === rows[rows.length - 1]).length;
+      return last * 2 >= cols ? [] : [`${(grid.getAttribute('aria-label') ?? grid.textContent ?? '').trim().slice(0, 30)}: ${tops.length} плиток, ряд ${cols}, последний ${last}`];
+    });
     const content = main ? [...main.querySelectorAll('*')].filter(visible) : [];
     const lastBottom = content.reduce((m, el) => Math.max(m, r(el).bottom + window.scrollY), 0);
     return {
@@ -107,6 +117,7 @@ async function measure(page: Page): Promise<Geo> {
       lastBottom,
       smallTaps,
       flushBad,
+      statHoles,
     };
   });
 }
@@ -141,6 +152,7 @@ async function check(page: Page, href: string, mobile: boolean): Promise<void> {
   expect(g.numWrapped, w('перенос чисел и телефонов')).toEqual([]);
   expect(g.disabledBad, w('неактивные кнопки: фон canvas, без opacity')).toEqual([]);
   expect(g.flushBad, w('текст кнопок flush на левом крае контента')).toEqual([]);
+  expect(g.statHoles, w('плитки StatGrid: последний ряд не меньше половины колонок')).toEqual([]);
   if (mobile) expect(g.smallTaps, w('цели касания ≥ 44 px')).toEqual([]);
   if (g.bottomNavTop !== null) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
