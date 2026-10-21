@@ -12,7 +12,7 @@ const ROOT = join(import.meta.dirname, '..', '..', '..');
 const ru = JSON.parse(readFileSync(join(ROOT, 'messages', 'ru', 'team.json'), 'utf8')) as { errors: Record<string, string> };
 
 test('InviteInput: телефон, имя, роль; администратор без роли; лишние поля', () => {
-  const ok = { phone: '8 701 555 01 23', name: ' Анна ', roleKey: 'operator' };
+  const ok = { phone: '8 709 555 01 23', name: ' Анна ', roleKey: 'operator' };
   assert.equal(InviteInput.parse(ok).name, 'Анна');
   assert.throws(() => InviteInput.parse({ ...ok, phone: '123' }));
   assert.throws(() => InviteInput.parse({ ...ok, name: '   ' }));

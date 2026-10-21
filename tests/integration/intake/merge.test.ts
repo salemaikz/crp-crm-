@@ -69,7 +69,7 @@ test('слияние: всё переезжает, проигравшая кар
   await setCard(db.sql, 'cd-b-50', { state: 'callback', lastOutcomeAt: t - DAY, nextCallAt: t + DAY });
   await db.sql`UPDATE cards SET calls_total = 2 WHERE id = 'cd-a-50'`;
   await db.sql`UPDATE cards SET calls_total = 3 WHERE id = 'cd-b-50'`;
-  await db.sql`UPDATE clients SET org_id = '770000000050', region = 'south' WHERE id = ${L}`;
+  await db.sql`UPDATE clients SET org_id = '770900000050', region = 'south' WHERE id = ${L}`;
   // общий номер (совпадёт — удалится) и свой номер проигравшего (переедет)
   await db.sql`INSERT INTO client_phones (id, client_id, digits, kind, created_at) VALUES ('ph-mg-dup', ${L}, ${phoneOf('a', 50)}, 'mobile', ${t})`;
   await pair('pr-mg-50', S, L);
@@ -145,7 +145,7 @@ test('слияние: всё переезжает, проигравшая кар
   // клиент: слит, уникальный БИН перешёл к выжившему, пустое поле заполнено
   const clients = await db.sql<{ id: string; merged: string | null; orgId: string; region: string }>`
     SELECT id, merged_into_id AS merged, org_id, region FROM clients WHERE id IN (${S}, ${L}) ORDER BY id`;
-  assert.deepEqual(clients.map((c) => [c.id, c.merged, c.orgId, c.region]), [[S, null, '770000000050', 'south'], [L, S, '770000000050', 'south']]);
+  assert.deepEqual(clients.map((c) => [c.id, c.merged, c.orgId, c.region]), [[S, null, '770900000050', 'south'], [L, S, '770900000050', 'south']]);
   // пары: эта и вторая пара проигравшего — merged, вместо второй — (выживший, X) открытая
   const pairs = await db.sql<{ a: string; b: string; status: string }>`
     SELECT a_client_id AS a, b_client_id AS b, status FROM dup_pairs WHERE ${S} IN (a_client_id, b_client_id) OR ${L} IN (a_client_id, b_client_id) ORDER BY a_client_id, b_client_id`;

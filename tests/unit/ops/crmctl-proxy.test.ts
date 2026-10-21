@@ -48,7 +48,7 @@ test('install: секрет в app.env и в файле nginx совпадают
   await writeFile(f.dirs.nginxConf, OLD_CONF);
   const pkg = await writePackage(f.dirs.lib, '1.0.0');
   const code = await run(
-    ['install', pkg, '--domain', 'crm.example.kz', '--admin-phone', '77000000000', '--admin-name', 'Синтетика', ...FAST],
+    ['install', pkg, '--domain', 'crm.example.kz', '--admin-phone', '77090000000', '--admin-name', 'Синтетика', ...FAST],
     f.deps,
   );
   assert.equal(code, 0, f.err.join('\n'));

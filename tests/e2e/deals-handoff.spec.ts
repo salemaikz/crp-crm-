@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, makeOperator, prepareDb, sql } from './support/calling';
 import { pretty } from './support/consult';
+import { uniquePhone } from './support/phones';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -26,7 +27,7 @@ async function loginAs(page: Page, phone: string): Promise<void> {
 async function makeStaff(spaceId: string, roleKey: string, name: string, teamId: string | null): Promise<{ id: string; phone: string }> {
   const t = Date.now();
   const id = randomUUID();
-  const phone = `7709${digits(7)}`;
+  const phone = (await uniquePhone(sql));
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${id}, ${phone}, ${name}, ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, team_id, in_distribution, created_at, updated_at) VALUES (${id}, ${spaceId}, ${roleKey}, ${teamId}, FALSE, ${t}, ${t})`;
   return { id, phone };

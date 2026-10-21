@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, login, makeOperator, prepareDb, sql } from './support/calling';
 import { makeConsultant } from './support/consult';
+import { uniquePhone } from './support/phones';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 test.beforeAll(() => prepareDb());
@@ -50,7 +51,7 @@ test('РОП (ноутбук): все пункты боковой колонки
   await page.setViewportSize({ width: 1280, height: 800 });
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   const id = randomUUID();
-  const phone = `7709${String(Math.floor(Math.random() * 10 ** 7)).padStart(7, '0')}`;
+  const phone = await uniquePhone(sql);
   const t = Date.now();
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${id}, ${phone}, 'РОП Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${id}, ${space!.id}, 'rop', FALSE, ${t}, ${t})`;
@@ -68,7 +69,7 @@ test('глава отдела маркетинга (ноутбук): все пу
   await page.setViewportSize({ width: 1280, height: 800 });
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   const id = randomUUID();
-  const phone = `7709${String(Math.floor(Math.random() * 10 ** 7)).padStart(7, '0')}`;
+  const phone = await uniquePhone(sql);
   const t = Date.now();
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${id}, ${phone}, 'Маркетинг Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${id}, ${space!.id}, 'marketing_head', FALSE, ${t}, ${t})`;

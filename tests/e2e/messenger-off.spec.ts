@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { DB_URL, PASSWORD, login, makeOperator, prepareDb, sql, type Operator } from './support/calling';
+import { uniquePhone } from './support/phones';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -42,7 +43,7 @@ test('кнопка «WhatsApp» открывает wa.me, окна чата не
 
 test('экран «Интеграции» пуст при выключенном флаге, оператору недоступен; вебхук — 404', async ({ page, request }) => {
   const adminId = randomUUID();
-  const phone = `7709${String(Math.floor(Math.random() * 10 ** 7)).padStart(7, '0')}`;
+  const phone = await uniquePhone(sql);
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, is_admin, created_at)
             VALUES (${adminId}, ${phone}, 'Администратор Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, TRUE, ${Date.now()})`;
   await login(page, { id: adminId, phone, cardIds: [], names: [], clientIds: [] } satisfies Operator);

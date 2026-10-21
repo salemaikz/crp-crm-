@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, prepareDb, sql } from './support/calling';
+import { uniquePhone } from './support/phones';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -27,11 +28,11 @@ async function makeWorld(): Promise<{ rop: { phone: string }; eventId: string; g
   if (!space) throw new Error('нет пространства sales');
   const t = Date.now();
   const ropId = randomUUID();
-  const rop = { phone: `7709${digits(7)}` };
+  const rop = { phone: (await uniquePhone(sql)) };
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${ropId}, ${rop.phone}, 'РОП Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${ropId}, ${space.id}, 'rop', FALSE, ${t}, ${t})`;
   const ownerId = randomUUID();
-  await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${ownerId}, ${`7709${digits(7)}`}, 'Оператор Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
+  await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${ownerId}, ${(await uniquePhone(sql))}, 'Оператор Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${ownerId}, ${space.id}, 'operator', FALSE, ${t}, ${t})`;
 
   // Мероприятие началось час назад, но не раньше начала местных суток (Asia/Almaty, UTC+5)
@@ -46,7 +47,7 @@ async function makeWorld(): Promise<{ rop: { phone: string }; eventId: string; g
 
   const tag = digits(5);
   const make = async (i: number, booked: boolean): Promise<Guest> => {
-    const g: Guest = { clientId: randomUUID(), cardId: randomUUID(), name: `ТОО Синтетика ${tag} №${i}`, phone: `7709${digits(7)}` };
+    const g: Guest = { clientId: randomUUID(), cardId: randomUUID(), name: `ТОО Синтетика ${tag} №${i}`, phone: (await uniquePhone(sql)) };
     await sql`INSERT INTO clients (id, kind, name, name_norm, search_norm, source_kind, created_at, updated_at)
               VALUES (${g.clientId}, 'company', ${g.name}, ${g.name.toLowerCase()}, ${g.name.toLowerCase()}, 'import', ${t}, ${t})`;
     await sql`INSERT INTO client_phones (id, client_id, digits, kind, is_primary, created_at) VALUES (${randomUUID()}, ${g.clientId}, ${g.phone}, 'mobile', TRUE, ${t})`;

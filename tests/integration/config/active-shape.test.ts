@@ -67,7 +67,7 @@ test('набор ЦРП проходит схему; getActiveConfig отдаё�
   assert.equal(policy.sessionDays, cfg.global.security.sessionDays);
   const rules = await readPhoneRules();
   assert.deepEqual(rules.mobilePrefixes, cfg.global.phone.mobilePrefixes);
-  assert.equal(loginPhoneDigits('8 (701) 555-01-23', rules), '77015550123');
+  assert.equal(loginPhoneDigits('8 (709) 555-01-23', rules), '77095550123');
 
   // пояс и тема
   assert.equal(resolveTimeZone(cfg.global.org.timezone), 'Asia/Almaty');

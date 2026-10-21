@@ -10,7 +10,7 @@ export async function createUser(
   o: { phone?: string; password?: string | null; status?: 'active' | 'disabled'; name?: string; isAdmin?: boolean } = {},
 ): Promise<{ id: string; phone: string }> {
   const id = newId();
-  const phone = o.phone ?? `7701555${String(Math.floor(Math.random() * 9000) + 1000)}`;
+  const phone = o.phone ?? `7709555${String(Math.floor(Math.random() * 9000) + 1000)}`;
   const hash = o.password === null ? null : await hashPassword(o.password ?? 'Надёжный-пароль-77');
   await sql`
     INSERT INTO users (id, phone_digits, name, password_hash, status, is_admin, created_at)

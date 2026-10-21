@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { hashPassword, passwordProblem, verifyPassword, needsRehash } from '../../../src/server/platform/auth/password';
 
-const PHONE = '77015550123';
+const PHONE = '77095550123';
 
 test('длина: 7 символов мало, 8 хватает', () => {
   assert.equal(passwordProblem('Abcde1x', PHONE), 'too_short');
@@ -25,11 +25,11 @@ test('частые пароли без учёта регистра и повто
 });
 
 test('пароль = номер: полный канон, последние 10 цифр, с 8', () => {
-  assert.equal(passwordProblem('77015550123', PHONE), 'same_as_phone');
-  assert.equal(passwordProblem('7015550123', PHONE), 'same_as_phone');
-  assert.equal(passwordProblem('87015550123', PHONE), 'same_as_phone');
-  assert.equal(passwordProblem('+7 701 555 01 23', PHONE), 'same_as_phone');
-  assert.equal(passwordProblem('7015550124', PHONE), null);
+  assert.equal(passwordProblem('77095550123', PHONE), 'same_as_phone');
+  assert.equal(passwordProblem('7095550123', PHONE), 'same_as_phone');
+  assert.equal(passwordProblem('87095550123', PHONE), 'same_as_phone');
+  assert.equal(passwordProblem('+7 709 555 01 23', PHONE), 'same_as_phone');
+  assert.equal(passwordProblem('7095550124', PHONE), null);
 });
 
 test('bcrypt: хеш сверяется, чужой пароль и пустой хеш — false', async () => {

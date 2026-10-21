@@ -39,16 +39,16 @@ test('успех: сессия, last_login_at, аудит без ПДн; ном�
 });
 
 test('чужой next заменяется на «/»', async () => {
-  await createUser(db.sql, { phone: '77015550102', password: 'Надёжный-пароль-77' });
-  const r = await login('77015550102', 'Надёжный-пароль-77', { next: 'https://evil.test' });
+  await createUser(db.sql, { phone: '77095550102', password: 'Надёжный-пароль-77' });
+  const r = await login('77095550102', 'Надёжный-пароль-77', { next: 'https://evil.test' });
   assert.equal(r.ok && r.next, '/');
 });
 
 test('нет номера и неверный пароль дают один ответ; bcrypt считается в обоих случаях', async () => {
-  await createUser(db.sql, { phone: '77015550103', password: 'Надёжный-пароль-77' });
+  await createUser(db.sql, { phone: '77095550103', password: 'Надёжный-пароль-77' });
   const times: number[] = [];
   const results = [];
-  for (const [phone, pass] of [['77015550103', 'неверный-пароль-1'], ['77015559999', 'неверный-пароль-1']] as const) {
+  for (const [phone, pass] of [['77095550103', 'неверный-пароль-1'], ['77095559999', 'неверный-пароль-1']] as const) {
     const t = performance.now();
     results.push(await login(phone, pass, { ip: `198.51.100.${times.length + 1}` }));
     times.push(performance.now() - t);
@@ -59,38 +59,38 @@ test('нет номера и неверный пароль дают один о�
 });
 
 test('отключённый, без пароля и неверный — invalid; верный пароль отключённого не пускает', async () => {
-  await createUser(db.sql, { phone: '77015550104', status: 'disabled', password: 'Надёжный-пароль-77' });
-  await createUser(db.sql, { phone: '77015550105', password: null });
-  assert.deepEqual(await login('77015550104', 'Надёжный-пароль-77'), { ok: false, error: 'invalid', retryAfterMs: null });
-  assert.deepEqual(await login('77015550105', 'Надёжный-пароль-77', { ip: '198.51.100.9' }), { ok: false, error: 'invalid', retryAfterMs: null });
+  await createUser(db.sql, { phone: '77095550104', status: 'disabled', password: 'Надёжный-пароль-77' });
+  await createUser(db.sql, { phone: '77095550105', password: null });
+  assert.deepEqual(await login('77095550104', 'Надёжный-пароль-77'), { ok: false, error: 'invalid', retryAfterMs: null });
+  assert.deepEqual(await login('77095550105', 'Надёжный-пароль-77', { ip: '198.51.100.9' }), { ok: false, error: 'invalid', retryAfterMs: null });
 });
 
 test('validation: пусто, длинный пароль, не номер — без bcrypt и счётчиков', async () => {
   assert.deepEqual(await login('', 'x'), { ok: false, error: 'validation' });
-  assert.deepEqual(await login('77015550101', ''), { ok: false, error: 'validation' });
-  assert.deepEqual(await login('77015550101', 'a'.repeat(257)), { ok: false, error: 'validation' });
+  assert.deepEqual(await login('77095550101', ''), { ok: false, error: 'validation' });
+  assert.deepEqual(await login('77095550101', 'a'.repeat(257)), { ok: false, error: 'validation' });
   assert.deepEqual(await login('abc', 'пароль-1234'), { ok: false, error: 'validation' });
 });
 
 test('перебор: после perPhone неудач — задержка, верный пароль в задержку отклонён', async () => {
-  await createUser(db.sql, { phone: '77015550106', password: 'Надёжный-пароль-77' });
+  await createUser(db.sql, { phone: '77095550106', password: 'Надёжный-пароль-77' });
   for (let i = 0; i < 4; i++) {
-    const r = await login('77015550106', `неверный-${i}-пароль`, { ip: `192.0.2.${i}` });
+    const r = await login('77095550106', `неверный-${i}-пароль`, { ip: `192.0.2.${i}` });
     assert.deepEqual(r, { ok: false, error: 'invalid', retryAfterMs: null });
   }
-  const fifth = await login('77015550106', 'неверный-5-пароль', { ip: '192.0.2.50' });
+  const fifth = await login('77095550106', 'неверный-5-пароль', { ip: '192.0.2.50' });
   assert.deepEqual(fifth, { ok: false, error: 'invalid', retryAfterMs: 1000 });
-  const blocked = await login('77015550106', 'Надёжный-пароль-77', { ip: '192.0.2.51' }, T0 + 500);
+  const blocked = await login('77095550106', 'Надёжный-пароль-77', { ip: '192.0.2.51' }, T0 + 500);
   assert.equal(!blocked.ok && blocked.error, 'rate_limited');
-  const ok = await login('77015550106', 'Надёжный-пароль-77', { ip: '192.0.2.51' }, T0 + 1001);
+  const ok = await login('77095550106', 'Надёжный-пароль-77', { ip: '192.0.2.51' }, T0 + 1001);
   assert.equal(ok.ok, true);
 });
 
 test('старый хеш меньшей стоимости перехешируется при успешном входе', async () => {
   const bcrypt = (await import('bcryptjs')).default;
-  const u = await createUser(db.sql, { phone: '77015550107' });
+  const u = await createUser(db.sql, { phone: '77095550107' });
   await db.sql`UPDATE users SET password_hash = ${bcrypt.hashSync('Надёжный-пароль-77', 4)} WHERE id = ${u.id}`;
-  assert.equal((await login('77015550107', 'Надёжный-пароль-77')).ok, true);
+  assert.equal((await login('77095550107', 'Надёжный-пароль-77')).ok, true);
   const [row] = await db.sql<{ passwordHash: string }>`SELECT password_hash FROM users WHERE id = ${u.id}`;
   assert.equal(pw.needsRehash(row?.passwordHash ?? ''), false);
 });
@@ -105,7 +105,7 @@ test('«выйти везде»: все сессии удалены, аудит 
 });
 
 test('смена пароля: неверный текущий, политика, успех удаляет прежние сессии и выдаёт новую', async () => {
-  const u = await createUser(db.sql, { phone: '77015550108', password: 'Старый-пароль-55' });
+  const u = await createUser(db.sql, { phone: '77095550108', password: 'Старый-пароль-55' });
   const old = await createSession(db.sql, { userId: u.id, policy, nowMs: T0 });
   const change = (cur: string, next: string, now = T0 + 10) => db.tx((sql) => changeOwnPassword(sql, { userId: u.id, current: cur, next }, policy, now));
   assert.deepEqual(await change('не-тот-пароль', 'Новый-пароль-66'), { ok: false, error: 'wrong_current' });
@@ -116,7 +116,7 @@ test('смена пароля: неверный текущий, политика
   assert.equal(r.ok, true);
   assert.equal(await resolveSession(db.sql, old.token, policy, T0 + 20), null);
   if (r.ok) assert.ok(await resolveSession(db.sql, r.session.token, policy, T0 + 20));
-  assert.equal((await login('77015550108', 'Новый-пароль-66')).ok, true);
+  assert.equal((await login('77095550108', 'Новый-пароль-66')).ok, true);
   const [a] = await db.sql<{ meta: unknown }>`SELECT meta FROM audit_log WHERE action = 'user.password_change' AND entity_id = ${u.id}`;
   assert.ok(!JSON.stringify(a).includes('Новый'));
 });
@@ -131,9 +131,9 @@ test('смена пароля: лимит 5 попыток за 15 минут', 
 });
 
 test('перебор пачкой: 60 параллельных попыток на один номер — не больше perPhone проверок пароля, остальные 429', async () => {
-  await createUser(db.sql, { phone: '77015550120', password: 'Надёжный-пароль-77' });
+  await createUser(db.sql, { phone: '77095550120', password: 'Надёжный-пароль-77' });
   const results = await Promise.all(
-    Array.from({ length: 60 }, (_, i) => login('77015550120', `неверный-${i}-пароль`, { ip: '203.0.113.60' })),
+    Array.from({ length: 60 }, (_, i) => login('77095550120', `неверный-${i}-пароль`, { ip: '203.0.113.60' })),
   );
   const invalid = results.filter((r) => !r.ok && r.error === 'invalid');
   const limited = results.filter((r) => !r.ok && r.error === 'rate_limited');
@@ -141,7 +141,7 @@ test('перебор пачкой: 60 параллельных попыток н
   assert.equal(limited.length, 60 - policy.loginAttempts.perPhone);
   assert.deepEqual(inflightSizes(), { phones: 0, ips: 0 }, 'слоты освобождены');
   // и верный пароль сразу после пачки — в задержке
-  const blocked = await login('77015550120', 'Надёжный-пароль-77', { ip: '203.0.113.61' }, T0 + 10);
+  const blocked = await login('77095550120', 'Надёжный-пароль-77', { ip: '203.0.113.61' }, T0 + 10);
   assert.equal(!blocked.ok && blocked.error, 'rate_limited');
 });
 
@@ -156,13 +156,13 @@ test('bcrypt вне транзакции: неудачные входы не о�
   try {
     // Дорогой хеш (cost 13): bcryptjs считает его порциями и отдаёт цикл событий — видно, держит ли вход соединение
     const bcrypt = (await import('bcryptjs')).default;
-    const u = await createUser(db.sql, { phone: '77015553300', password: null });
+    const u = await createUser(db.sql, { phone: '77095553300', password: null });
     await db.sql`UPDATE users SET password_hash = ${bcrypt.hashSync('Надёжный-пароль-77', 13)} WHERE id = ${u.id}`;
     let txOpened = 0;
     const counted: Db = { ...small, tx: (fn) => { txOpened++; return small.tx(fn); } };
     let firstLoginAt = Infinity;
     const logins = Array.from({ length: 3 }, (_, i) =>
-      attemptLogin(counted, { phone: '77015553300', password: `неверный-${i}-пароль`, ip: `198.51.100.${100 + i}` }, policy, T0).then((r) => {
+      attemptLogin(counted, { phone: '77095553300', password: `неверный-${i}-пароль`, ip: `198.51.100.${100 + i}` }, policy, T0).then((r) => {
         firstLoginAt = Math.min(firstLoginAt, performance.now());
         return r;
       }),
@@ -177,8 +177,8 @@ test('bcrypt вне транзакции: неудачные входы не о�
     assert.ok(selectAt < firstLoginAt, 'соединение не держится на время bcrypt');
 
     // успешный вход — одна короткая транзакция на выдачу сессии
-    await createUser(db.sql, { phone: '77015553301', password: 'Надёжный-пароль-77' });
-    const ok = await attemptLogin(counted, { phone: '77015553301', password: 'Надёжный-пароль-77', ip: '198.51.100.200' }, policy, T0);
+    await createUser(db.sql, { phone: '77095553301', password: 'Надёжный-пароль-77' });
+    const ok = await attemptLogin(counted, { phone: '77095553301', password: 'Надёжный-пароль-77', ip: '198.51.100.200' }, policy, T0);
     assert.equal(ok.ok, true);
     assert.equal(txOpened, 1);
   } finally {
@@ -187,26 +187,26 @@ test('bcrypt вне транзакции: неудачные входы не о�
 });
 
 test('повторный вход в том же браузере гасит прежнюю сессию (в том числе чужую)', async () => {
-  const a = await createUser(db.sql, { phone: '77015550130', password: 'Надёжный-пароль-77' });
-  await createUser(db.sql, { phone: '77015550131', password: 'Надёжный-пароль-77' });
-  const first = await login('77015550130', 'Надёжный-пароль-77', { ip: '203.0.113.70' });
+  const a = await createUser(db.sql, { phone: '77095550130', password: 'Надёжный-пароль-77' });
+  await createUser(db.sql, { phone: '77095550131', password: 'Надёжный-пароль-77' });
+  const first = await login('77095550130', 'Надёжный-пароль-77', { ip: '203.0.113.70' });
   assert.ok(first.ok);
   if (!first.ok) return;
-  const second = await login('77015550130', 'Надёжный-пароль-77', { ip: '203.0.113.70', previousToken: first.session.token }, T0 + 1);
+  const second = await login('77095550130', 'Надёжный-пароль-77', { ip: '203.0.113.70', previousToken: first.session.token }, T0 + 1);
   assert.ok(second.ok);
   if (!second.ok) return;
   assert.equal(await resolveSession(db.sql, first.session.token, policy, T0 + 2), null, 'прежняя сессия браузера удалена');
   assert.equal((await resolveSession(db.sql, second.session.token, policy, T0 + 2))?.userId, a.id);
   // другой сотрудник входит в том же браузере — сессия первого в этом браузере тоже гаснет
-  const other = await login('77015550131', 'Надёжный-пароль-77', { ip: '203.0.113.70', previousToken: second.session.token }, T0 + 3);
+  const other = await login('77095550131', 'Надёжный-пароль-77', { ip: '203.0.113.70', previousToken: second.session.token }, T0 + 3);
   assert.ok(other.ok);
   assert.equal(await resolveSession(db.sql, second.session.token, policy, T0 + 4), null);
   // мусор вместо токена ничего не ломает
-  assert.ok((await login('77015550130', 'Надёжный-пароль-77', { ip: '203.0.113.70', previousToken: 'не-токен' }, T0 + 5)).ok);
+  assert.ok((await login('77095550130', 'Надёжный-пароль-77', { ip: '203.0.113.70', previousToken: 'не-токен' }, T0 + 5)).ok);
 });
 
 test('сотрудника отключили между проверкой пароля и выдачей сессии — входа нет', async () => {
-  const u = await createUser(db.sql, { phone: '77015550140', password: 'Надёжный-пароль-77' });
+  const u = await createUser(db.sql, { phone: '77095550140', password: 'Надёжный-пароль-77' });
   // транзакция выдачи сессии видит уже отключённого сотрудника
   const racing: Db = {
     ...db,
@@ -215,7 +215,7 @@ test('сотрудника отключили между проверкой па
       return db.tx(fn);
     },
   };
-  const r = await attemptLogin(racing, { phone: '77015550140', password: 'Надёжный-пароль-77', ip: '203.0.113.80' }, policy, T0);
+  const r = await attemptLogin(racing, { phone: '77095550140', password: 'Надёжный-пароль-77', ip: '203.0.113.80' }, policy, T0);
   assert.deepEqual(r, { ok: false, error: 'invalid', retryAfterMs: null });
   assert.equal((await db.sql`SELECT 1 FROM sessions WHERE user_id = ${u.id}`).length, 0);
 });

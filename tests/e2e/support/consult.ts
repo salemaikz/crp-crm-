@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { PASSWORD, sql } from './calling';
+import { uniquePhone } from './phones';
 
 const digits = (n: number) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
 
@@ -18,7 +19,7 @@ export async function makeConsultant(opts: { exclusive?: boolean } = {}): Promis
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   if (!space) throw new Error('нет пространства sales');
   const t = Date.now();
-  const c: Consultant = { userId: randomUUID(), phone: `7709${digits(7)}`, resourceId: randomUUID(), name: 'Консультант Синтетик' };
+  const c: Consultant = { userId: randomUUID(), phone: (await uniquePhone(sql)), resourceId: randomUUID(), name: 'Консультант Синтетик' };
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${c.userId}, ${c.phone}, ${c.name}, ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${c.userId}, ${space.id}, 'consultant', FALSE, ${t}, ${t})`;
   if (opts.exclusive) await sql`UPDATE resources SET active = FALSE, updated_at = ${t} WHERE space_id = ${space.id}`;

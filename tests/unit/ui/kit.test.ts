@@ -19,7 +19,7 @@ test('Button: кнопка по умолчанию type=button; href → ссы�
   assert.match(render(h(Button, null, 'Позвонить')), /^<button type="button" class="k-btn k-btn--primary">Позвонить<\/button>$/);
   assert.match(render(h(Button, { type: 'submit' }, 'ОК')), /type="submit"/);
   assert.match(render(h(Button, { href: '/calling' }, 'Звонить')), /^<a class="k-btn k-btn--primary" href="\/calling"/);
-  assert.match(render(h(Button, { href: 'tel:+77010000000' }, 'Набрать')), /^<a href="tel:\+77010000000"/);
+  assert.match(render(h(Button, { href: 'tel:+77090000000' }, 'Набрать')), /^<a href="tel:\+77090000000"/);
 });
 
 test('Badge: значок и текст вместе, значок скрыт от скринридера', () => {

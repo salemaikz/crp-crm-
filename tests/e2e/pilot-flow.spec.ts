@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, prepareDb, seedGroupEvents, sql } from './support/calling';
 import { makeConsultant, pretty } from './support/consult';
+import { uniquePhone } from './support/phones';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -20,7 +21,7 @@ test.beforeAll(() => prepareDb());
 async function makeStaff(role: string, name: string, teamId: string | null = null): Promise<{ id: string; phone: string; name: string }> {
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   const id = randomUUID();
-  const phone = `7709${digits(7)}`;
+  const phone = (await uniquePhone(sql));
   const t = Date.now();
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${id}, ${phone}, ${name}, ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, team_id, in_distribution, created_at, updated_at) VALUES (${id}, ${space!.id}, ${role}, ${teamId}, FALSE, ${t}, ${t})`;

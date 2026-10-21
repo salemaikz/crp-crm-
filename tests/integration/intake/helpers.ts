@@ -57,7 +57,7 @@ export async function installIntakeConfig(): Promise<void> {
 
 export async function mkUser(db: DbHandle, n: number): Promise<string> {
   const id = newId();
-  await db.sql`INSERT INTO users (id, phone_digits, name, status, created_at) VALUES (${id}, ${`7701222${String(1000 + n)}`}, ${`Сотрудник ${n}`}, 'active', ${T0})`;
+  await db.sql`INSERT INTO users (id, phone_digits, name, status, created_at) VALUES (${id}, ${`7709222${String(1000 + n)}`}, ${`Сотрудник ${n}`}, 'active', ${T0})`;
   return id;
 }
 

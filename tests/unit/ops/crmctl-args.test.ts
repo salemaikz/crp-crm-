@@ -35,7 +35,7 @@ test('intFlag и strFlag: умолчание, ошибки', () => {
 });
 
 test('номер администратора: только цифры, 10–15', () => {
-  assert.equal(normalizePhone('+7 (701) 123-45-67'), '77011234567');
+  assert.equal(normalizePhone('+7 (709) 123-45-67'), '77091234567');
   assert.throws(() => normalizePhone('12345'), /10–15/);
   assert.throws(() => normalizePhone('abc'), /10–15/);
 });

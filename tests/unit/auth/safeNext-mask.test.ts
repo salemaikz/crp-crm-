@@ -24,14 +24,14 @@ test('safeNext: внешние и подозрительные адреса от
 });
 
 test('маска номера: 8…, +7…, вставка с пробелами и 10 цифр без кода страны', () => {
-  assert.equal(formatPhoneInput('87015550123'), '+7 (701) 555-01-23');
-  assert.equal(formatPhoneInput('+7 701 555 01 23'), '+7 (701) 555-01-23');
-  assert.equal(formatPhoneInput('701 555 01 23'), '+7 (701) 555-01-23');
-  assert.equal(formatPhoneInput('7015550123'), '+7 (701) 555-01-23');
-  assert.equal(formatPhoneInput('77015550123'), '+7 (701) 555-01-23');
+  assert.equal(formatPhoneInput('87095550123'), '+7 (709) 555-01-23');
+  assert.equal(formatPhoneInput('+7 709 555 01 23'), '+7 (709) 555-01-23');
+  assert.equal(formatPhoneInput('709 555 01 23'), '+7 (709) 555-01-23');
+  assert.equal(formatPhoneInput('7095550123'), '+7 (709) 555-01-23');
+  assert.equal(formatPhoneInput('77095550123'), '+7 (709) 555-01-23');
   assert.equal(formatPhoneInput(''), '');
   assert.equal(formatPhoneInput('8'), '+7');
   assert.equal(formatPhoneInput('+7 (70'), '+7 (70');
-  assert.equal(formatPhoneInput('+7 (701) 555-01-23999'), '+7 (701) 555-01-23');
-  assert.equal(nationalDigits('8 701 555 01 23'), '7015550123');
+  assert.equal(formatPhoneInput('+7 (709) 555-01-23999'), '+7 (709) 555-01-23');
+  assert.equal(nationalDigits('8 709 555 01 23'), '7095550123');
 });

@@ -131,7 +131,7 @@ export async function spaceIdOf(db: DbHandle, key = 'sales'): Promise<string> {
 
 export async function mkUser(db: DbHandle, n: number, name = `Сотрудник ${n}`): Promise<string> {
   const id = newId();
-  await db.sql`INSERT INTO users (id, phone_digits, name, status, created_at) VALUES (${id}, ${`7701333${String(1000 + n)}`}, ${name}, 'active', ${T0})`;
+  await db.sql`INSERT INTO users (id, phone_digits, name, status, created_at) VALUES (${id}, ${`7709333${String(1000 + n)}`}, ${name}, 'active', ${T0})`;
   return id;
 }
 

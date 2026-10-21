@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, login, makeOperator, prepareDb, sql, type Operator } from './support/calling';
+import { uniquePhone } from './support/phones';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -11,7 +12,7 @@ test.beforeAll(() => {
   prepareDb();
 });
 
-const phone = () => `7709${String(Math.floor(Math.random() * 10_000_000)).padStart(7, '0')}`;
+const phone = () => uniquePhone(sql);
 const noHorizontalScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
 /** Нижняя панель и липкие кнопки перекрывают край: нажимаем самим элементом. */
@@ -23,7 +24,7 @@ async function tap(locator: Locator): Promise<void> {
 async function makeRop(): Promise<Operator> {
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   const id = randomUUID();
-  const p = phone();
+  const p = await phone();
   const t = Date.now();
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${id}, ${p}, 'РОП Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${id}, ${space!.id}, 'rop', FALSE, ${t}, ${t})`;

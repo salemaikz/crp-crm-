@@ -103,7 +103,7 @@ test('дедуп по БИН: дописываются только пустые
   assert.equal(c.orgId, bin);
   const owner = await (async () => {
     const id = newId();
-    await db.sql`INSERT INTO users (id, phone_digits, name, created_at) VALUES (${id}, ${'77012223030'}, 'Сотрудник', ${T0})`;
+    await db.sql`INSERT INTO users (id, phone_digits, name, created_at) VALUES (${id}, ${'77092223030'}, 'Сотрудник', ${T0})`;
     return id;
   })();
   await db.sql`UPDATE cards SET state = 'agreed', owner_user_id = ${owner}, attempts = 2, calls_total = 5, version = 7 WHERE client_id = ${c.id}`;
@@ -298,7 +298,7 @@ test('неуверенный номер совпал с открытым БИН 
 });
 
 test('ТОО с ИИН, занятым ИП: партия не падает, клиент без iin_hmac с замечанием, соседняя запись принята (D-182)', async () => {
-  const iin = '770101300456';
+  const iin = '770901300456';
   await post(open, batch([{ name: 'ИП Кайратов', legalForm: 'ip', orgId: iin, phones: [ph(320)] }]));
   const ip = await client('ИП Кайратов');
   assert.equal(ip.iinHmac, iinHmac(iin));

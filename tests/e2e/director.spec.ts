@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { expect, test, type Page } from '@playwright/test';
+import { uniquePhone } from './support/phones';
 
 const DB_URL = process.env.E2E_DATABASE_URL;
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -13,7 +14,7 @@ test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 const PASSWORD = 'Надёжный-пароль-77';
 const sql = DB_URL ? postgres(DB_URL, { max: 2 }) : (null as never);
 const pretty = (p: string) => `8 ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7, 9)} ${p.slice(9)}`;
-const phone = () => `7709${String(Math.floor(Math.random() * 9_000_000) + 1_000_000)}`;
+const phone = () => uniquePhone(sql);
 
 type Staff = { id: string; phone: string; name: string };
 let spaceId = '';
@@ -21,7 +22,7 @@ let director: Staff;
 let operator: Staff;
 
 async function makeStaff(role: string, name: string): Promise<Staff> {
-  const s = { id: randomUUID(), phone: phone(), name };
+  const s = { id: randomUUID(), phone: await phone(), name };
   const now = Date.now();
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${s.id}, ${s.phone}, ${name}, ${bcrypt.hashSync(PASSWORD, 4)}, ${now})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${s.id}, ${spaceId}, ${role}, false, ${now}, ${now})`;

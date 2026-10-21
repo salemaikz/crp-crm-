@@ -80,20 +80,20 @@ test('inviteLink: токен во фрагменте, без query', () => {
 
 test('loginPhoneDigits: нормализация ядра с правилами из настроек', () => {
   // та же функция, что у приёма лидов и импорта: вход и данные не разойдутся
-  assert.equal(loginPhoneDigits('8 701 555 01 23'), corePhone.parsePhone('+7 701 555 01 23', corePhone.DEFAULT_PHONE_RULES)?.digits);
-  assert.equal(loginPhoneDigits('8 701 555 01 23', { ...corePhone.DEFAULT_PHONE_RULES, mobilePrefixes: [] }), '77015550123');
+  assert.equal(loginPhoneDigits('8 709 555 01 23'), corePhone.parsePhone('+7 709 555 01 23', corePhone.DEFAULT_PHONE_RULES)?.digits);
+  assert.equal(loginPhoneDigits('8 709 555 01 23', { ...corePhone.DEFAULT_PHONE_RULES, mobilePrefixes: [] }), '77095550123');
   assert.equal(loginPhoneDigits('7 777 777 77 77'), '77777777777', 'заглушка — канон, но такого сотрудника нет');
-  assert.equal(loginPhoneDigits('+7 701 555 01 23 доб. 12'), '77015550123');
+  assert.equal(loginPhoneDigits('+7 709 555 01 23 доб. 12'), '77095550123');
 });
 
 test('loginPhoneDigits и maskPhone', () => {
-  assert.equal(loginPhoneDigits('8 (701) 555-01-23'), '77015550123');
-  assert.equal(loginPhoneDigits('+7 701 555 01 23'), '77015550123');
-  assert.equal(loginPhoneDigits('701 555 01 23'), '77015550123');
+  assert.equal(loginPhoneDigits('8 (709) 555-01-23'), '77095550123');
+  assert.equal(loginPhoneDigits('+7 709 555 01 23'), '77095550123');
+  assert.equal(loginPhoneDigits('709 555 01 23'), '77095550123');
   assert.equal(loginPhoneDigits('abc'), null);
   assert.equal(loginPhoneDigits('12345'), null);
   assert.equal(loginPhoneDigits('+1 701 555 01 23'), null);
   assert.equal(loginPhoneDigits('7'.repeat(40)), null);
-  assert.equal(maskPhone('77015550123'), '+7 701 ••• •• 23');
-  assert.ok(!maskPhone('77015550123').includes('555'));
+  assert.equal(maskPhone('77095550123'), '+7 709 ••• •• 23');
+  assert.ok(!maskPhone('77095550123').includes('555'));
 });

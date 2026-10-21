@@ -103,7 +103,7 @@ test('install: миграции, grants, роли, installId, первый ад�
   const pkg = await writePackage(f.dirs.lib, '1.0.0');
   // install сам кладёт v1.0.0 «как запущенную» через compose up — фейк это моделирует
   const code = await run(
-    ['install', pkg, '--domain', 'crm.example.kz', '--admin-phone', '+7 701 123-45-67', '--admin-name', "Админ О'Нил", '--wait-seconds', '1'],
+    ['install', pkg, '--domain', 'crm.example.kz', '--admin-phone', '+7 709 123-45-67', '--admin-name', "Админ О'Нил", '--wait-seconds', '1'],
     f.deps,
   );
   assert.equal(code, 0, `${f.err.join('\n')}\n${f.out.join('\n')}`);
@@ -134,7 +134,7 @@ test('install: миграции, grants, роли, installId, первый ад�
     assert.equal(st?.installId, lic?.install_id);
 
     const [u] = await sql`SELECT phone_digits, name, is_admin, password_hash FROM users`;
-    assert.deepEqual({ ...u }, { phone_digits: '77011234567', name: "Админ О'Нил", is_admin: true, password_hash: null });
+    assert.deepEqual({ ...u }, { phone_digits: '77091234567', name: "Админ О'Нил", is_admin: true, password_hash: null });
 
     // Ссылка одноразового входа: в БД только sha256 токена, срок 72 ч
     const link = /https:\/\/crm\.example\.kz\/invite#(\S+)/.exec(printed);
@@ -166,7 +166,7 @@ test('install: миграции, grants, роли, installId, первый ад�
   assert.ok(!f.calls.some((c) => c.args.join(' ').includes(dbPw)), 'пароль не в argv');
 
   // повторный install не проходит (state.json есть)
-  assert.equal(await run(['install', pkg, '--domain', 'crm.example.kz', '--admin-phone', '77011234567', '--admin-name', 'x'], f.deps), 1);
+  assert.equal(await run(['install', pkg, '--domain', 'crm.example.kz', '--admin-phone', '77091234567', '--admin-name', 'x'], f.deps), 1);
   assert.match(f.err.join('\n'), /Установка уже выполнена/);
 });
 
@@ -178,7 +178,7 @@ test('install, оборванный после секретов, повторя�
   const f = await fresh();
   const pkg = await writePackage(f.dirs.lib, '1.0.0');
   f.server.unhealthy.add('1.0.0'); // app не отвечает -> install остановится после записи в БД
-  const args = ['install', pkg, '--domain', 'crm.example.kz', '--admin-phone', '77015550000', '--admin-name', 'Админ', '--wait-seconds', '1'];
+  const args = ['install', pkg, '--domain', 'crm.example.kz', '--admin-phone', '77095550000', '--admin-name', 'Админ', '--wait-seconds', '1'];
   assert.equal(await run(args, f.deps), 1);
   assert.match(f.err.join('\n'), /app не ответил/);
   assert.equal(await readState(f.deps.paths), null, 'state пишется только после успешного health');
@@ -192,7 +192,7 @@ test('install, оборванный после секретов, повторя�
   assert.equal(await readFile(path.join(f.dirs.etc, 'app.env'), 'utf8'), env1, 'ключи не перегенерированы');
   assert.equal((await sql`SELECT install_id FROM license_state WHERE id = 1`)[0]?.install_id, id1);
   assert.ok(!/CRM_SECRETS_KEY_k1=/.test(f.out.join('\n')), 'секреты второй раз не печатаются');
-  assert.equal((await sql`SELECT count(*)::int AS n FROM users WHERE phone_digits = '77015550000'`)[0]?.n, 1);
+  assert.equal((await sql`SELECT count(*)::int AS n FROM users WHERE phone_digits = '77095550000'`)[0]?.n, 1);
   await sql.end();
 });
 
@@ -200,7 +200,7 @@ test('update на настоящей БД: ненакатанная миграц
   const f = await fresh();
   const p1 = await writePackage(f.dirs.lib, '1.0.0');
   assert.equal(
-    await run(['install', p1, '--domain', 'crm.example.kz', '--admin-phone', '77015551111', '--admin-name', 'Админ', '--wait-seconds', '1'], f.deps),
+    await run(['install', p1, '--domain', 'crm.example.kz', '--admin-phone', '77095551111', '--admin-name', 'Админ', '--wait-seconds', '1'], f.deps),
     0,
     f.err.join('\n'),
   );

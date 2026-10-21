@@ -159,7 +159,7 @@ test('под crm_app запрещены правка журналов, удал�
 test('под crm_app работает нужное: системный автор NULL (D-067), одна открытая автозадача на ключ', async () => {
   const now = 1_761_000_000_000;
   await app.exec(`
-    INSERT INTO users (id, phone_digits, name, created_at) VALUES ('u-1', '77010000001', 'Оператор', ${now});
+    INSERT INTO users (id, phone_digits, name, created_at) VALUES ('u-1', '77090000001', 'Оператор', ${now});
     INSERT INTO spaces (id, key, is_default, created_at) VALUES ('sp-1', 'sales', TRUE, ${now});
     INSERT INTO clients (id, kind, name, name_norm, source_kind, created_at, updated_at)
       VALUES ('cl-1', 'company', 'ТОО Тест', 'тоо тест', 'import', ${now}, ${now});
@@ -181,7 +181,7 @@ test('под crm_app работает нужное: системный авто�
       VALUES ('bk-1', 'sp-1', 'individual', 'consult', 'cl-1', 'cd-1', '2026-10-28', '10:00', ${now}, 60, 'import',
               NULL, ${now}, ${now});
     INSERT INTO invites (id, token_hash, phone_digits, expires_at, created_by, created_at)
-      VALUES ('inv-1', '${'a'.repeat(64)}', '77010000002', ${now + 1}, NULL, ${now});
+      VALUES ('inv-1', '${'a'.repeat(64)}', '77090000002', ${now + 1}, NULL, ${now});
     INSERT INTO audit_log (id, action, entity, entity_id, meta, created_at)
       VALUES ('au-1', 'export.report', 'report', 'calls', '{"filterFields":["owner","state"],"rows":3}', ${now});
     INSERT INTO sessions (id, user_id, created_at, expires_at, last_seen_at)

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, cardTitle, login, makeOperator, prepareDb, sql, type Operator } from './support/calling';
+import { uniquePhone } from './support/phones';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -11,12 +12,12 @@ test.beforeAll(() => {
   prepareDb();
 });
 
-const phone = () => `7709${String(Math.floor(Math.random() * 10_000_000)).padStart(7, '0')}`;
+const phone = () => uniquePhone(sql);
 
 async function makeRop(name: string): Promise<Operator> {
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   const id = randomUUID();
-  const p = phone();
+  const p = await phone();
   const t = Date.now();
   await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${id}, ${p}, ${name}, ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
   await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${id}, ${space!.id}, 'rop', FALSE, ${t}, ${t})`;
@@ -99,7 +100,7 @@ test('«Без владельца (не новые)»: РОП выбирает �
   const t = Date.now();
   await sql`INSERT INTO clients (id, kind, name, name_norm, search_norm, source_kind, created_at, updated_at)
             VALUES (${clientId}, 'company', ${name}, ${name.toLowerCase()}, ${name.toLowerCase()}, 'import', ${t}, ${t})`;
-  await sql`INSERT INTO client_phones (id, client_id, digits, kind, is_primary, created_at) VALUES (${randomUUID()}, ${clientId}, ${phone()}, 'mobile', TRUE, ${t})`;
+  await sql`INSERT INTO client_phones (id, client_id, digits, kind, is_primary, created_at) VALUES (${randomUUID()}, ${clientId}, ${await phone()}, 'mobile', TRUE, ${t})`;
   await sql`INSERT INTO cards (id, space_id, client_id, owner_user_id, state, next_call_at, created_at, updated_at)
             VALUES (${cardId}, ${space!.id}, ${clientId}, NULL, 'callback', ${t + 3_600_000}, ${t}, ${t})`;
 
