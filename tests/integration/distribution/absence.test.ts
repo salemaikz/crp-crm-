@@ -198,6 +198,51 @@ test('«поровну»: кандидаты opB и дежурный, нагру
   assert.equal((await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM audit_log WHERE action = 'distribution.absence_cancel'`)[0]!.n, 1);
 });
 
+/** Карточки с временным владельцем: id → [временный, срок, версия]. */
+const actingSnapshot = async () =>
+  Object.fromEntries(
+    (await db.sql<{ id: string; acting: string; until: string; version: number }>`
+      SELECT id, acting_user_id AS acting, acting_until_day AS until, version FROM cards WHERE acting_user_id IS NOT NULL ORDER BY id`).map((r) => [r.id, [r.acting, r.until, r.version]]),
+  );
+
+test('два отсутствия: отмена будущего не снимает временных действующего (D-304)', async () => {
+  await reset();
+  await seedScenario();
+  const current = await createAbsence(rop, { opId: uuid(), userId: U.opA, fromDay: '2026-10-28', toDay: '2026-10-30', substituteUserId: U.opB });
+  assert.equal(current.applied.acting, 3);
+  const future = await createAbsence(rop, { opId: uuid(), userId: U.opA, fromDay: '2026-11-10', toDay: '2026-11-12', substituteUserId: U.duty });
+  assert.deepEqual(future.applied, { acting: 0, released: 0 });
+  const before = await actingSnapshot();
+  const logBefore = (await logOf('absence')).length;
+
+  await cancelAbsence(rop, future.id);
+  assert.deepEqual(await actingSnapshot(), before, 'временные действующего отсутствия на месте, версии не изменились');
+  assert.equal((await logOf('absence')).length, logBefore, 'снятий в журнале нет');
+  assert.deepEqual((await listAbsences(rop)).map((a) => a.id), [current.id]);
+
+  // Отмена действующего снимает его временных
+  await cancelAbsence(rop, current.id);
+  assert.deepEqual(await actingSnapshot(), {});
+});
+
+test('отмена закончившегося отсутствия не снимает временных следующего (D-304)', async () => {
+  await reset();
+  await seedScenario();
+  const ended = await createAbsence(rop, { opId: uuid(), userId: U.opA, fromDay: '2026-10-28', toDay: '2026-10-30', substituteUserId: U.opB });
+  assert.equal(ended.applied.acting, 3);
+  // 02.11: задача absence сняла временных прошлого отсутствия, создано следующее с другим заместителем
+  clock.now = local('2026-11-02', '07:30');
+  const run = await runAbsences(sys(clock.now), { spaceId: SPACE, runId: uuid(), now: clock.now });
+  assert.equal(run.ended, 3);
+  const next = await createAbsence(rop, { opId: uuid(), userId: U.opA, fromDay: '2026-11-02', toDay: '2026-11-04', substituteUserId: U.duty });
+  assert.ok(next.applied.acting > 0);
+  const before = await actingSnapshot();
+  assert.ok(Object.values(before).every(([who, until]) => who === U.duty && until === '2026-11-04'));
+
+  await cancelAbsence(rop, ended.id);
+  assert.deepEqual(await actingSnapshot(), before, 'временные действующего отсутствия на месте');
+});
+
 test('«поровну» без кандидатов — 409 no_substitute, ничего не создано; задача без заместителя уведомляет руководителя', async () => {
   await reset();
   await seedScenario();

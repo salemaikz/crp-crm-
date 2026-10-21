@@ -442,10 +442,10 @@ export async function insertAbsence(sql: Sql, a: { id: string; spaceId: string; 
 }
 
 /** Отметить отменённым; null — нет такого или уже отменено. */
-export async function cancelAbsenceRow(sql: Sql, a: { spaceId: string; id: string; now: number }): Promise<{ userId: string } | null> {
-  const rows = await sql<{ userId: string }>`
+export async function cancelAbsenceRow(sql: Sql, a: { spaceId: string; id: string; now: number }): Promise<{ userId: string; toDay: string } | null> {
+  const rows = await sql<{ userId: string; toDay: string }>`
     UPDATE absences a SET cancelled_at = ${a.now}
-     WHERE a.id = ${a.id} AND a.space_id = ${a.spaceId} AND a.cancelled_at IS NULL RETURNING a.user_id`;
+     WHERE a.id = ${a.id} AND a.space_id = ${a.spaceId} AND a.cancelled_at IS NULL RETURNING a.user_id, a.to_day`;
   return rows[0] ?? null;
 }
 
@@ -535,23 +535,28 @@ export async function insertCountNotification(sql: Sql, a: { userId: string; kin
     ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`;
 }
 
-/** Какие временные владельцы снимаются (§2.5.4). */
-export type ActingScope = { owner: string } | { expiredBefore: string } | { cardIds: readonly string[] };
+/**
+ * Какие временные владельцы снимаются (§2.5.4). `absence` — карточки одного отсутствия: владелец — отсутствующий, срок
+ * временного = последний день этого отсутствия (D-304). Отсутствия сотрудника не пересекаются, поэтому `to_day` однозначно
+ * отличает их карточки от карточек другого его отсутствия.
+ */
+export type ActingScope = { absence: { owner: string; toDay: string } } | { expiredBefore: string } | { cardIds: readonly string[] };
 
 /**
- * Снять временных владельцев: у всех карточек владельца (отмена отсутствия), у карточек со сроком раньше дня (задача
+ * Снять временных владельцев: у карточек одного отсутствия (его отмена), у карточек со сроком раньше дня (задача
  * `absence`) или у перечисленных (временный стал владельцем). Ядро события снятия не имеет, запись пакетом: меняются
  * `acting_*` и версия, в журнал `absence` (от временного к владельцу — нужно для D-175), в ленту `card.acting`.
  */
 export async function releaseActing(sql: Sql, a: { spaceId: string; scope: ActingScope; today: string; runId: string; actorId: string | null; now: number }): Promise<number> {
-  const owner = 'owner' in a.scope ? a.scope.owner : null;
+  const owner = 'absence' in a.scope ? a.scope.absence.owner : null;
+  const untilDay = 'absence' in a.scope ? a.scope.absence.toDay : null;
   const expired = 'expiredBefore' in a.scope ? a.scope.expiredBefore : null;
   const ids = 'cardIds' in a.scope ? [...a.scope.cardIds] : null;
   if (ids !== null && ids.length === 0) return 0;
   const cards = await sql<{ id: string; clientId: string; ownerUserId: string; actingUserId: string }>`
     SELECT c.id, c.client_id, c.owner_user_id, c.acting_user_id FROM cards c
      WHERE c.space_id = ${a.spaceId} AND c.acting_user_id IS NOT NULL AND c.owner_user_id IS NOT NULL
-       AND ((${owner}::text IS NOT NULL AND c.owner_user_id = ${owner}::text)
+       AND ((${owner}::text IS NOT NULL AND c.owner_user_id = ${owner}::text AND c.acting_until_day = ${untilDay}::text)
          OR (${expired}::text IS NOT NULL AND c.acting_until_day < ${expired}::text)
          OR (${ids}::text[] IS NOT NULL AND c.id = ANY(${ids}::text[])))
      ORDER BY c.id FOR UPDATE OF c`;

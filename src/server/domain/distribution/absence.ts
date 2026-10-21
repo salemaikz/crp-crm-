@@ -272,7 +272,8 @@ export async function cancelAbsence(viewer: Viewer, id: string): Promise<Absence
     if (!view) throw new NotFoundError();
     // Уже отменено — прежний ответ, повторно ничего не снимаем
     if (!done) return toView(view);
-    await releaseActing(tx, { spaceId, scope: { owner: done.userId }, today, runId: id, actorId: viewer.userId, now });
+    // Только карточки этого отсутствия (D-304): временные другого отсутствия того же сотрудника остаются
+    await releaseActing(tx, { spaceId, scope: { absence: { owner: done.userId, toDay: done.toDay } }, today, runId: id, actorId: viewer.userId, now });
     await writeAudit(tx, { actorId: viewer.userId, action: 'distribution.absence_cancel', entity: 'distribution', entityId: done.userId, spaceId, meta: {}, createdAt: now });
     return toView(view);
   });
