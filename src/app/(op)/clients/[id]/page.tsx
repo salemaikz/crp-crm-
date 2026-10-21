@@ -5,7 +5,7 @@ import { can, page } from '@/server/access';
 import { loadClientPage } from '@/server/domain/clients';
 import { getMessengerConsent } from '@/server/domain/messenger';
 import { loadChannelModes } from '@/ui/channels/loadModes';
-import { TextLink } from '@/ui/kit';
+import { Page, TextLink } from '@/ui/kit';
 import { WhatsappButton } from '@/ui/messenger/WhatsappButton';
 import { ClientTasksPanel } from '../../tasks/_ui/ClientTasksPanel';
 import { CallButton } from '../_ui/CallButton';
@@ -54,7 +54,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
 
   return (
     <ClientsProviders>
-      <main className="mx-auto w-full max-w-6xl px-4 py-4 lg:py-6">
+      <Page width="wide">
         <p className="mb-3">
           <TextLink href="/clients">{t('card.back')}</TextLink>
         </p>
@@ -79,7 +79,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
           </div>
           <FeedPanel clientId={card.id} canPin={card.can.note} initialItems={feed.items} initialNext={feed.next} timeZone={tz} labels={labels} />
         </div>
-      </main>
+      </Page>
     </ClientsProviders>
   );
 });

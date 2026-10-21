@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import type { IssuedLink, StaffList, StaffRow } from './types';
-import { Badge, Button, EmptyState, Modal, PageHeader, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
+import { Badge, Button, EmptyState, Modal, Page, PageHeader, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
 import { InviteForm } from './InviteForm';
 import { LinkView } from './LinkView';
 import { RowDialog } from './RowDialog';
@@ -62,7 +62,7 @@ export function StaffScreen({ data, bulkEnabled }: { data: StaffList; bulkEnable
   else if (dialog?.kind === 'link') title = dialog.reset ? t('link.titleReset') : t('link.titleInvite');
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader
         title={t('title')}
         lead={t('lead')}
@@ -95,6 +95,6 @@ export function StaffScreen({ data, bulkEnabled }: { data: StaffList; bulkEnable
         )}
         {dialog?.kind === 'link' && <LinkView link={dialog.link.link} ttlHours={dialog.link.ttlHours} onDone={close} />}
       </Modal>
-    </>
+    </Page>
   );
 }

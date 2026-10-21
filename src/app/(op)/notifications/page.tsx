@@ -1,10 +1,10 @@
-// Колокольчик: свои уведомления, новые сверху. Одна главная кнопка — «Прочитать все». Текст строится из локали по виду
+// Колокольчик: свои уведомления, новые сверху. «Прочитать все» — тихое действие в шапке. Текст строится из локали по виду
 // уведомления и числам в params (ПДн в записи нет). Один URL для всех ролей: оболочку выбирает RoleShell по роли.
 import { getFormatter, getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { page, type PageContext } from '@/server/access';
 import { listMine } from '@/server/domain/notify';
-import { Badge, Container, EmptyState, List, ListItem, PageHeader, buttonClass } from '@/ui/kit';
+import { Badge, EmptyState, List, ListItem, Page, PageHeader, buttonClass } from '@/ui/kit';
 import { MarkAllRead } from './MarkAllRead';
 import { hrefForKind, icuValues, isAlarmKind, isKnownKind } from './kinds';
 
@@ -19,7 +19,7 @@ export default page<Props, React.ReactNode>({ perm: 'authenticated' }, async ({ 
     listMine(viewer, { cursor: cursor ?? null }),
   ]);
   return (
-    <Container size="narrow" as="main">
+    <Page width="list">
       <PageHeader title={t('title')} lead={t('lead')} actions={data.unread > 0 ? <MarkAllRead /> : undefined} />
       {data.items.length === 0 ? (
         <EmptyState title={t('empty.title')} description={t('empty.lead')} />
@@ -51,6 +51,6 @@ export default page<Props, React.ReactNode>({ perm: 'authenticated' }, async ({ 
           </Link>
         </p>
       )}
-    </Container>
+    </Page>
   );
 });

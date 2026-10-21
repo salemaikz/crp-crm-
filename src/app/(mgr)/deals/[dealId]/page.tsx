@@ -5,7 +5,7 @@ import { NotFoundError, page } from '@/server/access';
 import { pickLabel } from '@/server/domain/booking';
 import { dealsDeps, getDealPage } from '@/server/domain/deals';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { Badge, Button, Card, EmptyState, PageHeader } from '@/ui/kit';
+import { Badge, Button, Card, EmptyState, Page, PageHeader } from '@/ui/kit';
 import { DealActions } from '../_components/DealActions';
 
 type Props = { params: Promise<{ dealId: string }> };
@@ -39,7 +39,7 @@ export default page<Props, ReactNode>({ perm: 'deal.read', target: 'object' }, a
   const tone = deal.status === 'won' ? 'success' : deal.status === 'lost' ? 'danger' : 'info';
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-4">
+    <Page width="form">
       <PageHeader title={view.clientName} lead={`${t('page.title')} · ${pickLabel(pipeline.label, locale)}`} />
       <div className="flex flex-col gap-4">
         <Card as="section" data-testid="deal-summary">
@@ -134,6 +134,6 @@ export default page<Props, ReactNode>({ perm: 'deal.read', target: 'object' }, a
           )}
         </Card>
       </div>
-    </main>
+    </Page>
   );
 });

@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Alert, Badge, Button, Card, EmptyState, PageHeader, TextLink, useToast } from '@/ui/kit';
+import { Alert, Badge, Button, Card, EmptyState, Page, PageHeader, TextLink, useToast } from '@/ui/kit';
 import { formatDateTime } from '../../distribution/format';
 import { call } from './api';
 import { MergeDialog } from './MergeDialog';
@@ -59,7 +59,7 @@ export function PairsScreen({ data }: { data: PairsData }) {
   };
 
   return (
-    <>
+    <Page width="list">
       <PageHeader title={t('title')} lead={t('lead')} />
       {error && <Alert tone="danger">{te(error as 'generic')}</Alert>}
       {items.length === 0 ? (
@@ -106,7 +106,7 @@ export function PairsScreen({ data }: { data: PairsData }) {
       )}
       {split && <SplitDialog pair={split} onClose={() => setSplit(null)} onDone={() => done('split_allowed')} />}
       {merge && <MergeDialog pair={merge} onClose={() => setMerge(null)} onDone={() => done('merged')} />}
-    </>
+    </Page>
   );
 }
 

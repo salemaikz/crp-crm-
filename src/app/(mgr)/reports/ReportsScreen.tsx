@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState } from 'react';
-import { Alert, Checkbox, Chip, ChipGroup, Field, PageHeader, Select } from '@/ui/kit';
+import { Alert, Checkbox, Chip, ChipGroup, Field, Page, PageHeader, Select } from '@/ui/kit';
 import { loadReport, queryString, type LoadFailure } from './api';
 import { periodProblem } from './dates';
 import { ExportBar } from './ExportBar';
@@ -71,7 +71,7 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
   const sourceKeys = Object.keys(meta.labels.sources);
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader title={t('page.title')} lead={t('page.lead')} />
       <ExportBar actions={actions} query={query} disabled={periodProblem(query.from, query.to, meta.today)} />
       <ChipGroup label={t('page.tabsLabel')} className="mb-4">
@@ -147,6 +147,6 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
           </Alert>
         )}
       </div>
-    </>
+    </Page>
   );
 }

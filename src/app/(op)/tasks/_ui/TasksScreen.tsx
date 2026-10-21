@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Field, PageHeader, Select, Tabs, TextLink, ToastProvider } from '@/ui/kit';
+import { Alert, Button, Field, Page, PageHeader, Select, Tabs, TextLink, ToastProvider } from '@/ui/kit';
 import { call, type ErrorKey } from './api';
 import { NewTaskSheet } from './NewTaskSheet';
 import { TaskListView } from './TaskListView';
@@ -78,7 +78,7 @@ function TasksBody({ initial, can, staff, meId, timeZone }: Props) {
   );
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-4 lg:py-6">
+    <Page width="list">
       <PageHeader
         title={t('title')}
         lead={t('lead')}
@@ -129,6 +129,6 @@ function TasksBody({ initial, can, staff, meId, timeZone }: Props) {
           onCreated={() => void load()}
         />
       )}
-    </main>
+    </Page>
   );
 }

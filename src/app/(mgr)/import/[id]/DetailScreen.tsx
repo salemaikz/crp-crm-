@@ -4,7 +4,7 @@ import { useFormatter, useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ArrowLeft, Check, RefreshCw } from 'lucide-react';
-import { Alert, Badge, Button, Card, PageHeader } from '@/ui/kit';
+import { Alert, Badge, Button, Card, Page, PageHeader } from '@/ui/kit';
 import { call } from '../api';
 import type { ApplyBlocker, ApplyResult, ImportDetails, PreviewSummary } from '../types';
 import { ApplyDialog } from './ApplyDialog';
@@ -71,7 +71,7 @@ export function DetailScreen({ details, sameFileAppliedAt }: Props) {
   const canApply = !!summary && !alreadyApplied && blockers.length === 0 && !stale;
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader
         breadcrumbs={
           <Button variant="quiet" size="sm" href="/import">
@@ -129,6 +129,6 @@ export function DetailScreen({ details, sameFileAppliedAt }: Props) {
         )}
       </div>
       {summary && <ApplyDialog open={confirm} summary={summary} busy={busy} onConfirm={runApply} onClose={() => setConfirm(false)} />}
-    </>
+    </Page>
   );
 }

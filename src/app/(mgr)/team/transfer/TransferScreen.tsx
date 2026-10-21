@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Checkbox, Field, PageHeader, Select, useToast } from '@/ui/kit';
+import { Alert, Button, Checkbox, Field, Page, PageHeader, Select, useToast } from '@/ui/kit';
 import { call } from '../api';
 import type { TransferPreview, TransferResult, TransferStaffItem } from '../types';
 
@@ -69,7 +69,7 @@ export function TransferScreen({ staff, initialFrom }: Props) {
   }
 
   return (
-    <>
+    <Page width="form">
       <PageHeader title={t('transfer.title')} lead={t('transfer.lead')} />
       <div className="flex max-w-xl flex-col gap-4">
         <Field label={t('transfer.from')}>
@@ -146,6 +146,6 @@ export function TransferScreen({ staff, initialFrom }: Props) {
           </Button>
         </div>
       </div>
-    </>
+    </Page>
   );
 }

@@ -3,7 +3,7 @@
 import { RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, EmptyState, PageHeader, Stat } from '@/ui/kit';
+import { Alert, Button, Card, EmptyState, Page, PageHeader, Stat } from '@/ui/kit';
 import { formatTime } from './format';
 import { OperatorsTable } from './OperatorsTable';
 import type { SummaryData } from './types';
@@ -63,7 +63,7 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
   const tl = data.tiles;
   const time = formatTime(data.generatedAt, data.timeZone);
   return (
-    <>
+    <Page width="wide">
       <PageHeader
         title={t('title')}
         lead={`${t('lead')} · ${t('updatedAt', { time })}`}
@@ -123,6 +123,6 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
       ) : (
         <OperatorsTable data={data} />
       )}
-    </>
+    </Page>
   );
 }

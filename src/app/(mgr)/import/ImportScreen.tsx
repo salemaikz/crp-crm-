@@ -3,7 +3,7 @@
 import { useFormatter, useTranslations } from 'next-intl';
 import Link from 'next/link';
 import type { ImportListItem, ProfileOption } from './types';
-import { Badge, Card, EmptyState, PageHeader, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
+import { Badge, Card, EmptyState, Page, PageHeader, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
 import { UploadForm } from './UploadForm';
 
 const TONE: Record<ImportListItem['status'], BadgeTone> = { preview: 'info', applied: 'success', failed: 'danger' };
@@ -39,7 +39,7 @@ export function ImportScreen({ items, profiles, today }: { items: ImportListItem
     },
   ];
   return (
-    <>
+    <Page width="wide">
       <PageHeader title={t('title')} lead={t('lead')} />
       <Card className="mb-6">
         <h2 className="mb-3 text-lg font-semibold">{t('upload.title')}</h2>
@@ -47,6 +47,6 @@ export function ImportScreen({ items, profiles, today }: { items: ImportListItem
       </Card>
       <h2 className="mb-3 text-lg font-semibold">{t('list.title')}</h2>
       <Table columns={columns} rows={items} rowKey={(i) => i.id} empty={<EmptyState framed={false} title={t('list.emptyTitle')} description={t('list.emptyHint')} />} />
-    </>
+    </Page>
   );
 }

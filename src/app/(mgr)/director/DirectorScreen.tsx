@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState } from 'react';
 import { fmtDec, fmtInt, formatDay } from '../reports/format';
 import { FUNNEL_STEPS } from '../reports/types';
-import { Alert, Button, Card, EmptyState, PageHeader, Stat, Table, type TableColumn } from '@/ui/kit';
+import { Alert, Button, Card, EmptyState, Page, PageHeader, Stat, Table, type TableColumn } from '@/ui/kit';
 import type { DirectorData, DirectorProps, RevenueRow } from './types';
 
 type Failure = 'forbidden' | 'unauthorized' | 'network' | 'generic';
@@ -72,7 +72,7 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
   const updated = new Intl.DateTimeFormat('ru-RU', { timeZone: data.week.timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(data.generatedAt));
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader
         title={t('title')}
         lead={`${t('lead', { from: formatDay(data.week.from), to: formatDay(data.week.to) })} · ${t('updatedAt', { time: updated })}`}
@@ -173,6 +173,6 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
           </Button>
         )}
       </div>
-    </>
+    </Page>
   );
 }

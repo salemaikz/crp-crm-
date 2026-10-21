@@ -2,7 +2,7 @@ import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { BadRequestError, page } from '@/server/access';
 import { CARD_STATES, listClients, parseListQuery, type ClientList } from '@/server/domain/clients';
-import { Badge, Button, Chip, ChipGroup, EmptyState, Input, List, ListItem } from '@/ui/kit';
+import { Badge, Button, Chip, ChipGroup, EmptyState, Input, List, ListItem, Page } from '@/ui/kit';
 import { can } from '@/server/access';
 import { ProposeSheet } from './_ui/ProposeSheet';
 import { formatDateTime, formatPhone } from './_ui/format';
@@ -47,7 +47,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'section' }
   const view = sp.get('view') === 'mine' ? 'mine' : 'all';
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-4 lg:py-6">
+    <Page width="list">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-semibold">{t('list.title')}</h1>
         {can(viewer, 'client.propose') && <ProposeSheet />}
@@ -116,6 +116,6 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'section' }
           </Button>
         </div>
       )}
-    </main>
+    </Page>
   );
 });

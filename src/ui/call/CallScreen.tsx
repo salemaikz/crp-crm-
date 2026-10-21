@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatKzPhone, maskKzPhone } from '@/shared/tel';
-import { Alert, Button, Chip, ChipGroup, EmptyState, ToastProvider, useToast } from '@/ui/kit';
+import { Alert, Button, Chip, ChipGroup, EmptyState, Page, ToastProvider, useToast } from '@/ui/kit';
 import type { WizardChoice } from '@/app/(op)/bookings/_wizard/choice';
 import type { BookingWizardProps } from '@/app/(op)/bookings/_wizard/BookingWizard';
 import type { WizardResult } from '@/app/(op)/bookings/_wizard/result';
@@ -639,7 +639,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
   if (locked) return null;
 
   return (
-    <main className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 py-3" data-testid="call-screen">
+    <Page width="focus" data-testid="call-screen">
       <header className="flex flex-col gap-2">
         <p className="text-sm font-semibold" data-testid="call-counts">
           {counts ? t('head.counts', { due: counts.dueNow, overdue: counts.overdue }) : t('head.loading')}
@@ -718,7 +718,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
 
       {waiting > 0 && (
         <div
-          className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 mx-auto flex max-w-xl items-center gap-2 px-4"
+          className="fixed inset-x-0 bottom-[var(--bottom-nav-h)] z-20 mx-auto flex max-w-[calc(var(--page-w-focus)+2*var(--gutter))] items-center gap-2 px-[var(--gutter)] pb-2"
           role="status"
           data-testid="outbox-banner"
         >
@@ -746,6 +746,6 @@ function CallScreenInner({ config }: { config: CallConfig }) {
           onBooked={onBooked}
         />
       )}
-    </main>
+    </Page>
   );
 }

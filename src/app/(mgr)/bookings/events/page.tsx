@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { booking } from '@crm/core';
 import { page } from '@/server/access';
 import { bookingDeps, listEventsBoard, pickLabel } from '@/server/domain/booking';
-import { PageHeader } from '@/ui/kit';
+import { Page, PageHeader } from '@/ui/kit';
 import { EventsBoard } from './_events/EventsBoard';
 
 const MAX_DAYS = 62;
@@ -20,9 +20,9 @@ export default page<object, ReactNode>({ perm: 'booking.manage', target: 'sectio
   const locale = await getLocale();
   const typeLabels = Object.fromEntries((settings?.catalog.eventTypes ?? []).map((x) => [x.key, pickLabel(x.short, locale)]));
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-6">
+    <Page width="list">
       <PageHeader title={t('title')} />
       <EventsBoard events={board.events} candidates={board.candidates} today={today} typeLabels={typeLabels} now={now} />
-    </main>
+    </Page>
   );
 });

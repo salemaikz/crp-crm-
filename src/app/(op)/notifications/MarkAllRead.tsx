@@ -33,7 +33,7 @@ export function MarkAllRead() {
 
   return (
     <>
-      <Button onClick={markAll} disabled={busy}>
+      <Button variant="quiet" size="sm" onClick={markAll} disabled={busy}>
         {t('markAll')}
       </Button>
       {failed && <Alert tone="danger">{t('error')}</Alert>}

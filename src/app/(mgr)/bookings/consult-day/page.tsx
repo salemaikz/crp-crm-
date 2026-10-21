@@ -5,7 +5,7 @@ import { booking } from '@crm/core';
 import { page } from '@/server/access';
 import { bookingDeps, getConsultDay, pickLabel } from '@/server/domain/booking';
 import { isFeatureEnabled } from '@/server/platform/flags';
-import { PageHeader } from '@/ui/kit';
+import { Page, PageHeader } from '@/ui/kit';
 import { ConsultDayBoard } from './_day/ConsultDayBoard';
 
 type Props = { searchParams: Promise<{ date?: string }> };
@@ -23,9 +23,9 @@ export default page<Props, ReactNode>({ perm: 'booking.manage', target: 'section
   const locale = await getLocale();
   const directions = Object.fromEntries((settings?.catalog.directions ?? []).map((d) => [d.key, pickLabel(d.label, locale)]));
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-6">
+    <Page width="list">
       <PageHeader title={t('title')} />
       <ConsultDayBoard view={view} today={today} directions={directions} locale={locale} />
-    </main>
+    </Page>
   );
 });

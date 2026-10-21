@@ -5,7 +5,7 @@
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Badge, Button, EmptyState, PageHeader, Select, useToast } from '@/ui/kit';
+import { Alert, Badge, Button, EmptyState, Page, PageHeader, Select, useToast } from '@/ui/kit';
 import type { BoardColumn, BoardStage, ClosedDeals, DealTile as Tile, DealsBoard as Board } from './types';
 import { loadBoard, loadClosed, loadColumn, postStage, type StageExtras } from './api';
 import { BoardTabs } from './BoardTabs';
@@ -330,7 +330,7 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
   const empty = board.columns.every((c) => c.total === 0);
 
   return (
-    <main className="flex flex-col gap-3 px-4 py-3" data-testid="deals-board">
+    <Page width="full" data-testid="deals-board">
       <PageHeader title={t('title')} lead={t('lead')} />
       <BoardTabs active="deals" showCalling={showCalling} />
 
@@ -490,6 +490,6 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
           onSubmit={(x) => void submitPanel(x)}
         />
       )}
-    </main>
+    </Page>
   );
 }

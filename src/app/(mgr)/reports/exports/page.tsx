@@ -3,7 +3,7 @@
 import { getTranslations } from 'next-intl/server';
 import { can, page } from '@/server/access';
 import { JOURNAL_PAGE, getExportJournal } from '@/server/domain/reports';
-import { PageHeader } from '@/ui/kit';
+import { Page, PageHeader } from '@/ui/kit';
 import { ExportJournal } from './ExportJournal';
 import type { JournalPage } from './types';
 
@@ -12,9 +12,9 @@ export default page({ perm: 'authenticated' }, async ({ viewer }) => {
   // присваивание проверяет, что форма из домена совместима с типами клиентского экрана
   const first: JournalPage = await getExportJournal(viewer, { before: null, limit: JOURNAL_PAGE });
   return (
-    <>
+    <Page width="list">
       <PageHeader title={t('title')} lead={t('lead')} />
       <ExportJournal initial={first} timeZone={viewer.timeZone} showBack={viewer.spaceId !== null && can(viewer, 'report.view')} />
-    </>
+    </Page>
   );
 });

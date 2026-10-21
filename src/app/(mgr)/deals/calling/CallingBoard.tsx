@@ -16,7 +16,7 @@ import { OutcomeSheet } from '@/ui/call/OutcomeSheet';
 import type { PendingState } from '@/ui/call/pending';
 import { EMPTY_DRAFT, type CallConfig, type OutcomeButton, type SheetDraft } from '@/ui/call/types';
 import { buildRequest } from '@/ui/call/validate';
-import { Alert, BottomSheet, Badge, Button, EmptyState, PageHeader, Select, useToast } from '@/ui/kit';
+import { Alert, Badge, BottomSheet, Button, EmptyState, Page, PageHeader, Select, useToast } from '@/ui/kit';
 import { BoardTabs } from '../BoardTabs';
 import { dropKinds, type DropTarget } from './dropRules';
 
@@ -233,7 +233,7 @@ export function CallingBoard({ initial, config, userId }: { initial: Board; conf
   });
 
   return (
-    <main className="flex flex-col gap-3 px-4 py-3" data-testid="calling-board">
+    <Page width="full" data-testid="calling-board">
       <PageHeader title={t('calling.title')} lead={t('calling.lead')} />
       <BoardTabs active="calling" showCalling />
       <div className="flex items-center gap-2">
@@ -389,6 +389,6 @@ export function CallingBoard({ initial, config, userId }: { initial: Board; conf
           onBooked={() => done(t('calling.saved'))}
         />
       )}
-    </main>
+    </Page>
   );
 }
