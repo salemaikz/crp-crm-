@@ -29,7 +29,8 @@ export type ClientSummaryDto = {
     status: booking.BookingStatus;
     consultantName: string | null;
   }>;
-  purchases: Array<{ serviceTypeKey: string; amountKzt: number; wonAt: number }>;
+  /** Сумма `null` — зритель видит сделки только как отдел передачи (D-300). */
+  purchases: Array<{ serviceTypeKey: string; amountKzt: number | null; wonAt: number }>;
   handoffs: Array<{ teamKey: string; status: string; createdAt: number; acceptedAt: number | null }>;
   ownerName: string | null;
   actingName: string | null;
@@ -42,7 +43,8 @@ export type DealRowDto = {
   stageKey: string;
   status: 'open' | 'won' | 'lost';
   serviceTypeKey: string;
-  amountKzt: number;
+  /** `null` — зритель видит сделки только как отдел передачи (D-300). */
+  amountKzt: number | null;
   createdAt: number;
   wonAt: number | null;
   lostAt: number | null;

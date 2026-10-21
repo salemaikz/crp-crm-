@@ -183,7 +183,11 @@ type SummaryParts = Pick<ClientSummaryDto, 'period' | 'lprFoundAt' | 'bookings' 
   task: { source: string; dueAt: number | null } | null;
 };
 
-export async function selectSummaryParts(sql: Sql, viewer: Viewer, clientId: string): Promise<SummaryParts> {
+/**
+ * `departmentOnly` (D-300): зритель видит сделки только по отношению передачи — покупки лишь тех сделок, чья передача
+ * ему видна, и без сумм (как страница сделки, `findDealPageRow`).
+ */
+export async function selectSummaryParts(sql: Sql, viewer: Viewer, clientId: string, departmentOnly = false): Promise<SummaryParts> {
   if (viewer.spaceId === null) {
     return { period: null, lprFoundAt: null, bookings: [], purchases: [], handoffs: [], nextBookingAt: null, task: null };
   }
@@ -209,9 +213,11 @@ export async function selectSummaryParts(sql: Sql, viewer: Viewer, clientId: str
     SELECT min(b.starts_at) AS at FROM bookings b
      WHERE b.client_id = ${clientId} AND b.space_id = ${s} AND b.status IN ('registered','confirmed') AND b.starts_at > ${viewer.now}
        AND ${scopeSql(viewer, 'booking', 'booking.read')}`;
-  const purchases = await sc<{ serviceTypeKey: string; amountKzt: number; wonAt: number }>`
-    SELECT d.service_type_key, d.amount_kzt, d.won_at FROM deals d
+  const purchases = await sc<{ serviceTypeKey: string; amountKzt: number | null; wonAt: number }>`
+    SELECT d.service_type_key, CASE WHEN ${departmentOnly}::boolean THEN NULL ELSE d.amount_kzt END AS amount_kzt, d.won_at FROM deals d
      WHERE d.client_id = ${clientId} AND d.space_id = ${s} AND d.status = 'won' AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${departmentOnly}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))
      ORDER BY d.won_at`;
   const handoffs = await sc<{ key: string; status: string; createdAt: number; acceptedAt: number | null }>`
     SELECT t.key, h.status, h.created_at, h.accepted_at FROM handoffs h JOIN teams t ON t.id = h.team_id
@@ -242,7 +248,8 @@ export async function selectSummaryParts(sql: Sql, viewer: Viewer, clientId: str
 
 // ---------- История сделок (C8, §3.5) ----------
 
-export async function selectDeals(sql: Sql, viewer: Viewer, clientId: string): Promise<DealRowDto[]> {
+/** `departmentOnly` (D-300): только сделки передачи и без сумм. */
+export async function selectDeals(sql: Sql, viewer: Viewer, clientId: string, departmentOnly = false): Promise<DealRowDto[]> {
   if (viewer.spaceId === null) return [];
   const rows = await scoped(sql)<{
     id: string;
@@ -250,17 +257,20 @@ export async function selectDeals(sql: Sql, viewer: Viewer, clientId: string): P
     stageKey: string;
     status: 'open' | 'won' | 'lost';
     serviceTypeKey: string;
-    amountKzt: number;
+    amountKzt: number | null;
     createdAt: number;
     wonAt: number | null;
     lostAt: number | null;
     lostReasonCode: string;
     ownerName: string | null;
   }>`
-    SELECT d.id, d.pipeline_key, d.stage_key, d.status, d.service_type_key, d.amount_kzt, d.created_at, d.won_at, d.lost_at,
+    SELECT d.id, d.pipeline_key, d.stage_key, d.status, d.service_type_key,
+           CASE WHEN ${departmentOnly}::boolean THEN NULL ELSE d.amount_kzt END AS amount_kzt, d.created_at, d.won_at, d.lost_at,
            d.lost_reason_code, u.name AS owner_name
       FROM deals d LEFT JOIN users u ON u.id = d.owner_user_id
      WHERE d.client_id = ${clientId} AND d.space_id = ${viewer.spaceId} AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${departmentOnly}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))
      ORDER BY d.created_at DESC, d.id DESC LIMIT 50`;
   return rows;
 }

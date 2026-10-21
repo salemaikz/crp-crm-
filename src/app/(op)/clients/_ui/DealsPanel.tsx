@@ -34,7 +34,7 @@ export function DealsPanel({ deals, catalog, timeZone }: Props) {
                   <Badge tone={TONE[d.status]}>{t(`deals.status.${d.status}`)}</Badge>
                   <span className="font-medium">{stage ? labelOf(stage) : d.stageKey}</span>
                   {service && <span>{labelOf(service)}</span>}
-                  {d.amountKzt > 0 && <span>{formatNumber(d.amountKzt)} ₸</span>}
+                  {d.amountKzt !== null && d.amountKzt > 0 && <span>{formatNumber(d.amountKzt)} ₸</span>}
                 </div>
                 <p className="text-sm text-[var(--text-2)]">
                   {formatDate(date, timeZone)}

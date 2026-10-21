@@ -63,3 +63,26 @@ test('страница клиента несёт сделки, подписи э
   assert.ok(typeof page.summary.calls.total === 'number');
   assert.ok(Object.keys(page.catalog.stages).length > 0);
 });
+
+test('отдел передачи (D-300): на странице клиента только сделка передачи и без сумм — ни в списке, ни в итоге', async () => {
+  const cl = clientOf('b', 7);
+  await db.sql`UPDATE deals SET service_type_key = 'smm', amount_kzt = 990002 WHERE id = 'dl-b7'`;
+  await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, service_type_key, amount_kzt,
+                                  won_at, stage_changed_at, created_by, created_at, updated_at)
+               VALUES ('dh-dept-other', ${SPACE}, 'sales', 'won', 'won', ${cl}, ${cardOf('b', 7)}, ${U.opB}, 'smm', 990001,
+                       ${SEED_NOW}, ${SEED_NOW}, ${U.opB}, ${SEED_NOW}, ${SEED_NOW})`;
+  for (const who of [U.mktHead, U.marketer]) {
+    const v = await viewerOf(who);
+    const rows = await getClientDeals(v, cl);
+    assert.deepEqual(rows.map((r) => [r.id, r.amountKzt]), [['dl-b7', null]], who);
+    const page = await loadClientPage(v, cl);
+    assert.equal(page.kind, 'ok');
+    if (page.kind !== 'ok') return;
+    assert.deepEqual(page.deals.map((d) => d.id), ['dl-b7'], who);
+    assert.deepEqual(page.summary.purchases.map((p) => p.amountKzt), [null], who);
+    assert.ok(!/99000[12]/.test(JSON.stringify({ deals: page.deals, summary: page.summary, feed: page.feed })), `сумма в странице клиента у ${who}`);
+  }
+  // РОП (охват роли) видит обе сделки с суммами
+  const rop = await getClientDeals(await viewerOf(U.rop), cl);
+  assert.deepEqual(rop.map((r) => r.amountKzt).sort(), [990001, 990002]);
+});

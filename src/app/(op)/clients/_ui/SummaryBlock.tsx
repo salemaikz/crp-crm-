@@ -40,7 +40,10 @@ export async function SummaryBlock({ summary: s, catalog, timeZone }: Props) {
     );
   }
   for (const p of s.purchases) {
-    lines.push(t('summary.purchase', { service: name(catalog.serviceTypes, p.serviceTypeKey), amount: formatNumber(p.amountKzt), date: formatDate(p.wonAt, timeZone) }));
+    const service = name(catalog.serviceTypes, p.serviceTypeKey);
+    const date = formatDate(p.wonAt, timeZone);
+    // Сумма скрыта от отдела передачи (D-300)
+    lines.push(p.amountKzt === null ? t('summary.purchaseNoAmount', { service, date }) : t('summary.purchase', { service, amount: formatNumber(p.amountKzt), date }));
   }
   for (const h of s.handoffs) {
     lines.push(t('summary.handoff', { team: name(catalog.teams, h.teamKey), status: t(`summary.handoffStatus.${h.status}`) }));

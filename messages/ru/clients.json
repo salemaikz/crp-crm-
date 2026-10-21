@@ -244,6 +244,7 @@
       "moved": "перенесена"
     },
     "purchase": "Покупка «{service}» {amount} ₸, {date}.",
+    "purchaseNoAmount": "Покупка «{service}», {date}.",
     "handoff": "Передан в отдел «{team}»: {status}.",
     "handoffStatus": {
       "pending": "ждёт приёма",

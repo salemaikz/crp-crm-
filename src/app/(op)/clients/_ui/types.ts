@@ -86,7 +86,8 @@ export type DealView = {
   stageKey: string;
   status: 'open' | 'won' | 'lost';
   serviceTypeKey: string;
-  amountKzt: number;
+  /** `null` — сумма скрыта от отдела передачи (D-300). */
+  amountKzt: number | null;
   createdAt: number;
   wonAt: number | null;
   lostAt: number | null;
