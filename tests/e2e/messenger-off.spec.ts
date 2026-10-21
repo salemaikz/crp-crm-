@@ -21,6 +21,8 @@ test('кнопка «WhatsApp» открывает wa.me, окна чата не
   const button = page.getByRole('link', { name: 'Написать клиенту в WhatsApp' });
   await expect(button).toHaveAttribute('href', `https://wa.me/${phone!.digits}`);
   await expect(button).toHaveAttribute('target', '_blank');
+  // innerWidth на мобильном раздувается вслед за переполнением, поэтому сравниваем с шириной устройства
+  expect(await page.evaluate(() => window.innerWidth)).toBe(page.viewportSize()!.width);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   const opened = page.waitForRequest((r) => r.url().endsWith('/api/messenger/opened') && r.method() === 'POST');
@@ -33,8 +35,8 @@ test('кнопка «WhatsApp» открывает wa.me, окна чата не
 
   await expect.poll(async () => (await sql`SELECT 1 FROM client_events WHERE client_id = ${op.clientIds[0]!} AND kind = 'messenger.link_opened'`).length).toBe(1);
   await page.reload();
-  // Раскрываем программно: на узком экране поверх сводки лежит прозрачный слой соседней панели (не связано с мессенджером)
-  await page.getByText(/Переписка: 1 сообщение/).evaluate((el) => (el as HTMLElement).click());
+  // Настоящее нажатие: если сводку перекрывает прозрачный слой, тест должен упасть
+  await page.getByText(/Переписка: 1 сообщение/).click();
   await expect(page.getByText('Открыт WhatsApp', { exact: true })).toBeVisible();
 });
 
@@ -48,7 +50,8 @@ test('экран «Интеграции» пуст при выключенном
   expect(res?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Интеграции', level: 1 })).toBeVisible();
   await expect(page.getByText('Нет подключаемых интеграций.')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Интеграции' })).toHaveCount(0);
+  // Пункт меню «Интеграции» виден администратору и без флага: через него открывается карточка Beeline
+  await expect(page.getByRole('link', { name: 'Интеграции' }).first()).toBeVisible();
 
   const op = await makeOperator(0);
   await page.context().clearCookies();

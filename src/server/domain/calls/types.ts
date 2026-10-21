@@ -63,6 +63,8 @@ export interface OutcomeRequest {
   /** Оценка длительности оператором, секунды (manual_estimate). */
   durationSec: number | null;
   agreement: OutcomeAgreement | null;
+  /** Версия карточки, которую видел автор (доска «Обзвон», D-266): не совпала — 409 `version_conflict`. Устройство оператора не шлёт. */
+  seenVersion?: number | null;
 }
 
 export interface OutcomeCardView {

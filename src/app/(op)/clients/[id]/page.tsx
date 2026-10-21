@@ -51,7 +51,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
         <p className="mb-3">
           <TextLink href="/clients">{t('card.back')}</TextLink>
         </p>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start">
           <div className="flex min-w-0 flex-col gap-4">
             <ClientHeader card={card} legalForms={legalForms} timeZone={tz} />
             <CallButton phone={card.primaryPhone} modes={modes} />

@@ -130,7 +130,16 @@ export function CallingBoard({ initial, config }: { initial: Board; config: Call
   };
 
   const fail = (code: string) => {
+    if (code === 'version_conflict') return toast.show({ message: t('errors.stale'), tone: 'danger' });
     toast.show({ message: te.has(`errors.${code}`) ? te(`errors.${code}`) : te('errors.not_found'), tone: 'danger' });
+  };
+
+  /** Карточку изменили с момента загрузки доски: плитка остаётся на месте, шторка закрывается, доска обновляется. */
+  const rollback = (code: string) => {
+    setMove(null);
+    setBooking(null);
+    fail(code);
+    void reload();
   };
 
   /** Итог РОП: `via: 'manual_entry'`, без «Отменить» — подтверждение в шторке (D-266). */
@@ -139,6 +148,7 @@ export function CallingBoard({ initial, config }: { initial: Board; config: Call
     return {
       ...buildRequest({ opId: move.opId, cardId: move.tile.cardId, def, draft: move.draft, tappedAt: null, now: Date.now(), online: true, fieldValues, ...(agreement ? { agreement } : {}) }),
       via: 'manual_entry' as const,
+      seenVersion: move.tile.version,
     };
   };
 
@@ -151,7 +161,9 @@ export function CallingBoard({ initial, config }: { initial: Board; config: Call
       if (res.status === 200) return done(t('calling.saved'));
       if (res.status === 401) return window.location.replace('/login?next=/deals/calling');
       if (res.status === 423) return toast.show({ message: t('errors.readonly'), tone: 'danger' });
-      fail(codeOf(res.json));
+      const code = codeOf(res.json);
+      if (res.status === 409 && code === 'version_conflict') return rollback(code);
+      fail(code);
       if (res.status === 409 || res.status === 404) void reload();
     } catch {
       toast.show({ message: t('errors.offline'), tone: 'danger' });
@@ -180,6 +192,10 @@ export function CallingBoard({ initial, config }: { initial: Board; config: Call
         done(t('calling.factOnly'), 'info');
         return { ok: false, code: 'handled' };
       case 'rejected':
+        if (verdict.code === 'version_conflict') {
+          rollback(verdict.code);
+          return { ok: false, code: 'handled' };
+        }
         setBooking(null);
         fail(verdict.code);
         return { ok: false, code: 'handled' };

@@ -62,7 +62,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'import', href: '/import', keys: ['import'], perm: 'import.run', feature: 'IMPORT' },
       { id: 'team', href: '/team', adminOnly: true },
-      { id: 'integrations', href: '/integrations', adminOnly: true, feature: 'WAZZUP' },
+      { id: 'integrations', href: '/integrations', adminOnly: true },
     ],
   },
   // Консультант: свои консультации, задачи, день

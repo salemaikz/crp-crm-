@@ -145,3 +145,15 @@ test('manual_entry от оператора на чужую карточку — 
   await setCard(db.sql, 'cd-b-6', { state: 'new', attempts: 0, nextCallAt: null, lastOutcomeAt: null });
   await assert.rejects(submitOutcome(deps, opA, outcomeReq({ cardId: 'cd-b-6', via: 'manual_entry' })), fails('not_found'));
 });
+
+test('seenVersion с устаревшей доски: 409 version_conflict, итог не записан; актуальная версия проходит', async () => {
+  await setCard(db.sql, 'cd-a-30', { state: 'new', attempts: 0, nextCallAt: null, lastOutcomeAt: null, version: 4 });
+  const stale = outcomeReq({ cardId: 'cd-a-30', via: 'manual_entry', seenVersion: 3 });
+  await assert.rejects(() => submitOutcome(deps, opA, stale), fails('version_conflict'));
+  assert.equal(await callsWhere(stale.opId), 0);
+  assert.equal((await cardOf(db.sql, 'cd-a-30')).attempts, 0);
+  const fresh = outcomeReq({ cardId: 'cd-a-30', via: 'manual_entry', seenVersion: 4 });
+  assert.equal((await submitOutcome(deps, opA, fresh)).status, 'applied');
+  const none = outcomeReq({ cardId: 'cd-a-30' });
+  assert.notEqual((await submitOutcome(deps, opA, none)).status, undefined);
+});

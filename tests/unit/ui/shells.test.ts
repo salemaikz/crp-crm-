@@ -86,10 +86,17 @@ test('«Сотрудники» — только администратору, д
   assert.ok(hrefs(menuOf(rop, { isAdmin: true })).includes('/team'));
 });
 
-test('администратор без роли: только «Сотрудники», главная — она же', () => {
+test('«Интеграции» — adminOnly и без флага WAZZUP: иначе карточка Beeline недоступна', () => {
+  const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
+  const none = { features: new Set<string>() };
+  assert.ok(hrefs(menuOf(rop, { ...none, isAdmin: true })).includes('/integrations'));
+  assert.ok(!hrefs(menuOf(rop, { ...none })).includes('/integrations'));
+});
+
+test('администратор без роли: «Сотрудники» и «Интеграции», главная — «Сотрудники»', () => {
   const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
   const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
-  assert.deepEqual(hrefs(m), ['/team']);
+  assert.deepEqual(hrefs(m), ['/team', '/integrations']);
   assert.equal(m.home, '/team');
 });
 

@@ -25,6 +25,7 @@ const NAME = {
   back: `ТОО Синтетика Доска ${tag} Назад`,
   forward: `ТОО Синтетика Доска ${tag} Вперёд`,
   call: `ТОО Синтетика Доска ${tag} Обзвон`,
+  stale: `ТОО Синтетика Доска ${tag} Устарела`,
 };
 
 async function makeStaff(role: string, name: string, inDistribution = false): Promise<Staff> {
@@ -72,6 +73,7 @@ test.beforeAll(async () => {
   await seedDeal(ids.backDeal, 'offer', NAME.back, operator);
   await seedDeal(ids.forwardDeal, 'booked', NAME.forward, operator);
   await seedClient(NAME.call, operator);
+  await seedClient(NAME.stale, operator);
 });
 
 test.afterAll(async () => {
@@ -185,4 +187,28 @@ test('вид «Обзвон»: перенос карточки = итог «Пе
     SELECT c.via, c.user_id FROM calls c JOIN clients cl ON cl.id = c.client_id WHERE cl.name = ${NAME.call}`;
   expect(rows.map((r) => [r.via, r.user_id])).toEqual([['manual_entry', rop.id]]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('вид «Обзвон»: карточку изменили после загрузки доски — 409, плитка на месте, тост, итог не записан', async ({ page }) => {
+  await login(page, rop);
+  await page.goto('/deals/calling');
+  const tile = page.getByTestId('calling-tile').filter({ hasText: NAME.stale });
+  await expect(tile).toBeVisible();
+  await tile.getByTestId('calling-move').click();
+  await page.getByTestId('cpick-callback').click();
+  const sheet = page.getByTestId('outcome-sheet');
+  await expect(sheet).toBeVisible();
+  await sheet.getByTestId('lpr-yes').click();
+  await page.getByRole('button', { name: /^Через|^Завтра/ }).first().click();
+
+  // Пока РОП заполнял шторку, карточку изменили (оператор перевёл её в другое состояние)
+  await sql`UPDATE cards SET version = version + 1 WHERE client_id IN (SELECT id FROM clients WHERE name = ${NAME.stale})`;
+  await page.getByTestId('sheet-save').click();
+
+  await expect(page.getByText('Сделку изменили, доска обновлена.')).toBeVisible();
+  await expect(page.getByTestId('outcome-sheet')).toHaveCount(0);
+  await expect(page.getByTestId('ccol-retry').getByText(NAME.stale)).toBeVisible();
+  await expect(page.getByTestId('ccol-callback').getByText(NAME.stale)).toHaveCount(0);
+  const rows = await sql`SELECT 1 FROM calls c JOIN clients cl ON cl.id = c.client_id WHERE cl.name = ${NAME.stale}`;
+  expect(rows).toHaveLength(0);
 });

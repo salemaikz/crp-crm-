@@ -85,6 +85,7 @@ export const OutcomeBody = z
     fields: z.record(z.string().max(100), z.unknown()).refine((o) => Object.keys(o).length <= 20, 'too_many_fields'),
     durationSec: z.number().int().min(0).max(86_400).nullable(),
     agreement: Agreement.nullable(),
+    seenVersion: z.number().int().min(0).nullable().optional(),
   })
   .strict();
 

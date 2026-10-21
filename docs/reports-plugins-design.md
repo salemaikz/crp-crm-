@@ -571,7 +571,7 @@ do_not_call`; в `new` и в ту же колонку — нельзя. Откр
 | `src/integrations/telephony/beeline/index.ts` | ops | заготовка Beeline |
 | `src/integrations/messenger/wa-link/index.ts` | ops | `messenger.wa_link` |
 | `src/server/platform/secrets/{types,keys,aesgcm,repo,index}.ts` | platform | секреты (§7.4); `types.ts` — **сигнатуры** (готово) |
-| `scripts/crmctl/secrets.ts`, `scripts/crmctl/index.ts` | ops | + команда `secrets rotate [--check]` |
+| `scripts/crmctl/secretsRotate.ts`, `scripts/crmctl/index.ts` | ops | + команда `secrets rotate [--check]` |
 | `src/server/domain/integrations/{types,repo,ctx,service,modes,webhook,index}.ts` | ops | подключения, контекст, режимы каналов, приём вебхука |
 | `src/server/jobs/integrations.ts`, `src/server/jobs/registry.ts` | ops | обработчики `webhook_inbox`, часть чистки `payload` |
 | `src/app/api/hooks/[pluginId]/[token]/route.ts` | ops | общий приём вебхуков |

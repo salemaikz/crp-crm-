@@ -14,7 +14,7 @@ export const INBOUND_NEW_CLIENTS_PER_DAY = 200;
 
 export interface InboundClientContext {
   spaceId: string;
-  /** Ключ источника вида `messenger` из настроек (например, `whatsapp_in`). */
+  /** Ключ источника вида `messenger` из настроек (ключ задаётся в настройках установки). */
   sourceKey: string;
   phoneRules: phone.PhoneRules;
   /** Ключи полей клиента для search_norm (`clients/config`). */
