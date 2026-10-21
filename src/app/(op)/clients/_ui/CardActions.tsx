@@ -1,7 +1,7 @@
 import { getTranslations } from 'next-intl/server';
 import { CalendarPlus } from 'lucide-react';
 import type { Viewer } from '@/server/access';
-import { closeReasonOptions } from '@/server/domain/cards';
+import { closeReasonOptions, reopenRecipients } from '@/server/domain/cards';
 import type { ClientCardDto } from '@/server/domain/clients';
 import { Button } from '@/ui/kit';
 import { CardMenu } from './CardMenu';
@@ -21,6 +21,7 @@ export async function CardActions({ card, viewer }: Props) {
   const menu = can.closeFromMenu || can.reopen || can.unblock;
   if (!can.book && !menu && !can.transfer) return null;
   const reasons = menu ? await closeReasonOptions(viewer) : { not_target: [], do_not_call: [] };
+  const recipients = can.reopen ? await reopenRecipients(viewer) : [];
   return (
     <div className="flex flex-col gap-2">
       {can.book && (
@@ -34,11 +35,11 @@ export async function CardActions({ card, viewer }: Props) {
       {menu && (
         <CardMenu
           cardId={head.id}
-          clientId={card.id}
           version={head.version}
           can={{ closeFromMenu: can.closeFromMenu, reopen: can.reopen, unblock: can.unblock }}
           phones={card.phones.filter((p) => p.working).map((p) => ({ id: p.id, e164: p.e164, primary: p.primary }))}
           reasons={reasons}
+          recipients={recipients}
         />
       )}
       {can.transfer && (

@@ -8,7 +8,7 @@ import { insertNote } from '@/server/domain/timeline/repo';
 import { writeAudit } from '@/server/platform/audit';
 import { getActiveConfig } from '@/server/platform/config/active';
 import { getDb, newId, type Sql } from '@/server/platform/db';
-import { loadTransferRoles, requireRecipients } from '@/server/domain/team/recipients';
+import { listRecipients, loadTransferRoles, requireRecipients } from '@/server/domain/team/recipients';
 import { CardActionError } from './errors';
 import { applyCardEventLocked, runCardEvent } from './manual';
 import { lockCardScoped, userActiveInSpace } from './repo';
@@ -19,6 +19,13 @@ export interface ReopenInput {
   version: number;
   comment: string;
   toUserId?: string | undefined;
+}
+
+/** Кого интерфейс «Вернуть в обзвон» предлагает получателем: ровно тех, кого примет `reopenCard` (`requireRecipients`). */
+export async function reopenRecipients(viewer: Viewer): Promise<{ userId: string; name: string }[]> {
+  if (viewer.spaceId === null) return [];
+  const db = await getDb();
+  return listRecipients(db.sql, viewer.spaceId, await loadTransferRoles());
 }
 
 export interface MenuResult {
