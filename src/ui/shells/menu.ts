@@ -55,7 +55,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
     items: [
       { id: 'summary', href: '/summary', keys: ['summary'], perm: 'report.view' },
       { id: 'director', href: '/director', keys: ['dashboard'], perm: 'report.view', feature: 'REPORTS' },
-      { id: 'handoffs', href: '/handoffs', keys: ['handoffs'], perm: 'handoff.read' },
+      { id: 'handoffs', href: '/handoffs', keys: ['handoffs'], perm: 'handoff.read', feature: 'PURCHASES' },
       { id: 'distribution', href: '/distribution', keys: ['distribution'], perm: 'distribution.manage' },
       { id: 'cards', href: '/cards', keys: ['cards'], perm: 'card.read' },
       { id: 'clients', href: '/clients', perm: 'client.read' },
@@ -78,7 +78,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
   consultant: {
     bottomSlots: 3,
     items: [
-      { id: 'consultations', href: '/consultations', keys: ['consultations'], perm: 'booking.read' },
+      { id: 'consultations', href: '/consultations', keys: ['consultations'], perm: 'booking.read', feature: 'BK_WIZARD' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'myDay', href: '/my-day', keys: ['my_day'], perm: 'booking.read' },
     ],

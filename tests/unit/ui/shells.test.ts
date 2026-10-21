@@ -15,7 +15,7 @@ function rolesOf(preset: string): RoleConfig[] {
   return doc.global.roles.filter((r) => !r.archived);
 }
 
-const ALL = new Set(['KANBAN', 'IMPORT', 'REPORTS', 'SALES_SETTINGS']);
+const ALL = new Set(['KANBAN', 'IMPORT', 'REPORTS', 'SALES_SETTINGS', 'PURCHASES', 'BK_WIZARD']);
 
 function menuOf(role: RoleConfig, opts: { isAdmin?: boolean; features?: ReadonlySet<string>; force?: ShellKind } = {}) {
   const viewer = testViewer({ userId: `u-${role.key}`, role, isAdmin: opts.isAdmin });
@@ -201,4 +201,16 @@ test('currentHref: из совпавших пунктов побеждает с�
   assert.equal(currentHref('/reports/x', hrefs), '/reports');
   assert.equal(currentHref('/other', hrefs), null);
   assert.equal(currentHref(null, hrefs), null);
+});
+
+// Страницы /handoffs и /consultations отвечают 404 без флага, значит и пункта меню без флага быть не должно
+test('PURCHASES и BK_WIZARD выключены: «Передачи» и «Консультации» скрыты, а не ведут на 404', () => {
+  const role = (k: string) => rolesOf('clients/crp').find((r) => r.key === k)!;
+  const off = new Set(['KANBAN', 'IMPORT', 'REPORTS', 'SALES_SETTINGS']);
+  assert.ok(hrefs(menuOf(role('marketing_head'))).includes('/handoffs'));
+  assert.ok(!hrefs(menuOf(role('marketing_head'), { features: off })).includes('/handoffs'));
+  assert.ok(hrefs(menuOf(role('consultant'))).includes('/consultations'));
+  const c = menuOf(role('consultant'), { features: off });
+  assert.ok(!hrefs(c).includes('/consultations'));
+  assert.equal(c.home, '/tasks');
 });
