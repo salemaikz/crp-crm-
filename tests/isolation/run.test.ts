@@ -15,6 +15,7 @@ process.env.FEATURE_SALES_SETTINGS ??= '1';
 // Выключенное состояние покрывают интеграционные тесты модулей (например, consult-routes.test.ts).
 process.env['FEATURE_BK_WIZARD'] ??= '1';
 process.env['FEATURE_PURCHASES'] ??= '1';
+process.env['FEATURE_PUSH'] ??= '1';
 
 const { defineIsolationRun } = await import('./runner/main');
 await defineIsolationRun();

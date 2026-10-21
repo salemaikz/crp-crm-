@@ -1,0 +1,19 @@
+{
+  "title": "Новое уведомление",
+  "fallback": "Откройте приложение, чтобы посмотреть подробности",
+  "kinds": {
+    "digest_operator": "Сводка дня: {callbacks, plural, one {# перезвон} few {# перезвона} many {# перезвонов} other {# перезвона}}, {bookings, plural, one {# запись} few {# записи} many {# записей} other {# записи}}",
+    "digest_manager": "Сводка дня: просроченных перезвонов {overdue}, в пуле {pool}",
+    "alarm_callbacks_overdue": "Просроченные перезвоны: {count}",
+    "alarm_handoff_unaccepted": "Передача отделу не принята за рабочий день: {count}",
+    "alarm_grey_unassigned": "Консультации без консультанта: {count}",
+    "client_transferred": "Вам передано клиентов: {count}",
+    "staff_disabled": "Вам переданы дела отключённого сотрудника: {count}",
+    "consultant_assigned": "Вашей записи назначен консультант",
+    "booking_consult_new": "Новая консультация в вашем графике",
+    "handoff_new": "Новая передача клиента в отдел: примите её",
+    "handoff_assigned": "Вам назначена передача клиента",
+    "task_assigned": "Вам назначена задача",
+    "grey_suggest": "Консультация без консультанта: назначьте консультанта"
+  }
+}

@@ -52,6 +52,13 @@ test('в реестре есть events-ensure, purge, invariants, digest, alarm
   assert.deepEqual(queueSpecs().map((q) => q.name), ['webhook_inbox', 'push_outbox']);
 });
 
+test('очередь push (P8b): обработчик `push`, наполнение перед пачкой, рассылка — деловая запись', () => {
+  const push = queueSpecs().find((q) => q.name === 'push_outbox')!;
+  assert.ok(push.handlers.has('push'));
+  assert.equal(typeof push.fill, 'function');
+  assert.equal(push.writes, 'business');
+});
+
 test('distribute и absence — по пространствам; части invariants и purge подключены', () => {
   const byName = new Map(jobDefinitions().map((d) => [d.name, d]));
   assert.equal(byName.get('distribute')!.perSpace, true);
@@ -63,7 +70,7 @@ test('distribute и absence — по пространствам; части inva
   assert.equal(byName.get('absence')?.perSpace, true);
   assert.deepEqual(byName.get('absence')!.schedule({ global: {}, space: {} }), { kind: 'daily', at: '07:30', days: 'all' });
   assert.deepEqual(invariantParts.map((p) => p.key), ['ownerless_cards', 'agreed_without_step']);
-  assert.deepEqual(purgeParts.map((p) => p.key), ['sessions', 'invites', 'push_outbox', 'device_status', 'import_rows', 'webhook_payload', 'change_snapshots']);
+  assert.deepEqual(purgeParts.map((p) => p.key), ['sessions', 'invites', 'push_outbox', 'device_status', 'import_rows', 'webhook_payload', 'change_snapshots', 'push_subscriptions']);
 });
 
 test('имя экземпляра `distribute@sales` принимает systemActor (аудит пишет имя как есть)', () => {

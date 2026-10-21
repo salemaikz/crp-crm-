@@ -103,3 +103,43 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+/* Web-push (P8b, D-328): текст готовит сервер — только вид события и числа, без имён, номеров и названий (D-033).
+ * Пока выход не завершён (метка crm-logout-pending), push не показывается. Нажатие открывает только колокол. */
+const PUSH_OPEN_PATHS = ['/notifications'];
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(
+    (async () => {
+      if (await caches.has(LOGOUT_BLOCK)) return;
+      let data = {};
+      try {
+        data = event.data ? event.data.json() : {};
+      } catch {
+        data = {};
+      }
+      const title = typeof data.title === 'string' ? data.title.slice(0, 100) : '';
+      const body = typeof data.body === 'string' ? data.body.slice(0, 300) : '';
+      const tag = typeof data.tag === 'string' && /^[a-z0-9_]{1,40}$/.test(data.tag) ? data.tag : undefined;
+      const url = PUSH_OPEN_PATHS.includes(data.url) ? data.url : '/notifications';
+      await self.registration.showNotification(title, { body, tag, icon: '/icon/192', data: { url } });
+    })(),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const wanted = event.notification.data && PUSH_OPEN_PATHS.includes(event.notification.data.url) ? event.notification.data.url : '/notifications';
+  event.waitUntil(
+    (async () => {
+      const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const w of wins) {
+        if (new URL(w.url).origin === self.location.origin && 'focus' in w) {
+          if ('navigate' in w) await w.navigate(wanted).catch(() => undefined);
+          return w.focus();
+        }
+      }
+      return self.clients.openWindow(wanted);
+    })(),
+  );
+});

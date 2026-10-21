@@ -16,6 +16,7 @@ import { browserStorage, clearLogoutPending, isLogoutPending, LOGOUT_PENDING_ATT
 import { blockShell, clearShellCache, isStaleShell, unblockShell } from './serviceWorker';
 import { clearPending } from './pending';
 import { clearTally, type StorageLike } from './tally';
+import { dropDevicePush } from '../push/device';
 import type { OutboxStore } from './outboxStore';
 
 /** Что нужно от outbox при выходе (узкий срез для тестов). */
@@ -117,6 +118,8 @@ export async function finishLogout(userId: string, opts: { discardFreeText?: boo
   // Экран блокировки включается только если сервер не ответил: при сети выход занимает доли секунды
   markLogoutPending(storage);
   await blockShell().catch(() => undefined);
+  // Push прежнего сотрудника на этом телефоне больше не показывается (D-328): подписка снимается в браузере, без сети тоже
+  await dropDevicePush();
   try {
     await purgeDevice(userId, { storage: window.localStorage, store, discardFreeText: opts.discardFreeText === true });
   } catch {

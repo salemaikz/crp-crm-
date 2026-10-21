@@ -2,6 +2,7 @@
 // (работает с телефона); остальные роли — боковая колонка на ноутбуке и нижняя панель на телефоне.
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { PushSync } from '../push/PushSync';
 import { DeviceOwnerGuard } from './DeviceOwnerGuard';
 import { LogoutButton } from './LogoutButton';
 import { BottomNav, NotificationBell, SideNav, type NavEntry } from './ShellNav';
@@ -28,6 +29,7 @@ export function AppShell({ variant, brand, navLabel, items, bottomSlots, account
   return (
     <div className={`flex min-h-dvh flex-col ${side ? 'md:flex-row' : ''}`} style={{ background: 'var(--canvas)', color: 'var(--text)' }}>
       <DeviceOwnerGuard userId={userId} outboxTtlMs={outboxTtlMs} />
+      <PushSync userId={userId} />
       <aside
         className={`border-b ${side ? 'md:w-60 md:shrink-0 md:border-r md:border-b-0' : ''}`}
         style={{ borderColor: 'var(--border)', background: 'var(--surface)', paddingTop: 'env(safe-area-inset-top)' }}

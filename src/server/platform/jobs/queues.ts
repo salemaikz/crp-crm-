@@ -50,9 +50,14 @@ export async function settle(
   outcome: QueueOutcome,
   maxAttempts: number,
   now: Ms,
-): Promise<'done' | 'retry' | 'failed'> {
+): Promise<'done' | 'retry' | 'failed' | 'cancelled'> {
+  if (outcome.status === 'cancelled' && name === 'push_outbox') {
+    const code = outcome.error.replace(/[^A-Za-z0-9_.:-]/g, '_').slice(0, 64);
+    await db.sql`UPDATE push_outbox SET state = 'cancelled', lease_until = NULL, error = ${code} WHERE id = ${item.id}`;
+    return 'cancelled';
+  }
   const final: 'done' | 'retry' | 'failed' =
-    outcome.status === 'done' ? 'done' : outcome.status === 'failed' || item.attempt >= maxAttempts ? 'failed' : 'retry';
+    outcome.status === 'done' ? 'done' : outcome.status === 'failed' || outcome.status === 'cancelled' || item.attempt >= maxAttempts ? 'failed' : 'retry';
   const error = outcome.status === 'done' ? '' : outcome.error.replace(/[^A-Za-z0-9_.:-]/g, '_').slice(0, 64);
   const nextAt = now + queueRetryDelayMs(item.attempt);
   if (name === 'webhook_inbox') {
@@ -70,10 +75,13 @@ export async function settle(
 }
 
 export interface QueuePassStats {
+  /** Новых строк от наполнения (`QueueSpec.fill`). */
+  filled: number;
   taken: number;
   done: number;
   retried: number;
   failed: number;
+  cancelled: number;
 }
 
 /** Один проход очереди: взять пачку, обработать по одной строке, записать итоги. */
@@ -82,7 +90,14 @@ export async function runQueuePass(
   spec: QueueSpec,
   ctx: { actor: SystemActor; now: () => Ms; signal: AbortSignal; log: JobLogger },
 ): Promise<QueuePassStats> {
-  const stats: QueuePassStats = { taken: 0, done: 0, retried: 0, failed: 0 };
+  const stats: QueuePassStats = { filled: 0, taken: 0, done: 0, retried: 0, failed: 0, cancelled: 0 };
+  if (spec.fill) {
+    try {
+      stats.filled = await spec.fill(ctx.actor, ctx.now());
+    } catch (e) {
+      ctx.log.warn('queue_fill_failed', { queue: spec.name, code: errorCode(e) });
+    }
+  }
   const items = await takeBatch(db, spec.name, spec.batch, spec.leaseMs, ctx.now());
   stats.taken = items.length;
   for (const item of items) {
@@ -102,6 +117,7 @@ export async function runQueuePass(
     const res = await settle(db, spec.name, item, outcome, spec.maxAttempts, ctx.now());
     if (res === 'done') stats.done++;
     else if (res === 'retry') stats.retried++;
+    else if (res === 'cancelled') stats.cancelled++;
     else stats.failed++;
   }
   return stats;
