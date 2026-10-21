@@ -119,7 +119,30 @@ export function buildRows(plans: readonly ClientPlan[], c: BuildCtx): SeedRows {
     file_name: 'stand-demo.xlsx',
     file_sha256: uuidFor(c.seed, 'sha', 'import').replace(/-/g, '').repeat(2),
     profile_key: c.importProfile,
-    report: { rows: plans.length, created: plans.length, errors: 0 },
+    // Форма ImportReportV1 (src/server/domain/import/types.ts): страница /import читает input и parse
+    report: {
+      v: 1,
+      input: {
+        kind: 'xlsx',
+        encoding: null,
+        bytes: 0,
+        sheetIndex: 0,
+        snapshotDay: time.localDayOf(importedAt, c.tz),
+        parseConfigRev: { global: c.configRev, space: c.configRev },
+        buildId: 'stand-seed',
+      },
+      parse: {
+        headerRow: 1,
+        rows: plans.length,
+        skippedBlank: 0,
+        unmappedHeaders: 0,
+        truncatedCells: 0,
+        droppedColumns: 0,
+        formulaWithoutValue: 0,
+        errorCells: 0,
+        issues: {},
+      },
+    },
     created_at: importedAt,
   });
 

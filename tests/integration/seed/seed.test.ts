@@ -88,6 +88,17 @@ test('сид на пустой БД: пресет, сотрудники, 500 к�
   assert.equal(leaked.length, 0);
 });
 
+test('imports.report сида имеет форму ImportReportV1 (страница /import её читает)', async () => {
+  const r = await one(db.sql<{ report: { v?: number; input?: { snapshotDay?: string; kind?: string; parseConfigRev?: { global?: number; space?: number } }; parse?: { rows?: number; issues?: object } } }>`SELECT report FROM imports LIMIT 1`);
+  assert.equal(r.report.v, 1);
+  assert.match(String(r.report.input?.snapshotDay), /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(['csv', 'xlsx'].includes(String(r.report.input?.kind)));
+  assert.equal(typeof r.report.input?.parseConfigRev?.global, 'number');
+  assert.equal(typeof r.report.input?.parseConfigRev?.space, 'number');
+  assert.equal(r.report.parse?.rows, 500);
+  assert.equal(typeof r.report.parse?.issues, 'object');
+});
+
 test('состав: роли, консультанты с графиком, дежурный, команда маркетинга', async () => {
   const roles = await db.sql<{ roleKey: string; n: number }>`SELECT role_key, count(*)::int AS n FROM memberships GROUP BY 1`;
   const byRole = Object.fromEntries(roles.map((r) => [r.roleKey, r.n]));
