@@ -182,6 +182,17 @@ sudo crmctl license status               # что в файле, что о нё�
    (правка выполняется с правами root на БД и остаётся на совести владельца, D-212).
 6. Не помогло — `crmctl job run license` пересчитывает состояние сразу.
 
+**Если `app` или `worker` не стартует и в журнале `license.runtime_tamper`** (D-312,
+`sudo docker compose -p crm -f /var/lib/crm/compose/compose.yaml --env-file /etc/crm/project.env logs app`):
+команда или `NODE_OPTIONS` контейнера изменены. Сборка клиента запускается только как в поставке:
+`node --disable-sigusr1 server.js` (worker — `dist/worker.mjs`), в `NODE_OPTIONS` (в compose и в
+`/etc/crm/app.env`) — только `--max-old-space-size=N` и `--disable-sigusr1`, без `LD_PRELOAD`. Вернуть
+`/var/lib/crm/compose/compose.yaml` из пакета этой версии (`deploy/compose/`), убрать лишнее из `app.env` и поднять
+контейнеры заново (`up -d`). Отладчик
+(`--inspect`), APM-агенты и прочие `--require` на бою не включаются — разбор идёт на стенде на общей сборке.
+Это планка, а не защита от root: обход, написанный под проверку, — правка выполняемого кода и нарушение
+договора (ARCHITECTURE §8.4).
+
 ## Копии и восстановление
 
 Нормативно: DEPLOY §6, D-031, D-044. Команды: `crmctl backup …` и `crmctl restore …` (исходники —

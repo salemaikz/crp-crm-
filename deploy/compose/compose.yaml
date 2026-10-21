@@ -30,9 +30,11 @@ x-app-common: &app-common
 
 services:
   # Веб-приложение. Один процесс: лимиты входа хранятся в памяти (D-032).
+  # Команды и NODE_OPTIONS app/worker не менять: сборка клиента не стартует с флагами node вне белого списка
+  # (--require, --import, --inspect…) и без --disable-sigusr1 (D-312, RUNBOOK «Лицензия»).
   app:
     <<: *app-common
-    command: ["node", "server.js"]
+    command: ["node", "--disable-sigusr1", "server.js"]
     environment:
       NODE_OPTIONS: --max-old-space-size=1024
     mem_limit: ${APP_MEM_LIMIT:-1536m}
@@ -53,7 +55,7 @@ services:
   # Фоновые задачи (расписание, inbox/outbox): тот же образ, другая команда.
   worker:
     <<: *app-common
-    command: ["node", "dist/worker.mjs"]
+    command: ["node", "--disable-sigusr1", "dist/worker.mjs"]
     environment:
       NODE_OPTIONS: --max-old-space-size=384
     mem_limit: ${WORKER_MEM_LIMIT:-512m}
