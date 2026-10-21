@@ -20,6 +20,11 @@ const { leakViolations, notFoundViolations } = await import('./runner/checks');
 const { invoke } = await import('./runner/invoke');
 const { FOREIGN, markFixtures, needlesOf } = await import('./runner/objects');
 const { MISSING_ID } = await import('./runner/runner');
+const { cancelAbsence, createAbsence } = await import('../../src/server/domain/distribution/absence');
+const { viewerOf } = await import('./harness/actors');
+const { overrideDistributionDepsForTests } = await import('../../src/server/domain/distribution/deps');
+const { loadDistributionConfig } = await import('../../src/server/domain/distribution/settings');
+const { SEED_NOW } = await import('./harness/seed');
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 type Unit = ReturnType<typeof scanApp>[number];
@@ -86,6 +91,36 @@ test('временный владелец: пока замещает — вид�
     await setActing(null, '');
     assert.deepEqual(await closedForA('после снятия'), []);
   } finally {
+    await setActing(null, '');
+    actAs(null);
+  }
+});
+
+test('отмена настоящего отсутствия: временный владелец A видит клиента и задачу B, после cancelAbsence — 404', async () => {
+  const rop = await viewerOf(U.rop);
+  const opId = globalThis.crypto.randomUUID();
+  overrideDistributionDepsForTests({ config: loadDistributionConfig, now: () => SEED_NOW });
+  try {
+    await db.sql`DELETE FROM absences`;
+    // Карточка в повторе с ближайшим звонком — такие ядро передаёт заместителю
+    await db.sql`UPDATE cards SET next_call_at = ${SEED_NOW + 3_600_000} WHERE id = ${CARD}`;
+    // РОП ставит отсутствие B на сегодня и завтра, A — заместитель: ядро само назначает временного
+    const abs = await createAbsence(rop, { opId, userId: U.opB, fromDay: SEED_TODAY, toDay: '2026-10-30', substituteUserId: U.opA });
+    assert.ok(abs.applied.acting > 0, 'временные назначены');
+    actAs(null);
+    for (const p of probes) {
+      const r = await invoke(p.unit, p.entry, { userId: U.opA, id: FOREIGN[p.entity].id });
+      assert.equal(r.status, 200, `во время отсутствия: ${p.entity} открывается`);
+    }
+    await cancelAbsence(rop, abs.id);
+    actAs(null);
+    assert.deepEqual(await closedForA('после отмены отсутствия'), []);
+    const left = await db.sql`SELECT 1 FROM cards WHERE id = ${CARD} AND acting_user_id IS NOT NULL`;
+    assert.equal(left.length, 0, 'временный снят у карточки');
+  } finally {
+    overrideDistributionDepsForTests(null);
+    await db.sql`DELETE FROM absences`;
+    await db.sql`UPDATE cards SET next_call_at = NULL WHERE id = ${CARD}`;
     await setActing(null, '');
     actAs(null);
   }
