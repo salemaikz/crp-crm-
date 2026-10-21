@@ -19,8 +19,10 @@ import { actAs, enterSeedWorld, viewerOf } from '../../isolation/harness/actors'
 import { SEED_NOW, SPACE, U } from '../../isolation/harness/seed';
 import { closeWorld, openWorld } from '../access/world';
 import { WORLD_FIELDS, worldConfig } from '../clients/world';
+import { FOREIGN_ID, seedForeignSpace, withForeignSpace, type ForeignWorld } from './foreignSpace';
 
 let db: TestDb;
+let foreign: ForeignWorld;
 const PASSWORD = 'Синтетика-пароль-77';
 const SECRET = 'Скрытое-значение-4242';
 const VISIBLE = 'Видимый-сегмент-17';
@@ -30,7 +32,9 @@ const ORIGIN = 'http://crm.test';
 before(async () => {
   db = await openWorld();
   // поле vault скрыто от директора и РОП: его значения не должно быть ни в clients.csv, ни в ленте
-  const cfg = worldConfig();
+  // второе пространство с данными: ничего из него не должно попасть в архив; настройки нужны и ему
+  foreign = await seedForeignSpace(db.sql);
+  const cfg = withForeignSpace(worldConfig());
   (cfg.global as Record<string, unknown>).fields = [
     ...WORLD_FIELDS,
     {
@@ -369,4 +373,38 @@ test('билет бронирует выгрузку на 60 с: другой с
     enterSeedWorld();
     resetTicketsForTests();
   }
+});
+
+test('чужое пространство: ни id, ни текстов, ни номеров, ни сотрудников другого пространства нет ни в одном файле архива', async () => {
+  resetLimits();
+  resetTicketsForTests();
+  await clearToday(U.director);
+  // контроль мира: чужие строки на месте, и их много во всех таблицах, которые выгружаются
+  const raw = await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM cards WHERE space_id <> ${SPACE}`;
+  assert.ok(raw[0]!.n > 0 && foreign.ids.length > 50);
+  for (const as of [U.director, U.rop]) {
+    resetLimits();
+    const { files } = await exportAs(as);
+    // контроль: свои данные в архиве есть (иначе проверка отсутствия ничего не доказывает)
+    assert.ok(files.get('clients.csv')!.includes('ТОО Синтетика') && files.get('notes.csv')!.includes('синтетическая заметка'));
+    // чужие id, тексты и номера: каждая таблица читается только своим пространством
+    for (const [name, body] of files) {
+      for (const id of foreign.ids) assert.ok(!body.includes(id), `${as}: ${name} содержит id ${id}`);
+      for (const text of foreign.texts) assert.ok(!body.includes(text), `${as}: ${name} содержит текст ${text}`);
+      for (const phone of foreign.phones) assert.ok(!body.includes(phone), `${as}: ${name} содержит номер ${phone}`);
+      assert.ok(!body.includes(FOREIGN_ID) && !body.includes('ЧУЖОЕ-ПРОСТРАНСТВО'), `${as}: ${name}`);
+    }
+    // манифест считает только своё пространство
+    const manifest = JSON.parse(files.get('manifest.json')!) as { space: string; tables: Record<string, number> };
+    assert.equal(manifest.space, 'sales');
+    const own = await db.sql<{ cards: number; deals: number; notes: number }>`
+      SELECT (SELECT count(*) FROM cards WHERE space_id = ${SPACE})::int AS cards,
+             (SELECT count(*) FROM deals WHERE space_id = ${SPACE})::int AS deals,
+             (SELECT count(*) FROM notes WHERE space_id = ${SPACE})::int AS notes`;
+    assert.equal(manifest.tables.cards, own[0]!.cards);
+    assert.equal(manifest.tables.deals, own[0]!.deals);
+    assert.equal(manifest.tables.notes, own[0]!.notes);
+  }
+  await clearToday(U.director);
+  await clearToday(U.rop);
 });
