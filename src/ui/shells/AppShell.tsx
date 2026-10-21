@@ -4,8 +4,9 @@
 import type { ReactNode } from 'react';
 import { PushSync } from '../push/PushSync';
 import { DeviceOwnerGuard } from './DeviceOwnerGuard';
-import { LicenseBannerBar, type BannerView } from './LicenseBannerBar';
+import type { BannerView } from './LicenseBannerBar';
 import { LogoutButton } from './LogoutButton';
+import { ShellBanner } from './ShellBanner';
 import { AccountLink, BottomNav, NotificationBell, SideNav, type NavEntry } from './ShellNav';
 import type { MenuGroup } from './menu';
 
@@ -61,7 +62,7 @@ export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots,
         ) : null}
       </aside>
       <div className="min-w-0 flex-1">
-        {banner ? <LicenseBannerBar banner={banner} /> : null}
+        <ShellBanner banner={banner} side={side} />
         {children}
       </div>
       <BottomNav
