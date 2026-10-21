@@ -300,15 +300,68 @@ test('RTC в местном времени: после простоя конте
   }
 });
 
-test('простой не копится запасом: после многих простоев часы на год назад — read_only не позже 48 ч простоя + 48 ч', () => {
+// ── Часы спешили больше чем на 48 ч и был перезапуск (круг 2 раунда 4 волны B): ложной блокировки нет ────────
+
+/** Часы спешат на ahead fastHours часов (пересчёт раз в минуту), перезапуски — на минутах restartAt; затем NTP и
+ *  10 суток пересчётов с верными часами. Проверяет и инвариант: realAt не впереди настоящего времени больше чем на
+ *  шаги перезапусков (по минуте на старт). */
+function aheadLongThenFixed(ahead: number, fastHours: number, restartAt: readonly number[]) {
+  const s = server(T0);
+  let real = T0;
+  let mono: number;
+  let starts = 0;
+  const out: { real: number; c: ClockResult }[] = [];
+  const step = (clock: number, restart: boolean) => {
+    mono = real - T0;
+    if (restart) starts++;
+    const c = s.check(clock, mono, { restart });
+    assert.ok(c.realAt <= real + starts * MIN, `realAt впереди настоящего времени на ${((c.realAt - real) / H).toFixed(2)} ч`);
+    out.push({ real, c });
+    real += MIN;
+  };
+  for (let m = 0; m < fastHours * 60; m++) step(real + ahead, restartAt.includes(m));
+  // После починки — пока часы не догонят время лицензии (не меньше 10 суток)
+  const after = Math.max(10 * DAY_MS, ahead + 2 * DAY_MS);
+  for (let m = 0; m < after / MIN; m++) step(real, false);
+  return out;
+}
+
+test('часы спешили на 60 ч / 100 ч / 30 суток не меньше 4 ч, перезапуск после догона, затем NTP: без read_only, пока часы не догонят', () => {
+  const cases: [number, number, number[]][] = [
+    [60 * H, 4, [180]],
+    [60 * H, 4, [0, 120, 239]],
+    [100 * H, 6, [300]],
+    [30 * DAY_MS, 24 * 16, [24 * 16 * 60 - 10]],
+  ];
+  for (const [ahead, fastHours, restartAt] of cases) {
+    const tag = `+${ahead / H} ч, перезапуски ${restartAt.join(',')}`;
+    const out = aheadLongThenFixed(ahead, fastHours, restartAt);
+    for (const [i, { c }] of out.entries()) assert.equal(c.locked, false, `${tag}, пересчёт ${i}`);
+    const last = out.at(-1)!;
+    // Часы догнали время лицензии: снова по часам, эпизода нет
+    assert.deepEqual([last.c.now, last.c.jump, last.c.behind], [last.real, 'none', null], tag);
+  }
+});
+
+test('простой копится запасом не больше самого простоя: часы на год назад — read_only не позже простоя + 48 ч', () => {
   const s = server(T0);
   let real = T0;
   let mono = 0;
+  // Простой — время, которое не видно монотонному времени процессов: между пересчётами до и после старта
+  let unseen = 0;
+  let prev = { real: T0, mono: 0 };
+  const check = (clock: number, restart: boolean) => {
+    unseen += real - prev.real - (restart ? 0 : mono - prev.mono);
+    prev = { real, mono };
+    const c = s.check(clock, mono, { restart });
+    assert.ok(c.realAt <= real, 'realAt не впереди настоящего времени');
+    return c;
+  };
   // 30 суток: 10 ч работы (пересчёт раз в час), 14 ч простоя, старт без опоры, часы верные
   for (let d = 0; d < 30; d++) {
     for (let h = 0; h < 10; h++) {
       mono += H;
-      s.check(real, mono, { restart: h === 0 });
+      check(real, h === 0);
       real += H;
     }
     real += 14 * H;
@@ -316,13 +369,17 @@ test('простой не копится запасом: после многих
   // Часы на год назад без правки БД, пересчёт раз в минуту без перезапуска
   let c: ClockResult | null = null;
   let m = 0;
-  while (m < 200 * 60) {
+  while (m < 600 * 60) {
     m++;
     mono += MIN;
-    c = s.check(real - YEAR, mono);
+    c = check(real - YEAR, false);
     real += MIN;
     if (c.locked) break;
   }
   assert.equal(c!.locked, true);
-  assert.ok(m <= (96 * 60) + 1, `блокировка через ${(m / 60).toFixed(1)} ч`);
+  // Запас — не больше простоя: столько же даёт перевод часов назад перед каждым стартом (D-312)
+  assert.ok(unseen > 400 * H, `простой ${unseen / H} ч`);
+  assert.ok(m * MIN <= unseen + CLOCK_BEHIND_LOCK_MS + MIN, `блокировка через ${(m / 60).toFixed(1)} ч, простой ${unseen / H} ч`);
+  // Время лицензии к блокировке отстаёт от настоящего не больше чем на простой
+  assert.ok(c!.now >= real - MIN - unseen, `отставание ${((real - c!.now - unseen) / H).toFixed(2)} ч сверх простоя`);
 });
