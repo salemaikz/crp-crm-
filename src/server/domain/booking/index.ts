@@ -2,6 +2,16 @@
 export { bookingDeps, overrideBookingDepsForTests } from './deps';
 export { BookingDomainError, httpFailure, isBookingDomainError, fromCore, BOOKING_HTTP_STATUS, type HttpFailure } from './errors';
 export { cancelBooking, createBooking, getBooking, listBookings, markAttendance, moveBooking, setConfirmation } from './bookings';
+export { getDutyCandidates, getDutyEvent, listDutyEvents, listEventsBoard, markRestNoShow, type EventBoardItem, type EventsBoard } from './duty';
+export { registerWalkIn } from './walkIn';
+export { clearException, createConsultant, getConsultant, getSchedule, listConsultantCandidates, listConsultants, setException, setSchedule, updateConsultant } from './consultants';
+export { loadBookingOpsSettings } from './opsSettings';
+export { attendanceSweepJob, greyAssignJob, greyAssignSchedule } from './jobs';
+export { countAgreedWithoutStep, countUnmarkedAttendance, runAttendanceSweep, sweepAttendance, workdaysAfter } from './sweep';
+export { runGreyAssign } from './greyJob';
+export { assignConsultant, listAssignCandidates } from './assign';
+export { getConsultDay, getConsultStrip } from './consultDay';
+export { getMyConsultation, listMyConsultations, recordConsultResult } from './consultations';
 export { listBookingItems } from './list';
 export { getBookingWizard, pickLabel } from './wizard';
 export { checkConsultSlot, consultDays } from './consult';
@@ -11,3 +21,5 @@ export { createSeries, ensureAllSeries, listSeries, syncSeries, updateSeries } f
 export { loadBookingSettings, parseBookingSettings } from './settings';
 export { unavailableCardPort } from './cardPort';
 export * from './types';
+export type * from './dutyTypes';
+export type * from './consultTypes';

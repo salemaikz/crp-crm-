@@ -25,6 +25,9 @@ export const SKIP_LOCK_CLASS = 72_026_105;
 /** Задачи воркера: `pg_try_advisory_lock(JOB_LOCK_CLASS, hashtext(runName))` на экземпляр задачи. */
 export const JOB_LOCK_CLASS = 72_026_106;
 
+/** День консультаций: подбор, запись, назначение, резерв и автоназначение «серых» идут по одному на пространство и дату (D-245). */
+export const CONSULT_DAY_LOCK_CLASS = 72_026_107;
+
 /** Все ключи и классы: тест проверяет, что значения не повторяются. */
 export const ALL_LOCK_VALUES = {
   MIGRATION_LOCK_KEY,
@@ -34,6 +37,7 @@ export const ALL_LOCK_VALUES = {
   IMPORT_APPLY_LOCK_KEY,
   SKIP_LOCK_CLASS,
   JOB_LOCK_CLASS,
+  CONSULT_DAY_LOCK_CLASS,
 } as const;
 
 /** Сессионная advisory-блокировка, снятие. */

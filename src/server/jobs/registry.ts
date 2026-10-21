@@ -3,6 +3,7 @@
 import type { ActiveConfig } from '@crm/core/config';
 import type { JobDefinition, JobInstance, QueueSpec } from '@/server/platform/jobs';
 import { countOwnerlessWorkingCards } from '@/server/domain/cards';
+import { attendanceSweepJob, countAgreedWithoutStep, greyAssignJob } from '@/server/domain/booking';
 import { purgeDeviceStatus } from '@/server/domain/calls';
 import { distributeJob } from '@/server/domain/distribution';
 import { purgeExpiredImportRows } from '@/server/domain/import';
@@ -23,10 +24,12 @@ import { WEBHOOK_MAX_ATTEMPTS, webhookHandlers } from './integrations';
 
 const DAY_MS = 86_400_000;
 
-/** Части сверки `invariants`: сюда модули добавляют свои (B4b — позже). */
+/** Части сверки `invariants`: сюда модули добавляют свои . */
 export const invariantParts: InvariantPart[] = [
   // рабочие карточки без владельца (D-066); число нарушений, без id
   { key: 'ownerless_cards', run: (actor) => countOwnerlessWorkingCards(actor) },
+  // «Договорились» без записи и без задачи со сроком (D-049, D-244)
+  { key: 'agreed_without_step', run: (actor) => countAgreedWithoutStep(actor) },
 ];
 /** Части чистки `purge`: платформа + модули (ingest_batches — base, позже). */
 export const purgeParts: PurgePart[] = [
@@ -40,7 +43,7 @@ export const purgeParts: PurgePart[] = [
 ];
 
 export function jobDefinitions(): JobDefinition[] {
-  return [eventsEnsureJob, distributeJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob];
+  return [eventsEnsureJob, distributeJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob, greyAssignJob, attendanceSweepJob];
 }
 
 /** Очереди: вебхуки — обработчики по pluginId (O6, применители — O7a), push — P8b; без обработчика — retry no_handler. */

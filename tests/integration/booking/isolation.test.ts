@@ -189,7 +189,7 @@ test('директор: чтение 200, любая мутация — 423; о�
 
 test('валидация тел и ответы на ошибки домена: 400, 409 с кодом, event_full с альтернативами, 201/200', async () => {
   const good = { kind: 'group', requestId: uuid(), clientId: 'cl-a-10', eventId: 'iso-future', contactId: null };
-  for (const bad of [{ ...good, extra: 1 }, { ...good, requestId: 'не-uuid' }, { ...good, kind: 'individual' }, { kind: 'group' }, { kind: 'individual', requestId: uuid(), clientId: 'cl-a-10', eventTypeKey: 'bk', date: '2026-11-03', time: '10:30', directionKey: 'marketing', resourceId: 'r1', contactId: null }]) {
+  for (const bad of [{ ...good, extra: 1 }, { ...good, requestId: 'не-uuid' }, { ...good, kind: 'individual' }, { kind: 'group' }, { kind: 'individual', requestId: uuid(), clientId: 'cl-a-10', eventTypeKey: 'bk', date: '2026-11-03', time: '10:30', directionKey: 'marketing', resourceId: 5, contactId: null }]) {
     assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: bad })).status, 400);
   }
   assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: undefined })).status, 400, 'пустое тело');
@@ -310,7 +310,9 @@ test('заявка на консультацию через маршрут: 201/
   const missing = await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opB, body: body('cl-none') });
   assert.equal(foreign.status, 404);
   assert.equal(foreign.text, missing.text);
-  assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: body('cl-a-15', { resourceId: 'r1' }) })).status, 400);
+  assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: body('cl-a-15', { resourceId: 5 }) })).status, 400);
+  // консультант в теле допустим, но без флага BK_WIZARD запись к нему не существует
+  assert.equal((await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: body('cl-a-15', { resourceId: 'r1' }) })).status, 404);
   assert.equal(await snapshot(), before, 'таблицы не изменились');
   const late = await call(bookingsRoot.POST, 'POST', '/api/bookings', { as: U.opA, body: body('cl-a-15', { time: '10:20' }) });
   assert.deepEqual([late.status, late.json], [409, { error: 'conflict', detail: 'outside_hours' }]);

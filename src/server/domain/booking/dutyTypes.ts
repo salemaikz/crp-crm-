@@ -55,10 +55,12 @@ export interface WalkInInput {
  */
 export type WalkInAnswer = 'found' | 'new' | 'recorded';
 
+/**
+ * Ответ одной формы при любом исходе (D-301): id записи в нём нет, иначе номер из стоп-листа (записи нет) отличался
+ * бы от нового гостя. Гость появляется в списке мероприятия; запись попытки — `booking_history.id = requestId`.
+ */
 export interface WalkInResult {
   answer: WalkInAnswer;
-  /** Запись гостя; null — номер в стоп-листе без клиента (ничего не создано, D-241). */
-  bookingId: string | null;
   replayed: boolean;
 }
 

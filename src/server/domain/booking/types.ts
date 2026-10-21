@@ -11,6 +11,7 @@
 import type { booking as core, calling, time } from '@crm/core';
 import type { SystemActor, Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db';
+import type { ConsultDomainErrorCode, SuggestedConsultant } from './consultTypes';
 
 export type BookingActor = Viewer | SystemActor;
 
@@ -182,12 +183,13 @@ export const BOOKING_DOMAIN_ERRORS = [
   'capacity_below_taken',
   'card_port_unavailable',
 ] as const;
-export type BookingDomainErrorCode = core.BookingErrorCode | (typeof BOOKING_DOMAIN_ERRORS)[number];
+export type BookingDomainErrorCode = core.BookingErrorCode | (typeof BOOKING_DOMAIN_ERRORS)[number] | ConsultDomainErrorCode;
 
-/** Что несёт ошибка домена (класс — errors.ts). `alternatives` — только у `event_full`. */
+/** Что несёт ошибка домена (класс — errors.ts). `alternatives` — только у `event_full`, `suggestions` — у `slot_taken`. */
 export interface BookingFailure {
   code: BookingDomainErrorCode;
   alternatives?: EventOption[];
+  suggestions?: SuggestedConsultant[];
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +214,12 @@ export type BookingCardEvent =
   | calling.AttendedEvent
   | calling.BookingCancelledEvent
   | calling.AttendanceCorrectedEvent
-  | calling.AttendanceSweepEvent;
+  | calling.AttendanceSweepEvent
+  | calling.AgreedSweepEvent
+  // B6 (D-248): покупка, её отмена и проигрыш сделки — тот же порт карточки
+  | calling.PurchaseEvent
+  | calling.PurchaseCancelledEvent
+  | calling.DealLostEvent;
 
 /**
  * Применить событие записи к карточке в транзакции `tx`: снимок → `calling.applyOutcome` → запись карточки
@@ -233,12 +240,23 @@ export interface CardPort {
   applyBookingEvent(tx: Sql, actor: BookingActor, card: LockedCard, event: BookingCardEvent, now: number, opts?: CardPortOptions): Promise<calling.TransitionResult>;
 }
 
-/** Что запись делает со сделкой напрямую (без события карточки). Реализация — deals/effects.ts. */
+/**
+ * Что запись делает со сделкой напрямую (без события карточки). Реализация — deals/effects.ts.
+ */
 export interface DealLink {
   /** Открытая сделка клиента в воронке или новая на этапе `onAgreedStageKey`; null — сделку не создаём. Идемпотентно. */
   ensureOpen(tx: Sql, actor: BookingActor, card: LockedCard, args: { requestId: string; at: number; stages: DealStages | null }): Promise<string | null>;
   /** Только вперёд (PROCESS 4.2). */
   advanceOnAttended(tx: Sql, actor: BookingActor, args: { dealId: string; bookingId: string; at: number; stages: DealStages | null }): Promise<void>;
+  /** Открытые этапы воронки после `fromStageKey` по порядку (выбор этапа в итоге встречи); пусто — дальше некуда. */
+  laterOpenStages(spaceId: string, pipelineKey: string, fromStageKey: string): Promise<{ key: string; label: LocalizedLabel | null }[]>;
+  /**
+   * Итог встречи консультанта (B5c): сделка на открытый этап воронки, версия и охват `deal.edit` проверяются здесь.
+   * Тот же этап — пустая операция (`same`); этап назад без `deal.move_back` — 403. Неизвестный этап — 400.
+   * Требования этапа — та же проверка, что у ручного переноса (`deals/requirements.ts`, D-301): `hasNextStep` —
+   * в этом же итоге есть следующий шаг с датой. Не выполнено — `DealDomainError` (409 с кодом).
+   */
+  moveToStage(tx: Sql, viewer: Viewer, args: { dealId: string; version: number; toStageKey: string; bookingId: string; hasNextStep: boolean; at: number }): Promise<'moved' | 'same'>;
 }
 
 export interface BookingDeps {

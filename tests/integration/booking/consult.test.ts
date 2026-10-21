@@ -163,8 +163,8 @@ test('отмена «ошибка оператора» автором в пер�
   }
 });
 
-test('запись к консультанту (resourceId) — B5: ошибка сборки', async () => {
-  await assert.rejects(createBooking(deps, opA, ask('cl-a-31', { resourceId: 'r1' })), /B5/);
+test('запись к консультанту (resourceId) без флага BK_WIZARD — 404, а не ошибка сборки', async () => {
+  await assert.rejects(createBooking(deps, opA, ask('cl-a-31', { resourceId: 'r1' })), (e: unknown) => e instanceof NotFoundError);
   assert.equal(await count('cl-a-31'), 0);
 });
 

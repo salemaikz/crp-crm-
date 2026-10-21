@@ -38,9 +38,14 @@ test('toAgreementBooking: без requestId, клиента и контакта; 
   assert.equal(AgreementBookingBody.safeParse(toAgreementBooking(group)).success, true);
 });
 
-test('схема тела: resourceId строкой и лишние поля отклоняются', () => {
+test('схема тела: resourceId — строка (консультант, за флагом) или null; число и лишние поля отклоняются; итог «Договорились» — всегда «серая»', () => {
   const ok = toBookingBody(view, consult, KEY);
-  assert.equal(BookingBody.safeParse({ ...ok, resourceId: 'r1' }).success, false);
+  assert.equal(BookingBody.safeParse({ ...ok, resourceId: 'r1' }).success, true);
+  assert.equal(BookingBody.safeParse({ ...ok, resourceId: 5 }).success, false);
+  const withConsultant: WizardChoice = { ...consult, consultant: { resourceId: 'r1', name: 'Имя', reserve: false } } as WizardChoice;
+  assert.equal(toBookingBody(view, withConsultant, KEY).resourceId, 'r1');
+  assert.equal(toAgreementBooking(withConsultant).resourceId, null);
+  assert.equal(AgreementBookingBody.safeParse({ ...toAgreementBooking(consult), resourceId: 'r1' }).success, false);
   assert.equal(BookingBody.safeParse({ ...ok, extra: 1 }).success, false);
   assert.equal(BookingBody.safeParse({ ...ok, kind: 'other' }).success, false);
 });

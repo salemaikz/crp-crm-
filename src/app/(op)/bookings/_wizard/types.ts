@@ -8,3 +8,4 @@ export type {
   OfferResult,
   WizardEventType,
 } from '@/server/domain/booking';
+export type { ConsultSlotOption, ConsultStripDay, SuggestedConsultant } from '@/server/domain/booking';

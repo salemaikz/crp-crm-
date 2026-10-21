@@ -4,7 +4,7 @@
 import { newId, now, type Sql } from './db';
 import { jsonParam } from './db/core';
 
-export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'export' | 'integration' | 'messenger';
+export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'export' | 'integration' | 'messenger' | 'resource' | 'deal';
 
 /**
  * Реестр имён действий. Имя — «<сущность>.<глагол_snake>» в два сегмента, первый совпадает с
@@ -36,6 +36,17 @@ export const AUDIT_ACTIONS = [
   'event.duty',
   'series.create',
   'series.update',
+  // B4: гость без записи с номером из стоп-листа (в meta — только id мероприятия)
+  'booking.walk_in_skipped',
+  // B5a: консультанты (в meta — id, коды и числа)
+  'consultant.create',
+  'consultant.update',
+  // B5b: недельный график и исключения по датам
+  'consultant.schedule',
+  // B6: покупка, её правка и отмена (в meta — id, коды, суммы в тенге и моменты; без ПДн и текста комментария)
+  'deal.purchase',
+  'deal.purchase_edit',
+  'deal.purchase_cancel',
   // C3: ключи приёма; значение ключа и его хэш в журнал не попадают, только prefix
   'ingest_key.create',
   'ingest_key.revoke',

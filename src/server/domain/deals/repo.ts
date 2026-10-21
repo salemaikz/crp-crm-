@@ -1,6 +1,8 @@
 // SQL сделок в объёме записи (B2): открыть, двинуть вперёд, пометить «перезаписать», закрыть по ошибке ввода.
 // Остальное — B6. Все запросы идут от заблокированной карточки (её охват проверил вызывающий), поэтому
 // сделка выбирается по `card_id`/id, а не через scopeSql: у дежурного и системы карточки в охвате нет.
+import { scopeSql, scoped } from '@/server/access/scope';
+import type { Viewer } from '@/server/access';
 import { newId, type Sql } from '@/server/platform/db';
 import { jsonParam } from '@/server/platform/db/core';
 
@@ -95,3 +97,38 @@ export async function insertDealFeed(
     VALUES (${newId()}, ${e.clientId}, ${e.spaceId}, ${e.dealId}, ${e.kind}, ${e.actorId}, ${e.at}, 'deal', ${e.dealId}, ${jsonParam(e.data)})`;
 }
 
+
+export interface DealStageRow extends DealRow {
+  version: number;
+  /** Поля сделки — для требований этапа. */
+  custom: Record<string, unknown> | null;
+}
+
+/** Сделка под блокировкой для ручной смены этапа: охват `deal.edit` (консультанту — по отношению, в окне). */
+export async function lockDealForStage(viewer: Viewer, sql: Sql, id: string): Promise<DealStageRow | null> {
+  const rows = await scoped(sql)<DealStageRow>`
+    SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.request_id, d.version, d.custom
+      FROM deals d WHERE d.id = ${id} AND ${scopeSql(viewer, 'deal', 'deal.edit')} FOR UPDATE OF d`;
+  return rows[0] ?? null;
+}
+
+/** Смена этапа открытой сделки с проверкой версии и охвата; не совпало — false. */
+export async function updateDealStageScoped(viewer: Viewer, sql: Sql, a: { id: string; version: number; stageKey: string; at: number }): Promise<boolean> {
+  const rows = await scoped(sql)<{ id: string }>`
+    UPDATE deals d SET stage_key = ${a.stageKey}, stage_changed_at = ${a.at}, version = d.version + 1, updated_at = ${a.at}
+     WHERE d.id = ${a.id} AND d.version = ${a.version} AND d.status = 'open' AND ${scopeSql(viewer, 'deal', 'deal.edit')}
+    RETURNING d.id`;
+  return rows.length > 0;
+}
+
+/** Агрегат без строк сделок (число для тревоги), поэтому без охвата, как `countTaken` в записи. Сколько открытых сделок лежат на этапе не меньше срока (`stage_changed_at` не позже границы). */
+export async function countStaleOnStage(
+  sql: Sql,
+  a: { spaceId: string; pipelineKey: string; stageKey: string; threshold: number },
+): Promise<number> {
+  const rows = await sql<{ n: number }>`
+    SELECT count(*)::int AS n FROM deals d
+     WHERE d.space_id = ${a.spaceId} AND d.pipeline_key = ${a.pipelineKey} AND d.status = 'open' AND d.stage_key = ${a.stageKey}
+       AND d.stage_changed_at <= ${a.threshold}`;
+  return rows[0]?.n ?? 0;
+}

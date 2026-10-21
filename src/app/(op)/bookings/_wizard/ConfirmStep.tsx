@@ -20,12 +20,17 @@ interface Props {
 /** Подтверждение на месте (не вторая модалка): вопрос, «Подтвердить» — главная, «Назад» — тихая. */
 export function ConfirmStep({ clientName, type, choice, current, directionLabel, busy, onConfirm, onBack }: Props) {
   const t = useTranslations('booking.wizard');
+  const tc = useTranslations('booking.consult');
   const locale = useLocale();
   const to = choice.kind === 'group' ? formatWhen(choice.event.eventDate, choice.event.startTime, locale) : formatWhen(choice.date, choice.time, locale);
   const from = current ? formatWhen(current.bookingDate, current.startTime, locale) : '';
   const typeLabel = type?.short ?? choice.eventTypeKey;
-  const text =
-    choice.kind === 'group'
+  const consultant = choice.kind === 'individual' ? choice.consultant : undefined;
+  const text = consultant
+    ? current
+      ? tc('confirmMove', { client: clientName, from, to, consultant: consultant.name })
+      : tc(consultant.reserve ? 'confirmReserve' : 'confirm', { client: clientName, type: typeLabel, when: to, consultant: consultant.name })
+    : choice.kind === 'group'
       ? current
         ? t('confirmMove', { client: clientName, from, to })
         : t('confirmBook', { client: clientName, type: typeLabel, when: to })

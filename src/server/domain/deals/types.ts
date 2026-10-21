@@ -53,6 +53,8 @@ export interface DealsSettings {
   calendar: time.WorkCalendar;
   /** `calendar.workHours.end` — срок передачи «до конца рабочего дня». */
   workHoursEnd: string;
+  /** `calendar.callWindow.start` — срок задачи исполнителю передачи (B6b): следующий рабочий день с этого часа. */
+  callWindowStart: string;
   pipelines: DealPipelineInfo[];
   /** Только не архивные. */
   serviceTypes: ServiceTypeInfo[];
@@ -62,6 +64,11 @@ export interface DealsSettings {
   purchaseFutureLimitHours: number;
   /** `handoff.acceptSlaWorkdays`. */
   acceptSlaWorkdays: number;
+  /**
+   * Подписи всех полей сделки (`fields[]`, `object: 'deal'`) по ключу, без учёта роли. Клиенту — только через
+   * `stageFieldLabelsFor` (поля требований этапов, видимые зрителю).
+   */
+  fieldLabels: Record<string, { ru: string; kk?: string }>;
 }
 
 export type LoadDealsSettings = (spaceId: string, now: number) => Promise<DealsSettings>;
@@ -89,8 +96,8 @@ export interface DealView {
   cardId: string;
   ownerUserId: string | null;
   serviceTypeKey: string;
-  /** Целые тенге. */
-  amountKzt: number;
+  /** Целые тенге; null — сумма скрыта: зритель видит сделку только как отдел передачи (D-300). */
+  amountKzt: number | null;
   wonAt: number | null;
   lostAt: number | null;
   lostReasonCode: string;

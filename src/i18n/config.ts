@@ -9,7 +9,7 @@ export const DEFAULT_LOCALE: AppLocale = 'ru';
  * Пространства имён: messages/<locale>/<ns>.json → ключ верхнего уровня <ns>. Файл по модулю;
  * новый модуль добавляет свою строку сюда. Каждая строка обязана иметь файл (проверяет тест паритета).
  */
-export const NAMESPACES = ['common', 'auth', 'team', 'clients', 'booking', 'distribution', 'calls', 'import', 'shell', 'reports', 'notify', 'call', 'settings', 'messenger', 'integrations', 'deals'] as const;
+export const NAMESPACES = ['common', 'auth', 'team', 'clients', 'booking', 'distribution', 'calls', 'import', 'shell', 'reports', 'notify', 'call', 'settings', 'messenger', 'integrations', 'deals', 'handoffs'] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 
 /**

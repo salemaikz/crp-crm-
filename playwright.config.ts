@@ -46,6 +46,10 @@ export default defineConfig({
       // e2e идёт как стенд: флаги модулей, чьи экраны проверяются, включены (D-047, D-295; в production без значения — выкл)
       FEATURE_REPORTS: process.env.FEATURE_REPORTS || '1',
       FEATURE_SALES_SETTINGS: process.env.FEATURE_SALES_SETTINGS || '1',
+      // Подбор консультанта, график и «Мои консультации» (B5b/B5c) за флагом; в production без него выключены
+      FEATURE_BK_WIZARD: '1',
+      // Покупки и передачи в отдел (B6/B6b) за флагом
+      FEATURE_PURCHASES: '1',
     },
   },
 });

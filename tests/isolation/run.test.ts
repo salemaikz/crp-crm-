@@ -11,6 +11,10 @@ register('./runner/hooks.mjs', import.meta.url);
 // на всём, и прогон не увидел бы утечку. Выключенные флаги проверяют интеграционные тесты модулей.
 process.env.FEATURE_REPORTS ??= '1';
 process.env.FEATURE_SALES_SETTINGS ??= '1';
+// Функции за флагами проверяются включёнными: выключенный флаг отвечает 404 всем, это не проверка изоляции.
+// Выключенное состояние покрывают интеграционные тесты модулей (например, consult-routes.test.ts).
+process.env['FEATURE_BK_WIZARD'] ??= '1';
+process.env['FEATURE_PURCHASES'] ??= '1';
 
 const { defineIsolationRun } = await import('./runner/main');
 await defineIsolationRun();

@@ -4,8 +4,14 @@ import { booking } from '@crm/core';
 import { z } from 'zod';
 import { BadRequestError, NotFoundError, type RouteParams } from '@/server/access';
 import { BookingDomainError, fromCore, httpFailure } from '@/server/domain/booking';
+import { isFeatureEnabled, type FeatureName } from '@/server/platform/flags';
 
 const BODY_MAX_BYTES = 16 * 1024;
+
+/** Функция за флагом: выключена — маршрут отвечает как несуществующий (404). */
+export function requireFeature(name: FeatureName): void {
+  if (!isFeatureEnabled(name)) throw new NotFoundError();
+}
 
 /** Тело JSON ≤ 16 КБ по схеме Zod (.strict()). Неверное тело — 400 (ZodError превращает обёртка). */
 export async function readJson<T extends z.ZodTypeAny>(req: Request, schema: T): Promise<z.infer<T>> {
@@ -68,7 +74,7 @@ const place = z.string().max(200);
 export const GroupBookingBody = z
   .object({ kind: z.literal('group'), requestId: opId, clientId: id, eventId: id, contactId: id.nullable().default(null) })
   .strict();
-/** Заявка на консультацию (B3a): пока без консультанта — `resourceId` только `null` (с консультантом — B5). */
+/** Заявка на консультацию: `resourceId = null` — «серая» (B3a); с консультантом — B5b за флагом BK_WIZARD (иначе 404). */
 export const IndividualBookingBody = z
   .object({
     kind: z.literal('individual'),
@@ -78,7 +84,7 @@ export const IndividualBookingBody = z
     date,
     time,
     directionKey: id,
-    resourceId: z.null(),
+    resourceId: id.nullable().default(null),
     contactId: id.nullable().default(null),
   })
   .strict();
@@ -86,7 +92,8 @@ export const BookingBody = z.discriminatedUnion('kind', [GroupBookingBody, Indiv
 /** Запись внутри итога «Договорились»: без requestId, clientId и contactId — их ставит сервер (calls-design §4.3). */
 export const AgreementBookingBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('group'), eventId: id }).strict(),
-  IndividualBookingBody.omit({ requestId: true, clientId: true, contactId: true }).strict(),
+  // В итоге «Договорились» консультанта выбирают позже (мастер B5b пишет отдельной записью): здесь всегда «серая»
+  IndividualBookingBody.omit({ requestId: true, clientId: true, contactId: true, resourceId: true }).extend({ resourceId: z.null() }).strict(),
 ]);
 export const ConfirmBody = z.object({ opId, version, to: z.enum(['confirmed', 'registered']) }).strict();
 export const AttendanceBody = z.object({ opId, version, to: z.enum(['attended', 'no_show']) }).strict();
@@ -113,6 +120,46 @@ export const EventPatchBody = z
   .strict();
 export const CancelEventBody = z.object({ opId }).strict();
 export const DutyBody = z.object({ userIds: z.array(id).max(10) }).strict();
+/** «Остальные не пришли» (D-242): id записей, показанных дежурному без отметки. */
+export const NoShowRestBody = z.object({ opId, bookingIds: z.array(z.string().uuid()).min(1).max(1000) }).strict();
+/** Гость без записи (D-241): номер вводится как есть, разбор и проверка — на сервере. */
+export const WalkInBody = z.object({ requestId: opId, phone: z.string().min(5).max(40), name: z.string().trim().min(1).max(120), company: z.string().max(200) }).strict();
+
+// --- консультанты (B5a) ---
+const directions = z.array(id).max(20);
+const slotMin = z.number().int().min(5).max(480);
+const consultCapacity = z.number().int().min(1).max(5);
+const sort = z.number().int().min(0).max(10_000);
+export const ConsultantBody = z
+  .object({ requestId: opId, userId: id, directions, slotMin, capacity: consultCapacity, autoAssign: z.boolean(), sort })
+  .strict();
+export const ConsultantPatchBody = z
+  .object({
+    seenUpdatedAt: version,
+    patch: z.object({ directions, slotMin, capacity: consultCapacity, autoAssign: z.boolean(), sort, active: z.boolean() }).partial().strict(),
+  })
+  .strict();
+export const ConsultantsQuery = z.object({ inactive: z.enum(['0', '1']).optional() }).strict();
+
+// --- график, день, подбор, назначение, итог (B5b/B5c) ---
+const weekday = z.number().int().min(1).max(7);
+const range = { start: time, end: time };
+export const ScheduleBody = z.object({ windows: z.array(z.object({ weekday, ...range }).strict()).max(21) }).strict();
+export const ExceptionBody = z.object({ kind: z.enum(booking.EXCEPTION_KINDS), windows: z.array(z.object(range).strict()).max(21) }).strict();
+export const ConsultDayQuery = z.object({ date }).strict();
+// Пустой запрос допустим на уровне схемы: вид и направление проверяет сервис после карточки (чужая карточка — 404 раньше 400)
+export const ConsultStripQuery = z.object({ type: z.string().max(64).default(''), direction: z.string().max(64).default('') }).strict();
+export const AssignBody = z.object({ opId, version, resourceId: id }).strict();
+export const MineQuery = z.object({ from: date, to: date }).strict();
+export const ConsultResultBody = z
+  .object({
+    opId,
+    note: z.string().max(2000),
+    nextStep: z.object({ dueAt: z.number().int().min(0).max(8_640_000_000_000_000), kind: z.enum(['call', 'meeting']) }).strict().nullable(),
+    toStageKey: id.nullable(),
+    dealVersion: version.nullable(),
+  })
+  .strict();
 
 const seriesFields = {
   eventTypeKey: id,

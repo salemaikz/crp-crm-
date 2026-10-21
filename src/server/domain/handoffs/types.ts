@@ -81,7 +81,10 @@ export interface CreateHandoffInput {
  */
 export type CreateHandoffForDeal = (tx: Sql, actor: Viewer | SystemActor, input: CreateHandoffInput) => Promise<{ handoffId: string; created: boolean } | null>;
 
-/** Отмена покупки: передача → `cancelled`, задачи передачи закрыты, уведомления отделу. false — передачи не было. */
+/**
+ * Отмена покупки: передача (`pending`, `accepted` или `declined`) → `cancelled`, задачи передачи и задача РОП об
+ * отказе закрыты, колокол отделу — если передача была у него в работе (D-301). false — передачи не было.
+ */
 export type CancelHandoffOfDeal = (tx: Sql, actor: Viewer | SystemActor, input: { dealId: string; at: number }) => Promise<boolean>;
 
 /** Ключи задач передачи (`tasks.source = 'handoff'`). */
@@ -92,5 +95,5 @@ export const HANDOFF_TASK_KEYS = {
   declined: (handoffId: string) => `handoff_declined:${handoffId}`,
 } as const;
 
-export const HANDOFF_DOMAIN_ERRORS = ['already_handled', 'not_team_member', 'reason_required'] as const;
+export const HANDOFF_DOMAIN_ERRORS = ['already_handled', 'not_team_member', 'reason_required', 'reason_too_long'] as const;
 export type HandoffDomainErrorCode = (typeof HANDOFF_DOMAIN_ERRORS)[number];

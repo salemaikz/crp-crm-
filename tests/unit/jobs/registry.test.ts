@@ -55,7 +55,11 @@ test('в реестре есть events-ensure, purge, invariants, digest, alarm
 test('distribute — по пространствам; части invariants и purge подключены', () => {
   const byName = new Map(jobDefinitions().map((d) => [d.name, d]));
   assert.equal(byName.get('distribute')!.perSpace, true);
-  assert.deepEqual(invariantParts.map((p) => p.key), ['ownerless_cards']);
+  assert.equal(byName.get('grey-assign')!.perSpace, true);
+  assert.equal(byName.get('grey-assign')!.writes, 'business');
+  assert.equal(byName.get('attendance-sweep')!.perSpace, true);
+  assert.equal(byName.get('attendance-sweep')!.writes, 'business');
+  assert.deepEqual(invariantParts.map((p) => p.key), ['ownerless_cards', 'agreed_without_step']);
   assert.deepEqual(purgeParts.map((p) => p.key), ['sessions', 'invites', 'push_outbox', 'device_status', 'import_rows', 'webhook_payload']);
 });
 
