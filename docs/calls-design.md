@@ -318,12 +318,15 @@ ON CONFLICT (user_id, device_id) DO UPDATE
   `sanitizeForeign` обезличивает их (`title = ''`), а записи со свободным текстом старше `calling.offlineWindowHours`
   (наибольший срок из пространств; `foreignOutboxTtlMs`) удаляет сразу и сообщает
   `POST /api/device/outbox-expired` (запись `audit_log` `user.outbox_expired`: actor — сотрудник телефона, объект —
-  автор итогов, `meta.claimed` — `count`, `opIds`, `deviceId`, `meta.confirmed` — `authorExists`, `alreadyReceived`,
-  `authorPendingOnDevice`). Мутация безопасности `device.outbox_expire` (D-308). Не дошло (`retry`: сеть, 5xx, 429,
+  автор итогов, `meta.claimed` — заявлено телефоном: `count`, `opIds`, `reason`, `deviceId`, `authorPendingOnDevice`;
+  `meta.checked` — проверено сервером: `authorExists`, `alreadyReceived`, `alreadyClaimed`; подтверждение по `calls` —
+  `verifyExpiredLosses`, D-311). Мутация безопасности `device.outbox_expire` (D-308). Не дошло (`retry`: сеть, 5xx, 429,
   401) — сообщение ждёт в `meta.expiredReports` (`expiredReports.ts`) до следующей загрузки или `online` и уходит под
   тем, кто вошёл, в том числе под самим автором (`actor_id = entity_id`, тост автору через `onOwnLost`, D-309); 400/404 —
-  не повторяется, переходит в след `meta.expiredRefused`. Сервер: автор существует (иначе 404), `opId` из `calls` отбрасываются, 20/ч на устройство и 60/ч на
-  сотрудника.
+  не повторяется, переходит в след `meta.expiredRefused`. Очередь меняется только `store.updateMeta` (одна транзакция
+  IndexedDB). Сервер: автор существует (иначе 404), `opId` из `calls` и уже заявленные об этом авторе отбрасываются
+  (блокировка по автору — повтор не задваивает), 20/ч на устройство и 60/ч на сотрудника. «Удалить их и выйти» ставит
+  удаляемые `opId` в ту же очередь с `reason: 'discarded'` (D-311).
 - **Выход с итогами со свободным текстом** (D-293): `flushDeviceOutbox` возвращает `{ count, freeText }`;
   `freeText` — записи outbox с признаком `freeText` (ставит экран при постановке итога по видам полей из настроек;
   у старых записей — проверка с запасом, `freeText.ts`). При `freeText > 0` кнопки «Всё равно выйти» нет: «Остаться»
