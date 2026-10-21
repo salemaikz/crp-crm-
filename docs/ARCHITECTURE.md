@@ -680,8 +680,9 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
    `deal.read|edit|purchase|move_back`, `booking.read|create|attend|manage|walk_in`,
    `note.write`, `task.read|write|assign_others`, `handoff.read|accept|assign`,
    `pool.read`, `distribution.manage`, `import.run`, `report.view|export`,
-   `data.export_all`, `settings.sales|fields`. Новое разрешение не получает
-   никто, пока его не добавит пресет.
+   `data.export_all`, `export.journal` (журнал выгрузок, только чтение,
+   охват не ниже `space`; D-264), `settings.sales|fields`. Новое разрешение
+   не получает никто, пока его не добавит пресет.
 2. **Роли** — в настройках (`CONFIG.md` §6.10): ключ, подпись, `readOnly`,
    список `grants {perm, scope}`, `relations`, меню. Охват: `own` (владелец или
    временный владелец), `team`, `space`, `all`.

@@ -466,6 +466,7 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `INGEST_PUBLIC` | `0` — `/api/ingest/` закрыт снаружи (по умолчанию): nginx и второй рубеж в приложении — запрос через nginx (верный `X-Proxy-Secret`) получает 404, запрос с `X-Via-Proxy` без верного секрета — 404 всегда | нет | нет |
 | `INGEST_ACCEPTING` | `1` — приём ingest/v1 включён; `0` — выключен целиком, ответ 423 (рубильник на время разбора проблем источника) | нет | нет |
 | `FEATURE_BK_WIZARD`, `FEATURE_PURCHASES`, `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_PUSH`, `FEATURE_MERGE`, `FEATURE_BULK_TRANSFER`, `FEATURE_IMPORT` | флаги модулей пилота — аварийные выключатели (D-047, D-062; таблица — PLAN §7.3) | нет | нет |
+| `FEATURE_REPORTS`, `FEATURE_SALES_SETTINGS` | отчёты за период с их CSV/XLSX и панелью директора; экран настроек продаж (D-295). Выключен — 404 и пункт меню скрыт. Полная выгрузка и журнал выгрузок флагом не закрываются (D-055): их выключатель — право `data.export_all` в ролях | нет | нет |
 | `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_ZADARMA`, `FEATURE_TELEPHONY_BEELINE` | флаги интеграций (D-025 crp-kz) | нет | нет |
 | `TELEMETRY` | `off` по умолчанию | нет | нет |
 
