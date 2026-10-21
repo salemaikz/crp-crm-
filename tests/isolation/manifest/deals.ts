@@ -62,7 +62,7 @@ const entries: ManifestEntry[] = [
     perm: 'deal.edit',
     target: 'object',
     idParam: DEAL,
-    sampleBody: { opId: OP_ID, version: 0, reasonCode: 'no_time', reasonText: '' },
+    sampleBody: { opId: OP_ID, version: 0, reasonCode: 'expensive', reasonText: '' },
     mutation: true,
     touches: DEAL_TABLES,
   },

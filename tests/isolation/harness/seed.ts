@@ -26,6 +26,16 @@ export const U = {
   disabled: 'u-gone',
 } as const;
 
+/**
+ * Ключ роли участника в пресете прогона. Роли ЦРП (operator, rop, …) переводятся в роли base по смыслу
+ * охвата: operator и сотрудники отделов — manager (своё), rop — lead (всё пространство), director — observer.
+ */
+export function roleOf(crpKey: string): string {
+  if (process.env.ISOLATION_PRESET !== 'base') return crpKey;
+  const map: Record<string, string> = { operator: 'manager', rop: 'lead', consultant: 'manager', marketing_head: 'manager', marketer: 'manager', director: 'observer' };
+  return map[crpKey] ?? crpKey;
+}
+
 /** Карточка и клиент номер i оператора A или B: 'cd-a-1', 'cl-b-17'. */
 export const cardOf = (who: 'a' | 'b', i: number) => `cd-${who}-${i}`;
 export const clientOf = (who: 'a' | 'b', i: number) => `cl-${who}-${i}`;
@@ -93,7 +103,7 @@ export async function seedIsolation(sql: Sql, opts: SeedOptions = {}): Promise<v
   ];
   for (const [user, roleKey, team] of members) {
     await sql`INSERT INTO memberships (user_id, space_id, role_key, team_id, in_distribution, created_at, updated_at)
-              VALUES (${user}, ${SPACE}, ${roleKey}, ${team}, ${roleKey === 'operator'}, ${t}, ${t})`;
+              VALUES (${user}, ${SPACE}, ${roleOf(roleKey)}, ${team}, ${roleKey === 'operator'}, ${t}, ${t})`;
   }
 
   // Клиенты, номера и карточки операторов A и B (по n штук).

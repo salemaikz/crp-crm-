@@ -12,12 +12,19 @@ export function rolesLayer(preset: string): unknown {
   return (doc.global.roles as Array<Record<string, unknown>>).filter((r) => 'grants' in r);
 }
 
-export function configDoc(preset = 'clients/crp', rev = 1): unknown {
+/**
+ * Пресет прогона: ISOLATION_PRESET=base — прогон на одном базовом пресете (роли lead/manager/observer),
+ * по умолчанию — слои ЦРП. Нужен для Q1d: изоляция должна держаться на обоих пресетах.
+ */
+export const SEED_PRESET = process.env.ISOLATION_PRESET === 'base' ? 'base' : 'clients/crp';
+
+export function configDoc(preset = SEED_PRESET, rev = 1): unknown {
   return { rev, global: { org: { timezone: SEED_TZ }, roles: rolesLayer(preset) }, spaces: {} };
 }
 
 /** Слои пресета первого клиента в порядке сборки (CONFIG §5: base → kz → отрасль → накладка клиента). */
-export const SEED_LAYERS = ['base', 'kz', 'consulting-sales', join(ROOT, 'presets', 'clients', 'crp')] as const;
+export const SEED_LAYERS: readonly string[] =
+  SEED_PRESET === 'base' ? ['base', 'kz', 'consulting-sales'] : ['base', 'kz', 'consulting-sales', join(ROOT, 'presets', 'clients', 'crp')];
 
 /**
  * Записать в БД прогона ревизии настроек собранного пресета ЦРП, как `crmctl config apply`: модули
