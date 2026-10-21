@@ -1,9 +1,10 @@
 // Правила досок (B8): чего не хватает этапу, «залежалась», решение о переносе, ответы маршрута, итоги обзвона.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyMoveResponse, decideMove } from '../../../src/app/(mgr)/deals/moveRules';
+import { classifyMoveResponse, decideMove, routeRefusal } from '../../../src/app/(mgr)/deals/moveRules';
 import { dropKinds } from '../../../src/app/(mgr)/deals/calling/dropRules';
-import { missingFor, staleDaysOf } from '../../../src/server/domain/deals/boardRules';
+import { missingFor } from '../../../src/server/domain/deals/boardRules';
+import { staleDaysOf } from '../../../src/server/domain/deals/rules';
 import { parseCursor } from '../../../src/server/domain/deals/board';
 import { parseBoardPipelines } from '../../../src/server/domain/deals/boardDeps';
 import type { BoardStage, DealsBoard } from '../../../src/server/domain/deals/boardTypes';
@@ -11,16 +12,32 @@ import type { BoardStage, DealsBoard } from '../../../src/server/domain/deals/bo
 const req = (o: Partial<{ fields: string[]; booking: boolean; attendance: boolean; nextTask: boolean }> = {}) => ({
   fields: [] as string[], booking: false, attendance: false, nextTask: false, amount: false, serviceType: false, reason: false, ...o,
 });
-const facts = (o: Partial<{ hasBooking: boolean; hasAttendance: boolean; hasNextTask: boolean; filled: string[] }> = {}) => ({
-  hasBooking: false, hasAttendance: false, hasNextTask: false, ...o, filled: new Set(o.filled ?? []),
+const facts = (o: Partial<{ hasBooking: boolean; hasAttendance: boolean; hasNextStep: boolean; filled: string[] }> = {}) => ({
+  hasBooking: false, hasAttendance: false, hasNextStep: false, custom: Object.fromEntries((o.filled ?? []).map((k) => [k, 'x'])) as Record<string, unknown>,
+  ...(o.hasBooking !== undefined ? { hasBooking: o.hasBooking } : {}), ...(o.hasAttendance !== undefined ? { hasAttendance: o.hasAttendance } : {}), ...(o.hasNextStep !== undefined ? { hasNextStep: o.hasNextStep } : {}),
 });
 
 test('missingFor: порядок кодов стабилен, закрытые этапы не считаются', () => {
   const stage = { kind: 'open' as const, requires: req({ booking: true, attendance: true, nextTask: true, fields: ['a', 'b'] }) };
   assert.deepEqual(missingFor(stage, facts({ filled: ['a'] })), ['booking', 'attendance', 'next_step', 'field:b']);
-  assert.deepEqual(missingFor(stage, facts({ hasBooking: true, hasAttendance: true, hasNextTask: true, filled: ['a', 'b'] })), []);
+  assert.deepEqual(missingFor(stage, facts({ hasBooking: true, hasAttendance: true, hasNextStep: true, filled: ['a', 'b'] })), []);
   assert.deepEqual(missingFor({ kind: 'won', requires: req({ booking: true }) }, facts()), []);
   assert.deepEqual(missingFor({ kind: 'lost', requires: req({ booking: true }) }, facts()), []);
+});
+
+test('missingFor: пустая строка и пустой список — не заполнено (правило B6)', () => {
+  const stage = { kind: 'open' as const, requires: req({ fields: ['a', 'b'] }) };
+  assert.deepEqual(missingFor(stage, { hasBooking: false, hasAttendance: false, hasNextStep: false, custom: { a: '  ', b: [] } }), ['field:a', 'field:b']);
+  assert.deepEqual(missingFor(stage, { hasBooking: false, hasAttendance: false, hasNextStep: false, custom: { a: 'v', b: 0 } }), []);
+});
+
+test('staleDaysOf с поясом: календарные сутки (D-244), перенос в 23:50 назавтра уже день', () => {
+  const tz = 'Asia/Almaty'; // +5
+  const at = Date.UTC(2026, 9, 20, 18, 50); // 20.10 23:50 по Алматы
+  const nextDay = Date.UTC(2026, 9, 20, 19, 10); // 21.10 00:10 по Алматы
+  assert.equal(staleDaysOf({ status: 'open', stageChangedAt: at }, { staleDays: 1 }, nextDay, tz), 1);
+  assert.equal(staleDaysOf({ status: 'open', stageChangedAt: at }, { staleDays: 1 }, nextDay), null);
+  assert.equal(staleDaysOf({ status: 'open', stageChangedAt: at }, { staleDays: 1 }, at + 5 * 60_000, tz), null);
 });
 
 test('staleDaysOf: полные сутки не меньше порога; закрытая и без порога — null', () => {
@@ -93,12 +110,22 @@ test('decideMove: нет записи или явки — блок; нет ша�
 test('classifyMoveResponse: коды B6 §6', () => {
   assert.deepEqual(classifyMoveResponse(200, {}), { kind: 'ok' });
   assert.deepEqual(classifyMoveResponse(409, { error: 'conflict' }), { kind: 'stale' });
-  assert.deepEqual(classifyMoveResponse(409, { error: 'conflict', detail: 'next_step_required' }), { kind: 'code', code: 'next_step_required' });
-  assert.deepEqual(classifyMoveResponse(400, { error: 'use_purchase' }), { kind: 'code', code: 'use_purchase' });
+  assert.deepEqual(classifyMoveResponse(409, { error: 'conflict', detail: 'next_step_required' }), { kind: 'code', code: 'next_step_required', fields: [] });
+  assert.deepEqual(classifyMoveResponse(400, { error: 'use_purchase' }), { kind: 'code', code: 'use_purchase', fields: [] });
   assert.deepEqual(classifyMoveResponse(403, null), { kind: 'forbidden' });
   assert.deepEqual(classifyMoveResponse(423, null), { kind: 'readonly' });
   assert.deepEqual(classifyMoveResponse(401, null), { kind: 'login' });
   assert.deepEqual(classifyMoveResponse(502, null), { kind: 'network' });
+});
+
+test('classifyMoveResponse: список полей 409 stage_fields_required; routeRefusal ведёт к панели или кнопкам', () => {
+  assert.deepEqual(classifyMoveResponse(409, { error: 'conflict', detail: 'stage_fields_required', fields: ['budget', 7] }), { kind: 'code', code: 'stage_fields_required', fields: ['budget'] });
+  assert.deepEqual(routeRefusal('next_step_required', [], ['budget']), { kind: 'panel', nextStep: true, fields: ['budget'] });
+  assert.deepEqual(routeRefusal('stage_fields_required', ['budget']), { kind: 'panel', nextStep: false, fields: ['budget'] });
+  assert.deepEqual(routeRefusal('stage_fields_required', ['booking', 'budget']), { kind: 'blocked', reason: 'booking' });
+  assert.deepEqual(routeRefusal('use_purchase', []), { kind: 'purchase' });
+  assert.deepEqual(routeRefusal('use_lose', []), { kind: 'lose' });
+  assert.deepEqual(routeRefusal('deal_closed', []), { kind: 'toast' });
 });
 
 test('dropKinds: перенос = итог; в «new» и в ту же колонку нельзя', () => {

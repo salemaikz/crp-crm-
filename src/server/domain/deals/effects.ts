@@ -108,7 +108,7 @@ async function moveToStageFor(
   if (current && current.key === target.key) return 'same';
   if (current && current.order > target.order && scopeOf(viewer, 'deal.move_back') === null) throw new ForbiddenError();
   // Требования этапа — та же проверка, что у POST /api/deals/[id]/stage; шаг этого же итога засчитан (D-301)
-  await assertStageRequirements(sql, { dealId: deal.id, custom: deal.custom, stage: target, hasNextStep: args.hasNextStep });
+  await assertStageRequirements(sql, { dealId: deal.id, custom: deal.custom, stage: target, hasNextStep: args.hasNextStep, now: args.at });
   const ok = await updateDealStageScoped(viewer, sql, { id: deal.id, version: args.version, stageKey: target.key, at: args.at });
   if (!ok) await throwNotFoundOrConflict(viewer, sql, 'deal', deal.id);
   await insertDealFeed(sql, {

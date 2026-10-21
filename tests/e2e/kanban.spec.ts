@@ -1,6 +1,7 @@
 // Доски РОП на телефоне (B8, D-266): «Переместить в…», отложенная отправка 5 с с «Отменить», панель недостающего,
 // вид «Обзвон» (перенос = итог с via manual_entry). Данные создаются прямо в БД приложения (E2E_DATABASE_URL);
-// без неё тесты пропускаются. Маршрут переноса сделок (B6) подменён: проверяется то, что доска отправляет.
+// без неё тесты пропускаются. Перенос идёт в настоящий маршрут сделок B6 (`POST /api/deals/[id]/stage`): ничего не
+// подменяется, результат проверяется по БД.
 // Синтетика: номера 709 xxx xx xx (код не выдан ни одному оператору), компании выдуманные.
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
@@ -20,12 +21,16 @@ let spaceId = '';
 let rop: Staff;
 let operator: Staff;
 const tag = Math.floor(Math.random() * 90000) + 10000;
-const ids = { backDeal: randomUUID(), forwardDeal: randomUUID(), card: randomUUID() };
+const ids = { backDeal: randomUUID(), forwardDeal: randomUUID(), staleStepDeal: randomUUID(), wonDeal: randomUUID(), lostDeal: randomUUID() };
+const cards: Record<string, string> = {};
 const NAME = {
   back: `ТОО Синтетика Доска ${tag} Назад`,
   forward: `ТОО Синтетика Доска ${tag} Вперёд`,
   call: `ТОО Синтетика Доска ${tag} Обзвон`,
   stale: `ТОО Синтетика Доска ${tag} Устарела`,
+  staleStep: `ТОО Синтетика Доска ${tag} Шаг пропал`,
+  won: `ТОО Синтетика Доска ${tag} Покупка`,
+  lost: `ТОО Синтетика Доска ${tag} Проигрыш`,
 };
 
 async function makeStaff(role: string, name: string, inDistribution = false): Promise<Staff> {
@@ -60,6 +65,7 @@ async function seedClient(name: string, owner: Staff): Promise<{ clientId: strin
 
 async function seedDeal(id: string, stageKey: string, name: string, owner: Staff): Promise<void> {
   const { clientId, cardId } = await seedClient(name, owner);
+  cards[id] = cardId;
   const now = Date.now();
   await sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, stage_changed_at, created_by, created_at, updated_at)
             VALUES (${id}, ${spaceId}, 'sales', ${stageKey}, 'open', ${clientId}, ${cardId}, ${owner.id}, ${now - 3_600_000}, ${owner.id}, ${now}, ${now})`;
@@ -72,6 +78,14 @@ test.beforeAll(async () => {
   operator = await makeStaff('operator', `Оператор Доска ${tag}`, true);
   await seedDeal(ids.backDeal, 'offer', NAME.back, operator);
   await seedDeal(ids.forwardDeal, 'booked', NAME.forward, operator);
+  await seedDeal(ids.staleStepDeal, 'booked', NAME.staleStep, operator);
+  await seedDeal(ids.wonDeal, 'booked', NAME.won, operator);
+  await seedDeal(ids.lostDeal, 'booked', NAME.lost, operator);
+  // у «Шаг пропал» есть задача со сроком: доска считает, что шага хватает
+  const t0 = Date.now();
+  await sql`INSERT INTO tasks (id, space_id, client_id, deal_id, kind, source, title, due_at, assignee_user_id, status, source_key, created_by, created_at)
+            SELECT ${randomUUID()}, ${spaceId}, d.client_id, d.id, 'call', 'manual', '', ${t0 + 86_400_000}, ${operator.id}, 'open', NULL, ${operator.id}, ${t0}
+              FROM deals d WHERE d.id = ${ids.staleStepDeal}`;
   await seedClient(NAME.call, operator);
   await seedClient(NAME.stale, operator);
 });
@@ -83,11 +97,12 @@ test.afterAll(async () => {
 const tileOf = (page: Page, name: string) => page.getByTestId('deal-tile').filter({ hasText: name });
 const column = (page: Page, key: string) => page.getByTestId(`col-${key}`);
 
+const stageOf = async (dealId: string) => (await sql<{ stage_key: string; version: number }[]>`SELECT stage_key, version FROM deals WHERE id = ${dealId}`)[0]!;
+
 test('доска сделок: «Переместить в…» → тост с «Отменить»; отмена в окне ничего не отправляет', async ({ page }) => {
   const posts: string[] = [];
-  await page.route('**/api/deals/*/stage', async (route) => {
-    posts.push(route.request().postData() ?? '');
-    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().includes('/stage')) posts.push(r.url());
   });
   await login(page, rop);
   await page.goto('/deals');
@@ -109,16 +124,17 @@ test('доска сделок: «Переместить в…» → тост с 
   await expect(column(page, 'offer').getByText(NAME.back)).toBeVisible();
   await page.waitForTimeout(6000);
   expect(posts).toEqual([]);
+  expect(await stageOf(ids.backDeal)).toMatchObject({ stage_key: 'offer', version: 0 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('перенос уходит на сервер через 5 секунд с версией сделки', async ({ page }) => {
+test('перенос уходит в настоящий маршрут B6 через 5 секунд с версией сделки и меняет этап в БД', async ({ page }) => {
   const posts: Array<Record<string, unknown>> = [];
   let sentAt = 0;
-  await page.route('**/api/deals/*/stage', async (route) => {
+  page.on('request', (r) => {
+    if (r.method() !== 'POST' || !r.url().includes(`/api/deals/${ids.backDeal}/stage`)) return;
     sentAt = Date.now();
-    posts.push(JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>);
-    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    posts.push(JSON.parse(r.postData() ?? '{}') as Record<string, unknown>);
   });
   await login(page, rop);
   await page.goto('/deals');
@@ -129,14 +145,13 @@ test('перенос уходит на сервер через 5 секунд с
   expect(sentAt - movedAt).toBeGreaterThanOrEqual(4500);
   expect(posts[0]).toMatchObject({ stageKey: 'booked', version: 0, nextStep: null });
   expect(typeof posts[0]!.opId).toBe('string');
+  await expect.poll(async () => (await stageOf(ids.backDeal)).stage_key).toBe('booked');
+  expect((await stageOf(ids.backDeal)).version).toBe(1);
+  // доска перечитана: плитка остаётся в новой колонке
+  await expect(column(page, 'booked').getByText(NAME.back)).toBeVisible();
 });
 
-test('нехватка следующего шага: панель только с недостающим, отправка сразу по «Перенести»', async ({ page }) => {
-  const posts: Array<Record<string, unknown>> = [];
-  await page.route('**/api/deals/*/stage', async (route) => {
-    posts.push(JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>);
-    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
-  });
+test('перенос → требование шага → шаг → перенос прошёл (настоящий маршрут B6)', async ({ page }) => {
   await login(page, rop);
   await page.goto('/deals');
   await tileOf(page, NAME.forward).getByTestId('deal-move').click();
@@ -145,12 +160,57 @@ test('нехватка следующего шага: панель только 
   await expect(panel).toBeVisible();
   const submit = page.getByTestId('move-submit');
   await expect(submit).toBeDisabled();
+  // пока шага нет, сделка стоит на месте
+  expect((await stageOf(ids.forwardDeal)).stage_key).toBe('booked');
   await panel.getByTestId('move-due').fill('2030-01-15T10:00');
   await expect(submit).toBeEnabled();
   await submit.click();
-  await expect.poll(() => posts.length).toBe(1);
-  expect(posts[0]).toMatchObject({ stageKey: 'offer', nextStep: { kind: 'call' } });
-  expect(typeof (posts[0]!.nextStep as { dueAt: number }).dueAt).toBe('number');
+  await expect(panel).toHaveCount(0);
+  await expect.poll(async () => (await stageOf(ids.forwardDeal)).stage_key).toBe('offer');
+  const tasks = await sql<{ kind: string; due_at: string }[]>`SELECT kind, due_at FROM tasks WHERE deal_id = ${ids.forwardDeal} AND status = 'open'`;
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0]!.kind).toBe('call');
+  await expect(column(page, 'offer').getByText(NAME.forward)).toBeVisible();
+});
+
+test('сервер отказал 409 next_step_required (шаг пропал после загрузки): плитка назад, панель шага, затем перенос прошёл', async ({ page }) => {
+  await login(page, rop);
+  await page.goto('/deals');
+  await expect(column(page, 'booked').getByText(NAME.staleStep)).toBeVisible();
+  // доска видит задачу и считает, что шага хватает; задачу закрывают, пока страница открыта
+  await sql`UPDATE tasks SET status = 'done' WHERE deal_id = ${ids.staleStepDeal}`;
+  await tileOf(page, NAME.staleStep).getByTestId('deal-move').click();
+  await page.getByTestId('pick-offer').click();
+  await expect(column(page, 'offer').getByText(NAME.staleStep)).toBeVisible();
+
+  // через 5 с настоящий маршрут отвечает 409: плитка возвращается, открывается панель шага
+  const panel = page.getByTestId('move-panel');
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  await expect(column(page, 'booked').getByText(NAME.staleStep)).toBeVisible();
+  expect((await stageOf(ids.staleStepDeal)).stage_key).toBe('booked');
+  await panel.getByTestId('move-due').fill('2030-01-15T10:00');
+  await page.getByTestId('move-submit').click();
+  await expect.poll(async () => (await stageOf(ids.staleStepDeal)).stage_key).toBe('offer');
+});
+
+test('«Выиграна» ведёт на форму покупки по карточке сделки, а не на 404', async ({ page }) => {
+  await login(page, rop);
+  await page.goto('/deals');
+  await tileOf(page, NAME.won).getByTestId('deal-move').click();
+  await page.getByTestId('pick-paid').click();
+  await page.waitForURL(`**/deals/purchase/${cards[ids.wonDeal]}`);
+  await expect(page.getByRole('heading', { name: 'Покупка' })).toBeVisible();
+  expect((await stageOf(ids.wonDeal)).stage_key).toBe('booked');
+});
+
+test('«Проиграна» ведёт на страницу сделки с действием «Проигран», а не на 404', async ({ page }) => {
+  await login(page, rop);
+  await page.goto('/deals');
+  await tileOf(page, NAME.lost).getByTestId('deal-move').click();
+  await page.getByTestId('pick-lost').click();
+  await page.waitForURL(`**/deals/${ids.lostDeal}`);
+  await expect(page.getByTestId('deal-summary')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Проигран' })).toBeVisible();
 });
 
 test('оператору вид «Обзвон» недоступен, API отвечает 403; гостю 401', async ({ browser, request }) => {

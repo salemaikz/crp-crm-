@@ -9,7 +9,7 @@ import { getDb } from '@/server/platform/db';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import { formatKzPhone, maskKzPhone } from '@/shared/tel';
 import { boardDeps } from './boardDeps';
-import { missingFor, staleDaysOf } from './boardRules';
+import { missingFor } from './boardRules';
 import {
   countCallingClosed,
   countCallingColumns,
@@ -39,6 +39,7 @@ import {
   type DealTileField,
   type DealsBoard,
 } from './boardTypes';
+import { staleDaysOf } from './rules';
 import type { DealPipelineInfo, DealStageInfo } from './types';
 
 /** Плиток в колонке за один раз (дизайн §4.2). */
@@ -117,6 +118,7 @@ interface TileCtx {
   cfg: ClientsConfig | null;
   viewer: Viewer;
   now: number;
+  tz: string;
   canClient: boolean;
   withMissing: boolean;
 }
@@ -143,8 +145,7 @@ function toTile(row: DealRow, ctx: TileCtx): DealTile {
   const stage = ctx.stages.find((s) => s.key === row.stageKey);
   const missing: Record<string, DealTile['missing'][string]> = {};
   if (ctx.withMissing) {
-    const filled = new Set(Object.entries(row.custom ?? {}).filter(([, v]) => !fields.isEmptyValue(v)).map(([k]) => k));
-    const facts = { hasBooking: row.hasBooking, hasAttendance: row.hasAttendance, hasNextTask: row.taskDueAt !== null, filled };
+    const facts = { hasBooking: row.hasBooking, hasAttendance: row.hasAttendance, hasNextStep: row.hasNextStep, custom: row.custom };
     for (const s of ctx.stages) if (s.kind === 'open') missing[s.key] = missingFor(s, facts);
   }
   return {
@@ -153,13 +154,14 @@ function toTile(row: DealRow, ctx: TileCtx): DealTile {
     stageKey: row.stageKey,
     stageChangedAt: row.stageChangedAt,
     clientId: row.clientId,
+    cardId: row.cardId,
     clientName: row.clientName,
     contactName: ctx.canClient ? row.contactName : null,
     phone: ctx.canClient && row.phone ? formatKzPhone(row.phone) : null,
     fields: tileFields(row, ctx),
     nextTask: row.taskId ? { id: row.taskId, dueAt: row.taskDueAt, title: row.taskTitle ?? '' } : null,
     ownerName: row.ownerName,
-    badges: { needsRebook: row.needsRebook, staleDays: staleDaysOf({ status: row.status, stageChangedAt: row.stageChangedAt }, stage, ctx.now) },
+    badges: { needsRebook: row.needsRebook, staleDays: staleDaysOf({ status: row.status, stageChangedAt: row.stageChangedAt }, stage, ctx.now, ctx.tz) },
     missing,
   };
 }
@@ -168,11 +170,12 @@ async function context(viewer: Viewer, pipelineKey: string | null) {
   const spaceId = spaceOf(viewer);
   const deps = boardDeps();
   const now = deps.now();
+  const tz = await (deps.timeZone ?? (async () => 'UTC'))();
   const cfg = await fieldsConfigOrNull(viewer);
   const pipelines = await deps.pipelines(spaceId);
   const base = pickPipeline(pipelines, pipelineKey);
   const stages = withStageFields(base.stages, cfg?.fields ?? []);
-  const tile: TileCtx = { stages, cfg, viewer, now, canClient: can(viewer, 'client.read'), withMissing: true };
+  const tile: TileCtx = { stages, cfg, viewer, now, tz, canClient: can(viewer, 'client.read'), withMissing: true };
   return { spaceId, now, cfg, pipelines, pipeline: base, stages, tile };
 }
 
@@ -186,7 +189,7 @@ export async function getDealsBoard(viewer: Viewer, q: { pipeline?: string | nul
   const sql = (await getDb()).sql;
   const args = { spaceId: c.spaceId, pipelineKey: c.pipeline.key, owner: ownerOf(q.owner) };
   const [rows, counts, closed, owners] = await Promise.all([
-    selectDealWindow(viewer, sql, { ...args, limit: COLUMN_PAGE }),
+    selectDealWindow(viewer, sql, { ...args, limit: COLUMN_PAGE, now: c.now }),
     countDealColumns(viewer, sql, args),
     countClosedDeals(viewer, sql, { ...args, now: c.now }),
     selectDealOwners(viewer, sql, { spaceId: c.spaceId, pipelineKey: c.pipeline.key }),
@@ -220,7 +223,7 @@ export async function getDealsColumn(viewer: Viewer, q: { pipeline?: string | nu
   const sql = (await getDb()).sql;
   const args = { spaceId: c.spaceId, pipelineKey: c.pipeline.key, owner: ownerOf(q.owner) };
   const [rows, counts] = await Promise.all([
-    selectDealColumnPage(viewer, sql, { ...args, stageKey: stage.key, afterAt: after.at, afterId: after.id, limit: COLUMN_PAGE + 1 }),
+    selectDealColumnPage(viewer, sql, { ...args, stageKey: stage.key, afterAt: after.at, afterId: after.id, limit: COLUMN_PAGE + 1, now: c.now }),
     countDealColumns(viewer, sql, args),
   ]);
   const page = rows.slice(0, COLUMN_PAGE).map((r) => toTile(r, c.tile));

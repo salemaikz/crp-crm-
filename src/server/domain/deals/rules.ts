@@ -13,13 +13,21 @@ export const AMOUNT_MAX_KZT = 1e12;
 /** Покупка, зарегистрированная днём, — 12:00 местного времени этого дня. */
 export const PURCHASE_DAY_TIME = '12:00';
 
+/** Календарных суток между двумя моментами по часам пояса `tz`. */
+function calendarDaysBetween(from: number, to: number, tz: string): number {
+  const a = time.parseDay(time.localDayOf(from, tz));
+  const b = time.parseDay(time.localDayOf(to, tz));
+  return Math.round((Date.UTC(b.year, b.month - 1, b.dayOfMonth) - Date.UTC(a.year, a.month - 1, a.dayOfMonth)) / DAY_MS);
+}
+
 /**
  * Сколько календарных дней открытая сделка лежит на этапе (D-244), если это не меньше `staleDays` этапа; иначе null.
- * Не открытая сделка и этап без `staleDays` — null.
+ * С поясом установки `tz` считаются местные сутки (перенос в 23:50 на следующий день уже «день»); без него — полные
+ * 24-часовые интервалы. Не открытая сделка и этап без `staleDays` — null.
  */
-export const staleDaysOf: StaleDaysOf = (deal, stage, now) => {
+export const staleDaysOf: StaleDaysOf = (deal, stage, now, tz) => {
   if (deal.status !== 'open' || !stage || stage.staleDays === null) return null;
-  const days = Math.floor((now - deal.stageChangedAt) / DAY_MS);
+  const days = tz ? calendarDaysBetween(deal.stageChangedAt, now, tz) : Math.floor((now - deal.stageChangedAt) / DAY_MS);
   return days >= stage.staleDays ? days : null;
 };
 

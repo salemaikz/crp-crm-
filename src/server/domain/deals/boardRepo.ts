@@ -15,6 +15,7 @@ export interface DealRow {
   status: 'open' | 'won' | 'lost';
   stageChangedAt: number;
   clientId: string;
+  cardId: string;
   needsRebook: boolean;
   custom: Record<string, unknown>;
   clientName: string;
@@ -24,6 +25,8 @@ export interface DealRow {
   contactName: string | null;
   hasBooking: boolean;
   hasAttendance: boolean;
+  /** Задача со сроком у любого исполнителя или будущая запись по сделке (D-244). */
+  hasNextStep: boolean;
   taskId: string | null;
   taskDueAt: number | null;
   taskTitle: string | null;
@@ -37,7 +40,7 @@ export interface BoardArgs {
 }
 
 /** Окно по этапам: первые `limit` открытых сделок каждой колонки (давнее на этапе — выше). */
-export async function selectDealWindow(viewer: Viewer, sql: Sql, a: BoardArgs & { limit: number }): Promise<DealRow[]> {
+export async function selectDealWindow(viewer: Viewer, sql: Sql, a: BoardArgs & { limit: number; now: number }): Promise<DealRow[]> {
   return scoped(sql)<DealRow>`
     WITH w AS (
       SELECT d.id, row_number() OVER (PARTITION BY d.stage_key ORDER BY d.stage_changed_at, d.id) AS rn
@@ -45,7 +48,7 @@ export async function selectDealWindow(viewer: Viewer, sql: Sql, a: BoardArgs & 
        WHERE d.space_id = ${a.spaceId} AND d.pipeline_key = ${a.pipelineKey} AND d.status = 'open'
          AND (${a.owner}::text IS NULL OR d.owner_user_id = ${a.owner}::text)
          AND ${scopeSql(viewer, 'deal', 'deal.read')})
-    SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.needs_rebook, d.custom,
+    SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.card_id, d.needs_rebook, d.custom,
            cl.name AS client_name, cl.custom AS client_custom, u.name AS owner_name,
            (SELECT cp.digits FROM client_phones cp WHERE cp.client_id = d.client_id AND cp.is_working
                AND ${scopeSql(viewer, 'client_phone', 'client.read')}
@@ -53,8 +56,10 @@ export async function selectDealWindow(viewer: Viewer, sql: Sql, a: BoardArgs & 
            (SELECT ct.name FROM contacts ct WHERE ct.client_id = d.client_id AND ct.is_decision_maker AND ct.archived_at IS NULL
                AND ${scopeSql(viewer, 'contact', 'client.read')}
              ORDER BY ct.created_at, ct.id LIMIT 1) AS contact_name,
-           EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status IN ('registered','confirmed','attended','no_show')) AS has_booking,
+           EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status <> 'cancelled') AS has_booking,
            EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status = 'attended') AS has_attendance,
+           (EXISTS (SELECT 1 FROM tasks t2 WHERE t2.deal_id = d.id AND t2.status = 'open' AND t2.due_at IS NOT NULL)
+            OR EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status IN ('registered','confirmed') AND b.starts_at > ${a.now}::bigint)) AS has_next_step,
            tk.id AS task_id, tk.due_at AS task_due_at, tk.title AS task_title
       FROM w JOIN deals d ON d.id = w.id
       JOIN clients cl ON cl.id = d.client_id
@@ -70,10 +75,10 @@ export async function selectDealWindow(viewer: Viewer, sql: Sql, a: BoardArgs & 
 export async function selectDealColumnPage(
   viewer: Viewer,
   sql: Sql,
-  a: BoardArgs & { stageKey: string; afterAt: number; afterId: string; limit: number },
+  a: BoardArgs & { stageKey: string; afterAt: number; afterId: string; limit: number; now: number },
 ): Promise<DealRow[]> {
   return scoped(sql)<DealRow>`
-    SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.needs_rebook, d.custom,
+    SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.card_id, d.needs_rebook, d.custom,
            cl.name AS client_name, cl.custom AS client_custom, u.name AS owner_name,
            (SELECT cp.digits FROM client_phones cp WHERE cp.client_id = d.client_id AND cp.is_working
                AND ${scopeSql(viewer, 'client_phone', 'client.read')}
@@ -81,8 +86,10 @@ export async function selectDealColumnPage(
            (SELECT ct.name FROM contacts ct WHERE ct.client_id = d.client_id AND ct.is_decision_maker AND ct.archived_at IS NULL
                AND ${scopeSql(viewer, 'contact', 'client.read')}
              ORDER BY ct.created_at, ct.id LIMIT 1) AS contact_name,
-           EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status IN ('registered','confirmed','attended','no_show')) AS has_booking,
+           EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status <> 'cancelled') AS has_booking,
            EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status = 'attended') AS has_attendance,
+           (EXISTS (SELECT 1 FROM tasks t2 WHERE t2.deal_id = d.id AND t2.status = 'open' AND t2.due_at IS NOT NULL)
+            OR EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status IN ('registered','confirmed') AND b.starts_at > ${a.now}::bigint)) AS has_next_step,
            tk.id AS task_id, tk.due_at AS task_due_at, tk.title AS task_title
       FROM deals d
       JOIN clients cl ON cl.id = d.client_id
@@ -129,7 +136,7 @@ export interface ClosedRow extends DealRow {
 /** Закрытые сделки (выигранные и проигранные), новые первыми; страница — по ключу `(closedAt, id)` строго раньше `before`. */
 export async function selectClosedDeals(viewer: Viewer, sql: Sql, a: BoardArgs & { beforeAt: number | null; beforeId: string | null; limit: number }): Promise<ClosedRow[]> {
   return scoped(sql)<ClosedRow>`
-    SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.needs_rebook, d.custom,
+    SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.card_id, d.needs_rebook, d.custom,
            COALESCE(d.won_at, d.lost_at) AS closed_at,
            cl.name AS client_name, cl.custom AS client_custom, u.name AS owner_name,
            (SELECT cp.digits FROM client_phones cp WHERE cp.client_id = d.client_id AND cp.is_working
@@ -138,7 +145,7 @@ export async function selectClosedDeals(viewer: Viewer, sql: Sql, a: BoardArgs &
            (SELECT ct.name FROM contacts ct WHERE ct.client_id = d.client_id AND ct.is_decision_maker AND ct.archived_at IS NULL
                AND ${scopeSql(viewer, 'contact', 'client.read')}
              ORDER BY ct.created_at, ct.id LIMIT 1) AS contact_name,
-           FALSE AS has_booking, FALSE AS has_attendance,
+           FALSE AS has_booking, FALSE AS has_attendance, FALSE AS has_next_step,
            NULL::text AS task_id, NULL::bigint AS task_due_at, NULL::text AS task_title
       FROM deals d
       JOIN clients cl ON cl.id = d.client_id

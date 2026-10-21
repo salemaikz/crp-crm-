@@ -14,6 +14,8 @@ export interface StageRequirementCheck {
   stage: Parameters<typeof stageRequirements>[0];
   /** Шаг с датой приходит в этом же действии (тело `nextStep` или шаг итога встречи). */
   hasNextStep: boolean;
+  /** Момент проверки: будущая запись считается шагом (D-244). */
+  now: number;
 }
 
 /**
@@ -22,7 +24,7 @@ export interface StageRequirementCheck {
  */
 export async function assertStageRequirements(tx: Sql, a: StageRequirementCheck): Promise<void> {
   const req = stageRequirements(a.stage);
-  if (req.nextTask && !a.hasNextStep && !(await hasOpenStepTask(tx, a.dealId))) throw new DealDomainError('next_step_required');
+  if (req.nextTask && !a.hasNextStep && !(await hasOpenStepTask(tx, a.dealId, a.now))) throw new DealDomainError('next_step_required');
   const missing = req.fields.filter((k) => isEmptyFieldValue(a.custom?.[k]));
   if (req.booking || req.attendance) {
     const facts = await dealBookingFacts(tx, a.dealId);

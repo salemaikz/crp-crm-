@@ -236,7 +236,7 @@ export type LoseDeal = (deps: DealsDeps, viewer: Viewer, input: LoseDealInput) =
 export type CountStaleDeals = (input: { spaceId: string; now: number; pipelines: readonly DealPipelineInfo[] }) => Promise<number>;
 
 /** Чистая функция (rules.ts): сколько дней сделка лежит на этапе сверх `staleDays`; null — не залежалась. */
-export type StaleDaysOf = (deal: { status: DealStatus; stageChangedAt: number }, stage: Pick<DealStageInfo, 'staleDays'> | undefined, now: number) => number | null;
+export type StaleDaysOf = (deal: { status: DealStatus; stageChangedAt: number }, stage: Pick<DealStageInfo, 'staleDays'> | undefined, now: number, tz?: string) => number | null;
 
 /** Коды ошибок модуля (HTTP — дизайн §6). */
 export const DEAL_DOMAIN_ERRORS = [

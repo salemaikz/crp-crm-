@@ -10,6 +10,7 @@ import { testViewer } from '../../../src/server/access/testing';
 import type { RoleConfig } from '@crm/core/access';
 import { configDoc } from '../../isolation/harness/config';
 import { SEED_TZ } from '../../isolation/harness/seed';
+import { time } from '@crm/core';
 
 const DAY = 86_400_000;
 let db: TestDb;
@@ -110,6 +111,41 @@ test('недостающее считается по каждому открыт
   assert.deepEqual(a2.missing.offer, ['booking'], 'следующий шаг есть, записи нет');
   assert.equal(a2.nextTask?.id, 'tk-a-1');
   assert.equal(a2.badges.staleDays, null);
+});
+
+test('следующий шаг — будущая запись тоже (D-244); прошедшая запись шагом не считается', async () => {
+  const rop = await viewerOf(U.rop);
+  const tileA1 = async () => (await getDealsBoard(rop)).columns.flatMap((c) => c.deals).find((d) => d.id === 'dl-a-1')!;
+  const put = async (startsAt: number, status: string) =>
+    db.sql`INSERT INTO bookings (id, space_id, kind, event_type_key, client_id, card_id, deal_id, booking_date, start_time, starts_at, duration_min, status, created_at, updated_at)
+           VALUES ('bk-d244', ${SPACE}, 'individual', 'bk', 'cl-a-1', 'cd-a-1', 'dl-a-1', '2031-01-01', '10:00', ${startsAt}, 45, ${status}, ${SEED_NOW}, ${SEED_NOW})`;
+  try {
+    await put(SEED_NOW + 2 * DAY, 'registered');
+    assert.deepEqual((await tileA1()).missing.offer, [], 'запись есть и она в будущем: ни записи, ни шага не нужно');
+    await db.sql`DELETE FROM bookings WHERE id = 'bk-d244'`;
+    await put(SEED_NOW - 2 * DAY, 'registered');
+    assert.deepEqual((await tileA1()).missing.offer, ['next_step'], 'запись есть, но прошла: шага нет');
+    await db.sql`DELETE FROM bookings WHERE id = 'bk-d244'`;
+    await put(SEED_NOW + 2 * DAY, 'cancelled');
+    assert.deepEqual((await tileA1()).missing.offer, ['booking', 'next_step'], 'отменённая запись не считается');
+  } finally {
+    await db.sql`DELETE FROM bookings WHERE id = 'bk-d244'`;
+  }
+});
+
+test('«залежалась» считается календарными сутками пояса установки (D-244)', async () => {
+  const today = time.localDayOf(SEED_NOW, SEED_TZ);
+  const changed = time.fromLocalTime(time.addLocalDays(today, -3), '23:50', SEED_TZ);
+  await db.sql`UPDATE deals SET stage_changed_at = ${changed} WHERE id = 'dl-a-1'`;
+  try {
+    overrideBoardDepsForTests({ pipelines: async () => PIPELINES, now: () => SEED_NOW, timeZone: async () => SEED_TZ });
+    const rop = await viewerOf(U.rop);
+    const a1 = (await getDealsBoard(rop)).columns.flatMap((c) => c.deals).find((d) => d.id === 'dl-a-1')!;
+    assert.equal(a1.badges.staleDays, 3, 'три местных суток назад (в 23:50) — уже три дня, хотя прошло меньше 72 часов');
+  } finally {
+    overrideBoardDepsForTests({ pipelines: async () => PIPELINES, now: () => SEED_NOW });
+    await db.sql`UPDATE deals SET stage_changed_at = ${SEED_NOW - 5 * DAY} WHERE id = 'dl-a-1'`;
+  }
 });
 
 test('фильтр по владельцу и неизвестная воронка', async () => {

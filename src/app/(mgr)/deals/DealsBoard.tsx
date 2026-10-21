@@ -14,7 +14,7 @@ import type { MoveRequest } from './deferredMove';
 import { DealTile } from './DealTile';
 import { MovePanel } from './MovePanel';
 import { MovePicker } from './MovePicker';
-import { classifyMoveResponse, decideMove, panelFields, type MoveDecision, type MoveVerdict } from './moveRules';
+import { classifyMoveResponse, decideMove, panelFields, routeRefusal, type MoveDecision, type MoveVerdict } from './moveRules';
 import { useDeferredMove } from './useDeferredMove';
 
 const uuid = (): string => globalThis.crypto.randomUUID();
@@ -59,6 +59,8 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
   const decide = (tile: Tile, target: string): MoveDecision => decideMove({ stages, can: board.can, fieldDefs: board.fieldDefs }, tile, target);
 
   const toLogin = () => window.location.replace('/login?next=/deals');
+  const purchaseHref = (tile: Tile): string => `/deals/purchase/${encodeURIComponent(tile.cardId)}`;
+  const loseHref = (tile: Tile): string => `/deals/${encodeURIComponent(tile.id)}`;
   const errorText = (code: string): string => (t.has(`errors.${code}`) ? t(`errors.${code}`) : t('errors.generic'));
 
   // ---- Чтение -----------------------------------------------------------------------------------------------
@@ -96,8 +98,40 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
     if (original) setBoard((b) => ({ ...b, columns: placeTile(b.columns, original, original.stageKey) }));
   }, []);
 
+  /**
+   * Отказ сервера по коду (409/400): нехватка шага или полей — панель с недостающим, закрытие сделки — кнопка
+   * «Покупка»/«Проигран», остальное — тост. Плитка к этому моменту уже возвращена на прежний этап.
+   */
+  const refusal = (code: string, fields: readonly string[], tile: Tile | undefined, target: BoardStage | undefined): boolean => {
+    if (!tile || !target) return false;
+    const known = (tile.missing[target.key] ?? []).filter((c) => c.startsWith('field:')).map((c) => c.slice('field:'.length));
+    const r = routeRefusal(code, fields, known);
+    if (r.kind === 'panel') {
+      const keys = r.fields.filter((k) => boardRef.current.fieldDefs.some((d) => d.key === k && d.editable));
+      if (!r.nextStep && keys.length === 0) return false;
+      setPanelError(null);
+      setPanel({ tile, target, nextStep: r.nextStep, fields: keys });
+      return true;
+    }
+    if (r.kind === 'blocked') {
+      toast.show({ message: t(`blocked.${r.reason}`), tone: 'info' });
+      return true;
+    }
+    if (r.kind === 'purchase' || r.kind === 'lose') {
+      toast.show({
+        message: errorText(code),
+        tone: 'info',
+        durationMs: TOAST_HOLD_MS,
+        undo: { label: t(r.kind === 'purchase' ? 'toast.purchase' : 'toast.lose'), onUndo: () => router.push(r.kind === 'purchase' ? purchaseHref(tile) : loseHref(tile)) },
+      });
+      return true;
+    }
+    return false;
+  };
+
   const verdictToast = useCallback(
-    (v: MoveVerdict, opId: string) => {
+    (v: MoveVerdict, move: MoveRequest) => {
+      const opId = move.opId;
       switch (v.kind) {
         case 'ok':
           originals.current.delete(opId);
@@ -109,10 +143,14 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
           return;
         case 'login':
           return toLogin();
-        case 'code':
+        case 'code': {
+          const original = originals.current.get(opId);
           revert(opId);
-          toast.show({ message: errorText(v.code), tone: 'danger' });
+          dirty.current = true;
+          const target = boardRef.current.pipeline.stages.find((s) => s.key === move.stageKey);
+          if (!refusal(v.code, v.fields, original, target)) toast.show({ message: errorText(v.code), tone: 'danger' });
           return;
+        }
         case 'forbidden':
         case 'readonly':
           revert(opId);
@@ -133,7 +171,7 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
       inflight.current += 1;
       try {
         const res = await postStage(move, { nextStep: null }, keepalive);
-        verdictToast(classifyMoveResponse(res.status, res.json), move.opId);
+        verdictToast(classifyMoveResponse(res.status, res.json), move);
       } finally {
         inflight.current -= 1;
         // После любого переноса доска перечитывается: версии, «чего не хватает» и значки пересчитаны сервером
@@ -209,8 +247,8 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
         return;
       case 'purchase':
       case 'lose':
-        // Покупка и причина проигрыша — формы страницы сделки (B6)
-        router.push(`/deals/${encodeURIComponent(tile.id)}?close=${d.kind === 'purchase' ? 'won' : 'lost'}`);
+        // Покупка — форма по карточке, проигрыш — действие на странице сделки (B6)
+        router.push(d.kind === 'purchase' ? purchaseHref(tile) : loseHref(tile));
         return;
       case 'panel':
         setPanelError(null);
@@ -242,7 +280,18 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
       } else if (v.kind === 'login') {
         toLogin();
       } else if (v.kind === 'code') {
-        setPanelError(errorText(v.code));
+        const r = routeRefusal(v.code, v.fields);
+        if (r.kind === 'purchase' || r.kind === 'lose') {
+          setPanel(null);
+          router.push(r.kind === 'purchase' ? purchaseHref(tile) : loseHref(tile));
+        } else if (r.kind === 'panel' && ((r.nextStep && !panel.nextStep) || r.fields.some((k) => !panel.fields.includes(k)))) {
+          // Данные плитки устарели: панель показывает то, чего сервер ещё требует
+          const keys = [...new Set([...panel.fields, ...r.fields])].filter((k) => board.fieldDefs.some((d) => d.key === k && d.editable));
+          setPanel({ tile, target, nextStep: panel.nextStep || r.nextStep, fields: keys });
+          setPanelError(errorText(v.code));
+        } else {
+          setPanelError(errorText(v.code));
+        }
       } else {
         setPanelError(t(v.kind === 'network' ? 'errors.offline' : v.kind === 'readonly' ? 'errors.readonly' : 'errors.forbidden'));
       }

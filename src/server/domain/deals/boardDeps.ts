@@ -76,6 +76,8 @@ export function parseBoardPipelines(raw: unknown): DealPipelineInfo[] {
 export interface BoardDeps {
   pipelines: (spaceId: string) => Promise<DealPipelineInfo[]>;
   now: () => number;
+  /** Пояс установки (D-244: «залежалась» — местные сутки). Не задан — UTC. */
+  timeZone?: () => Promise<string>;
 }
 
 const fromConfig: BoardDeps['pipelines'] = async (spaceId) => {
@@ -85,10 +87,15 @@ const fromConfig: BoardDeps['pipelines'] = async (spaceId) => {
   return parseBoardPipelines((space.doc as unknown as { pipelines?: unknown }).pipelines ?? []);
 };
 
+const tzFromConfig = async (): Promise<string> => {
+  const org = (await getActiveConfig()).global.doc as unknown as { org?: { timezone?: unknown } };
+  return typeof org.org?.timezone === 'string' ? org.org.timezone : 'UTC';
+};
+
 let override: BoardDeps | null = null;
 
 export function boardDeps(): BoardDeps {
-  return override ?? { pipelines: fromConfig, now: () => Date.now() };
+  return override ?? { pipelines: fromConfig, now: () => Date.now(), timeZone: tzFromConfig };
 }
 
 /** Только тесты: подставить воронки и часы. В production — ошибка. */

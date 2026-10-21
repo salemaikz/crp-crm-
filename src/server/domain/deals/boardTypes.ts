@@ -24,6 +24,8 @@ export interface DealTile {
   stageKey: string;
   stageChangedAt: number;
   clientId: string;
+  /** Карточка сделки: форма покупки открывается по ней (`/deals/purchase/[cardId]`). */
+  cardId: string;
   clientName: string;
   contactName: string | null;
   /** Для показа: `+7 709 123 45 67`; нет права читать клиента — null. */

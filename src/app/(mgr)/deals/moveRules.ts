@@ -48,7 +48,7 @@ export type MoveVerdict =
   /** 409 без `detail`: устаревшая версия — перечитать доску. */
   | { kind: 'stale' }
   /** Отказ по коду (`409 {detail}`, `400 <код>`): вернуть плитку, тост `deals.errors.<код>`. */
-  | { kind: 'code'; code: string }
+  | { kind: 'code'; code: string; fields: string[] }
   | { kind: 'forbidden' }
   | { kind: 'readonly' }
   | { kind: 'login' }
@@ -62,8 +62,32 @@ export function classifyMoveResponse(status: number, json: unknown): MoveVerdict
   if (status === 403) return { kind: 'forbidden' };
   if (status === 423) return { kind: 'readonly' };
   const body = isObj(json) ? json : {};
-  if (status === 409) return typeof body.detail === 'string' ? { kind: 'code', code: body.detail } : { kind: 'stale' };
-  if (status === 400) return { kind: 'code', code: typeof body.detail === 'string' ? body.detail : typeof body.error === 'string' ? body.error : 'bad_request' };
-  if (status === 404) return { kind: 'code', code: 'not_found' };
+  const fields = Array.isArray(body.fields) ? body.fields.filter((x): x is string => typeof x === 'string') : [];
+  if (status === 409) return typeof body.detail === 'string' ? { kind: 'code', code: body.detail, fields } : { kind: 'stale' };
+  if (status === 400) return { kind: 'code', code: typeof body.detail === 'string' ? body.detail : typeof body.error === 'string' ? body.error : 'bad_request', fields };
+  if (status === 404) return { kind: 'code', code: 'not_found', fields };
   return { kind: 'network' };
+}
+
+/** Что делать доске с отказом сервера по требованиям этапа или закрытию сделки (B6 §6). */
+export type RefusalRoute =
+  /** Открыть панель с недостающим: следующий шаг и/или поля. */
+  | { kind: 'panel'; nextStep: boolean; fields: string[] }
+  /** Нет записи или явки: переносом не решается. */
+  | { kind: 'blocked'; reason: 'booking' | 'attendance' }
+  /** Покупка и проигрыш — отдельные формы B6. */
+  | { kind: 'purchase' }
+  | { kind: 'lose' }
+  | { kind: 'toast' };
+
+export function routeRefusal(code: string, fields: readonly string[], known: readonly string[] = []): RefusalRoute {
+  if (code === 'use_purchase') return { kind: 'purchase' };
+  if (code === 'use_lose') return { kind: 'lose' };
+  if (code === 'next_step_required') return { kind: 'panel', nextStep: true, fields: [...known] };
+  if (code === 'stage_fields_required') {
+    if (fields.includes('booking')) return { kind: 'blocked', reason: 'booking' };
+    if (fields.includes('attendance')) return { kind: 'blocked', reason: 'attendance' };
+    return { kind: 'panel', nextStep: false, fields: [...fields] };
+  }
+  return { kind: 'toast' };
 }

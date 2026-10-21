@@ -230,10 +230,14 @@ export async function insertDealNotification(tx: Sql, a: { userId: string; kind:
 // Требования этапа
 // ---------------------------------------------------------------------------
 
-/** Открытая задача со сроком по сделке (следующий шаг уже есть). */
-export async function hasOpenStepTask(tx: Sql, dealId: string): Promise<boolean> {
+/**
+ * Есть ли у сделки «следующий шаг» (D-244): открытая задача со сроком у любого исполнителя или активная будущая
+ * запись (`registered`/`confirmed`, начало после `now`).
+ */
+export async function hasOpenStepTask(tx: Sql, dealId: string, now: number): Promise<boolean> {
   const rows = await tx<{ hit: boolean }>`
-    SELECT EXISTS (SELECT 1 FROM tasks t WHERE t.deal_id = ${dealId} AND t.status = 'open' AND t.due_at IS NOT NULL) AS hit`;
+    SELECT (EXISTS (SELECT 1 FROM tasks t WHERE t.deal_id = ${dealId} AND t.status = 'open' AND t.due_at IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = ${dealId} AND b.status IN ('registered','confirmed') AND b.starts_at > ${now}::bigint)) AS hit`;
   return rows[0]?.hit ?? false;
 }
 
