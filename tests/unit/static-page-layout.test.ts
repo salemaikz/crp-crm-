@@ -76,3 +76,11 @@ function pageDepth(src: string, i: number): number {
   const before = src.slice(0, i);
   return (before.match(/<Page\b/g)?.length ?? 0) - (before.match(/<\/Page>/g)?.length ?? 0);
 }
+
+test('новые блоки — на ките: свои классы полей экранов входа (fieldStyles) только у экранов, ждущих UI-5e', () => {
+  // Блок push в «Моём аккаунте» (P8b-2) пришёл на этих классах мимо кита и темы — кнопка чёрная (D-319 §1).
+  // Список только сокращается: экран, переведённый на кит, из него уходит.
+  const LEGACY = new Set(['src/app/(auth)/account/AccountForms.tsx', 'src/app/(auth)/invite/InviteForm.tsx', 'src/app/(auth)/login/LoginForm.tsx']);
+  const bad = files.filter((f) => /from '[./]*fieldStyles'/.test(readFileSync(f, 'utf8'))).map((f) => relative(ROOT, f)).filter((f) => !LEGACY.has(f));
+  assert.deepEqual(bad, []);
+});

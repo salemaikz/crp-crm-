@@ -1,10 +1,11 @@
 'use client';
 
 // Кнопка «Уведомления на телефон» в профиле (P8b-2, D-328). Разрешение запрашивается только из нажатия (iOS 16.4+
-// даёт push лишь установленному приложению). Нет флага или ключей на сервере — блока нет вовсе.
+// даёт push лишь установленному приложению). Нет флага или ключей на сервере — блока нет вовсе. Блок на ките (D-319):
+// раздел с заголовком, состояние — сообщением, одна кнопка во всю ширину колонки (касание ≥ 44 px).
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
-import { buttonClass, ghostButtonClass } from '../fieldStyles';
+import { ActionBar, Alert, Button, Section } from '@/ui/kit';
 import { disablePush, enablePush, pushInfo, type PushInfo } from '@/ui/push';
 
 export function PushToggle() {
@@ -41,31 +42,25 @@ export function PushToggle() {
   }
 
   return (
-    <section className="flex flex-col gap-3" data-testid="push-toggle" aria-labelledby="push-title">
-      <h2 id="push-title" className="text-lg font-medium">
-        {t('title')}
-      </h2>
+    <Section title={t('title')} data-testid="push-toggle" aria-label={t('title')}>
       <p className="text-sm">{t('lead')}</p>
-      {info.kind === 'unsupported' ? <p className="text-sm">{info.ios ? t('iosInstall') : t('unsupported')}</p> : null}
-      {info.kind === 'denied' ? <p className="text-sm">{t('denied')}</p> : null}
-      {info.kind === 'off' ? (
-        <button type="button" className={buttonClass} disabled={busy} onClick={turnOn}>
-          {t('enable')}
-        </button>
+      {info.kind === 'unsupported' ? <Alert tone="info">{info.ios ? t('iosInstall') : t('unsupported')}</Alert> : null}
+      {info.kind === 'denied' ? <Alert tone="warning">{t('denied')}</Alert> : null}
+      {info.kind === 'on' ? <Alert tone="success">{t('on')}</Alert> : null}
+      {error ? <Alert tone="danger">{t('error')}</Alert> : null}
+      {info.kind === 'off' || info.kind === 'on' ? (
+        <ActionBar>
+          {info.kind === 'off' ? (
+            <Button variant="secondary" block disabled={busy} onClick={turnOn}>
+              {t('enable')}
+            </Button>
+          ) : (
+            <Button variant="secondary" block disabled={busy} onClick={turnOff}>
+              {t('disable')}
+            </Button>
+          )}
+        </ActionBar>
       ) : null}
-      {info.kind === 'on' ? (
-        <>
-          <p role="status" className="text-sm">{t('on')}</p>
-          <button type="button" className={ghostButtonClass} disabled={busy} onClick={turnOff}>
-            {t('disable')}
-          </button>
-        </>
-      ) : null}
-      {error ? (
-        <p role="alert" className="text-sm">
-          {t('error')}
-        </p>
-      ) : null}
-    </section>
+    </Section>
   );
 }
