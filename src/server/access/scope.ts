@@ -173,12 +173,16 @@ function bookingPred(v: Viewer, perm: Permission, a: Access, X: Frag): Frag {
   return anyOf(parts);
 }
 
-function eventPred(v: Viewer, a: Access, X: Frag): Frag {
+function eventPred(v: Viewer, perm: Permission, a: Access, X: Frag): Frag {
   if (v.spaceId === null) return FALSE;
   const parts: Frag[] = [];
-  // Мероприятия — не данные клиента: охват роли любого уровня даёт мероприятия пространства.
+  // Мероприятия — не данные клиента: на чтение охват роли любого уровня даёт расписание пространства (D-136).
+  // Пишущее действие над мероприятием целиком (экран дежурства, «остальные не пришли», гость без записи) охват own
+  // не открывает: «своё» — это свои записи (через карточку), а не общее мероприятие; нужно дежурство (D-317).
+  // team — охват руководителя отдела, мероприятие ему открыто, как и space/all.
+  const wide = PERMISSION_INFO[perm].kind !== 'write' || a.scope !== 'own';
   if (a.scope === 'all') parts.push(frag`(${X}.space_id = ANY(${[...v.spaceIds]}))`);
-  else if (a.scope) parts.push(frag`(${X}.space_id = ${v.spaceId})`);
+  else if (a.scope && wide) parts.push(frag`(${X}.space_id = ${v.spaceId})`);
   if (relOf(a.rels, 'duty_today')) {
     parts.push(
       frag`(${X}.space_id = ${v.spaceId} AND ${X}.event_date = ${v.today} AND EXISTS (SELECT 1 FROM event_duty acc_de WHERE acc_de.event_id = ${X}.id AND acc_de.user_id = ${v.userId}))`,
@@ -318,7 +322,7 @@ function entityPred(v: Viewer, entity: ScopedEntity, perm: Permission, X: Frag):
     case 'booking':
       return bookingPred(v, perm, a, X);
     case 'event':
-      return eventPred(v, a, X);
+      return eventPred(v, perm, a, X);
     case 'task':
       return taskPred(v, a, X);
     case 'handoff':

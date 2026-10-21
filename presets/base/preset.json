@@ -82,14 +82,14 @@
           { "perm": "deal.purchase", "scope": "own" },
           { "perm": "booking.read", "scope": "own" },
           { "perm": "booking.create", "scope": "own" },
-          { "perm": "booking.attend", "scope": "own" },
-          { "perm": "booking.walk_in", "scope": "own" },
           { "perm": "note.write", "scope": "own" },
           { "perm": "task.read", "scope": "own" },
           { "perm": "task.write", "scope": "own" },
           { "perm": "report.view", "scope": "own" }
         ],
-        "relations": [],
+        "relations": [
+          { "key": "duty_today", "params": {}, "actions": ["booking.attend", "booking.walk_in"] }
+        ],
         "fieldAccessDefault": "edit",
         "menu": ["queue", "bookings", "tasks", "deals"]
       },

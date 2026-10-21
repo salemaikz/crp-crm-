@@ -861,12 +861,12 @@ export type DutyEventRow = EventRow & { taken: number; unmarked: number; attende
 
 /**
  * Мероприятия сегодня для экрана «Дежурство» (§2.8): агрегаты по всем записям без охвата записей (D-136);
- * `byRole` — у роли есть `booking.attend` (РОП видит все), иначе только где зритель назначен дежурным.
+ * Какие мероприятия — решает охват `event` по `booking.attend` (D-317): space/all — все, `duty_today` — своё.
  */
 export async function listDutyEventRows(
   actor: BookingActor,
   sql: Sql,
-  a: { spaceId: string; me: string; dayStart: number; dayEnd: number; byRole: boolean; eventId?: string },
+  a: { spaceId: string; me: string; dayStart: number; dayEnd: number; eventId?: string },
 ): Promise<DutyEventRow[]> {
   return scoped(sql)<DutyEventRow>`
     SELECT e.*, x.taken, x.unmarked, x.attended, x.no_show,
@@ -879,8 +879,7 @@ export async function listDutyEventRows(
                count(*) FILTER (WHERE b.status = 'no_show')::int AS no_show
           FROM bookings b WHERE b.event_id = e.id) x ON TRUE
      WHERE e.space_id = ${a.spaceId} AND e.starts_at >= ${a.dayStart} AND e.starts_at < ${a.dayEnd}
-       AND e.status = 'scheduled' AND ${scopeSql(actor, 'event', 'booking.read')}
-       AND (${a.byRole}::boolean OR EXISTS (SELECT 1 FROM event_duty d WHERE d.event_id = e.id AND d.user_id = ${a.me}))
+       AND e.status = 'scheduled' AND ${scopeSql(actor, 'event', 'booking.attend')}
        AND (${a.eventId ?? null}::text IS NULL OR e.id = ${a.eventId ?? null}::text)
      ORDER BY e.starts_at, e.id`;
 }

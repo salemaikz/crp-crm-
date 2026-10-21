@@ -339,7 +339,7 @@ durationMin, location, format: offline|online, capacity}` (у ЦРП: `br`,
 
 | Ключ | Тип | По умолчанию | ЦРП | Кто |
 |---|---|---|---|---|
-| `roles[]` | `{key, label, readOnly, grants[{perm, scope}], relations[{key, params, actions[]}], fieldAccessDefault, menu[]}`; `actions` — подмножество списка из кода отношения (`ARCHITECTURE.md` §5.1) | Руководитель (`space`), Менеджер (`own`), Наблюдатель (`readOnly`, `space`) | Оператор (`own`), РОП (`space`, `data.export_all`), Консультант (`booked_with_me` с действиями явки, записи к себе, покупки, заметки), Директор (`readOnly`, `space`, `data.export_all`), Глава маркетинга (`handoff_to_my_team` с принятием и назначением), Маркетолог (`handoff_assigned_to_me`) | CLI; назначение сотрудникам — Администратор (не себе) |
+| `roles[]` | `{key, label, readOnly, grants[{perm, scope}], relations[{key, params, actions[]}], fieldAccessDefault, menu[]}`; `actions` — подмножество списка из кода отношения (`ARCHITECTURE.md` §5.1) | Руководитель (`space`), Менеджер (`own`; явка и гость без записи — только дежурному, `duty_today`, D-317), Наблюдатель (`readOnly`, `space`) | Оператор (`own`), РОП (`space`, `data.export_all`), Консультант (`booked_with_me` с действиями явки, записи к себе, покупки, заметки), Директор (`readOnly`, `space`, `data.export_all`), Глава маркетинга (`handoff_to_my_team` с принятием и назначением), Маркетолог (`handoff_assigned_to_me`) | CLI; назначение сотрудникам — Администратор (не себе) |
 | `team.fallbackOwnerRole` | `role_key` | роль с охватом `space` | `rop` (кому уходят дела при срочном отключении, D-066) | CLI |
 
 До влития P4a схема проверяет у роли только `key` и `label`; остальные поля

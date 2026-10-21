@@ -2,7 +2,7 @@
 // (docs/deals-handoffs-design.md §2.5, §2.8; D-242, D-072). Явку одной записи ставит `markAttendance` (bookings.ts).
 // Порядок блокировок: карточки в порядке id → мероприятие → записи (D-131, D-251).
 import { booking } from '@crm/core';
-import { BadRequestError, scopeOf, type Viewer } from '@/server/access';
+import { BadRequestError, type Viewer } from '@/server/access';
 import { closeAutoTaskByKey } from '@/server/domain/tasks/auto';
 import { newId } from '@/server/platform/db';
 import { noteCardEvent } from './cardEvents';
@@ -54,24 +54,27 @@ async function todayBounds(deps: BookingDeps, spaceId: string, now: number): Pro
   };
 }
 
-/** Сегодняшние мероприятия, где зритель дежурит или его роль отмечает явку (РОП — все). Чужих и завтрашних нет. */
+/**
+ * Сегодняшние мероприятия, где зритель отмечает явку по booking.attend: охват space/all — все, дежурство — своё
+ * (D-317). Чужих и завтрашних нет.
+ */
 export const listDutyEvents: ListDutyEvents = async (deps, viewer) => {
   const spaceId = requireSpace(viewer);
   const now = deps.now();
   const bounds = await todayBounds(deps, spaceId, now);
   const rows = await inBookingTx({}, (tx) =>
-    listDutyEventRows(viewer, tx, { spaceId, me: viewer.userId, ...bounds, byRole: scopeOf(viewer, 'booking.attend') !== null }),
+    listDutyEventRows(viewer, tx, { spaceId, me: viewer.userId, ...bounds }),
   );
   return rows.map((r) => toDutyView(r, now));
 };
 
-/** Одно сегодняшнее мероприятие дежурства; не дежурный и не РОП — как несуществующее. */
+/** Одно сегодняшнее мероприятие дежурства; без booking.attend на нём (D-317) — как несуществующее. */
 export async function getDutyEvent(deps: BookingDeps, viewer: Viewer, eventId: string): Promise<DutyEventView> {
   const spaceId = requireSpace(viewer);
   const now = deps.now();
   const bounds = await todayBounds(deps, spaceId, now);
   const rows = await inBookingTx({}, (tx) =>
-    listDutyEventRows(viewer, tx, { spaceId, me: viewer.userId, ...bounds, byRole: scopeOf(viewer, 'booking.attend') !== null, eventId }),
+    listDutyEventRows(viewer, tx, { spaceId, me: viewer.userId, ...bounds, eventId }),
   );
   const row = rows[0];
   if (!row) throw eventNotFound();
