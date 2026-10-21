@@ -5,7 +5,7 @@
 // с файлами маршрутов (каждый — GET, отдающий файл с Content-Disposition).
 
 /** Маршруты скачивания (шаблон пути App Router, `[id]` — один сегмент). Новый — только с тестом и ревью. */
-export const DOWNLOAD_ROUTES: readonly string[] = Object.freeze(['/api/import/[id]/rows.csv']);
+export const DOWNLOAD_ROUTES: readonly string[] = Object.freeze(['/api/import/[id]/rows.csv', '/api/reports/[key]/export']);
 
 /** Назначения запроса, при которых ответ показывается как документ. */
 const DOCUMENT_DESTS = new Set(['document', 'iframe', 'frame', 'embed', 'object']);

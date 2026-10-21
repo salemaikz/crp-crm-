@@ -86,11 +86,11 @@ const urlOf = (file: string) =>
     .filter((seg) => !(seg.startsWith('(') && seg.endsWith(')')))
     .join('/');
 
-test('список скачиваний = GET-маршруты, отдающие файл (Content-Disposition): в обе стороны', () => {
+test('список скачиваний = GET-маршруты, отдающие файл (Content-Disposition или fileHeaders): в обе стороны', () => {
   const downloads = routeFiles(join(APP, 'api'))
     .filter((f) => {
       const text = readFileSync(f, 'utf8');
-      return /export const GET\b/.test(text) && /Content-Disposition/i.test(text);
+      return /export const GET\b/.test(text) && /Content-Disposition|fileHeaders\(/i.test(text);
     })
     .map(urlOf)
     .sort();
