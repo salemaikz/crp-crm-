@@ -323,6 +323,7 @@ Zod + `superRefine` проверяют документ целиком:
 | `booking.duty.defaultRole` | `role_key` | `manager` | `rop` | CLI |
 | `booking.noShow.callbackAt` | шаг | `nextWorkday@10:00` | то же | РОП |
 | `booking.attendance.autoNoShowWorkdays` | int 1–10 или `null` (выкл) | 2 | 2 (PLAN В-11) | РОП |
+| `booking.attendance.sweepAt` | `HH:MM`, необязательно | 10:00 | час прогона `attendance-sweep` по рабочим дням (D-243) | РОП |
 | `booking.nextStep.taskAt` | шаг | `nextWorkday@10:00` | то же (задача «Записать на следующий шаг», D-049) | РОП |
 | `reminders.days` | `('today'\|'tomorrow')[]` | оба | оба | РОП |
 | `reminders.templates[]` | `{key, eventTypeKey, text}` с подстановками только из белого списка `{name} {date} {time} {place}` | общий текст | текст PROCESS 5.4 | РОП |

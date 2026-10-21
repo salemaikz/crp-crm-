@@ -95,5 +95,5 @@ export const HANDOFF_TASK_KEYS = {
   declined: (handoffId: string) => `handoff_declined:${handoffId}`,
 } as const;
 
-export const HANDOFF_DOMAIN_ERRORS = ['already_handled', 'not_team_member', 'reason_required'] as const;
+export const HANDOFF_DOMAIN_ERRORS = ['already_handled', 'not_team_member', 'reason_required', 'reason_too_long'] as const;
 export type HandoffDomainErrorCode = (typeof HANDOFF_DOMAIN_ERRORS)[number];

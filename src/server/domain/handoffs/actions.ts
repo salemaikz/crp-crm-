@@ -112,7 +112,7 @@ export const declineHandoff: DeclineHandoff = async (viewer, input) => {
   requireSpace(viewer);
   const reason = input.reason.trim();
   if (reason === '') throw new HandoffDomainError('reason_required');
-  if (reason.length > REASON_MAX) throw new HandoffDomainError('reason_required');
+  if (reason.length > REASON_MAX) throw new HandoffDomainError('reason_too_long');
   const now = dealsDeps().now();
   return inHandoffsTx(async (tx) => {
     const args = { opId: input.opId, kind: 'handoff.declined' as const, handoffId: input.handoffId, now };

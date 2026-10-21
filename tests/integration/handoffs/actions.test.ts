@@ -70,6 +70,7 @@ test('отклонить без причины — 400; с причиной: к�
   const { handoffId, dealId } = await buy(54);
   const head = await viewerOf(U.mktHead);
   await rejects(declineHandoff(head, { handoffId, opId: uuid(), reason: '   ' }), 'reason_required');
+  await rejects(declineHandoff(head, { handoffId, opId: uuid(), reason: 'я'.repeat(501) }), 'reason_too_long');
   const secret = 'Секретная синтетическая причина 7709';
   const opId = uuid();
   const r = await declineHandoff(head, { handoffId, opId, reason: secret });

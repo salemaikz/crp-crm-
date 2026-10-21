@@ -31,7 +31,7 @@ export async function respond<T>(run: () => Promise<T>): Promise<T | Response> {
 const opId = z.string().uuid();
 
 export const AcceptBody = z.object({ opId }).strict();
-/** Пустая и слишком длинная причина — код `reason_required` от сервиса; Zod только отсекает не строки. */
+/** Пустая причина — `reason_required`, слишком длинная — `reason_too_long` (от сервиса); Zod только отсекает не строки. */
 export const DeclineBody = z.object({ opId, reason: z.string().max(2000) }).strict();
 export const AssignBody = z.object({ opId, userId: z.string().min(1).max(64) }).strict();
 

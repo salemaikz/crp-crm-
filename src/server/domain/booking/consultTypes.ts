@@ -197,7 +197,7 @@ export interface MyConsultation {
 /** Своё расписание: записи к своему ресурсу в окне дат (≤ 62 дня), без охвата записей (D-246). */
 export type ListMyConsultations = (deps: BookingDeps, viewer: Viewer, input: { from: string; to: string }) => Promise<MyConsultation[]>;
 
-/** Итог встречи: заметка, следующий шаг, этап «Переговоры» (PROCESS 2.8). */
+/** Итог встречи: заметка, следующий шаг, следующий этап воронки (PROCESS 2.8). */
 export interface ConsultResultInput {
   bookingId: string;
   /** UUID; ключ — `client_events.id` события `booking.result` (D-248). */

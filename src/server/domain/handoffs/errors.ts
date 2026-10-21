@@ -7,6 +7,7 @@ export const HANDOFF_HTTP_STATUS: Readonly<Record<HandoffDomainErrorCode, 400 | 
   already_handled: 409,
   not_team_member: 400,
   reason_required: 400,
+  reason_too_long: 400,
 };
 
 export class HandoffDomainError extends Error {

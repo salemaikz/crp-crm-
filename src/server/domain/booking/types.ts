@@ -240,7 +240,9 @@ export interface CardPort {
   applyBookingEvent(tx: Sql, actor: BookingActor, card: LockedCard, event: BookingCardEvent, now: number, opts?: CardPortOptions): Promise<calling.TransitionResult>;
 }
 
-/** Что запись делает со сделкой напрямую (без события карточки). Реализация — deals/effects.ts. */
+/**
+ * Что запись делает со сделкой напрямую (без события карточки). Реализация — deals/effects.ts.
+ */
 export interface DealLink {
   /** Открытая сделка клиента в воронке или новая на этапе `onAgreedStageKey`; null — сделку не создаём. Идемпотентно. */
   ensureOpen(tx: Sql, actor: BookingActor, card: LockedCard, args: { requestId: string; at: number; stages: DealStages | null }): Promise<string | null>;

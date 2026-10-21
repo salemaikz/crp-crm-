@@ -38,13 +38,27 @@ export const greyAssignJob: JobDefinition = {
 };
 
 /**
- * `attendance-sweep@<пространство>`: рабочие дни 10:00 — неотмеченная явка (D-243) и «Договорились» без шага (D-244).
+ * `attendance-sweep@<пространство>`: рабочие дни в час `booking.attendance.sweepAt` (умолчание 10:00) — неотмеченная явка (D-243) и «Договорились» без шага (D-244).
  * Выключатель автонеявки — `booking.attendance.autoNoShowWorkdays: null` (остаются только напоминания).
  */
+/** Час прогона по умолчанию, если `booking.attendance.sweepAt` не задан (D-243). */
+export const DEFAULT_ATTENDANCE_SWEEP_AT = '10:00';
+
+const SweepSlice = z
+  .object({ booking: z.object({ attendance: z.object({ sweepAt: Hhmm.optional() }).passthrough() }).passthrough() })
+  .passthrough();
+
+/** Расписание `attendance-sweep`: рабочие дни, час из настроек пространства (умолчание 10:00). */
+export function attendanceSweepSchedule(input: ScheduleInput): ScheduleSpec | null {
+  const parsed = SweepSlice.safeParse(input.space);
+  const at = parsed.success ? (parsed.data.booking.attendance.sweepAt ?? DEFAULT_ATTENDANCE_SWEEP_AT) : DEFAULT_ATTENDANCE_SWEEP_AT;
+  return { kind: 'daily', at, days: 'workdays' };
+}
+
 export const attendanceSweepJob: JobDefinition = {
   name: 'attendance-sweep',
   perSpace: true,
-  schedule: () => ({ kind: 'daily', at: '10:00', days: 'workdays' }),
+  schedule: attendanceSweepSchedule,
   writes: 'business',
   timeoutMs: 5 * 60_000,
   async handler(ctx): Promise<JobResult> {
