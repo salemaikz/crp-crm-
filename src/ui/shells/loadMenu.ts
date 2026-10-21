@@ -1,6 +1,7 @@
 // Меню зрителя: роль берётся из активных настроек (menu), права — из Viewer, флаги — из окружения.
 // Серверный модуль; чистый расчёт — в menu.ts.
 import { can, type Viewer } from '@/server/access';
+import { canSpaceReports } from '@/server/domain/reports';
 import { getActiveConfigOrNull } from '@/server/platform/config/active';
 import { FEATURES, isFeatureEnabled } from '@/server/platform/flags';
 import { buildMenu, shellKindOf, type BuiltMenu, type ShellKind } from './menu';
@@ -23,6 +24,7 @@ export async function loadMenu(viewer: Viewer, force?: ShellKind): Promise<Built
     shell: force ?? shellKindOf(menu),
     menu,
     can: (perm) => can(viewer, perm),
+    spaceReports: canSpaceReports(viewer),
     isAdmin: viewer.isAdmin,
     features: enabledFeatures(),
   });

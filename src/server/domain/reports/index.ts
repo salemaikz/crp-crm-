@@ -7,7 +7,7 @@ export * from './types';
 
 // Отчёты за период (R3a)
 export { getDefaultPeriod, getReport } from './get';
-export { periodReportsEnabled } from './access';
+export { canSpaceReports, periodReportsEnabled } from './access';
 export { parseReportQuery } from './query';
 export { getReportMeta, type ReportLabels, type ReportMeta } from './meta';
 export { bucketOf, defaultPeriod, previousWeek, resolvePeriod, weekOf } from './period';

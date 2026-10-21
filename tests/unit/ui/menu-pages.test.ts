@@ -5,8 +5,10 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Permission, RoleConfig } from '@crm/core/access';
+import type { Viewer } from '../../../src/server/access';
 import { can } from '../../../src/server/access/viewer';
 import { testViewer } from '../../../src/server/access/testing';
+import { canSpaceReports } from '../../../src/server/domain/reports/access';
 import { buildMenu, MENU_KEYS, shellKindOf, type ShellKind } from '../../../src/ui/shells/menu';
 import { allEntries } from '../../isolation/harness/load';
 
@@ -35,9 +37,9 @@ test('каждый пункт каталога ведёт на страницу 
   const pages = await pagePerms();
   const seen = new Set<string>();
   for (const shell of SHELLS) {
-    const m = buildMenu({ shell, menu: [], can: () => true, isAdmin: true, features: new Set(FLAGS) });
+    const m = buildMenu({ shell, menu: [], can: () => true, spaceReports: true, isAdmin: true, features: new Set(FLAGS) });
     // пункты по ключам роли не включаются при пустом menu: добавляем все известные ключи
-    const full = buildMenu({ shell, menu: [...MENU_KEYS], can: () => true, isAdmin: true, features: new Set(FLAGS) });
+    const full = buildMenu({ shell, menu: [...MENU_KEYS], can: () => true, spaceReports: true, isAdmin: true, features: new Set(FLAGS) });
     for (const it of [...m.items, ...full.items]) seen.add(it.href);
   }
   assert.ok(seen.size > 10, 'каталог не пуст');
@@ -57,7 +59,7 @@ for (const preset of PRESETS) {
         const pages = await pagePerms();
         const viewer = testViewer({ userId: `u-${role.key}`, role });
         for (const shell of [shellKindOf(role.menu)]) {
-          const menu = buildMenu({ shell, menu: role.menu, can: (p) => can(viewer, p), isAdmin: false, features });
+          const menu = buildMenu({ shell, menu: role.menu, can: (p) => can(viewer, p), spaceReports: canSpaceReports(viewer), isAdmin: false, features });
           for (const it of menu.items) {
             const perm = pages.get(it.href);
             assert.ok(perm, `${it.href}: страницы нет в манифесте`);
@@ -67,6 +69,27 @@ for (const preset of PRESETS) {
         }
       });
     }
+  }
+}
+
+// Страницы, где сервис проверяет охват шире, чем право: пункт виден, только если страница пускает роль с её охватом.
+const PAGE_SCOPE_GUARDS: Record<string, (v: Viewer) => boolean> = {
+  '/summary': canSpaceReports,
+  '/director': canSpaceReports,
+  '/reports': canSpaceReports,
+};
+
+for (const preset of PRESETS) {
+  for (const role of rolesOf(preset)) {
+    test(`${preset}/${role.key}: пункт меню виден, только если охват роли пускает на страницу`, () => {
+      const viewer = testViewer({ userId: `u-${role.key}`, role });
+      // «reports» без флага отчётов ведёт на полную выгрузку (data.export_all): охват там проверяет свой сервис
+      const menu = buildMenu({ shell: shellKindOf(role.menu), menu: role.menu, can: (p) => can(viewer, p), spaceReports: canSpaceReports(viewer), isAdmin: false, features: new Set(FLAGS) });
+      for (const it of menu.items) {
+        const guard = PAGE_SCOPE_GUARDS[it.href];
+        if (guard) assert.ok(guard(viewer), `${role.key}: пункт ${it.href} виден, а охват роли страницу не пускает (404)`);
+      }
+    });
   }
 }
 

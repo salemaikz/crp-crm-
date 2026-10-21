@@ -19,6 +19,8 @@ type CatalogItem = {
   /** Ключи `roles[].menu`, любой из которых включает пункт; нет списка — пункт определяется только правами. */
   keys?: readonly string[];
   perm?: Permission;
+  /** Страница пускает только охват пространства и шире (сервис отчётов): узкому охвату пункт не показываем. */
+  spaceReports?: boolean;
   /** Флаг модуля (FEATURE_<NAME>): выключен — пункт скрыт. */
   feature?: string;
   /** Обратный флаг: пункт виден, только пока модуль выключен (запасной вход в раздел, D-295). */
@@ -52,14 +54,14 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
   manager: {
     bottomSlots: 4,
     items: [
-      { id: 'summary', href: '/summary', keys: ['summary'], perm: 'report.view' },
-      { id: 'director', href: '/director', keys: ['dashboard'], perm: 'report.view', feature: 'REPORTS' },
+      { id: 'summary', href: '/summary', keys: ['summary'], perm: 'report.view', spaceReports: true },
+      { id: 'director', href: '/director', keys: ['dashboard'], perm: 'report.view', spaceReports: true, feature: 'REPORTS' },
       { id: 'handoffs', href: '/handoffs', keys: ['handoffs'], perm: 'handoff.read', feature: 'PURCHASES' },
       { id: 'distribution', href: '/distribution', keys: ['distribution', 'pool'], perm: 'pool.read' },
       { id: 'clients', href: '/clients', perm: 'client.read' },
       { id: 'bookings', href: '/bookings', keys: ['bookings'], perm: 'booking.read' },
       { id: 'kanban', href: '/deals', keys: ['deals'], perm: 'deal.read', feature: 'KANBAN' },
-      { id: 'reports', href: '/reports', keys: ['reports'], perm: 'report.view', feature: 'REPORTS' },
+      { id: 'reports', href: '/reports', keys: ['reports'], perm: 'report.view', spaceReports: true, feature: 'REPORTS' },
       // отчёты выключены, а полная выгрузка — нет (D-055, D-295): её кнопка остаётся на /reports
       { id: 'reports', href: '/reports', keys: ['reports'], perm: 'data.export_all', unlessFeature: 'REPORTS' },
       { id: 'exports', href: '/reports/exports', keys: ['reports'], perm: 'export.journal', orAdmin: true },
@@ -107,6 +109,8 @@ export type MenuInput = {
   /** `roles[].menu` роли зрителя; пусто — роли нет. */
   menu: readonly string[];
   can: (perm: Permission) => boolean;
+  /** Охват зрителя достаточен для отчётов (`canSpaceReports` сервиса отчётов); без него пункты отчётов скрыты. */
+  spaceReports: boolean;
   isAdmin: boolean;
   /** Включённые флаги модулей (имена без `FEATURE_`). */
   features?: ReadonlySet<string>;
@@ -129,7 +133,8 @@ export function buildMenu(input: MenuInput): BuiltMenu {
   for (const it of spec.items) {
     if (it.adminOnly && !input.isAdmin) continue;
     const adminPass = it.orAdmin === true && input.isAdmin;
-    const byRole = (!it.keys || it.keys.some((k) => input.menu.includes(k))) && (!it.perm || input.can(it.perm));
+    const byRole = (!it.keys || it.keys.some((k) => input.menu.includes(k))) && (!it.perm || input.can(it.perm)) &&
+      (!it.spaceReports || input.spaceReports);
     if (!byRole && !adminPass) continue;
     if (it.feature && !input.features?.has(it.feature)) continue;
     if (it.unlessFeature && input.features?.has(it.unlessFeature)) continue;

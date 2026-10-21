@@ -63,3 +63,18 @@ test('РОП (ноутбук): все пункты боковой колонки
   await walk(page, false, ['/distribution']);
 });
 
+
+test('глава отдела маркетинга (ноутбук): все пункты открываются, «Отчётов» нет — охват `team` страница не пускает', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
+  const id = randomUUID();
+  const phone = `7709${String(Math.floor(Math.random() * 10 ** 7)).padStart(7, '0')}`;
+  const t = Date.now();
+  await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${id}, ${phone}, 'Маркетинг Синтетик', ${bcrypt.hashSync(PASSWORD, 4)}, ${t})`;
+  await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${id}, ${space!.id}, 'marketing_head', FALSE, ${t}, ${t})`;
+  await login(page, { id, phone, cardIds: [], names: [], clientIds: [] });
+  await page.goto('/handoffs');
+  const hrefs = await menuHrefs(page, false);
+  expect(hrefs).not.toContain('/reports');
+  await walk(page, false, ['/handoffs', '/tasks']);
+});

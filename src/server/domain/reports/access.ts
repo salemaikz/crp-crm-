@@ -2,9 +2,17 @@
 import { ForbiddenError, NotFoundError, scopeOf, type Viewer } from '@/server/access';
 import { isFeatureEnabled } from '@/server/platform/flags';
 
-export function requireSpaceReports(v: Viewer): string {
+/**
+ * Пускает ли охват роли в отчёты и сводку: пространство или шире. Единая точка правды: её же использует
+ * построение меню, чтобы пункт не вёл на 404 у роли с узким охватом (`team`, `own`).
+ */
+export function canSpaceReports(v: Viewer): boolean {
   const scope = scopeOf(v, 'report.view');
-  if (scope !== 'space' && scope !== 'all') throw new ForbiddenError();
+  return scope === 'space' || scope === 'all';
+}
+
+export function requireSpaceReports(v: Viewer): string {
+  if (!canSpaceReports(v)) throw new ForbiddenError();
   if (v.spaceId === null) throw new NotFoundError();
   return v.spaceId;
 }

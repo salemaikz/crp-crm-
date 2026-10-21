@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { RoleConfig } from '@crm/core/access';
 import { can } from '../../../src/server/access/viewer';
 import { testViewer } from '../../../src/server/access/testing';
+import { canSpaceReports } from '../../../src/server/domain/reports/access';
 import { buildMenu, currentHref, isCurrentPath, shellKindOf, type ShellKind } from '../../../src/ui/shells/menu';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
@@ -23,6 +24,7 @@ function menuOf(role: RoleConfig, opts: { isAdmin?: boolean; features?: Readonly
     shell: opts.force ?? shellKindOf(role.menu),
     menu: role.menu,
     can: (p) => can(viewer, p),
+    spaceReports: canSpaceReports(viewer),
     isAdmin: viewer.isAdmin,
     features: opts.features ?? ALL,
   });
@@ -39,7 +41,7 @@ const SNAP = {
   rop: ['/summary', '/distribution', '/clients', '/bookings', '/deals', '/reports', '/settings', '/tasks', '/import'],
   consultant: ['/consultations', '/tasks'],
   director: ['/director', '/clients', '/deals', '/reports', '/reports/exports'],
-  marketing_head: ['/handoffs', '/clients', '/reports', '/tasks'],
+  marketing_head: ['/handoffs', '/clients', '/tasks'],
   marketer: ['/handoffs', '/clients', '/tasks'],
 };
 
@@ -95,14 +97,14 @@ test('«Интеграции» — adminOnly и без флага WAZZUP: ина
 
 test('администратор без роли: «Выгрузки», «Настройки», «Сотрудники» и «Интеграции», главная — «Сотрудники»', () => {
   const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
-  const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
+  const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), spaceReports: canSpaceReports(viewer), isAdmin: true, features: ALL });
   assert.deepEqual(hrefs(m), ['/reports/exports', '/settings', '/team', '/integrations']); // «Выгрузки» и «Настройки» открыты администратору (orAdmin, R2b, M-1), «Интеграции» — adminOnly
   assert.equal(m.home, '/team', 'главная — не пункт orAdmin');
 });
 
 test('нет ни ролей, ни прав: пунктов нет, главная — личный кабинет', () => {
   const viewer = testViewer({ userId: 'u-none', role: null });
-  const m = buildMenu({ shell: 'manager', menu: [], can: (p) => can(viewer, p), isAdmin: false });
+  const m = buildMenu({ shell: 'manager', menu: [], can: (p) => can(viewer, p), spaceReports: canSpaceReports(viewer), isAdmin: false });
   assert.deepEqual(m.items, []);
   assert.equal(m.home, '/account');
 });
@@ -129,7 +131,8 @@ test('FEATURE_REPORTS выключен (D-295): нет «Панели дирек
   assert.ok(hrefs(menuOf(role('rop'), { features: off })).includes('/reports'));
   // без права полной выгрузки пункта нет
   assert.ok(!hrefs(menuOf(role('marketing_head'), { features: off })).includes('/reports'));
-  assert.ok(hrefs(menuOf(role('marketing_head'))).includes('/reports'));
+  // охват `team` страница отчётов не пускает (404): пункта нет и при включённом флаге
+  assert.ok(!hrefs(menuOf(role('marketing_head'))).includes('/reports'));
   // флаг включён — пункт «Отчёты» ровно один
   assert.equal(hrefs(menuOf(role('director'))).filter((h) => h === '/reports').length, 1);
 });
@@ -138,7 +141,7 @@ test('FEATURE_SALES_SETTINGS выключен (D-295): «Настройки» с
   const off = new Set(['KANBAN', 'IMPORT', 'REPORTS']);
   const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
   assert.ok(!hrefs(menuOf(rop, { features: off })).includes('/settings'));
-  const admin = buildMenu({ shell: 'manager', menu: [], can: () => false, isAdmin: true, features: off });
+  const admin = buildMenu({ shell: 'manager', menu: [], can: () => false, spaceReports: false, isAdmin: true, features: off });
   assert.ok(!hrefs(admin).includes('/settings'));
 });
 
@@ -174,7 +177,7 @@ test('isCurrentPath: точное совпадение и вложенные а�
 });
 
 test('администратор без роли видит «Настройки» (orAdmin), оператор — нет (R2b)', () => {
-  const noRole = (isAdmin: boolean) => buildMenu({ shell: 'manager', menu: [], can: () => false, isAdmin, features: ALL });
+  const noRole = (isAdmin: boolean) => buildMenu({ shell: 'manager', menu: [], can: () => false, spaceReports: false, isAdmin, features: ALL });
   assert.ok(hrefs(noRole(true)).includes('/settings'));
   assert.ok(!hrefs(noRole(false)).includes('/settings'));
 });
@@ -190,7 +193,7 @@ test('«Выгрузки»: директору (export.journal) и админи�
   const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
   assert.ok(!hrefs(menuOf(rop)).includes('/reports/exports'));
   const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
-  const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
+  const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), spaceReports: canSpaceReports(viewer), isAdmin: true, features: ALL });
   assert.ok(hrefs(m).includes('/reports/exports'));
 });
 
