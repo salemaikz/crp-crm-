@@ -10,6 +10,7 @@ import { resetLoginThrottle } from '../../../src/server/platform/auth/throttle';
 import { resetRateLimit } from '../../../src/server/platform/ratelimit';
 import { DEFAULT_SECURITY_POLICY } from '../../../src/server/platform/auth/types';
 import { createUser, T0 } from './helpers';
+import { withoutKnownIds } from '../../helpers/piiDigits';
 import * as pw from '../../../src/server/platform/auth/password';
 
 const policy = DEFAULT_SECURITY_POLICY;
@@ -22,8 +23,8 @@ const login = (phone: string, password: string, extra: { next?: string; ip?: str
   attemptLogin(db, { phone, password, next: extra.next, ip: extra.ip ?? '203.0.113.5', previousToken: extra.previousToken }, policy, now);
 
 test('успех: сессия, last_login_at, аудит без ПДн; номер можно вводить с 8', async () => {
-  const u = await createUser(db.sql, { phone: '77015550101', password: 'Надёжный-пароль-77', name: 'Иван Секретов' });
-  const r = await login('8 (701) 555-01-01', 'Надёжный-пароль-77', { next: '/leads?x=1' });
+  const u = await createUser(db.sql, { phone: '77095550101', password: 'Надёжный-пароль-77', name: 'Иван Секретов' });
+  const r = await login('8 (709) 555-01-01', 'Надёжный-пароль-77', { next: '/leads?x=1' });
   assert.equal(r.ok, true);
   if (!r.ok) return;
   assert.equal(r.next, '/leads?x=1');
@@ -31,8 +32,10 @@ test('успех: сессия, last_login_at, аудит без ПДн; ном�
   assert.ok(await resolveSession(db.sql, r.session.token, policy, T0 + 1));
   const audit = await db.sql<{ action: string; meta: unknown; entityId: string }>`SELECT action, meta, entity_id FROM audit_log WHERE action = 'session.login'`;
   assert.equal(audit.length, 1);
-  const dump = JSON.stringify(audit);
-  for (const secret of ['77015550101', '555', 'Иван', 'Секретов', r.session.token]) assert.ok(!dump.includes(secret), secret);
+  assert.equal(audit[0]?.entityId, u.id);
+  // id пользователя — случайный UUID: его цифры («555» в нём бывает) не ПДн, вырезаем только его (piiDigits.ts)
+  const dump = withoutKnownIds(JSON.stringify(audit), [u.id]);
+  for (const secret of ['77095550101', '7095550101', '555', 'Иван', 'Секретов', r.session.token]) assert.ok(!dump.includes(secret), secret);
 });
 
 test('чужой next заменяется на «/»', async () => {
