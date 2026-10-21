@@ -3,7 +3,7 @@
 import { RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, EmptyState, Page, PageHeader, Stat } from '@/ui/kit';
+import { Alert, Button, EmptyState, Page, PageHeader, Section, Stat, StatGrid } from '@/ui/kit';
 import { formatTime } from './format';
 import { OperatorsTable } from './OperatorsTable';
 import type { SummaryData } from './types';
@@ -68,61 +68,50 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
         title={t('title')}
         lead={`${t('lead')} · ${t('updatedAt', { time })}`}
         actions={
-          <Button variant="primary" onClick={() => void refresh()} disabled={busy} aria-busy={busy}>
+          <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={busy} aria-busy={busy}>
             <RefreshCw aria-hidden="true" size={18} /> {t('refresh')}
           </Button>
         }
       />
       {error && <Alert tone="warning">{t(`errors.${error}`, { time })}</Alert>}
-      <section aria-label={t('tiles.label')} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <Card>
-          <Stat value={tl.pool.ready} label={`${t('tiles.pool.title')}: ${t('tiles.pool.ready')}`} hint={t('tiles.pool.hint', { overCap: tl.pool.overCap, duplicates: tl.pool.duplicates, disputed: tl.pool.disputed })} />
-        </Card>
-        <Card>
-          <Stat
-            value={t('tiles.issued.value', { issued: tl.issued.issued, cap: tl.issued.cap })}
-            label={t('tiles.issued.title')}
-            hint={t('tiles.issued.hint', { operators: tl.issued.operators })}
-          />
-        </Card>
-        <Card>
-          <Stat value={tl.grey.waiting} label={t('tiles.grey.title')} hint={t('tiles.grey.hint')} />
-        </Card>
-        <Card>
-          <Stat
-            value={tl.bookings.today.total}
-            label={t('tiles.bookings.title')}
-            hint={
-              <>
-                {t('tiles.bookings.today', tl.bookings.today)}
-                <br />
-                {t('tiles.bookings.tomorrow', tl.bookings.tomorrow)}
-              </>
-            }
-          />
-        </Card>
-        <Card>
-          <Stat
-            value={tl.overdue.cards}
-            label={t('tiles.overdue.title')}
-            tone={data.alarm ? 'danger' : 'default'}
-            hint={tl.overdue.cards > 0 ? t('tiles.overdue.hint', { operators: tl.overdue.operators }) : t('tiles.overdue.none')}
-          />
-        </Card>
-        <Card>
-          <Stat
-            value={tl.unsent.pending}
-            label={t('tiles.unsent.title')}
-            hint={tl.unsent.pending > 0 ? t('tiles.unsent.hint', { operators: tl.unsent.operators }) : t('tiles.unsent.none')}
-          />
-        </Card>
-      </section>
-      <h2 className="mt-6 mb-3 text-lg font-semibold">{t('operators.title')}</h2>
-      {data.operators.length === 0 ? (
-        <EmptyState title={t('operators.empty.title')} description={t('operators.empty.description')} />
-      ) : (
-        <OperatorsTable data={data} />
-      )}
+      <StatGrid aria-label={t('tiles.label')}>
+        <Stat value={tl.pool.ready} label={`${t('tiles.pool.title')}: ${t('tiles.pool.ready')}`} hint={t('tiles.pool.hint', { overCap: tl.pool.overCap, duplicates: tl.pool.duplicates, disputed: tl.pool.disputed })} />
+        <Stat
+          value={t('tiles.issued.value', { issued: tl.issued.issued, cap: tl.issued.cap })}
+          label={t('tiles.issued.title')}
+          hint={t('tiles.issued.hint', { operators: tl.issued.operators })}
+        />
+        <Stat value={tl.grey.waiting} label={t('tiles.grey.title')} hint={t('tiles.grey.hint')} />
+        <Stat
+          value={tl.bookings.today.total}
+          label={t('tiles.bookings.title')}
+          hint={
+            <>
+              {t('tiles.bookings.today', tl.bookings.today)}
+              <br />
+              {t('tiles.bookings.tomorrow', tl.bookings.tomorrow)}
+            </>
+          }
+        />
+        <Stat
+          value={tl.overdue.cards}
+          label={t('tiles.overdue.title')}
+          tone={data.alarm ? 'danger' : 'default'}
+          hint={tl.overdue.cards > 0 ? t('tiles.overdue.hint', { operators: tl.overdue.operators }) : t('tiles.overdue.none')}
+        />
+        <Stat
+          value={tl.unsent.pending}
+          label={t('tiles.unsent.title')}
+          hint={tl.unsent.pending > 0 ? t('tiles.unsent.hint', { operators: tl.unsent.operators }) : t('tiles.unsent.none')}
+        />
+      </StatGrid>
+      <Section title={t('operators.title')}>
+        {data.operators.length === 0 ? (
+          <EmptyState title={t('operators.empty.title')} description={t('operators.empty.description')} />
+        ) : (
+          <OperatorsTable data={data} />
+        )}
+      </Section>
     </Page>
   );
 }

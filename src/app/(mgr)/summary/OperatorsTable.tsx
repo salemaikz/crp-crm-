@@ -11,7 +11,7 @@ const TONE: Record<OperatorStatus, BadgeTone> = { working: 'success', paused: 'w
 export function OperatorsTable({ data }: { data: SummaryData }) {
   const t = useTranslations('reports.summary.operators');
   const columns: TableColumn<OperatorRow>[] = [
-    { key: 'name', header: t('columns.name'), primary: true, cell: (o) => <strong>{o.name}</strong> },
+    { key: 'name', header: t('columns.name'), primary: true, nowrap: true, cell: (o) => <strong>{o.name}</strong> },
     {
       key: 'status',
       header: t('columns.status'),
@@ -22,23 +22,23 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
         </span>
       ),
     },
-    { key: 'issued', header: t('columns.issued'), align: 'right', cell: (o) => t('issuedValue', { issued: o.issued, cap: o.cap }) },
-    { key: 'outcomes', header: t('columns.outcomes'), align: 'right', cell: (o) => o.outcomes },
-    { key: 'connects', header: t('columns.connects'), align: 'right', cell: (o) => o.connects },
-    { key: 'lpr', header: t('columns.lpr'), align: 'right', cell: (o) => o.lpr },
-    { key: 'groups', header: t('columns.groups'), align: 'right', cell: (o) => o.groups },
-    { key: 'consults', header: t('columns.consults'), align: 'right', cell: (o) => o.consults },
-    { key: 'skips', header: t('columns.skips'), align: 'right', cell: (o) => o.skips },
+    { key: 'issued', header: t('columns.issued'), numeric: true, cell: (o) => t('issuedValue', { issued: o.issued, cap: o.cap }) },
+    { key: 'outcomes', header: t('columns.outcomes'), numeric: true, cell: (o) => o.outcomes },
+    { key: 'connects', header: t('columns.connects'), numeric: true, cell: (o) => o.connects },
+    { key: 'lpr', header: t('columns.lpr'), numeric: true, cell: (o) => o.lpr },
+    { key: 'groups', header: t('columns.groups'), numeric: true, cell: (o) => o.groups },
+    { key: 'consults', header: t('columns.consults'), numeric: true, cell: (o) => o.consults },
+    { key: 'skips', header: t('columns.skips'), numeric: true, cell: (o) => o.skips },
     {
       key: 'overdue',
       header: t('columns.overdue'),
-      align: 'right',
-      cell: (o) => (o.overdue > 0 ? <Badge tone="danger">{o.overdue}</Badge> : o.overdue),
+      numeric: true,
+      cell: (o) => (o.overdue > 0 ? <Badge tone="danger" variant="count">{o.overdue}</Badge> : o.overdue),
     },
     {
       key: 'rate',
       header: t('columns.rate'),
-      align: 'right',
+      numeric: true,
       // Мягкая цель: число и отметка «ниже нормы», без красного и без блокировок.
       cell: (o) => (
         <span className="flex flex-wrap items-center justify-end gap-2">
@@ -50,14 +50,14 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
     {
       key: 'unsent',
       header: t('columns.unsent'),
-      align: 'right',
+      numeric: true,
       cell: (o) => (
         <span className="flex flex-col items-end">
-          {o.unsent > 0 ? <Badge tone="warning">{o.unsent}</Badge> : o.unsent}
+          {o.unsent > 0 ? <Badge tone="warning" variant="count">{o.unsent}</Badge> : o.unsent}
           <span className="text-sm">{o.lastSeenAt === null ? t('neverSeen') : t('lastSeen', { time: formatSeen(o.lastSeenAt, data.generatedAt, data.timeZone) })}</span>
         </span>
       ),
     },
   ];
-  return <Table caption={t('caption')} columns={columns} rows={data.operators} rowKey={(o) => o.userId} dense />;
+  return <Table caption={t('caption')} columns={columns} rows={data.operators} rowKey={(o) => o.userId} dense stickyFirst captionHidden />;
 }

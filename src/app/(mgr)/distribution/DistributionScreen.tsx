@@ -20,6 +20,7 @@ export function DistributionScreen({ data }: { data: DistributionData }) {
       {data.participants.length === 0 && <Alert tone="info">{t('participants.empty.description')}</Alert>}
       <Tabs
         label={t('tabs.label')}
+        variant="segmented"
         items={[
           { id: 'pool', label: t('tabs.pool'), count: data.pool.summary.ready, content: <PoolPanel data={data} onChanged={refresh} /> },
           { id: 'participants', label: t('tabs.participants'), count: data.participants.length, content: <ParticipantsPanel data={data} onChanged={refresh} /> },

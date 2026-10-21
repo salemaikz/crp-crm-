@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useState, type FormEvent } from 'react';
-import { Alert, Button, Card, Checkbox, Field, Input, Select } from '@/ui/kit';
+import { Alert, Button, Card, Checkbox, Field, FormGrid, Input, Select } from '@/ui/kit';
 import { send } from './api';
 import type { SalesSettingsView } from './types';
 
@@ -74,20 +74,20 @@ export function SalesSettingsForm({ data, justSaved = false, onSaved, onConflict
           {t('title')}
         </h2>
         {!editable && <Alert tone="info">{data.values.dailyCap === null ? t('noSpace') : t('readOnly')}</Alert>}
-        <Field label={t('dailyCap')} hint={t('hints.dailyCap')}>
+        <Field width="xs" label={t('dailyCap')} hint={t('hints.dailyCap')}>
           <Input name="dailyCap" type="number" inputMode="numeric" min={0} max={500} value={dailyCap} disabled={!editable} onChange={(e) => setDailyCap(e.target.value)} />
         </Field>
         {v.schedule && (
           <fieldset className="flex flex-col gap-3">
             <legend className="mb-1 font-medium">{t('schedule')}</legend>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Field label={t('scheduleFrom')}>
+            <FormGrid>
+              <Field width="sm" label={t('scheduleFrom')}>
                 <Input name="scheduleFrom" type="time" value={from} disabled={!editable} onChange={(e) => setFrom(e.target.value)} />
               </Field>
-              <Field label={t('scheduleTo')}>
+              <Field width="sm" label={t('scheduleTo')}>
                 <Input name="scheduleTo" type="time" value={to} disabled={!editable} onChange={(e) => setTo(e.target.value)} />
               </Field>
-              <Field label={t('everyMin')}>
+              <Field width="sm" label={t('everyMin')}>
                 <Select name="everyMin" value={everyMin} disabled={!editable} onChange={(e) => setEveryMin(e.target.value)}>
                   {everyOptions.map((n) => (
                     <option key={n} value={n}>
@@ -96,26 +96,28 @@ export function SalesSettingsForm({ data, justSaved = false, onSaved, onConflict
                   ))}
                 </Select>
               </Field>
-            </div>
+            </FormGrid>
             <p className="k-field__hint">{t('hints.schedule')}</p>
           </fieldset>
         )}
         <fieldset className="flex flex-col gap-3">
           <legend className="mb-1 font-medium">{t('callWindow')}</legend>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label={t('callWindowStart')}>
+          <FormGrid>
+            <Field width="sm" label={t('callWindowStart')}>
               <Input name="callWindowStart" type="time" value={start} disabled={!editable} onChange={(e) => setStart(e.target.value)} />
             </Field>
-            <Field label={t('callWindowEnd')}>
+            <Field width="sm" label={t('callWindowEnd')}>
               <Input name="callWindowEnd" type="time" value={end} disabled={!editable} onChange={(e) => setEnd(e.target.value)} />
             </Field>
-          </div>
+          </FormGrid>
           <p className="k-field__hint">{t('hints.callWindow')}</p>
         </fieldset>
-        <Field label={t('callsPerHourTarget')} hint={t('hints.callsPerHourTarget')}>
-          <Input name="callsPerHourTarget" type="number" inputMode="numeric" min={1} max={100} value={target} disabled={!editable || noTarget} onChange={(e) => setTarget(e.target.value)} />
-        </Field>
-        <Checkbox name="targetNone" label={t('targetNone')} checked={noTarget} disabled={!editable} onChange={(e) => setNoTarget(e.target.checked)} />
+        <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
+          <Field width="xs" label={t('callsPerHourTarget')} hint={t('hints.callsPerHourTarget')}>
+            <Input name="callsPerHourTarget" type="number" inputMode="numeric" min={1} max={100} value={target} disabled={!editable || noTarget} onChange={(e) => setTarget(e.target.value)} />
+          </Field>
+          <Checkbox name="targetNone" label={t('targetNone')} checked={noTarget} disabled={!editable} onChange={(e) => setNoTarget(e.target.checked)} className="pt-7" />
+        </div>
         {error && <Alert tone="danger">{error}</Alert>}
         {saved && <Alert tone="success">{t('saved')}</Alert>}
         {editable && (

@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { Chip, ChipGroup, Field, Input } from '@/ui/kit';
+import { Chip, ChipGroup, Field, FilterBar, Input } from '@/ui/kit';
 import { PRESETS, periodProblem, presetRange, type Preset } from './dates';
 
 type Props = {
@@ -29,14 +29,14 @@ export function PeriodPicker({ from, to, today, onChange }: Props) {
         ))}
         <Chip active={activePreset === null}>{t('custom')}</Chip>
       </ChipGroup>
-      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+      <FilterBar>
         <Field label={t('from')} error={bad ? t('invalid') : undefined}>
           <Input type="date" name="from" value={from} max={to} onChange={(e) => onChange({ from: e.target.value, to })} />
         </Field>
         <Field label={t('to')}>
           <Input type="date" name="to" value={to} onChange={(e) => onChange({ from, to: e.target.value })} />
         </Field>
-      </div>
+      </FilterBar>
     </div>
   );
 }

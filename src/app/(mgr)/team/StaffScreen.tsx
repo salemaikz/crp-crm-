@@ -36,7 +36,7 @@ export function StaffScreen({ data, bulkEnabled }: { data: StaffList; bulkEnable
         </span>
       ),
     },
-    { key: 'phone', header: t('columns.phone'), cell: (s) => s.phoneMasked },
+    { key: 'phone', header: t('columns.phone'), nowrap: true, cell: (s) => s.phoneMasked },
     { key: 'role', header: t('columns.role'), cell: (s) => (s.roleKey ? (roles.get(s.roleKey) ?? s.roleKey) : t('noRole')) },
     {
       key: 'status',

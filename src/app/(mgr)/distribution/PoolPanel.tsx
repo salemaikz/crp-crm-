@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Alert, Badge, Button, Checkbox, EmptyState, Modal, Select, Stat, Table, TextLink, type TableColumn } from '@/ui/kit';
+import { Alert, Badge, Button, Checkbox, EmptyState, Modal, Select, Stat, StatGrid, Table, type TableColumn } from '@/ui/kit';
 import { call } from './api';
 import { formatDateTime } from './format';
 import type { DistributionData, IssueResultData, PoolHoldKind, PoolItemRow, PoolPageData } from './types';
@@ -65,6 +65,7 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
     {
       key: 'select',
       header: t('pool.columns.select'),
+      width: '48px',
       cell: (i) => (
         <Checkbox
           label=""
@@ -92,11 +93,11 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
 
   return (
     <>
-      <div className="flex flex-wrap gap-4">
+      <StatGrid aria-label={t('pool.summary.label')}>
         <Stat value={summary.ready} label={t('pool.summary.ready')} />
         <Stat value={summary.roomToday} label={t('pool.summary.room')} />
         <Stat value={summary.overCap} label={t('pool.summary.overCap')} tone={summary.overCap > 0 ? 'danger' : 'default'} />
-      </div>
+      </StatGrid>
       <ul aria-label={t('pool.held.title')} className="flex flex-wrap gap-2">
         {HOLD_KINDS.filter((k) => summary.held[k] > 0).map((k) => (
           <li key={k}>
@@ -106,15 +107,20 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
           </li>
         ))}
       </ul>
-      <TextLink href="/pairs">{t('pool.pairsLink')}</TextLink>
-      {data.canIssue && (
-        <div className="flex flex-wrap items-center gap-3">
-          <span aria-live="polite">{t('pool.selected', { count: selected.size })}</span>
+      {/* Над таблицей: слева «Выбрано: N» и ссылка на пары, справа «Раздать выбранные» (неактивная — нейтральная) */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {data.canIssue && <span aria-live="polite">{t('pool.selected', { count: selected.size })}</span>}
+          <Button variant="quiet" size="sm" href="/pairs">
+            {t('pool.pairsLink')}
+          </Button>
+        </div>
+        {data.canIssue && (
           <Button disabled={selected.size === 0} onClick={() => setOpen(true)}>
             {t('pool.issue')}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
       <Table
         columns={columns}
         rows={items}

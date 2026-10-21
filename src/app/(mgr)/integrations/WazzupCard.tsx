@@ -59,7 +59,7 @@ export function WazzupCard({ plugin, owners, timeZone }: { plugin: PluginView; o
       )}
 
       <form onSubmit={connect} className="mt-4 flex flex-col gap-2">
-        <Field label={t('wazzup.apiKey')} hint={key ? (key.last4 ? t('wazzup.keySet', { last4: key.last4 }) : t('wazzup.keySetNoTail')) : t('wazzup.apiKeyHint')}>
+        <Field width="md" label={t('wazzup.apiKey')} hint={key ? (key.last4 ? t('wazzup.keySet', { last4: key.last4 }) : t('wazzup.keySetNoTail')) : t('wazzup.apiKeyHint')}>
           <Input type="password" name="apiKey" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
         </Field>
         <div className="flex flex-wrap items-center gap-2">
@@ -91,7 +91,7 @@ export function WazzupCard({ plugin, owners, timeZone }: { plugin: PluginView; o
               </div>
             ) : (
               <div className="mt-2 flex flex-wrap items-end gap-2">
-                <Field label={t('wazzup.crossborder.date')}>
+                <Field width="sm" label={t('wazzup.crossborder.date')}>
                   <Input type="date" name="decisionDate" value={date} onChange={(e) => setDate(e.target.value)} />
                 </Field>
                 <Button variant="secondary" disabled={busy || date === ''} onClick={() => void run(() => call('POST', `/api/integrations/${conn.id}/crossborder`, { approved: true, decisionDate: date }))}>
