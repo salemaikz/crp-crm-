@@ -111,7 +111,7 @@ test('«Пропустить»: карточка уходит в конец оч
   await openCall(page, op);
   await page.getByTestId('call-skip').click();
   await expect(cardTitle(page)).toHaveText(op.names[1]!);
-  await expect(page.getByTestId('call-today')).toContainText(/1 из \d+\s*пропусков/);
+  await expect(page.getByTestId('call-today')).toContainText(/1\/\d+\s*пропусков/);
   await expect.poll(async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM skips WHERE user_id = ${op.id}`)[0]!.n).toBe(1);
 });
 

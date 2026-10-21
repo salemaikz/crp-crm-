@@ -35,7 +35,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
   const items = menu.items.map((i) => ({ ...i, label: t(`nav.${i.id}`), group: MENU_GROUP[i.id] }));
   const groups = Object.fromEntries(MENU_GROUPS.map((g) => [g, t(`group.${g}`)])) as Record<(typeof MENU_GROUPS)[number], string>;
   // Название — из настроек установки (org.productName); нет настроек — запасное из локали
-  const brand = config?.global.org.productName.ru?.trim() || tc('name');
+  const brand = config?.global.org.productName?.ru?.trim() || tc('name');
   return (
     <AppShell
       variant={menu.shell === 'operator' ? 'bottom' : 'side'}

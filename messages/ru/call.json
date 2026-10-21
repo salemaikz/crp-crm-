@@ -47,7 +47,7 @@
     "connected": "{count, plural, one {дозвон} few {дозвона} many {дозвонов} other {дозвона}}",
     "booked": "{count, plural, one {запись} few {записи} many {записей} other {записи}}",
     "skips": "пропусков",
-    "skipsValue": "{skips} из {limit}",
+    "skipsValue": "{skips}/{limit}",
     "pace": "Звонков за последний час: {count}. Ориентир: {target} в час"
   },
   "sheet": {
