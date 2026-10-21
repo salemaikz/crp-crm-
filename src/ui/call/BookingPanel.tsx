@@ -13,11 +13,10 @@ type Props = {
   cardId: string;
   submit: NonNullable<BookingWizardProps['submit']>;
   onDone: NonNullable<BookingWizardProps['onDone']>;
-  onBack: () => void;
   onLater: () => void;
 };
 
-export function BookingPanel({ cardId, submit, onDone, onBack, onLater }: Props) {
+export function BookingPanel({ cardId, submit, onDone, onLater }: Props) {
   const t = useTranslations('call');
   const [view, setView] = useState<BookingWizardView | null>(null);
   const [failed, setFailed] = useState(false);
@@ -62,9 +61,6 @@ export function BookingPanel({ cardId, submit, onDone, onBack, onLater }: Props)
       )}
       {/* Состояние карточки в этот момент ещё «рабочее»: запись разрешает сам итог, поэтому мастер всегда в режиме direct */}
       {view && <BookingWizard view={{ ...view, mode: 'direct' }} submit={submit} onDone={onDone} />}
-      <Button variant="quiet" block onClick={onBack} data-testid="booking-back">
-        {t('sheet.back')}
-      </Button>
     </div>
   );
 }

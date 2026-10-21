@@ -9,6 +9,8 @@ export type SegmentedItem = {
   /** Есть href — ссылка (aria-current); нет — кнопка (aria-pressed, onSelect). */
   href?: string;
   count?: number;
+  /** data-testid кнопки или ссылки (для e2e). */
+  testId?: string;
 };
 
 type Props = {
@@ -34,11 +36,11 @@ export function Segmented({ label, items, onSelect, className }: Props) {
           </>
         );
         return it.href ? (
-          <Link key={it.id} href={it.href} aria-current={it.active ? 'page' : undefined} className="k-chip">
+          <Link key={it.id} href={it.href} aria-current={it.active ? 'page' : undefined} className="k-chip" data-testid={it.testId}>
             {inner}
           </Link>
         ) : (
-          <button key={it.id} type="button" aria-pressed={it.active ?? false} className="k-chip" onClick={() => onSelect?.(it.id)}>
+          <button key={it.id} type="button" aria-pressed={it.active ?? false} className="k-chip" data-testid={it.testId} onClick={() => onSelect?.(it.id)}>
             {inner}
           </button>
         );

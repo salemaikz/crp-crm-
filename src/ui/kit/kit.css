@@ -297,6 +297,9 @@
     border: 0;
     border-radius: 0;
   }
+  .k-statgrid--strip .k-stat__value {
+    font-size: 22px;
+  }
   .k-statgrid--strip > .k-stat + .k-stat {
     border-inline-start: 1px solid var(--border);
   }

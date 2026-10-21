@@ -23,7 +23,7 @@ test('без сети 5 итогов → сеть вернулась → 5 ст�
     await expect(cardTitle(page)).toHaveText(op.names[i]!);
     await callAndOutcome(page, 'no_answer');
   }
-  await expect(page.getByTestId('call-today')).toContainText('5 итогов');
+  await expect(page.getByTestId('call-today')).toContainText(/5\s*итогов/);
   // Окно отмены прошло, сети нет: внизу «Не отправлено», на сервере пусто
   await expect(page.getByTestId('outbox-banner')).toContainText('Не отправлено: 5', { timeout: 15_000 });
   expect(await callsOf(op.id)).toHaveLength(0);

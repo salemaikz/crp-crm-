@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatKzPhone, maskKzPhone } from '@/shared/tel';
-import { Alert, Button, Chip, ChipGroup, EmptyState, Page, ToastProvider, useToast } from '@/ui/kit';
+import { Alert, Button, Chip, ChipGroup, EmptyState, Page, Stat, StatGrid, ToastProvider, useToast } from '@/ui/kit';
 import type { WizardChoice } from '@/app/(op)/bookings/_wizard/choice';
 import type { BookingWizardProps } from '@/app/(op)/bookings/_wizard/BookingWizard';
 import type { WizardResult } from '@/app/(op)/bookings/_wizard/result';
@@ -707,9 +707,12 @@ function CallScreenInner({ config }: { config: CallConfig }) {
         />
       )}
 
-      <p className="text-sm" style={{ color: 'var(--text-2)' }} data-testid="call-today">
-        {t('today.line', { outcomes: view.outcomes, connected: view.connected, booked: view.booked, skips: skipsToday, limit: skipLimit })}
-      </p>
+      <StatGrid variant="strip" aria-label={t('today.label')} data-testid="call-today">
+        <Stat value={view.outcomes} label={t('today.outcomes', { count: view.outcomes })} />
+        <Stat value={view.connected} label={t('today.connected', { count: view.connected })} />
+        <Stat value={view.booked} label={t('today.booked', { count: view.booked })} />
+        <Stat value={t('today.skipsValue', { skips: skipsToday, limit: skipLimit })} label={t('today.skips')} />
+      </StatGrid>
       {config.callsPerHourTarget !== null && (
         <p className="text-sm" style={{ color: 'var(--text-3)' }} data-testid="call-pace">
           {t('today.pace', { count: pace, target: config.callsPerHourTarget })}

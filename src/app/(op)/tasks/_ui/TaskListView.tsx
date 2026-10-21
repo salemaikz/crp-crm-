@@ -45,7 +45,7 @@ export function TaskListView({ list, grouped, showAssignee, timeZone, emptyText,
             </h2>
             <List aria-labelledby={id}>
               {items.map((task) => (
-                <TaskRowItem key={task.id} task={task} timeZone={timeZone} showAssignee={showAssignee} onOpen={onOpen} />
+                <TaskRowItem key={task.id} task={task} timeZone={timeZone} showAssignee={showAssignee} onOpen={onOpen} inOverdueGroup={bucket === 'overdue'} />
               ))}
             </List>
           </section>

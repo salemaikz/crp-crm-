@@ -37,12 +37,17 @@
   "call": {
     "button": "Позвонить",
     "aria": "Позвонить на {phone}",
-    "second": "Позвонить на второй номер {phone}",
+    "second": "Второй номер · {phone}",
     "noPhone": "У этой компании нет рабочего номера. Откройте карточку и добавьте номер.",
     "resume": "Указать итог звонка"
   },
   "today": {
-    "line": "Сегодня: {outcomes, plural, one {# итог} few {# итога} many {# итогов} other {# итога}} · {connected, plural, one {# дозвон} few {# дозвона} many {# дозвонов} other {# дозвона}} · {booked, plural, one {# запись} few {# записи} many {# записей} other {# записи}} · пропусков {skips} из {limit}",
+    "label": "Сегодня",
+    "outcomes": "{count, plural, one {итог} few {итога} many {итогов} other {итога}}",
+    "connected": "{count, plural, one {дозвон} few {дозвона} many {дозвонов} other {дозвона}}",
+    "booked": "{count, plural, one {запись} few {записи} many {записей} other {записи}}",
+    "skips": "пропусков",
+    "skipsValue": "{skips} из {limit}",
     "pace": "Звонков за последний час: {count}. Ориентир: {target} в час"
   },
   "sheet": {
