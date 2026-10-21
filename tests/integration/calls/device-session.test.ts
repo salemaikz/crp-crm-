@@ -7,7 +7,9 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GET } from '../../../src/app/api/device/session/route';
 import { POST } from '../../../src/app/api/device/outbox-expired/route';
-import { EXPIRED_REPORT_LIMITS } from '../../../src/server/domain/calls';
+import { EXPIRED_CHECK_AFTER_MS, EXPIRED_REPORT_LIMITS, verifyExpiredLosses } from '../../../src/server/domain/calls';
+import { systemActor } from '../../../src/server/access/systemActor';
+import { lockExpiredClaims } from '../../../src/server/domain/calls/repo';
 import type { LicenseState } from '../../../src/server/access/types';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { SPACE, U, cardOf, clientOf, phoneOf } from '../../isolation/harness/seed';
@@ -64,7 +66,7 @@ test('сверка сессии: тот же сотрудник — 200, дру�
   assert.equal(after, before);
 });
 
-test('потеря итогов: одна запись журнала — автор B, объект A; meta: заявлено телефоном и подтверждено сервером; ответ без подробностей', async () => {
+test('потеря итогов: одна запись журнала — автор B, объект A; meta: заявлено телефоном и проверено сервером; ответ без подробностей', async () => {
   await db.sql`INSERT INTO device_status (user_id, device_id, pending_outbox, last_flush_at, seen_at) VALUES (${U.opA}, 'dev-exp-1', 2, NULL, ${SEED_NOW})`;
   const reply = await expiredReply(U.opB, { authorId: U.opA, opIds: [OP, OP] }, { 'x-device-id': 'dev-exp-1' });
   assert.deepEqual(reply, { status: 200, body: { ok: true } });
@@ -73,8 +75,9 @@ test('потеря итогов: одна запись журнала — авт
   assert.equal(rows[0]!.actorId, U.opB);
   assert.equal(rows[0]!.entityId, U.opA);
   assert.deepEqual(rows[0]!.meta, {
-    claimed: { count: 1, opIds: [OP], deviceId: 'dev-exp-1' },
-    confirmed: { authorExists: true, alreadyReceived: 0, authorPendingOnDevice: 2 },
+    // Счётчик по id устройства из заголовка телефона — заявление, а не проверка (D-311)
+    claimed: { count: 1, opIds: [OP], reason: 'expired', deviceId: 'dev-exp-1', authorPendingOnDevice: 2 },
+    checked: { authorExists: true, alreadyReceived: 0, alreadyClaimed: 0 },
   });
 });
 
@@ -116,8 +119,8 @@ test('потеря итогов: opId, уже записанные звонка�
   const rows = await rowWith(lost);
   assert.equal(rows.length, 1);
   assert.deepEqual(rows[0]!.meta, {
-    claimed: { count: 1, opIds: [lost], deviceId: 'dev-recv' },
-    confirmed: { authorExists: true, alreadyReceived: 1, authorPendingOnDevice: null },
+    claimed: { count: 1, opIds: [lost], reason: 'expired', deviceId: 'dev-recv', authorPendingOnDevice: null },
+    checked: { authorExists: true, alreadyReceived: 1, alreadyClaimed: 0 },
   });
 });
 
@@ -155,8 +158,8 @@ test('потеря своих итогов (D-309): вошёл сам автор
   assert.equal(rows[0]!.actorId, U.opA);
   assert.equal(rows[0]!.entityId, U.opA);
   assert.deepEqual(rows[0]!.meta, {
-    claimed: { count: 1, opIds: [lost], deviceId: 'dev-own' },
-    confirmed: { authorExists: true, alreadyReceived: 1, authorPendingOnDevice: null },
+    claimed: { count: 1, opIds: [lost], reason: 'expired', deviceId: 'dev-own', authorPendingOnDevice: null },
+    checked: { authorExists: true, alreadyReceived: 1, alreadyClaimed: 0 },
   });
   // Все дошли — записи нет, как и для чужих
   const n = (await auditRows()).length;
@@ -171,4 +174,94 @@ test('потеря итогов: мусор — 400, без сессии — 401
   assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [OP], note: 'Синтетик' }), 400);
   assert.equal(await expired(null, { authorId: U.opA, opIds: [OP] }), 401);
   assert.equal((await auditRows()).length, n);
+});
+
+test('журнал потерь идемпотентен (D-311): повтор того же сообщения не пишет вторую строку; новые opId — только они', async () => {
+  const [a, b, c] = [uuid(), uuid(), uuid()];
+  const headers = { 'x-device-id': 'dev-idem' };
+  assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [a, b] }, headers), 200);
+  const n = (await auditRows()).length;
+  // Ответ потерян, телефон повторил; вторая вкладка прислала то же — строк не прибавилось
+  assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [a, b] }, headers), 200);
+  assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [b, a] }, headers), 200);
+  assert.equal((await auditRows()).length, n);
+  // Другой сотрудник о тех же итогах — тоже не дубль: потеря одна
+  assert.equal(await expired(U.consultant, { authorId: U.opA, opIds: [a] }, { 'x-device-id': 'dev-idem-2' }), 200);
+  assert.equal((await auditRows()).length, n);
+  // Вперемешку со старыми — пишутся только новые
+  assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [a, c] }, headers), 200);
+  assert.equal((await auditRows()).length, n + 1);
+  const rows = await rowWith(c);
+  assert.equal(rows.length, 1);
+  assert.deepEqual((rows[0]!.meta.claimed as { opIds: string[] }).opIds, [c]);
+  assert.deepEqual(rows[0]!.meta.checked, { authorExists: true, alreadyReceived: 0, alreadyClaimed: 1 });
+  for (const op of [a, b]) assert.equal((await rowWith(op)).length, 1, op);
+});
+
+test('журнал потерь идемпотентен (D-311): сообщения об одном авторе пишутся по очереди — пока одно держит блокировку, второе ждёт и не задваивает', async () => {
+  const ops = [uuid(), uuid()];
+  const n = (await auditRows()).length;
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  let locked!: () => void;
+  const isLocked = new Promise<void>((r) => (locked = r));
+  // Первая «вкладка» внутри своей транзакции взяла блокировку автора и ещё не записала строку
+  const first = db.tx(async (sql) => {
+    await lockExpiredClaims(sql, U.opA);
+    locked();
+    await held;
+  });
+  await isLocked;
+  let secondDone = false;
+  const second = expired(U.opB, { authorId: U.opA, opIds: ops }, { 'x-device-id': 'dev-race-1' }).then((s) => ((secondDone = true), s));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(secondDone, false, 'второе сообщение ждёт блокировку автора');
+  release();
+  await first;
+  assert.equal(await second, 200);
+  // Одновременные одинаковые сообщения (две вкладки, разные сотрудники) — одна строка
+  const replies = await Promise.all(
+    Array.from({ length: 6 }, (_, i) => expired(i % 2 ? U.opB : U.consultant, { authorId: U.opA, opIds: ops }, { 'x-device-id': `dev-race-${i}` })),
+  );
+  assert.deepEqual(replies, [200, 200, 200, 200, 200, 200]);
+  assert.equal((await auditRows()).length, n + 1);
+  for (const op of ops) assert.equal((await rowWith(op)).length, 1);
+});
+
+test('явное удаление своих итогов при выходе (D-311): reason discarded в заявлении; иная причина — 400', async () => {
+  const op = uuid();
+  assert.equal(await expired(U.opA, { authorId: U.opA, opIds: [op], reason: 'discarded' }, { 'x-device-id': 'dev-disc' }), 200);
+  const [row] = await rowWith(op);
+  assert.equal(row!.actorId, U.opA);
+  assert.equal((row!.meta.claimed as { reason: string }).reason, 'discarded');
+  assert.equal(await expired(U.opA, { authorId: U.opA, opIds: [uuid()], reason: 'lost' }, { 'x-device-id': 'dev-disc' }), 400);
+});
+
+test('ложное заявление (D-311): B заявил потерю реального итога A, итог потом дошёл — запись опровергнута; не дошедший к сроку — подтверждён', async () => {
+  const since = (await db.sql<{ t: number }>`SELECT COALESCE(max(created_at), 0)::bigint AS t FROM audit_log`)[0]!.t;
+  const real = uuid();
+  const invented = uuid();
+  const lost = uuid();
+  assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [real, invented] }, { 'x-device-id': 'dev-forge' }), 200);
+  assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [lost] }, { 'x-device-id': 'dev-forge' }), 200);
+  const mine = (losses: Awaited<ReturnType<typeof verifyExpiredLosses>>, op: string) => losses.find((l) => [...l.verdict.delivered, ...l.verdict.notDelivered, ...l.verdict.unverified].includes(op))!;
+  const sys = systemActor('test', Date.now());
+  // Сразу после записи — только заявление телефона
+  let losses = await verifyExpiredLosses(sys, { since: Number(since) + 1 }, Date.now());
+  assert.equal(mine(losses, real).status, 'claimed');
+  assert.equal(mine(losses, real).actorId, U.opB);
+  assert.equal(mine(losses, real).authorId, U.opA);
+  // A вошёл, его итог дошёл
+  await receivedCall(real);
+  losses = await verifyExpiredLosses(sys, { since: Number(since) + 1 }, Date.now());
+  assert.equal(mine(losses, real).status, 'partly_refuted');
+  assert.deepEqual(mine(losses, real).verdict.delivered, [real]);
+  // Срок проверки прошёл: дошедший — опровергнут, недошедшие — «итога нет», запись про один дошедший — опровергнута
+  const later = Date.now() + EXPIRED_CHECK_AFTER_MS + 1;
+  losses = await verifyExpiredLosses(sys, { since: Number(since) + 1 }, later);
+  assert.deepEqual(mine(losses, real).verdict, { delivered: [real], notDelivered: [invented], unverified: [] });
+  assert.equal(mine(losses, lost).status, 'confirmed');
+  await receivedCall(lost);
+  losses = await verifyExpiredLosses(sys, { since: Number(since) + 1 }, later);
+  assert.equal(mine(losses, lost).status, 'refuted', 'дошедший и после срока опровергает запись');
 });

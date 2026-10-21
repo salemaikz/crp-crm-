@@ -3,7 +3,8 @@
 // 5xx, 429, сессия истекла) — ждёт в IndexedDB (meta) и уходит при следующей возможности: загрузка страницы с сессией
 // или появление сети. Следующим может войти сам автор: тогда сообщение уходит под его сессией (сервер принимает и
 // свою потерю) и автор видит её на экране (D-309). Отказ сервера по существу не повторяется, но и не исчезает молча:
-// след остаётся на телефоне в отдельной очереди.
+// след остаётся на телефоне в отдельной очереди. Та же очередь несёт и явное удаление своих итогов при выходе
+// («Удалить их и выйти», причина `discarded`, D-311). Очередь меняется только атомарно (store.updateMeta).
 import { ensureDeviceId } from './device';
 import type { OutboxStore } from './outboxStore';
 
@@ -12,7 +13,7 @@ import type { OutboxStore } from './outboxStore';
  * (400 — запрос неверен, 404 — такого сотрудника нет): повтор ничего не даст, след остаётся в очереди отказов.
  */
 export type ReportResult = 'sent' | 'retry' | 'refused';
-export type ReportExpired = (authorId: string, opIds: string[]) => Promise<ReportResult>;
+export type ReportExpired = (authorId: string, opIds: string[], reason?: ExpiredReason) => Promise<ReportResult>;
 
 /** Сколько opId в одном сообщении (предел маршрута). */
 export const EXPIRE_CHUNK = 100;
@@ -23,16 +24,30 @@ const REFUSED_KEY = 'expiredRefused';
 /** Предел очереди: защита хранилища от бесконечного роста; на деле там единицы. Лишнее — самое старое — снимается. */
 const QUEUE_MAX_IDS = 2_000;
 
-export type PendingReport = { authorId: string; opIds: string[] };
+/** Почему итоги удалены: по сроку (чужие на этом телефоне) или явным решением автора при выходе (D-311). */
+export type ExpiredReason = 'expired' | 'discarded';
+export type PendingReport = { authorId: string; opIds: string[]; reason?: ExpiredReason };
 
 const isPending = (x: unknown): x is PendingReport =>
-  typeof x === 'object' && x !== null && typeof (x as PendingReport).authorId === 'string' && Array.isArray((x as PendingReport).opIds) && (x as PendingReport).opIds.every((id) => typeof id === 'string');
+  typeof x === 'object' &&
+  x !== null &&
+  typeof (x as PendingReport).authorId === 'string' &&
+  Array.isArray((x as PendingReport).opIds) &&
+  (x as PendingReport).opIds.every((id) => typeof id === 'string') &&
+  ((x as PendingReport).reason === undefined || (x as PendingReport).reason === 'expired' || (x as PendingReport).reason === 'discarded');
+
+function parseQueue(raw: string | null): PendingReport[] {
+  try {
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter(isPending) : [];
+  } catch {
+    return [];
+  }
+}
 
 async function readQueue(store: OutboxStore, key: string): Promise<PendingReport[]> {
   try {
-    const raw = await store.getMeta(key);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter(isPending) : [];
+    return parseQueue(await store.getMeta(key));
   } catch {
     return [];
   }
@@ -48,7 +63,8 @@ export function refusedExpiredReports(store: OutboxStore): Promise<PendingReport
   return readQueue(store, REFUSED_KEY);
 }
 
-async function saveQueue(store: OutboxStore, queue: PendingReport[], key: string = QUEUE_KEY): Promise<void> {
+/** Предел очереди: лишнее — самое старое — снимается. */
+function capQueue(queue: PendingReport[]): PendingReport[] {
   let total = queue.reduce((n, r) => n + r.opIds.length, 0);
   while (total > QUEUE_MAX_IDS && queue.length > 0) {
     const head = queue[0]!;
@@ -57,33 +73,42 @@ async function saveQueue(store: OutboxStore, queue: PendingReport[], key: string
     total -= cut;
     if (head.opIds.length === 0) queue.shift();
   }
-  await store.setMeta(key, JSON.stringify(queue));
+  return queue;
 }
 
-/** opId одного автора сводятся, повторы не задваиваются. */
-function merge(queue: PendingReport[], authorId: string, opIds: readonly string[]): PendingReport[] {
-  const cur = queue.find((r) => r.authorId === authorId);
+/**
+ * Изменить очередь атомарно (D-311): чтение, изменение и запись — одна транзакция хранилища. Уборка при загрузке,
+ * отправка по событию online и вторая вкладка больше не затирают друг другу записи.
+ */
+function updateQueue(store: OutboxStore, key: string, change: (q: PendingReport[]) => PendingReport[]): Promise<unknown> {
+  return store.updateMeta(key, (raw) => JSON.stringify(capQueue(change(parseQueue(raw)))));
+}
+
+const sameReport = (r: PendingReport, authorId: string, reason: ExpiredReason) => r.authorId === authorId && (r.reason ?? 'expired') === reason;
+
+/** opId одного автора и одной причины сводятся, повторы не задваиваются. */
+function merge(queue: PendingReport[], authorId: string, opIds: readonly string[], reason: ExpiredReason): PendingReport[] {
+  const cur = queue.find((r) => sameReport(r, authorId, reason));
   if (cur) cur.opIds = [...new Set([...cur.opIds, ...opIds])];
-  else queue.push({ authorId, opIds: [...new Set(opIds)] });
+  else queue.push(reason === 'expired' ? { authorId, opIds: [...new Set(opIds)] } : { authorId, opIds: [...new Set(opIds)], reason });
   return queue;
 }
 
 /** Поставить сообщение в очередь: opId одного автора сводятся, повторы не задваиваются. */
-export async function queueExpiredReport(store: OutboxStore, authorId: string, opIds: readonly string[]): Promise<void> {
-  await saveQueue(store, merge(await pendingExpiredReports(store), authorId, opIds));
+export async function queueExpiredReport(store: OutboxStore, authorId: string, opIds: readonly string[], reason: ExpiredReason = 'expired'): Promise<void> {
+  await updateQueue(store, QUEUE_KEY, (q) => merge(q, authorId, opIds, reason));
 }
 
 /** Сервер отклонил сообщение по существу: повтора нет, но след потери остаётся на телефоне (D-309). */
-export async function keepRefusedReport(store: OutboxStore, authorId: string, opIds: readonly string[]): Promise<void> {
-  await saveQueue(store, merge(await refusedExpiredReports(store), authorId, opIds), REFUSED_KEY);
+export async function keepRefusedReport(store: OutboxStore, authorId: string, opIds: readonly string[], reason: ExpiredReason = 'expired'): Promise<void> {
+  await updateQueue(store, REFUSED_KEY, (q) => merge(q, authorId, opIds, reason));
 }
 
-async function dropFromQueue(store: OutboxStore, authorId: string, opIds: readonly string[]): Promise<void> {
+async function dropFromQueue(store: OutboxStore, authorId: string, opIds: readonly string[], reason: ExpiredReason): Promise<void> {
   const done = new Set(opIds);
-  const queue = (await pendingExpiredReports(store))
-    .map((r) => (r.authorId === authorId ? { ...r, opIds: r.opIds.filter((id) => !done.has(id)) } : r))
-    .filter((r) => r.opIds.length > 0);
-  await saveQueue(store, queue);
+  await updateQueue(store, QUEUE_KEY, (q) =>
+    q.map((r) => (sameReport(r, authorId, reason) ? { ...r, opIds: r.opIds.filter((id) => !done.has(id)) } : r)).filter((r) => r.opIds.length > 0),
+  );
 }
 
 export interface FlushOptions {
@@ -102,14 +127,15 @@ export interface FlushOptions {
 export async function flushExpiredReports(store: OutboxStore, report: ReportExpired, opts: FlushOptions = {}): Promise<boolean> {
   let own = 0;
   try {
-    for (const { authorId, opIds } of await pendingExpiredReports(store)) {
+    for (const { authorId, opIds, reason = 'expired' } of await pendingExpiredReports(store)) {
       for (let i = 0; i < opIds.length; i += EXPIRE_CHUNK) {
         const chunk = opIds.slice(i, i + EXPIRE_CHUNK);
-        const result = await report(authorId, chunk).catch((): ReportResult => 'retry');
+        const result = await report(authorId, chunk, reason).catch((): ReportResult => 'retry');
         if (result === 'retry') return false;
-        if (result === 'refused') await keepRefusedReport(store, authorId, chunk);
-        else if (authorId === opts.userId) own += chunk.length;
-        await dropFromQueue(store, authorId, chunk);
+        if (result === 'refused') await keepRefusedReport(store, authorId, chunk, reason);
+        // Тост «удалены по сроку» — только о потере по сроку: своё явное удаление автор подтвердил сам
+        else if (authorId === opts.userId && reason === 'expired') own += chunk.length;
+        await dropFromQueue(store, authorId, chunk, reason);
       }
     }
     return (await pendingExpiredReports(store)).length === 0;
@@ -120,9 +146,9 @@ export async function flushExpiredReports(store: OutboxStore, report: ReportExpi
   }
 }
 
-/** Сообщение о потере: POST /api/device/outbox-expired (запись журнала под сессией телефона). */
+/** Сообщение о потере: POST /api/device/outbox-expired (запись журнала под сессией телефона; причина — D-311). */
 export function createExpiredReporter(store: OutboxStore, fetchImpl: typeof fetch = (...a) => fetch(...a)): ReportExpired {
-  return async (authorId, opIds) => {
+  return async (authorId, opIds, reason = 'expired') => {
     try {
       const deviceId = await ensureDeviceId(store);
       const res = await fetchImpl('/api/device/outbox-expired', {
@@ -130,7 +156,7 @@ export function createExpiredReporter(store: OutboxStore, fetchImpl: typeof fetc
         cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'X-Device-Id': deviceId },
-        body: JSON.stringify({ authorId, opIds }),
+        body: JSON.stringify(reason === 'expired' ? { authorId, opIds } : { authorId, opIds, reason }),
       });
       if (res.ok) return 'sent';
       return res.status === 400 || res.status === 404 ? 'refused' : 'retry';

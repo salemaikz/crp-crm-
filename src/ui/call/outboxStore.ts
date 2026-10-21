@@ -19,6 +19,12 @@ export interface OutboxStore {
   clearRejectedExcept(userId: string): Promise<void>;
   getMeta(key: string): Promise<string | null>;
   setMeta(key: string, value: string): Promise<void>;
+  /**
+   * Чтение-изменение-запись одного ключа метаданных атомарно: в IndexedDB — одна readwrite-транзакция (вкладки и
+   * параллельные вызовы одной вкладки встают в очередь), в памяти — без await между чтением и записью. `fn` —
+   * синхронная; вернёт null — ключ не меняется. Результат — записанное значение (или прежнее).
+   */
+  updateMeta(key: string, fn: (current: string | null) => string | null): Promise<string | null>;
 }
 
 /** Хранилище в памяти: тесты и запасной вариант, когда IndexedDB недоступна (приватный режим). */
@@ -46,6 +52,13 @@ export function createMemoryStore(): OutboxStore {
     },
     getMeta: async (k) => meta.get(k) ?? null,
     setMeta: async (k, v) => void meta.set(k, v),
+    updateMeta: async (k, fn) => {
+      const cur = meta.get(k) ?? null;
+      const next = fn(cur);
+      if (next === null) return cur;
+      meta.set(k, next);
+      return next;
+    },
   };
 }
 
@@ -103,6 +116,32 @@ export function createIndexedDbStore(): OutboxStore {
       return row?.value ?? null;
     },
     setMeta: async (key, value) => void (await wrap((await store(META, 'readwrite')).put({ key, value }))),
+    updateMeta: async (key, fn) => {
+      // Чтение и запись в одной транзакции: между ними нет await, иначе транзакция закрылась бы и чужая запись
+      // (другая вкладка, параллельная уборка) вклинилась бы — потерянное обновление очереди
+      const tx = (await db()).transaction(META, 'readwrite');
+      const os = tx.objectStore(META);
+      return new Promise<string | null>((resolve, reject) => {
+        let result: string | null = null;
+        const get = os.get(key);
+        get.onsuccess = () => {
+          const cur = (get.result as { key: string; value: string } | undefined)?.value ?? null;
+          let next: string | null;
+          try {
+            next = fn(cur);
+          } catch (e) {
+            tx.abort();
+            reject(e);
+            return;
+          }
+          result = next ?? cur;
+          if (next !== null) os.put({ key, value: next });
+        };
+        tx.oncomplete = () => resolve(result);
+        tx.onerror = () => reject(tx.error ?? new Error('indexeddb'));
+        tx.onabort = () => reject(tx.error ?? new Error('indexeddb'));
+      });
+    },
   };
 }
 

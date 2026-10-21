@@ -8,6 +8,7 @@
 // не ответил, любая страница показывает экран блокировки вместо данных и повторяет выход.
 import { createCallApi } from './api';
 import { deviceHeaders, ensureDeviceId } from './device';
+import { queueExpiredReport } from './expiredReports';
 import { entryHasFreeText } from './freeText';
 import { Outbox } from './outbox';
 import { createDeviceStore } from './outboxStore';
@@ -77,14 +78,21 @@ export async function flushDeviceOutbox(userId: string): Promise<Unsent> {
 /**
  * Очистка устройства для сотрудника: черновик, счётчик и отказы сервера удаляются всегда; в неотправленных итогах
  * (если «Всё равно выйти») стираются названия компаний, остаётся только содержимое запроса, нужное для отправки.
- * `discardFreeText` — оператор подтвердил удаление итогов со свободным текстом: они удаляются целиком (D-293).
+ * `discardFreeText` — оператор подтвердил удаление итогов со свободным текстом: они удаляются целиком (D-293), а их
+ * opId встают в очередь сообщений о потере с причиной `discarded` (D-311).
  */
 export async function purgeDevice(userId: string, deps: { storage: StorageLike; store: OutboxStore; discardFreeText?: boolean }): Promise<void> {
   clearPending(deps.storage, userId);
   clearTally(deps.storage, userId);
   await deps.store.clearRejected(userId);
-  for (const e of await deps.store.all(userId)) {
-    if (deps.discardFreeText && entryHasFreeText(e)) await deps.store.remove(e.opId);
+  const entries = await deps.store.all(userId);
+  const discarded = deps.discardFreeText ? entries.filter(entryHasFreeText).map((e) => e.opId) : [];
+  // Явная потеря тоже не молчаливая (D-293, D-311): сначала след на телефоне (только id), потом удаление. Сообщение
+  // уходит при следующей загрузке с сессией — под автором или под тем, кто войдёт следующим (D-309)
+  if (discarded.length > 0) await queueExpiredReport(deps.store, userId, discarded, 'discarded');
+  const gone = new Set(discarded);
+  for (const e of entries) {
+    if (gone.has(e.opId)) await deps.store.remove(e.opId);
     else if (e.title !== '') await deps.store.put({ ...e, title: '' });
   }
 }
