@@ -3,9 +3,11 @@
 // (instrumentation) и воркер выходят с кодом 1. Общая сборка (стенд, CI, e2e с предзагрузкой ядра) не проверяется.
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runtimeTamperProblems, type RuntimeFacts } from '../../../src/server/platform/license/runtime';
+import { RUNTIME_ENTRY, runtimeTamperProblems, type RuntimeFacts } from '../../../src/server/platform/license/runtime';
 import { overrideLicenseEnvForTests, resetLicenseEnvForTests } from '../../../src/server/platform/license/testing';
 import { register } from '../../../src/instrumentation';
 import { runWorkerProcess } from '../../../scripts/worker/run';
@@ -13,6 +15,9 @@ import { runWorkerProcess } from '../../../scripts/worker/run';
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 const CLEAN: RuntimeFacts = {
   customerBuild: true,
+  role: 'app',
+  entry: '/app/server.js',
+  mainModule: '/app/server.js',
   execArgv: ['--disable-sigusr1'],
   env: { NODE_OPTIONS: '--max-old-space-size=1024' },
   inspectorUrl: undefined,
@@ -69,7 +74,15 @@ test('сообщение называет флаг, но не повторяет
 
 test('общая сборка (без водяного знака клиента): не проверяется — стенд, CI и e2e с предзагрузкой ядра работают', () => {
   assert.deepEqual(
-    runtimeTamperProblems({ customerBuild: false, execArgv: ['--inspect'], env: { NODE_OPTIONS: '--require x.cjs', LD_PRELOAD: 'y' }, inspectorUrl: 'ws://x' }),
+    runtimeTamperProblems({
+      customerBuild: false,
+      role: 'app',
+      entry: '-',
+      mainModule: undefined,
+      execArgv: ['--inspect'],
+      env: { NODE_OPTIONS: '--require x.cjs', LD_PRELOAD: 'y', LD_AUDIT: 'z' },
+      inspectorUrl: 'ws://x',
+    }),
     [],
   );
 });
@@ -140,4 +153,63 @@ test('поставка: app и worker запускаются с --disable-sigusr
   for (const m of compose.matchAll(/NODE_OPTIONS: (.+)$/gm)) {
     assert.deepEqual(runtimeTamperProblems(facts({ env: { NODE_OPTIONS: m[1] } })), [], m[1]);
   }
+});
+
+// ── Обёртка входа (круг 1 раунда 4 волны B): sh -c 'printf … | exec node --disable-sigusr1 -' или /tmp/w.js ────────
+
+test('сборка клиента: точка входа не из поставки (stdin, -e, скрипт в /tmp) — отказ; app и worker — свои пути', () => {
+  for (const entry of ['-', undefined, '/tmp/w.js', '/app/dist/worker.mjs']) {
+    const p = runtimeTamperProblems(facts({ entry, mainModule: undefined }));
+    assert.ok(p.some((x) => /точка входа/.test(x)), `app, вход ${String(entry)}`);
+    assert.ok(!p.join('\n').includes('/tmp/w.js'), 'путь чужого скрипта в сообщение не попадает');
+  }
+  // Главный модуль CommonJS — тоже вход поставки: обёртка, подменившая только process.argv, не проходит
+  assert.ok(runtimeTamperProblems(facts({ mainModule: '/tmp/w.js' })).some((x) => /точка входа/.test(x)));
+  assert.deepEqual(runtimeTamperProblems(facts({ role: 'worker', entry: '/app/dist/worker.mjs', mainModule: undefined })), []);
+  assert.ok(runtimeTamperProblems(facts({ role: 'worker', entry: '/app/server.js', mainModule: undefined })).length > 0);
+  assert.deepEqual(RUNTIME_ENTRY, { app: '/app/server.js', worker: '/app/dist/worker.mjs' });
+});
+
+test('сборка клиента: переменные загрузчика и подгрузки кода (LD_AUDIT, LD_LIBRARY_PATH, OPENSSL_CONF, NODE_PATH…) — отказ', () => {
+  for (const name of ['LD_AUDIT', 'LD_LIBRARY_PATH', 'LD_PRELOAD', 'GCONV_PATH', 'NODE_PATH', 'NODE_COMPILE_CACHE', 'OPENSSL_CONF', 'OPENSSL_MODULES', 'OPENSSL_ENGINES']) {
+    const p = runtimeTamperProblems(facts({ env: { NODE_OPTIONS: '--max-old-space-size=1024', [name]: '/tmp/x' } }));
+    assert.ok(p.some((x) => x.includes(name)), name);
+    assert.ok(!p.join('\n').includes('/tmp/x'), `${name}: значение в сообщение не попадает`);
+  }
+});
+
+test('живая проба: node --disable-sigusr1 со скриптом из stdin и из /tmp — вход виден как чужой', () => {
+  const runtimeTs = join(ROOT, 'src', 'server', 'platform', 'license', 'runtime.ts');
+  const probe = [
+    `import { currentRuntimeFacts, runtimeTamperProblems } from ${JSON.stringify(runtimeTs)};`,
+    `const f = { ...currentRuntimeFacts('app'), customerBuild: true, execArgv: ['--disable-sigusr1'], env: {} };`,
+    `process.stdout.write(JSON.stringify({ entry: f.entry ?? null, problems: runtimeTamperProblems(f) }));`,
+  ].join('\n');
+  const run = (args: string[], input?: string) =>
+    JSON.parse(execFileSync(process.execPath, ['--disable-sigusr1', '--import', 'tsx', ...args], { cwd: ROOT, input, encoding: 'utf8' })) as {
+      entry: string | null;
+      problems: string[];
+    };
+  const fromStdin = run(['--input-type=module', '-'], probe);
+  assert.notEqual(fromStdin.entry, '/app/server.js');
+  assert.ok(fromStdin.problems.some((x) => /точка входа/.test(x)), JSON.stringify(fromStdin));
+  const dir = mkdtempSync(join(tmpdir(), 'crm-entry-'));
+  try {
+    const script = join(dir, 'w.mts');
+    writeFileSync(script, probe);
+    const fromTmp = run([script]);
+    assert.ok(fromTmp.entry?.endsWith('/w.mts'), JSON.stringify(fromTmp));
+    assert.ok(fromTmp.problems.some((x) => /точка входа/.test(x)), JSON.stringify(fromTmp));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('поставка: /tmp и кэш Next в контейнерах app и worker — tmpfs с noexec (.so для LD_AUDIT оттуда не грузится)', () => {
+  const compose = readFileSync(join(ROOT, 'deploy', 'compose', 'compose.yaml'), 'utf8');
+  for (const m of compose.matchAll(/^\s+- (\/tmp|\/app\/\.next\/cache):(.+)$/gm)) {
+    const opts = m[2]!.split(',');
+    for (const o of ['noexec', 'nosuid', 'nodev']) assert.ok(opts.includes(o), `${m[1]}: ${o}`);
+  }
+  assert.match(compose, /- \/tmp:[^\n]*noexec/);
 });

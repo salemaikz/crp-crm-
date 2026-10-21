@@ -13,7 +13,7 @@ export async function register(): Promise<void> {
       return;
     }
     const { currentRuntimeFacts, runtimeTamperMessage, runtimeTamperProblems } = await import('./server/platform/license/runtime');
-    const tamper = runtimeTamperProblems(currentRuntimeFacts());
+    const tamper = runtimeTamperProblems(currentRuntimeFacts('app'));
     if (tamper.length > 0) {
       console.error(`Запуск остановлен: процесс запущен не как в поставке (D-312). ${runtimeTamperMessage(tamper)}`);
       process.exit(1);

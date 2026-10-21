@@ -19,8 +19,8 @@ x-app-common: &app-common
     - ${CRM_LICENSE_DIR:-/var/lib/crm/license}:/var/lib/crm/license:ro
   read_only: true
   tmpfs:
-    - /tmp:size=64m,mode=1777
-    - /app/.next/cache:size=64m,uid=1000,gid=1000
+    - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    - /app/.next/cache:size=64m,uid=1000,gid=1000,noexec,nosuid,nodev
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   restart: unless-stopped

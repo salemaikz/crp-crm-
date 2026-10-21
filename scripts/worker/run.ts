@@ -16,7 +16,7 @@ export function assertAlmatyOffset(now: number = Date.now()): void {
 export async function runWorkerProcess(): Promise<void> {
   assertAlmatyOffset();
   // Сборка клиента с предзагрузкой или инспектором не работает (D-312): до БД, выход с кодом 1 — в index.ts
-  const tamper = runtimeTamperProblems(currentRuntimeFacts());
+  const tamper = runtimeTamperProblems(currentRuntimeFacts('worker'));
   if (tamper.length > 0) {
     console.error(runtimeTamperMessage(tamper));
     throw new Error('runtime_tamper');
