@@ -462,3 +462,48 @@ test('D-308: вошёл сотрудник «только чтение», сер
   await expect.poll(async () => (await dumpDevice(page)).includes(old), { timeout: 15_000 }).toBe(false);
   expect(await callsOf(a.id)).toHaveLength(0);
 });
+
+test('D-309: сообщение о потере не дошло под B, следующим вошёл сам A — потеря в журнале (от A о себе) и на экране A', async ({ page, context }) => {
+  const a = await makeOperator(1);
+  const b = await makeOperator(1);
+  await openCall(page, a);
+  await sql`DELETE FROM sessions WHERE user_id = ${a.id}`;
+  await page.goto('/login');
+  const old = randomUUID();
+  await seedOutbox(page, a.id, a.cardIds[0]!, [
+    { opId: old, createdAt: Date.now() - 100 * HOUR, freeText: true, note: 'Старая заметка Синтетик', lprName: 'Берик Синтетик-ЛПР' },
+  ]);
+
+  // Под B сервер не принял сообщение (5xx): итог A удалён, след ждёт на телефоне
+  let refused = 0;
+  await context.route('**/api/device/outbox-expired', (r) => {
+    refused++;
+    return r.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+  });
+  await login(page, b);
+  await page.goto('/call');
+  await expect(page.getByTestId('call-card')).toBeVisible();
+  await expect.poll(() => outboxIds(page), { timeout: 15_000 }).toEqual([]);
+  expect(refused).toBeGreaterThanOrEqual(1);
+  expect(await dumpDevice(page)).toContain(old);
+  expect(await expiredRows(a.id)).toHaveLength(0);
+
+  // Сессия B истекла без перезагрузки, на этот телефон входит сам A: сообщение уходит под A и не выбрасывается
+  await context.unroute('**/api/device/outbox-expired');
+  await sql`DELETE FROM sessions WHERE user_id = ${b.id}`;
+  // Страница B узнаёт об истёкшей сессии и уходит на вход: под B сообщение больше не отправить. Ждём этого, чтобы
+  // её переход не оборвал открытие страницы входа
+  await page.reload();
+  await page.waitForURL((u) => u.pathname === '/login');
+  expect(await expiredRows(a.id)).toHaveLength(0);
+  await login(page, a);
+  await expect.poll(async () => (await expiredRows(a.id)).length, { timeout: 15_000 }).toBe(1);
+  const [row] = await expiredRows(a.id);
+  expect(row!.actorId).toBe(a.id);
+  expect(row!.meta.claimed.opIds).toEqual([old]);
+  expect(JSON.stringify(row!.meta)).not.toContain('Синтетик');
+  // A видит, что его итог потерян
+  await expect(page.getByRole('status').getByText(/1 ваш неотправленный итог удалён с телефона по сроку/)).toBeVisible();
+  await expect.poll(async () => (await dumpDevice(page)).includes(old), { timeout: 15_000 }).toBe(false);
+  expect(await callsOf(a.id)).toHaveLength(0);
+});

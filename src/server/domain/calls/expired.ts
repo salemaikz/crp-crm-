@@ -30,8 +30,9 @@ function limited(viewer: Viewer, deviceId: string, now: number): number | null {
 }
 
 /**
- * Записать потерю итогов `authorId`. Свои итоги отсекает маршрут (400). Неизвестный автор → NotFoundError. Все opId уже
- * записаны звонками → ничего не пишется (потери нет). Ответ одинаковый (`ok`), сколько opId дошло — клиент не узнаёт.
+ * Записать потерю итогов `authorId`. Автором может быть и сам `viewer` (D-309): сообщение не дошло под другим
+ * сотрудником, и следующим вошёл автор. Неизвестный автор → NotFoundError. Все opId уже записаны звонками → ничего не
+ * пишется (потери нет). Ответ одинаковый (`ok`), сколько opId дошло — клиент не узнаёт.
  */
 export async function reportExpiredOutbox(viewer: Viewer, r: ExpiredReport, now: number): Promise<ExpiredResult> {
   const retryAfterMs = limited(viewer, r.deviceId, now);

@@ -5,12 +5,14 @@
 // - страница ставит метку владельца телефона (её сотрудник — тот, под чьей сессией сервер её отдал);
 // - данные экрана «Звонить» других сотрудников удаляются или обезличиваются, их итоги со свободным текстом старше
 //   срока удаляются с записью в журнал (src/ui/call/deviceOwner.ts); не дошедшее сообщение о потере уходит при
-//   следующей загрузке или появлении сети (D-308).
+//   следующей загрузке или появлении сети (D-308); если следующим вошёл сам автор, сообщение уходит под ним и он видит
+//   свою потерю (тост, D-309).
 // Пока страница открыта, она сверяет метку при смене метки в другой вкладке, возврате на вкладку, фокусе, показе из
 // bfcache и появлении сети, а на возврат ещё и спрашивает сервер, чья сессия у cookie: метки может не быть (вход
 // запросом, хранилище недоступно), а сессия — истечь без входа другого. Не совпало или сессии нет — страница прячется
 // и перезагружается: сервер отдаст страницу текущей сессии или вход. Ничего не рисует.
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   checkPageSession,
   createExpiredReporter,
@@ -24,12 +26,24 @@ import {
 import { browserStorage, isLogoutPending } from '@/ui/call/logoutPending';
 import { createDeviceStore } from '@/ui/call/outboxStore';
 import { isStaleShell } from '@/ui/call/serviceWorker';
+import { useOptionalToast } from '@/ui/kit';
 
 /** Не чаще одной сверки с сервером за это время: возврат на вкладку даёт сразу видимость, фокус и показ. */
 const SESSION_CHECK_GAP_MS = 2_000;
+/** Тост о потере своих итогов держится дольше обычного: его нельзя пропустить. */
+const OWN_LOST_TOAST_MS = 15_000;
 
 export function DeviceOwnerGuard({ userId, outboxTtlMs }: { userId: string; outboxTtlMs: number | null }) {
+  const t = useTranslations('shell.deviceOwner');
+  // Охрана не роняет страницу: без провайдера тостов потеря всё равно уходит в журнал
+  const toast = useOptionalToast();
+  // Показ потери — через ссылку: эффект уборки не перезапускается от смены функций перевода и тостов
+  const ownLost = useRef<(count: number) => void>(() => {});
   useEffect(() => {
+    ownLost.current = (count) => void toast?.show({ message: t('ownExpired', { count }), tone: 'danger', durationMs: OWN_LOST_TOAST_MS });
+  }, [t, toast]);
+  useEffect(() => {
+    const onOwnLost = (count: number) => ownLost.current(count);
     // Оболочку из кэша service worker отдал не сервер: её сотрудник мог смениться, метку она не ставит
     const stale = isStaleShell();
     let left = false;
@@ -49,7 +63,7 @@ export function DeviceOwnerGuard({ userId, outboxTtlMs }: { userId: string; outb
       void sanitizeForeign(userId, {
         storage: browserStorage(),
         store,
-        expire: store && report && outboxTtlMs !== null ? { now: Date.now(), ttlMs: outboxTtlMs, report } : undefined,
+        expire: store && report && outboxTtlMs !== null ? { now: Date.now(), ttlMs: outboxTtlMs, report, onOwnLost } : undefined,
       });
     }
 
@@ -81,7 +95,7 @@ export function DeviceOwnerGuard({ userId, outboxTtlMs }: { userId: string; outb
     const onEvent = () => check();
     const onOnline = () => {
       check();
-      if (!left && store && report) void flushExpiredReports(store, report);
+      if (!left && store && report) void flushExpiredReports(store, report, { userId, onOwnLost });
     };
     // Первый показ страницы — это загрузка, её сессию сервер только что проверил; сервер спрашиваем при показе из bfcache
     const onPageShow = (e: PageTransitionEvent) => check({ server: e.persisted });

@@ -12,6 +12,7 @@ import {
   ownerChanged,
   pendingExpiredReports,
   queueExpiredReport,
+  refusedExpiredReports,
   sanitizeForeign,
   type ScanStorage,
 } from '../../../src/ui/call/deviceOwner';
@@ -146,19 +147,55 @@ test('срок (D-308): сервер недоступен, 5xx или «толь
   assert.deepEqual(await pendingExpiredReports(store), []);
 });
 
-test('срок: отчёт очереди без сети остаётся; отказ сервера по существу (400, 404) — снимается без повтора', async () => {
+test('срок: отчёт очереди без сети остаётся; отказ сервера по существу (400, 404) — без повтора, но след остаётся на телефоне (D-309)', async () => {
   const store = createMemoryStore();
   await store.put(withText('old', 'uA', NOW - TTL - 1, true));
   await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async () => 'retry' } });
   assert.equal(await flushExpiredReports(store, async () => 'retry'), false);
   assert.deepEqual(await pendingExpiredReports(store), [{ authorId: 'uA', opIds: ['old'] }]);
-  assert.equal(await flushExpiredReports(store, async () => 'refused'), true);
-  assert.deepEqual(await pendingExpiredReports(store), []);
-  // Отказ на прямой отчёт — итог удалён, в очередь не ставится
+  const sent: string[] = [];
+  assert.equal(await flushExpiredReports(store, async (a) => (sent.push(a), 'refused')), true);
+  assert.deepEqual(await pendingExpiredReports(store), [], 'отказ по существу не повторяется');
+  assert.deepEqual(await refusedExpiredReports(store), [{ authorId: 'uA', opIds: ['old'] }], 'но и не исчезает молча');
+  assert.equal(await flushExpiredReports(store, async (a) => (sent.push(a), 'sent')), true);
+  assert.deepEqual(sent, ['uA'], 'отклонённое повторно не уходит');
+  // Отказ на прямой отчёт — итог удалён, повтора нет, след остаётся
   await store.put(withText('old3', 'uA', NOW - TTL - 1, true));
   await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async () => 'refused' } });
   assert.equal(await store.get('old3'), null);
   assert.deepEqual(await pendingExpiredReports(store), []);
+  assert.deepEqual(await refusedExpiredReports(store), [{ authorId: 'uA', opIds: ['old', 'old3'] }]);
+  assert.doesNotMatch(JSON.stringify(await refusedExpiredReports(store)), /Синтетик/);
+});
+
+test('срок (D-309): на телефон вошёл сам автор — его потеря уходит на сервер под ним и показывается ему, а не выбрасывается', async () => {
+  const store = createMemoryStore();
+  await store.put(withText('old', 'uA', NOW - TTL - 1, true, 'Заметка Берик Синтетик'));
+  // Под B сервер не ответил: итог A удалён, сообщение ждёт
+  await sanitizeForeign('uB', { storage: null, store, expire: { now: NOW, ttlMs: TTL, report: async () => 'retry' } });
+  assert.deepEqual(await pendingExpiredReports(store), [{ authorId: 'uA', opIds: ['old'] }]);
+  // Входит сам A: сообщение о его потере уходит под его сессией, A узнаёт о потере на экране
+  const sent: Array<[string, string[]]> = [];
+  const own: number[] = [];
+  await sanitizeForeign('uA', {
+    storage: null,
+    store,
+    expire: { now: NOW, ttlMs: TTL, report: async (a, ids) => (sent.push([a, ids]), 'sent'), onOwnLost: (n) => own.push(n) },
+  });
+  assert.deepEqual(sent, [['uA', ['old']]]);
+  assert.deepEqual(own, [1]);
+  assert.deepEqual(await pendingExpiredReports(store), []);
+  // Сообщения о чужих потерях автору не показываются
+  await queueExpiredReport(store, 'uC', ['c1', 'c2']);
+  await queueExpiredReport(store, 'uA', ['a2']);
+  const own2: number[] = [];
+  assert.equal(await flushExpiredReports(store, async () => 'sent', { userId: 'uA', onOwnLost: (n) => own2.push(n) }), true);
+  assert.deepEqual(own2, [1]);
+  // Не дошло — не показывается (покажется, когда дойдёт)
+  await queueExpiredReport(store, 'uA', ['a3']);
+  const own3: number[] = [];
+  assert.equal(await flushExpiredReports(store, async () => 'retry', { userId: 'uA', onOwnLost: (n) => own3.push(n) }), false);
+  assert.deepEqual(own3, []);
 });
 
 test('срок: очередь отчётов сводит повторы opId и уходит частями не больше 100', async () => {

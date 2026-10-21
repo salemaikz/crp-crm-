@@ -19,6 +19,11 @@ export function useToast(): ToastApi {
   return api;
 }
 
+/** Тосты, если провайдер есть; без него — null (служебные компоненты, которые не должны ронять страницу). */
+export function useOptionalToast(): ToastApi | null {
+  return useContext(ToastContext);
+}
+
 const ICONS: Record<ToastTone, typeof Info | null> = { neutral: null, success: CircleCheck, danger: CircleAlert, info: Info };
 
 /** Один тост. Таймер стоит, пока на нём курсор или фокус (WCAG 2.2.1): успеть нажать «Отменить». */

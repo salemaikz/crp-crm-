@@ -1,7 +1,8 @@
 // Сверка сессии вкладки GET /api/device/session (D-292) и сообщение о потере итогов POST /api/device/outbox-expired
 // (D-293 п. 2, D-308). Сверка ничего не пишет. Потеря — мутация безопасности: работает при любой лицензии и для роли
-// «только чтение» (ПДн уходят с общего телефона). Журнал пишется только о существующем сотруднике и только об opId,
-// которых нет среди звонков; в meta раздельно «заявлено телефоном» и «подтверждено сервером»; частота ограничена.
+// «только чтение» (ПДн уходят с общего телефона). Свою потерю сообщает и сам автор, вошедший на телефон (D-309). Журнал
+// пишется только о существующем сотруднике и только об opId, которых нет среди звонков; в meta раздельно «заявлено
+// телефоном» и «подтверждено сервером»; частота ограничена.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GET } from '../../../src/app/api/device/session/route';
@@ -143,9 +144,28 @@ test('потеря итогов: частота ограничена по сот
   assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [uuid()] }, { 'x-device-id': 'dev-rate-1' }), 200);
 });
 
-test('потеря итогов: свои — 400, мусор — 400, без сессии — 401; журнал не растёт', async () => {
+test('потеря своих итогов (D-309): вошёл сам автор — 200 и запись журнала, автор и объект — он сам; уже дошедшие отбрасываются', async () => {
+  const lost = uuid();
+  const got = uuid();
+  await receivedCall(got);
+  const reply = await expiredReply(U.opA, { authorId: U.opA, opIds: [lost, got] }, { 'x-device-id': 'dev-own' });
+  assert.deepEqual(reply, { status: 200, body: { ok: true } });
+  const rows = await rowWith(lost);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.actorId, U.opA);
+  assert.equal(rows[0]!.entityId, U.opA);
+  assert.deepEqual(rows[0]!.meta, {
+    claimed: { count: 1, opIds: [lost], deviceId: 'dev-own' },
+    confirmed: { authorExists: true, alreadyReceived: 1, authorPendingOnDevice: null },
+  });
+  // Все дошли — записи нет, как и для чужих
   const n = (await auditRows()).length;
-  assert.equal(await expired(U.opA, { authorId: U.opA, opIds: [OP] }), 400);
+  assert.equal(await expired(U.opA, { authorId: U.opA, opIds: [got] }, { 'x-device-id': 'dev-own' }), 200);
+  assert.equal((await auditRows()).length, n);
+});
+
+test('потеря итогов: мусор — 400, без сессии — 401; журнал не растёт', async () => {
+  const n = (await auditRows()).length;
   assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [] }), 400);
   assert.equal(await expired(U.opB, { authorId: U.opA, opIds: ['не-uuid'] }), 400);
   assert.equal(await expired(U.opB, { authorId: U.opA, opIds: [OP], note: 'Синтетик' }), 400);
