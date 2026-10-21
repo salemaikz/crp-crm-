@@ -2,7 +2,7 @@
 // направление переноса, требования этапа, этапы «Покупка» и «Проигран». Настройки разбираются в срез (settings.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkAmount, isEmptyFieldValue, isForward, lostStageOf, purchaseMoment, stageRequirements, wonStageOf } from '../../../src/server/domain/deals/rules';
+import { checkAmount, isEmptyFieldValue, isForward, lostStageOf, purchaseMoment, stageFieldLabels, stageRequirements, wonStageOf } from '../../../src/server/domain/deals/rules';
 import { parseDealsSettings } from '../../../src/server/domain/deals/settings';
 import { DealDomainError } from '../../../src/server/domain/deals/errors';
 import type { DealPipelineInfo, DealStageInfo } from '../../../src/server/domain/deals/types';
@@ -119,4 +119,27 @@ test('parseDealsSettings: архивные этапы, услуги и прич�
   assert.deepEqual(s.lostReasons.map((x) => x.key), ['r1']);
   assert.deepEqual([s.workHoursEnd, s.acceptSlaWorkdays, s.purchaseFutureLimitHours], ['18:00', 1, 36]);
   assert.throws(() => parseDealsSettings({ spaceId: 'sp', global, space: { ...space, deals: {} } }), (e: unknown) => e instanceof DealDomainError && e.code === 'invalid_settings');
+});
+
+test('stageFieldLabels: подписи только полей из требований указанных этапов и только видимых роли зрителя', () => {
+  const pipe: DealPipelineInfo = {
+    ...PIPE,
+    stages: [
+      stage('booked', 'open', 10, { fields: ['early'] }),
+      stage('offer', 'open', 30, { fields: ['budget', 'secret'] }),
+      stage('contract', 'open', 35, { fields: ['budget', 'gone'] }),
+      stage('paid', 'won', 40, { fields: ['won_only'] }),
+    ],
+  };
+  const labels = { early: 'Ранее', budget: 'Бюджет', secret: 'Скрытое', won_only: 'Победа', unused: 'Не нужное' };
+  // `secret` скрыт роли зрителя, `gone` — без подписи, `unused` ни один этап не требует
+  const visible = new Set(['early', 'budget', 'gone', 'won_only', 'unused']);
+  assert.deepEqual(stageFieldLabels(pipe, ['offer', 'contract'], labels, visible), { budget: 'Бюджет' });
+  // этап не из списка и чужая воронка — ничего
+  assert.deepEqual(stageFieldLabels(pipe, ['nope'], labels, visible), {});
+  assert.deepEqual(stageFieldLabels(undefined, ['offer'], labels, visible), {});
+  // ничего не видно (роль без доступа) — пусто, даже если этап требует поле
+  assert.deepEqual(stageFieldLabels(pipe, ['offer'], labels, new Set()), {});
+  // прототипные ключи не подставляются
+  assert.deepEqual(stageFieldLabels({ stages: [stage('x', 'open', 1, { fields: ['toString'] })] }, ['x'], labels, new Set(['toString'])), {});
 });

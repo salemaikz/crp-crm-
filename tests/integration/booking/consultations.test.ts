@@ -76,7 +76,7 @@ test('окно дат: не больше 62 дней, from ≤ to, формат 
 
 test('страница встречи: своя видна, чужая и ещё закрытая — 404; следующий этап воронки и версия сделки', async () => {
   const v = await getMyConsultation(deps, cons, FX.bkInWindow.booking);
-  assert.deepEqual([v.clientName !== '', v.canRecordResult, v.deal?.id, v.deal?.stageKey, v.deal?.version], [true, false, 'dl-consult', 'booked', 0]);
+  assert.deepEqual([v.clientName !== '', v.canRecordResult, v.deal?.id, v.deal?.pipelineKey, v.deal?.stageKey, v.deal?.version], [true, false, 'dl-consult', 'sales', 'booked', 0]);
   assert.deepEqual(v.laterStages.map((x) => x.key), ['attended', 'offer']);
   for (const id of [FX.bkOther.booking, FX.bkFuture.booking, FX.bkPast.booking, 'нет-такой']) {
     await assert.rejects(getMyConsultation(deps, cons, id), (e: unknown) => e instanceof BookingDomainError && e.code === 'booking_not_found');

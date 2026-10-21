@@ -64,7 +64,10 @@ export interface DealsSettings {
   purchaseFutureLimitHours: number;
   /** `handoff.acceptSlaWorkdays`. */
   acceptSlaWorkdays: number;
-  /** Подписи полей сделки (`fields[]`, `object: 'deal'`) по ключу: текст отказа `stage_fields_required`. */
+  /**
+   * Подписи всех полей сделки (`fields[]`, `object: 'deal'`) по ключу, без учёта роли. Клиенту — только через
+   * `stageFieldLabelsFor` (поля требований этапов, видимые зрителю).
+   */
   fieldLabels: Record<string, { ru: string; kk?: string }>;
 }
 

@@ -64,7 +64,7 @@ export interface ConsultationView {
   clientName: string;
   /** Имя консультанта записи; null — «серая». */
   consultantName: string | null;
-  deal: { id: string; stageKey: string; status: 'open' | 'won' | 'lost'; version: number } | null;
+  deal: { id: string; pipelineKey: string; stageKey: string; status: 'open' | 'won' | 'lost'; version: number } | null;
   /** Открытые этапы воронки сделки впереди текущего: итог может перевести сделку на один из них. */
   laterStages: { key: string; label: LocalizedLabel | null }[];
   /** Итог можно писать только после «Пришёл» (иначе `not_attended`). */
@@ -88,7 +88,7 @@ export async function getMyConsultation(deps: BookingDeps, viewer: Viewer, booki
       booking: toBookingView(b),
       clientName,
       consultantName: owner?.name ?? null,
-      deal: dealRow ? { id: dealRow.id, stageKey: dealRow.stageKey, status: dealRow.status, version: dealRow.version } : null,
+      deal: dealRow ? { id: dealRow.id, pipelineKey: dealRow.pipelineKey, stageKey: dealRow.stageKey, status: dealRow.status, version: dealRow.version } : null,
       laterStages,
       canRecordResult: b.status === 'attended',
     };

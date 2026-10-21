@@ -3,12 +3,14 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { page } from '@/server/access';
 import { bookingDeps, getMyConsultation, isBookingDomainError, pickLabel } from '@/server/domain/booking';
-import { loadDealsSettings } from '@/server/domain/deals';
+import { stageFieldLabelsFor } from '@/server/domain/deals';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import { Button, Card, PageHeader } from '@/ui/kit';
 import { MeetingPanel } from '../_meeting/MeetingPanel';
 
 type Props = { params: Promise<{ bookingId: string }> };
+
+const NO_LABELS: Awaited<ReturnType<typeof stageFieldLabelsFor>> = {};
 
 // Страница встречи консультанта (B5c): клиент, сделка, «Пришёл / Не пришёл», итог, запись на следующую консультацию.
 // Чужая встреча и встреча вне окна — 404 (как несуществующая). За флагом BK_WIZARD.
@@ -25,9 +27,12 @@ export default page<Props, ReactNode>({ perm: 'booking.read', target: 'object' }
     throw e;
   }
   const settings = viewer.spaceId ? await deps.settings(viewer.spaceId, deps.now()) : null;
-  // Подписи полей сделки нужны, только если итог может сменить этап (отказ требований этапа, D-301); без них —
-  // ключи полей, страница встречи из-за настроек сделок не падает
-  const deals = viewer.spaceId && view.laterStages.length > 0 ? await loadDealsSettings(viewer.spaceId, deps.now()).catch(() => null) : null;
+  // Подписи полей сделки нужны, только если итог может сменить этап (отказ требований этапа, D-301): только поля
+  // требований этих этапов и не скрытые роли. Без них — ключи полей, страница из-за настроек сделок не падает
+  const labels =
+    viewer.spaceId && view.deal && view.laterStages.length > 0
+      ? await stageFieldLabelsFor(viewer, { spaceId: viewer.spaceId, pipelineKey: view.deal.pipelineKey, stageKeys: view.laterStages.map((x) => x.key), now: deps.now() }).catch(() => NO_LABELS)
+      : NO_LABELS;
   const locale = await getLocale();
   const b = view.booking;
   const dir = settings?.catalog.directions.find((d) => d.key === b.directionKey);
@@ -56,7 +61,7 @@ export default page<Props, ReactNode>({ perm: 'booking.read', target: 'object' }
           deal={view.deal ? { version: view.deal.version, stageKey: view.deal.stageKey } : null}
           laterStages={view.laterStages.map((x) => ({ key: x.key, label: pickLabel(x.label ?? { ru: x.key }, locale) }))}
           purchase={isFeatureEnabled('PURCHASES')}
-          fieldLabels={Object.fromEntries(Object.entries(deals?.fieldLabels ?? {}).map(([k, l]) => [k, pickLabel(l, locale)]))}
+          fieldLabels={Object.fromEntries(Object.entries(labels).map(([k, l]) => [k, pickLabel(l, locale)]))}
         />
       </div>
     </main>

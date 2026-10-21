@@ -59,6 +59,29 @@ export function stageRequirements(stage: { requires?: Partial<Pick<DealStageInfo
   return { nextTask: r.nextTask ?? false, fields: [...(r.fields ?? [])], booking: r.booking ?? false, attendance: r.attendance ?? false };
 }
 
+/**
+ * Подписи полей сделки для текста отказа требований этапа (D-301): только поля из `requires.fields` этапов
+ * `stageKeys` этой воронки и только из `visible` (поля сделки, не скрытые роли зрителя). Прочие подписи из
+ * настроек клиенту не уходят: скрытых полей в ответе нет, даже их названий.
+ */
+export function stageFieldLabels<L>(
+  pipeline: Pick<DealPipelineInfo, 'stages'> | undefined,
+  stageKeys: readonly string[],
+  labels: Readonly<Record<string, L>>,
+  visible: ReadonlySet<string>,
+): Record<string, L> {
+  const out: Record<string, L> = {};
+  if (!pipeline) return out;
+  const wanted = new Set(stageKeys);
+  for (const s of pipeline.stages) {
+    if (!wanted.has(s.key)) continue;
+    for (const k of s.requires.fields) {
+      if (visible.has(k) && Object.hasOwn(labels, k)) out[k] = labels[k] as L;
+    }
+  }
+  return out;
+}
+
 /** Сумма — целое число тенге от 0 до 1e12 (строка и дробь — нет). */
 export function checkAmount(x: unknown): x is number {
   return typeof x === 'number' && Number.isInteger(x) && x >= 0 && x <= AMOUNT_MAX_KZT;
