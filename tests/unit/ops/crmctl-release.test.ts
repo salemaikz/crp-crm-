@@ -403,3 +403,32 @@ test('rollback на стенде без проверенного манифес�
   assert.equal(cliSynced(g), false);
   assert.match(g.err.join('\n'), /остаётся текущий crmctl/);
 });
+
+test('rollback на стенде: sha манифеста совпал, но подпись не проверена — откат идёт, crmctl с хоста не заменяется', async () => {
+  const cases: [string, (f: Fake) => Promise<void>][] = [
+    ['ключ отозван', async (f) => {
+      const bytes = await readFile(path.join(pdir(f, '1.0.0'), 'manifest.json'));
+      await writeFile(path.join(pdir(f, '1.0.0'), 'manifest.sig'), signManifest(bytes, FOREIGN_KEYS.priv, 'rel-old'));
+    }],
+    ['поставлена заглушкой стенда', async (f) => {
+      const { writeState } = await import('../../../scripts/crmctl/state');
+      const st = (await readState(f.deps.paths))!;
+      st.previous!.verified = 'stub';
+      await writeState(f.deps.paths, st);
+    }],
+    ['подписи нет', async (f) => {
+      const { rm } = await import('node:fs/promises');
+      await rm(path.join(pdir(f, '1.0.0'), 'manifest.sig'));
+    }],
+  ];
+  for (const [name, mut] of cases) {
+    const g = await twoVersions();
+    await writeFile(path.join(g.dirs.etc, 'app.env'), 'CRM_STAND=1\n');
+    await mut(g);
+    assert.equal(await run(['rollback', '--wait-seconds', '1'], g.deps), 0, `${name}: ${g.err.join('\n')}`);
+    assert.equal((await readState(g.deps.paths))?.current.version, '1.0.0', name);
+    assert.match(g.err.join('\n'), /Предупреждение \(стенд\)/, name);
+    assert.equal(cliSynced(g), false, `${name}: crmctl без проверенной подписи на хост не ставится`);
+    assert.match(g.err.join('\n'), /остаётся текущий crmctl/, name);
+  }
+});

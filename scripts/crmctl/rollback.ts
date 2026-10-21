@@ -20,6 +20,11 @@ type VerifyRecord = Pick<Target, 'manifestSha256' | 'kid' | 'verified'>;
 
 interface Stored {
   manifest: PackageManifest | null;
+  /**
+   * Подпись сохранённого манифеста прошла текущими ключами (проблем нет). На стенде с предупреждением manifest может
+   * быть не null при провале подписи (sha совпал, ключ отозван, заглушка, нет manifest.sig) — тогда false.
+   */
+  signed: boolean;
   /** Запись о проверке, восстановленная задним числом для версии, поставленной до O4c. */
   backfill: VerifyRecord | null;
 }
@@ -105,20 +110,21 @@ async function verifyStored(deps: Deps, customer: string, target: Target): Promi
       throw new CrmctlError(`Откат на ${target.version} невозможен: Id образа ${ref} не совпадает с подписанным manifest.json`);
     }
   }
-  return { manifest, backfill };
+  return { manifest, signed: problem === null, backfill };
 }
 
 /**
  * Почему crmctl прежнего образа НЕ ставится на хост (null — ставится). Откат не возвращает хосту crmctl, который
  * проверяет пакеты слабее текущего (§4.4, D-316):
  * - версия до O4c (запись восстановлена задним числом) — её crmctl подписи пакетов не проверяет вовсе;
- * - нет проверенного manifest.json (стенд с предупреждением) — не с чем сверить ключи образа;
+ * - подпись сохранённого манифеста не проверена (стенд с предупреждением: изменён, ключ отозван, заглушка, нет
+ *   manifest.sig) — releaseKeys непроверенного манифеста не доказывают ничего, в любом режиме;
  * - ключи релизов прежней версии шире текущих — вернулось бы доверие к отозванному ключу;
  * - crmctl образа сообщает не те ключи, что в подписанном манифесте, или не сообщает их (собран до O4c).
  */
-async function cliKeepReason(deps: Deps, version: string, stored: PackageManifest | null, backfill: VerifyRecord | null): Promise<string | null> {
+async function cliKeepReason(deps: Deps, version: string, stored: PackageManifest | null, signed: boolean, backfill: VerifyRecord | null): Promise<string | null> {
   if (backfill) return `версия ${version} поставлена до O4c, её crmctl не проверяет подпись пакетов`;
-  if (!stored) return `у версии ${version} нет проверенного manifest.json, ключи её crmctl не с чем сверить`;
+  if (!stored || !signed) return `у версии ${version} manifest.json не проверен подписью, ключам её crmctl нельзя верить`;
   if (!keysSubset(stored.releaseKeys, releaseKeyList(await loadKeySet(deps)))) {
     return 'crmctl прежней версии доверяет ключам, которых нет у текущего';
   }
@@ -138,7 +144,7 @@ export async function rollback(deps: Deps, args: ParsedArgs): Promise<number> {
   if (!(await imageExists(deps, `crm-app:${target.version}`))) {
     throw new CrmctlError(`Образа crm-app:${target.version} нет на сервере (почищен?). Загрузите пакет через crmctl update`);
   }
-  const { manifest: stored, backfill } = await verifyStored(deps, state.customer, target);
+  const { manifest: stored, signed, backfill } = await verifyStored(deps, state.customer, target);
   await assertImageForCustomer(deps, `crm-app:${target.version}`, state.customer, `Откат на ${target.version} невозможен`, stored?.builtAt);
   if (backfill) deps.io.out(`Версия ${target.version} поставлена до O4c: запись о проверке подписи ${target.version} восстановлена по сохранённому manifest.json (ключ ${backfill.kid}).`);
   deps.io.out(`Откат ${state.current.version} -> ${target.version}`);
@@ -169,7 +175,7 @@ export async function rollback(deps: Deps, args: ParsedArgs): Promise<number> {
     deps.io.err(`Версия ${target.version} не отвечает на /api/health. Нужно вмешательство: docker compose -p crm logs app`);
     return 2;
   }
-  const keep = await cliKeepReason(deps, target.version, stored, backfill);
+  const keep = await cliKeepReason(deps, target.version, stored, signed, backfill);
   if (keep) deps.io.err(`Предупреждение: ${keep}; остаётся текущий crmctl`);
   else await syncCli(deps, target.version);
   deps.io.out(`Работает ${target.version}.`);
