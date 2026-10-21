@@ -188,7 +188,9 @@ export type QueueOutcome =
   /** Временная ошибка: повтор через min(30 с · 2^(attempt−1), 1 ч); после maxAttempts — failed. */
   | { status: 'retry'; error: string }
   /** Окончательная ошибка (подпись, формат): сразу failed. */
-  | { status: 'failed'; error: string };
+  | { status: 'failed'; error: string }
+  /** Отправлять больше незачем (push: прочитано, сессии нет, push выключен): строка `cancelled`; у вебхуков — failed. */
+  | { status: 'cancelled'; error: string };
 
 export type QueueHandler = (actor: SystemActor, item: QueueItem, signal: AbortSignal) => Promise<QueueOutcome>;
 
@@ -203,6 +205,11 @@ export interface QueueSpec {
   /** Очередь включена (например, push — только при FEATURE_PUSH). */
   enabled(): boolean;
   writes: JobWrites;
+  /**
+   * Наполнить очередь перед взятием пачки (push: уведомления × подписки, D-328). Возвращает число новых строк.
+   * Ошибка наполнения не мешает отправке уже стоящих строк.
+   */
+  fill?: (actor: SystemActor, now: Ms) => Promise<number>;
 }
 
 // ---------------------------------------------------------------------------

@@ -465,7 +465,7 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `CRM_SECRETS_KID`, `CRM_SECRETS_KEY_<kid>` | ключ AES-256-GCM для секретов интеграций. Пишет `crmctl install` | для интеграций | да |
 | `CRM_PHONE_HMAC_KEY` | HMAC номеров стоп-листа. Пишет `crmctl install` | да | да |
 | `CRM_IIN_HMAC_KEY` | HMAC ИИН. Пишет `crmctl install` | да | да |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | web-push | при `FEATURE_PUSH` | приватный — да |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | web-push (D-328, D-329): пара P-256 в base64url (открытый — 65 байт, приватный — 32), сверяется при чтении; `VAPID_SUBJECT` — `mailto:` или `https:` для связи с push-сервисом. Генерирует `crmctl install` (`generateVapidKeys()`). Нет или неверны — push недоступен, приложение работает. Смена ключей обнуляет подписки устройств | при `FEATURE_PUSH` | приватный — да |
 | `LICENSE_PATH` | путь к файлу лицензии в томе. Пишет `crmctl install` | да | нет |
 | `INGEST_PUBLIC` | `0` — `/api/ingest/` закрыт снаружи (по умолчанию): nginx и второй рубеж в приложении — запрос через nginx (верный `X-Proxy-Secret`) получает 404, запрос с `X-Via-Proxy` без верного секрета — 404 всегда | нет | нет |
 | `INGEST_ACCEPTING` | `1` — приём ingest/v1 включён; `0` — выключен целиком, ответ 423 (рубильник на время разбора проблем источника) | нет | нет |
@@ -498,6 +498,12 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 В демо и на стенде флаги включены, в production выключены до приёмки (как D-025
 crp-kz). Для Wazzup и Zadarma добавляется четвёртое условие — письменное
 решение ЦРП о передаче ПДн за рубеж (`docs/INTEGRATIONS.md`).
+
+Web-push (D-328, статус «предложено»: действует как значение по умолчанию, пока
+владелец не принял решение) устроен так же, но без признака в лицензии:
+`FEATURE_PUSH`, верные ключи `VAPID_*`, отметка письменного решения клиента о
+push-сервисах Apple и Google и переключатель администратора (`push_settings`).
+По умолчанию выключен. Нужен ли признак в лицензии — вопрос владельцу (D-328).
 
 ---
 

@@ -4,7 +4,7 @@
 import { newId, now, type Sql } from './db';
 import { jsonParam } from './db/core';
 
-export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'export' | 'integration' | 'messenger' | 'resource' | 'deal' | 'proposal' | 'client' | 'pair';
+export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'export' | 'integration' | 'messenger' | 'resource' | 'deal' | 'proposal' | 'client' | 'pair' | 'push';
 
 /**
  * Реестр имён действий. Имя — «<сущность>.<глагол_snake>» в два сегмента, первый совпадает с
@@ -93,6 +93,8 @@ export const AUDIT_ACTIONS = [
   'license.clock_reset',
   // D-314: запуск сборки клиента не как в поставке, но без явной подгрузки кода (meta: role и коды признаков)
   'license.runtime_signal',
+  // P8b: переключатель web-push и отметка решения клиента (meta: enabled, approved, decisionDate; D-328)
+  'push.settings',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

@@ -145,7 +145,7 @@ export function createWorker(opts: WorkerOptions = {}): Worker {
           if (isBlocked) continue;
         }
         const s = await runQueuePass(db, spec, { actor: systemActor(spec.name, deps.clock()), now: deps.clock, signal: stopper.signal, log });
-        if (s.taken > 0) log.info('queue_pass', { queue: spec.name, ...s });
+        if (s.taken > 0 || s.filled > 0) log.info('queue_pass', { queue: spec.name, ...s });
       } catch (e) {
         log.warn('queue_error', { queue: spec.name, code: (e as { name?: string } | null)?.name ?? 'error' });
       }

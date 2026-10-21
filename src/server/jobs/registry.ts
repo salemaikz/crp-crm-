@@ -9,7 +9,7 @@ import { absenceJob, distributeJob } from '@/server/domain/distribution';
 import { purgeExpiredImportRows } from '@/server/domain/import';
 import { purgeWebhookPayloads } from '@/server/domain/integrations';
 import { purgeChangeSnapshots } from '@/server/domain/team';
-import { alarmsJob, digestJob } from '@/server/domain/notify';
+import { alarmsJob, digestJob, purgePushSubscriptions } from '@/server/domain/notify';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import {
   configIntegrityJob,
@@ -22,6 +22,7 @@ import {
   type PurgePart,
 } from './platform';
 import { WEBHOOK_MAX_ATTEMPTS, webhookHandlers } from './integrations';
+import { pushFill, pushHandlers } from './push';
 
 const DAY_MS = 86_400_000;
 
@@ -43,13 +44,15 @@ export const purgeParts: PurgePart[] = [
   { key: 'webhook_payload', run: (actor, now) => purgeWebhookPayloads(actor, now - 14 * DAY_MS) },
   // снимки «до» массовой передачи и слияния: 30 дней (D-062)
   { key: 'change_snapshots', run: (actor, now) => purgeChangeSnapshots(actor, now - 30 * DAY_MS) },
+  // выключенные подписки push без строк очереди: 30 дней (D-328)
+  { key: 'push_subscriptions', run: (actor, now) => purgePushSubscriptions(actor, now - 30 * DAY_MS) },
 ];
 
 export function jobDefinitions(): JobDefinition[] {
   return [eventsEnsureJob, distributeJob, absenceJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob, greyAssignJob, attendanceSweepJob];
 }
 
-/** Очереди: вебхуки — обработчики по pluginId (O6, применители — O7a), push — P8b; без обработчика — retry no_handler. */
+/** Очереди: вебхуки — обработчики по pluginId (O6, применители — O7a), push — P8b (наполнение и отправка, D-328). */
 export function queueSpecs(): QueueSpec[] {
   return [
     {
@@ -66,9 +69,10 @@ export function queueSpecs(): QueueSpec[] {
       batch: 20,
       leaseMs: 60_000,
       maxAttempts: 5,
-      handlers: new Map(),
+      handlers: pushHandlers(),
       enabled: () => isFeatureEnabled('PUSH'),
       writes: 'business',
+      fill: pushFill,
     },
   ];
 }

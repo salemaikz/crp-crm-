@@ -2,7 +2,9 @@
 // (работает с телефона); остальные роли — боковая колонка на ноутбуке и нижняя панель на телефоне.
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { PushSync } from '../push/PushSync';
 import { DeviceOwnerGuard } from './DeviceOwnerGuard';
+import { LicenseBannerBar, type BannerView } from './LicenseBannerBar';
 import { LogoutButton } from './LogoutButton';
 import { BottomNav, NotificationBell, SideNav, type NavEntry } from './ShellNav';
 
@@ -20,14 +22,17 @@ export type AppShellProps = {
   userId: string;
   /** Срок итогов другого сотрудника на телефоне, мс (D-293); null — не удалять. */
   outboxTtlMs: number | null;
+  /** Полоса состояния лицензии (P10b); null — нет. */
+  banner?: BannerView | null;
   children: ReactNode;
 };
 
-export function AppShell({ variant, brand, navLabel, items, bottomSlots, account, bell, more, userId, outboxTtlMs, children }: AppShellProps) {
+export function AppShell({ variant, brand, navLabel, items, bottomSlots, account, bell, more, userId, outboxTtlMs, banner = null, children }: AppShellProps) {
   const side = variant === 'side';
   return (
     <div className={`flex min-h-dvh flex-col ${side ? 'md:flex-row' : ''}`} style={{ background: 'var(--canvas)', color: 'var(--text)' }}>
       <DeviceOwnerGuard userId={userId} outboxTtlMs={outboxTtlMs} />
+      <PushSync userId={userId} />
       <aside
         className={`border-b ${side ? 'md:w-60 md:shrink-0 md:border-r md:border-b-0' : ''}`}
         style={{ borderColor: 'var(--border)', background: 'var(--surface)', paddingTop: 'env(safe-area-inset-top)' }}
@@ -54,6 +59,7 @@ export function AppShell({ variant, brand, navLabel, items, bottomSlots, account
       <div
         className={`min-w-0 flex-1 pb-[calc(4.5rem+env(safe-area-inset-bottom))] ${side ? 'px-4 py-4 md:px-8 md:py-6 md:pb-6' : ''}`}
       >
+        {banner ? <LicenseBannerBar banner={banner} /> : null}
         {children}
       </div>
       <BottomNav

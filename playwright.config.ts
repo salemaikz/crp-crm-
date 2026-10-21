@@ -1,9 +1,12 @@
 import { devices, defineConfig } from '@playwright/test';
+import { generateVapidKeys } from './src/server/platform/push/vapid';
 
 // E2E на собранном приложении (`next start`). Два мобильных проекта: iPhone 13 (WebKit) и Pixel 7 (Chromium).
 // E2E_PORT — для параллельных прогонов из разных рабочих копий.
 const PORT = Number(process.env.E2E_PORT) || 3100;
 const isCI = !!process.env.CI;
+// Одноразовая пара VAPID для e2e: push на стенде включён, ключ нигде не хранится (P8b)
+const vapid = generateVapidKeys();
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -53,6 +56,11 @@ export default defineConfig({
       // Импорт таблиц и профиль «Записи» (C4, C4b) за флагами; на бою выключены до приёмки
       FEATURE_IMPORT: '1',
       FEATURE_IMPORT_BOOKINGS: '1',
+      // Web-push (P8b): флаг и одноразовые ключи; переключатель и отметку решения клиента спецификация ставит в БД
+      FEATURE_PUSH: '1',
+      VAPID_PUBLIC_KEY: vapid.publicKey,
+      VAPID_PRIVATE_KEY: vapid.privateKey,
+      VAPID_SUBJECT: 'mailto:e2e@example.invalid',
     },
   },
 });

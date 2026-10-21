@@ -7,6 +7,7 @@ import { unreadCount } from '@/server/domain/notify';
 import { ChannelModesProvider } from '@/ui/channels';
 import { loadChannelModes } from '@/ui/channels/loadModes';
 import { AppShell } from './AppShell';
+import { loadLicenseBanner } from './loadBanner';
 import { loadMenu } from './loadMenu';
 import { foreignOutboxTtlMs } from './outboxTtl';
 import type { ShellKind } from './menu';
@@ -21,7 +22,7 @@ type Props = {
 };
 
 export async function RoleShell({ viewer, force, bellCount, children }: Props) {
-  const [t, tc, menu, unread, modes, outboxTtlMs] = await Promise.all([
+  const [t, tc, menu, unread, modes, outboxTtlMs, banner] = await Promise.all([
     getTranslations('shell'),
     getTranslations('common.app'),
     loadMenu(viewer, force),
@@ -29,7 +30,17 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
     // как звонить и писать (D-268): кнопки «Позвонить» и «WhatsApp» читают режим из контекста
     loadChannelModes(viewer),
     foreignOutboxTtlMs(),
+    loadLicenseBanner(viewer),
   ]);
+  const bannerView = banner
+    ? {
+        tone: banner.tone,
+        text: t(`license.${banner.key}`, banner.params),
+        // свернуть может администратор; короткую «только просмотр» остальным не прячем
+        dismissible: viewer.isAdmin,
+        dismissLabel: t('license.dismiss'),
+      }
+    : null;
   const items = menu.items.map((i) => ({ ...i, label: t(`nav.${i.id}`) }));
   return (
     <AppShell
@@ -43,6 +54,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
       more={{ label: t('more'), closeLabel: t('close') }}
       userId={viewer.userId}
       outboxTtlMs={outboxTtlMs}
+      banner={bannerView}
     >
       <ChannelModesProvider modes={modes}>{children}</ChannelModesProvider>
     </AppShell>

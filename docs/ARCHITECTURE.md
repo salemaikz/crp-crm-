@@ -600,7 +600,7 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
 | `device_status` | PK(user_id, device_id), pending_outbox, last_flush_at, seen_at; без ПДн (D-063) |
 | `change_snapshots` | operation_id, kind (`merge`, `bulk_transfer`), table_name, row_id, client_id (для обезличивания), before jsonb, created_by, created_at; чистится через 30 дней (D-062) |
 | `phone_probes` | user_id, day, path (`proposal`, `add_phone`, `walk_in`, `manual_create`), matched; счётчик `security.phoneProbesPerDay` (D-040) |
-| `push_subscriptions`, `push_outbox` | подписка: endpoint UNIQUE, ключи, device_id; очередь: строка на пару «уведомление, подписка» (UNIQUE), state, attempts, next_at, lease_until; текст без ПДн (D-033) |
+| `push_subscriptions`, `push_outbox`, `push_settings` | подписка: endpoint UNIQUE, ключи, device_id, session_id — сессия, подписавшая устройство (push только пока она жива, D-328); очередь: строка на пару «уведомление, подписка» (UNIQUE), state, attempts, next_at, lease_until; payload — вид и числа, текст без ПДн (D-033); настройки: переключатель и отметка решения клиента |
 | `messenger_channels`, `messenger_chats`, `messenger_messages` | DDL — INTEGRATIONS §3.2, в v1 с FK и `space_id` (D-069) |
 
 ### 4.5. Гарантии уникальности и порядка
@@ -858,7 +858,7 @@ CREATE INDEX IF NOT EXISTS webhook_inbox_pending_idx ON webhook_inbox (state, ne
   цвета, иконки). Service worker пишем руками (`public/sw.js`). Кэшируется
   только оболочка и статика. **Ответы API не кэшируются**: ПДн на телефоне не
   копятся.
-- **Push** (web-push, ключи VAPID в окружении): Android и установленная PWA на
+- **Push** (web-push, ключи VAPID в окружении; протокол — D-329, подписка и включение — D-328): Android и установленная PWA на
   iOS 16.4+. Колокол в приложении работает всегда и считается основным каналом.
   Push идёт через серверы Apple и Google за рубежом, поэтому в тексте push нет
   имён клиентов, номеров и названий компаний: только вид события и числа
