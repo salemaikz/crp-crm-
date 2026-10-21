@@ -4,6 +4,13 @@ import type {
   ApplyBlocker,
   ApplyCounts,
   ApplyResult,
+  AuthorMapInput,
+  BookingApplyCounts,
+  BookingApplyResult,
+  BookingAuthorHint,
+  BookingDetails,
+  BookingPreviewSummary,
+  BookingRowView,
   ImportDetails,
   ImportListItem,
   ImportRowView,
@@ -16,6 +23,13 @@ export type {
   ApplyBlocker,
   ApplyCounts,
   ApplyResult,
+  AuthorMapInput,
+  BookingApplyCounts,
+  BookingApplyResult,
+  BookingAuthorHint,
+  BookingDetails,
+  BookingPreviewSummary,
+  BookingRowView,
   ImportDetails,
   ImportListItem,
   ImportRowView,
@@ -24,7 +38,33 @@ export type {
   UploadResult,
 };
 
-export type ProfileOption = { key: string; label: string };
+export type ProfileOption = { key: string; label: string; kind: 'clients' | 'bookings' };
+
+/** Фильтры списка строк профиля «Записи» (D-324): группы отчёта и действия строки. */
+export const BOOKING_ROW_FILTERS: readonly RowFilter[] = [
+  'all',
+  'create',
+  'group_client_not_found',
+  'group_no_event',
+  'group_author_unknown',
+  'group_duplicate',
+  'group_review',
+  'group_errors',
+  'skip_same',
+  'changed_in_file',
+  'unsupported_type',
+  'client_ambiguous',
+  'past_event',
+  'event_cancelled',
+  'event_ambiguous',
+  'duplicate_in_file',
+  'booking_exists',
+  'booking_conflict',
+  'kept_in_crm',
+  'state_conflict',
+  'event_full',
+  'invalid',
+];
 
 /** Фильтры списка строк в порядке выпадающего списка. */
 export const ROW_FILTERS: readonly RowFilter[] = [
