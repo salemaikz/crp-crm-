@@ -1,7 +1,10 @@
 // Разбор тела вебхука на строки webhook_inbox (одна строка = одно событие провайдера). Ключи идемпотентности:
-// сообщение `m:<messageId>:<isEdited>:<isDeleted>`, статус `s:<messageId>:<status>`, канал `c:<channelId>:<state>:<timestamp>`.
+// сообщение `m:<messageId>:<isEdited>:<isDeleted>`, правка — `m:<messageId>:1:0:<отпечаток>` (D-299: у Wazzup нет id
+// правки, поэтому каждая правка различается отпечатком нового текста — sha256(messageId, текст), 16 hex; повтор той же
+// правки даёт тот же ключ, текста в ключе нет), статус `s:<messageId>:<status>`, канал `c:<channelId>:<state>:<timestamp>`.
 // Из сохраняемого payload выбрасываются qr, contact.avatarUri, contentUri, quotedMessage, oldInfo (минимум ПДн).
 // Строка с плохим messageId/channelId пропускается; прочие ключи тела (createContact, templateStatus …) — пусто.
+import { createHash } from 'node:crypto';
 import type { InboxItem, RawRequest } from '../../contract';
 import { rawBody, rawChannelUpdate, rawMessage, rawStatus, type StoredMessage } from './schemas';
 
@@ -23,6 +26,14 @@ function sanitizeMessage(m: ReturnType<typeof rawMessage.parse>): StoredMessage 
   return out;
 }
 
+/** Ключ строки сообщения: удаление окончательно; правка — с отпечатком нового текста (каждая правка — своя строка). */
+function messageKey(m: ReturnType<typeof rawMessage.parse>): string {
+  const base = `m:${m.messageId}:${m.isEdited ? 1 : 0}:${m.isDeleted ? 1 : 0}`;
+  if (!m.isEdited || m.isDeleted) return base;
+  const print = createHash('sha256').update(`${m.messageId}\n${(m.text ?? '').slice(0, 4096)}`, 'utf8').digest('hex').slice(0, 16);
+  return `${base}:${print}`;
+}
+
 export function splitWazzup(req: RawRequest): InboxItem[] {
   const body = rawBody.safeParse(req.json);
   if (!body.success) return [];
@@ -30,7 +41,7 @@ export function splitWazzup(req: RawRequest): InboxItem[] {
   for (const raw of body.data.messages ?? []) {
     const m = rawMessage.safeParse(raw);
     if (!m.success) continue;
-    items.push({ dedupeKey: `m:${m.data.messageId}:${m.data.isEdited ? 1 : 0}:${m.data.isDeleted ? 1 : 0}`, kind: 'message', payload: sanitizeMessage(m.data) });
+    items.push({ dedupeKey: messageKey(m.data), kind: 'message', payload: sanitizeMessage(m.data) });
   }
   for (const raw of body.data.statuses ?? []) {
     const s = rawStatus.safeParse(raw);

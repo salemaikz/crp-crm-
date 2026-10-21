@@ -48,8 +48,20 @@ test('split: входящее — ключ сообщения, выброшен�
   assert.ok(!JSON.stringify(split('channels-qr')).includes('base64'));
 });
 
+test('split: каждая правка сообщения — свой ключ, повтор той же правки — тот же ключ; текста в ключе нет (D-299)', () => {
+  const edited = fx('message-edited') as { messages: Array<Record<string, unknown>> };
+  const withText = (text: string) => hook.split(ctx, req({ messages: [{ ...edited.messages[0], text }] }))[0]!.dedupeKey;
+  const first = withText('Первая правка');
+  const second = withText('Вторая правка');
+  assert.notEqual(first, second, 'вторая правка не должна отбрасываться как повтор первой');
+  assert.equal(withText('Первая правка'), first, 'повторная доставка той же правки не задваивается');
+  assert.ok(!first.includes('правка') && !second.includes('правка'));
+  const deleted = hook.split(ctx, req({ messages: [{ ...edited.messages[0], isDeleted: true, text: 'что угодно' }] }))[0]!.dedupeKey;
+  assert.equal(deleted, 'm:aaaaaaaa-0000-4000-8000-000000000001:1:1', 'удаление — окончательное, ключ без текста');
+});
+
 test('split: правка и удаление — разные ключи; статусы и каналы — свои ключи; чужой статус-мусор пропущен', () => {
-  assert.equal(split('message-edited')[0]!.dedupeKey, 'm:aaaaaaaa-0000-4000-8000-000000000001:1:0');
+  assert.match(split('message-edited')[0]!.dedupeKey, /^m:aaaaaaaa-0000-4000-8000-000000000001:1:0:[0-9a-f]{16}$/);
   assert.equal(split('message-deleted')[0]!.dedupeKey, 'm:aaaaaaaa-0000-4000-8000-000000000001:0:1');
   assert.deepEqual(split('statuses').map((i) => [i.kind, i.dedupeKey]), [
     ['status', 's:aaaaaaaa-0000-4000-8000-000000000002:delivered'],
