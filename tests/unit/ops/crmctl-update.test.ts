@@ -218,6 +218,25 @@ test('rollback без прежней версии и без образа — о�
   assert.equal(await run(['rollback', '--wait-seconds', '1'], h.deps), 2);
 });
 
+test('rollback на образ без времени сборки (собран до D-290) — отказ до переключения; образ другого клиента — тоже', async () => {
+  for (const [wm, why] of [
+    [{ customer: 'crp', buildId: 'b-0' }, /без времени сборки/],
+    [{ customer: 'crp', buildId: 'b-0', builtAt: null }, /без времени сборки/],
+    [{ customer: null, buildId: null, builtAt: 1_790_000_000_000 }, /без водяного знака/],
+    [{ customer: 'other-co', buildId: 'b-0', builtAt: 1_790_000_000_000 }, /other-co/],
+  ] as const) {
+    const f = await makeFake();
+    await seedInstalled(f, '1.1.0', '1.0.0');
+    f.server.imageWatermark = wm;
+    assert.equal(await run(['rollback', '--wait-seconds', '1'], f.deps), 1, JSON.stringify(wm));
+    assert.match(f.err.join('\n'), why);
+    assert.equal(switched(f).length, 0, 'прежняя версия не поднималась');
+    assert.equal((await readState(f.deps.paths))?.current.version, '1.1.0');
+    const v = f.calls.find((c) => c.cmd === 'docker' && c.args[0] === 'run' && c.args.includes('license'));
+    assert.ok(v?.args.includes('crm-app:1.0.0'), 'спрошено ядро целевого образа');
+  }
+});
+
 test('status и health: код выхода отражает /api/health', async () => {
   const f = await makeFake();
   await seedInstalled(f, '1.0.0');

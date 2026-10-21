@@ -127,14 +127,23 @@ function watermarkProblem(v: ImageVerdict, customer: string): string | null {
 }
 
 /**
+ * Ядро образа должно сообщать время сборки (D-290, D-307): образ, собранный до D-290, считает льготу `invalid` от
+ * строки license_state, и правка этой строки держит его в работе без лицензии. Такие образы клиенту не ставятся —
+ * ни установкой, ни обновлением, ни откатом.
+ */
+function builtAtProblem(v: ImageVerdict): string | null {
+  return v.watermark.builtAt === null ? 'ядро образа без времени сборки (собран до D-290) — такой образ клиенту не ставится' : null;
+}
+
+/**
  * `crmctl install`: ядро образа собрано для клиента пакета (D-213). Общий образ без водяного знака работает
  * без лицензии, поэтому на сервер клиента он не ставится. Файл лицензии не нужен: без него образ отвечает
  * «missing» и своим водяным знаком.
  */
-export async function assertImageForCustomer(deps: Deps, image: string, customer: string): Promise<void> {
+export async function assertImageForCustomer(deps: Deps, image: string, customer: string, action = 'Образ не подходит для установки'): Promise<void> {
   const v = await verifyInImage(deps, image, null, 'watermark-check');
-  const wm = watermarkProblem(v, customer);
-  if (wm) throw new CrmctlError(`Образ не подходит для установки: ${wm}`);
+  const wm = watermarkProblem(v, customer) ?? builtAtProblem(v);
+  if (wm) throw new CrmctlError(`${action}: ${wm}`);
 }
 
 const REASON_TEXT: Record<string, string> = {
@@ -150,6 +159,7 @@ const REASON_TEXT: Record<string, string> = {
   wrong_build: 'выдана для другой сборки',
   not_yet_valid: 'срок действия ещё не начался',
   expired: 'срок и льготный период закончились',
+  clock: 'часы сервера позади времени лицензии дольше 48 ч — исправьте время (chrony)',
 };
 export const reasonText = (r: string | undefined) => (r ? (REASON_TEXT[r] ?? r) : '');
 
@@ -285,7 +295,7 @@ export function imageLicenseVerifier(deps: Deps): { verifyLicense(input: { image
       const exists = (await readSmall(file)) !== null;
       // Без файла проверяем только водяной знак: ответ «missing»
       const v = await verifyInImage(deps, image, exists ? file : null, installId);
-      const wm = watermarkProblem(v, st.customer);
+      const wm = watermarkProblem(v, st.customer) ?? builtAtProblem(v);
       if (wm) return { ok: false, reason: wm };
       if (!exists || v.ok) return { ok: true };
       if (v.reason === 'wrong_build') {

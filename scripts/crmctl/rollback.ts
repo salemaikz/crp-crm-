@@ -1,8 +1,10 @@
 // crmctl rollback: вернуть прежнюю версию образа (DEPLOY §5.2). БД не откатывается: миграции только
-// добавляющие, прежняя версия читает новую схему (D-060).
+// добавляющие, прежняя версия читает новую схему (D-060). До переключения ядро целевого образа спрашивается о
+// водяном знаке: образ другого клиента, общий или без времени сборки (до D-290) не поднимается (D-307).
 import { rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { intFlag, type ParsedArgs } from './args';
+import { assertImageForCustomer } from './license';
 import { isDirectory } from './manifest';
 import { imageExists, syncCli } from './images';
 import { restoreVersion } from './update';
@@ -17,6 +19,7 @@ export async function rollback(deps: Deps, args: ParsedArgs): Promise<number> {
   if (!(await imageExists(deps, `crm-app:${target.version}`))) {
     throw new CrmctlError(`Образа crm-app:${target.version} нет на сервере (почищен?). Загрузите пакет через crmctl update`);
   }
+  await assertImageForCustomer(deps, `crm-app:${target.version}`, state.customer, `Откат на ${target.version} невозможен`);
   deps.io.out(`Откат ${state.current.version} -> ${target.version}`);
   deps.io.out('Внимание: правки настроек, сделанные версией ' + state.current.version + ', после отката не видны (D-060).');
   const next: State = {

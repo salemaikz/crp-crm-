@@ -161,6 +161,18 @@ test('проверка новым образом для update: нет файл�
   assert.match(!general.ok ? general.reason : '', /без водяного знака/);
 });
 
+test('update и install: образ без времени сборки (собран до D-290) клиенту не ставится, даже без файла лицензии', async () => {
+  const { f } = await setup({ customer: 'crp', buildId: 'b-2', builtAt: null });
+  const dir = path.join(f.dirs.lib, 'license');
+  await mkdir(dir, { recursive: true });
+  const v = await imageLicenseVerifier(f.deps).verifyLicense({ image: 'crm-app:0.9.1', licenseDir: dir, installId: INSTALL });
+  assert.equal(v.ok, false);
+  assert.match(!v.ok ? v.reason : '', /без времени сборки/);
+  await writeFile(path.join(dir, LICENSE_FILE), lic());
+  const withFile = await imageLicenseVerifier(f.deps).verifyLicense({ image: 'crm-app:0.9.1', licenseDir: dir, installId: INSTALL });
+  assert.equal(withFile.ok, false);
+});
+
 test('update: лицензия прежней сборки — можно с предупреждением, пока идут 7 суток от сборки нового образа (D-290)', async () => {
   const at = (builtAt: number | null) => (image: string) =>
     image === 'crm-app:0.9.1' ? { customer: 'crp', buildId: 'b-2', builtAt } : { customer: 'crp', buildId: 'b-1', builtAt: NOW - 30 * DAY };

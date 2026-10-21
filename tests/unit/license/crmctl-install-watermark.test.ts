@@ -45,3 +45,12 @@ test('install: образ, собранный для другого клиент
   assert.equal(touchedDb(f), false);
   assert.equal(startedApp(f), false);
 });
+
+test('install: образ без времени сборки (собран до D-290) — отказ до БД и запуска', async () => {
+  const f = await makeFake();
+  f.server.imageWatermark = { customer: 'crp', buildId: 'b-0', builtAt: null };
+  assert.notEqual(await install(f), 0);
+  assert.match(f.err.join('\n'), /без времени сборки/);
+  assert.equal(touchedDb(f), false);
+  assert.equal(startedApp(f), false);
+});

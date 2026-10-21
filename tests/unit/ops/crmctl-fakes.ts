@@ -34,8 +34,11 @@ export interface FakeServer {
   /** Вызывается при sleep (например, «через 2 минуты приложение упало»). */
   onSleep?: () => void;
   candidate?: string;
-  /** Водяной знак ядра образа для `docker run … license verify` (D-213); customer null — общий образ. */
-  imageWatermark: { customer: string | null; buildId: string | null };
+  /**
+   * Водяной знак ядра образа для `docker run … license verify` (D-213); customer null — общий образ.
+   * builtAt нет или null — образ собран до D-290 (install, update и rollback его не ставят, D-307).
+   */
+  imageWatermark: { customer: string | null; buildId: string | null; builtAt?: number | null };
 }
 
 export interface Fake {
@@ -80,7 +83,7 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
     backupCode: 0,
     migrateCode: 0,
     composeUpFails: new Set(),
-    imageWatermark: { customer: 'crp', buildId: null },
+    imageWatermark: { customer: 'crp', buildId: null, builtAt: 1_790_000_000_000 },
   };
   const calls: Call[] = [];
   const out: string[] = [];
