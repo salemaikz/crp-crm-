@@ -127,6 +127,7 @@ export function parseDealsSettings(input: { spaceId: string; global: unknown; sp
     timeZone: g.data.org.timezone,
     calendar,
     workHoursEnd: cal.workHours.end,
+    callWindowStart: cal.callWindow.start,
     pipelines: toPipelines(sp.pipelines),
     serviceTypes: sp.serviceTypes.filter((t) => !t.archived).map((t) => ({ key: t.key, label: label(t.label, t.key), routeToTeam: t.routeToTeam ?? null })),
     lostReasons: (sp.reasons?.['deal_lost'] ?? [])

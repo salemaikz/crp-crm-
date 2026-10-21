@@ -53,6 +53,8 @@ export interface DealsSettings {
   calendar: time.WorkCalendar;
   /** `calendar.workHours.end` — срок передачи «до конца рабочего дня». */
   workHoursEnd: string;
+  /** `calendar.callWindow.start` — срок задачи исполнителю передачи (B6b): следующий рабочий день с этого часа. */
+  callWindowStart: string;
   pipelines: DealPipelineInfo[];
   /** Только не архивные. */
   serviceTypes: ServiceTypeInfo[];
