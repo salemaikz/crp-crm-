@@ -51,6 +51,48 @@
   --shadow-float: 0 12px 40px rgb(20 22 27 / 22%);
   --z-sheet: 50;
   --z-toast: 60;
+
+  /* Не из настроек: раскладка страницы (D-319). Геометрия продукта; тема клиента её не задаёт. */
+  --gutter: 16px;
+  --page-top: 16px;
+  --space-section: 24px;
+  --space-stack: var(--space-gap);
+  --page-w-focus: 560px;
+  --page-w-form: 720px;
+  --page-w-list: 960px;
+  --page-w-wide: 1280px;
+  --sidebar-w: 240px;
+  --field-w-xs: 120px;
+  --field-w-sm: 200px;
+  --field-w-md: 360px;
+  /* Высоту нижнего меню ставит оболочка (правила ниже); вне оболочки меню нет */
+  --bottom-nav-h: 0px;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --gutter: 24px;
+    --page-top: 24px;
+    --space-section: 32px;
+  }
+}
+@media (min-width: 1280px) {
+  :root {
+    --gutter: 32px;
+  }
+}
+
+/* Нижнее меню: у оператора всегда, у остальных ролей только на телефоне. Страница, тосты и липкие
+   футеры отступают на эту высоту. Тосты стоят в корне выше оболочки, поэтому переменная ставится и на :root. */
+[data-shell='bottom'],
+:root:has([data-shell='bottom']) {
+  --bottom-nav-h: calc(64px + env(safe-area-inset-bottom));
+}
+@media (max-width: 767.98px) {
+  [data-shell='side'],
+  :root:has([data-shell='side']) {
+    --bottom-nav-h: calc(64px + env(safe-area-inset-bottom));
+  }
 }
 
 /* Tailwind 4: утилиты bg-surface, text-text-2, border-line, text-brand-ink … */

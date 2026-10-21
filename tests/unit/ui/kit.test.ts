@@ -1,8 +1,10 @@
 import { test, beforeEach } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup as render } from 'react-dom/server';
-import { Alert, Badge, Button, Card, Checkbox, Chip, ChipGroup, EmptyState, Field, Input, List, ListItem, ProgressBar, Stat, Table, TextLink, buttonClass, cn, initials } from '../../../src/ui/kit';
+import { ACTION_SEPARATE, ActionBar, Alert, Badge, Button, Card, DataList, FilterBar, FormGrid, Page, PageHeader, Section, Segmented, StatGrid, Checkbox, Chip, ChipGroup, EmptyState, Field, Input, List, ListItem, ProgressBar, Stat, Table, TextLink, buttonClass, cn, initials } from '../../../src/ui/kit';
 import { acquireLayer, openLayerCount, releaseLayer, resetLayers } from '../../../src/ui/kit/overlay';
 import { DEFAULT_DURATION_MS, MAX_TOASTS, UNDO_DURATION_MS, durationFor, makeToast, toastReducer, type ToastItem } from '../../../src/ui/kit/toastState';
 
@@ -27,9 +29,19 @@ test('Badge: значок и текст вместе, значок скрыт о
   assert.match(html, /k-badge--danger/);
   assert.match(html, /<span class="k-badge__icon" aria-hidden="true"><svg/);
   assert.ok(html.endsWith('Просрочено</span>'));
-  for (const tone of ['neutral', 'success', 'warning', 'info', 'danger', 'brand'] as const) {
+  for (const tone of ['success', 'warning', 'info', 'danger', 'brand'] as const) {
     assert.match(render(h(Badge, { tone }, 'x')), /<svg/, `${tone}: есть значок`);
   }
+  // нейтральный — точка, а не «минус», который читался как «минус 5»
+  const neutral = render(h(Badge, null, 'x'));
+  assert.match(neutral, /k-badge__dot/);
+  assert.ok(!neutral.includes('<svg'));
+});
+
+test('Badge count: число без значка', () => {
+  const html = render(h(Badge, { variant: 'count', tone: 'danger' }, '5'));
+  assert.match(html, /k-badge--count/);
+  assert.ok(!html.includes('<svg') && !html.includes('k-badge__icon'));
 });
 
 test('Chip: aria-pressed у кнопки, aria-current у ссылки, счётчик', () => {
@@ -139,4 +151,83 @@ test('тосты: редьюсер — добавить, закрыть, лим�
   assert.equal(t.tone, 'success');
   assert.equal(t.durationMs, UNDO_DURATION_MS);
   assert.equal(makeToast({ message: 'x' }).tone, 'neutral');
+});
+
+
+test('Page: единственный <main> с шириной по предмету страницы', () => {
+  assert.match(render(h(Page, { width: 'wide' }, 'x')), /^<main class="k-page k-page--wide">x<\/main>$/);
+  assert.match(render(h(Page, null, 'x')), /k-page--list/);
+  const withHeader = render(h(Page, { header: h(PageHeader, { title: 'Т' }), 'data-testid': 'p' }, 'x'));
+  assert.match(withHeader, /data-testid="p"/);
+  assert.match(withHeader, /<header class="k-page-header">/);
+});
+
+test('PageHeader: действия в одной строке с h1, пояснение и виды ниже, back и meta', () => {
+  const html = render(h(PageHeader, { title: 'Сделки', lead: 'Пояснение', actions: h(Button, { size: 'sm' }, 'Обновить'), back: h('a', null, 'Назад'), meta: h(Badge, null, 'Открыта'), tabs: h('div', null, 'виды') }));
+  const row = /<div class="k-page-header__row">([\s\S]*?)<\/div><p class="k-page-header__lead">/.exec(html)?.[1] ?? '';
+  assert.match(row, /<h1 class="k-page-header__title">Сделки<\/h1>/);
+  assert.match(row, /k-page-header__actions/);
+  assert.ok(html.indexOf('Назад') < html.indexOf('<h1'));
+  assert.ok(html.indexOf('k-page-header__tabs') > html.indexOf('k-page-header__lead'));
+  assert.match(html, /Открыта/);
+});
+
+test('Section и шапка Card: заголовок слева, действия справа в одной строке', () => {
+  const sec = render(h(Section, { title: 'Операторы', actions: h('b', null, 'A') }, 'тело'));
+  assert.match(sec, /<h2 class="k-section__title">Операторы<\/h2><div class="k-section__actions"><b>A<\/b><\/div>/);
+  const card = render(h(Card, { title: 'Записи', actions: h('b', null, 'B') }, 'x'));
+  assert.match(card, /k-card__head/);
+  assert.ok(!render(h(Card, null, 'x')).includes('k-card__head'));
+});
+
+test('ActionBar: equal, end, отделённое действие', () => {
+  assert.match(render(h(ActionBar, { equal: true }, 'x')), /class="k-actionbar k-actionbar--equal"/);
+  assert.match(render(h(ActionBar, { align: 'end' }, 'x')), /k-actionbar--end/);
+  assert.equal(ACTION_SEPARATE, 'k-actionbar__separate');
+});
+
+test('Button: danger-quiet, flush; неактивная кнопка без opacity в CSS', () => {
+  assert.equal(buttonClass({ variant: 'danger-quiet', flush: true }), 'k-btn k-btn--danger-quiet k-btn--flush');
+  const css = readFileSync(join(import.meta.dirname, '..', '..', '..', 'src/ui/kit/kit.css'), 'utf8');
+  const disabled = /\.k-btn:disabled,[\s\S]*?\{([\s\S]*?)\}/.exec(css)?.[1] ?? '';
+  assert.match(disabled, /--btn-bg: var\(--canvas\)/);
+  assert.ok(!/opacity/.test(disabled));
+  // тихие кнопки и ссылки берут цвет акцента, а не бренда
+  assert.match(/\.k-btn--quiet \{([^}]*)\}/.exec(css)?.[1] ?? '', /--accent-ink/);
+  assert.match(/\.k-link \{([^}]*)\}/.exec(css)?.[1] ?? '', /--accent-ink/);
+});
+
+test('Table: numeric и nowrap в th и td, итоговая строка, липкая колонка, скрытая подпись', () => {
+  const html = render(
+    h(Table, {
+      columns: [
+        { key: 'n', header: 'Имя', cell: (r: { n: string; v: string }) => r.n, nowrap: true },
+        { key: 'v', header: 'Сумма', cell: (r: { n: string; v: string }) => r.v, numeric: true },
+      ],
+      rows: [{ n: 'А', v: '450 000 ₸' }],
+      rowKey: (r: { n: string }) => r.n,
+      footer: ['Итого', '450 000 ₸'],
+      stickyFirst: true,
+      caption: 'Операторы',
+      captionHidden: true,
+    }),
+  );
+  assert.match(html, /<th scope="col" data-align="right" data-numeric="">Сумма<\/th>/);
+  assert.match(html, /<td data-align="right" data-numeric="" data-label="Сумма">450 000 ₸<\/td>/);
+  assert.match(html, /<tfoot>/);
+  assert.match(html, /k-table--sticky-first/);
+  assert.match(html, /<caption class="k-visually-hidden">/);
+});
+
+test('StatGrid, DataList, FormGrid, FilterBar, Field width, Segmented', () => {
+  assert.match(render(h(StatGrid, { variant: 'strip' }, h(Stat, { value: 1, label: 'a' }))), /k-statgrid k-statgrid--strip/);
+  const dl = render(h(DataList, { items: [{ label: 'Город', value: 'Астана' }, { label: 'ЛПР', value: '' }] }));
+  assert.match(dl, /<dt>Город<\/dt><dd>Астана<\/dd>/);
+  assert.match(dl, /<dd><span class="k-datalist__empty">—<\/span><\/dd>/);
+  assert.match(render(h(FormGrid, null, 'x')), /k-formgrid/);
+  assert.match(render(h(FilterBar, null, 'x')), /k-filterbar/);
+  assert.match(render(h(Field, { label: 'Лимит', width: 'xs' }, h(Input, { name: 'a' }))), /k-field k-field--w-xs/);
+  const seg = render(h(Segmented, { label: 'Виды', items: [{ id: 'a', label: 'Записи', href: '/bookings', active: true }, { id: 'b', label: 'Мероприятия', href: '/bookings/events' }] }));
+  assert.match(seg, /role="group" aria-label="Виды"/);
+  assert.match(seg, /aria-current="page"/);
 });
