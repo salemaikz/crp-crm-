@@ -2,7 +2,8 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { NotFoundError } from '../../../src/server/access';
-import { getClientDeals, loadClientPage } from '../../../src/server/domain/clients';
+import { getClientDeals, getClientFeed, loadClientPage } from '../../../src/server/domain/clients';
+import { jsonParam } from '../../../src/server/platform/db/core';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { viewerOf } from '../../isolation/harness/actors';
 import { SEED_NOW, SPACE, U, cardOf, clientOf } from '../../isolation/harness/seed';
@@ -85,4 +86,34 @@ test('отдел передачи (D-300): на странице клиента 
   // РОП (охват роли) видит обе сделки с суммами
   const rop = await getClientDeals(await viewerOf(U.rop), cl);
   assert.deepEqual(rop.map((r) => r.amountKzt).sort(), [990001, 990002]);
+});
+
+test('отдел передачи (D-300): в ленте клиента нет событий другой сделки, ?dealId= другой сделки — 404; РОП видит всё', async () => {
+  const cl = clientOf('b', 7);
+  await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, stage_changed_at, created_by, created_at, updated_at)
+               VALUES ('dh-feed-other', ${SPACE}, 'sales', 'negotiation', 'open', ${cl}, ${cardOf('b', 7)}, ${U.opB}, ${SEED_NOW}, ${U.opB}, ${SEED_NOW}, ${SEED_NOW})`;
+  for (const [id, dealId, kind, data] of [
+    ['ev-feed-other-created', 'dh-feed-other', 'deal.created', { dealId: 'dh-feed-other', pipelineKey: 'sales', stageKey: 'negotiation' }],
+    ['ev-feed-other-lost', 'dh-feed-other', 'deal.lost', { dealId: 'dh-feed-other', reasonCode: 'price' }],
+    ['ev-feed-own', 'dl-b7', 'deal.stage', { dealId: 'dl-b7', from: 'negotiation', to: 'won' }],
+    ['ev-feed-nodeal', null, 'phone.added', {}],
+  ] as const) {
+    await db.sql`INSERT INTO client_events (id, client_id, space_id, deal_id, kind, actor_id, at, data)
+                 VALUES (${id}, ${cl}, ${SPACE}, ${dealId}, ${kind}, ${U.opB}, ${SEED_NOW + 1}, ${jsonParam(data)})`;
+  }
+  const raw = { cursor: null, groups: null };
+  for (const who of [U.mktHead, U.marketer]) {
+    const v = await viewerOf(who);
+    const ids = (await getClientFeed(v, cl, raw)).items.map((i) => i.id);
+    assert.ok(ids.includes('ev-feed-own') && ids.includes('ev-feed-nodeal'), `своё и общее в ленте у ${who}`);
+    assert.ok(!ids.some((id) => id.startsWith('ev-feed-other')), `события другой сделки в ленте у ${who}`);
+    await assert.rejects(() => getClientFeed(v, cl, { ...raw, dealId: 'dh-feed-other' }), NotFoundError, who);
+    const own = (await getClientFeed(v, cl, { ...raw, dealId: 'dl-b7' })).items.map((i) => i.id);
+    assert.ok(own.includes('ev-feed-own'), who);
+  }
+  const rop = await viewerOf(U.rop);
+  const ropIds = (await getClientFeed(rop, cl, raw)).items.map((i) => i.id);
+  assert.ok(ropIds.includes('ev-feed-other-created') && ropIds.includes('ev-feed-other-lost'));
+  const ropDeal = (await getClientFeed(rop, cl, { ...raw, dealId: 'dh-feed-other' })).items.map((i) => i.id);
+  assert.deepEqual(ropDeal.sort(), ['ev-feed-other-created', 'ev-feed-other-lost']);
 });

@@ -2,9 +2,12 @@
 // (сделка видна по карточке клиента, `deal.read`; обзвон — `card.read`); номер и ЛПР на плитке — своим охватом
 // `client.read` (client_phone, contact), а не охватом сделки. Один проход на колонки, без запроса на плитку.
 // Тексты запросов повторяют список колонок намеренно: общий фрагмент собирать из доменного кода нельзя (слои).
+// Отдел передачи (D-300): `deal.read` от отношений передачи открывает все сделки клиента, поэтому каждый запрос сделок
+// доски сужается до сделок, чья передача видна зрителю (`handoff.read`), — то же условие, что у страницы сделки.
 import { scopeSql, scoped } from '@/server/access/scope';
 import type { Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db';
+import { seesDealsOnlyAsDepartment } from './visibility';
 
 const DAY_MS = 86_400_000;
 
@@ -47,7 +50,9 @@ export async function selectDealWindow(viewer: Viewer, sql: Sql, a: BoardArgs & 
         FROM deals d
        WHERE d.space_id = ${a.spaceId} AND d.pipeline_key = ${a.pipelineKey} AND d.status = 'open'
          AND (${a.owner}::text IS NULL OR d.owner_user_id = ${a.owner}::text)
-         AND ${scopeSql(viewer, 'deal', 'deal.read')})
+         AND ${scopeSql(viewer, 'deal', 'deal.read')}
+         AND (NOT ${seesDealsOnlyAsDepartment(viewer)}::boolean
+              OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })})))
     SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.card_id, d.needs_rebook, d.custom,
            cl.name AS client_name, cl.custom AS client_custom, u.name AS owner_name,
            (SELECT cp.digits FROM client_phones cp WHERE cp.client_id = d.client_id AND cp.is_working
@@ -101,6 +106,8 @@ export async function selectDealColumnPage(
        AND (${a.owner}::text IS NULL OR d.owner_user_id = ${a.owner}::text)
        AND (d.stage_changed_at, d.id) > (${a.afterAt}::bigint, ${a.afterId}::text)
        AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${seesDealsOnlyAsDepartment(viewer)}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))
      ORDER BY d.stage_changed_at, d.id
      LIMIT ${a.limit}`;
 }
@@ -113,6 +120,8 @@ export async function countDealColumns(viewer: Viewer, sql: Sql, a: BoardArgs): 
      WHERE d.space_id = ${a.spaceId} AND d.pipeline_key = ${a.pipelineKey} AND d.status = 'open'
        AND (${a.owner}::text IS NULL OR d.owner_user_id = ${a.owner}::text)
        AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${seesDealsOnlyAsDepartment(viewer)}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))
      GROUP BY d.stage_key`;
 }
 
@@ -125,7 +134,9 @@ export async function countClosedDeals(viewer: Viewer, sql: Sql, a: BoardArgs & 
       FROM deals d
      WHERE d.space_id = ${a.spaceId} AND d.pipeline_key = ${a.pipelineKey} AND d.status IN ('won','lost')
        AND (${a.owner}::text IS NULL OR d.owner_user_id = ${a.owner}::text)
-       AND ${scopeSql(viewer, 'deal', 'deal.read')}`;
+       AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${seesDealsOnlyAsDepartment(viewer)}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))`;
   return rows[0] ?? { won: 0, lost: 0 };
 }
 
@@ -154,6 +165,8 @@ export async function selectClosedDeals(viewer: Viewer, sql: Sql, a: BoardArgs &
        AND (${a.owner}::text IS NULL OR d.owner_user_id = ${a.owner}::text)
        AND (${a.beforeAt}::bigint IS NULL OR (COALESCE(d.won_at, d.lost_at), d.id) < (${a.beforeAt}::bigint, ${a.beforeId}::text))
        AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${seesDealsOnlyAsDepartment(viewer)}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))
      ORDER BY COALESCE(d.won_at, d.lost_at) DESC, d.id DESC
      LIMIT ${a.limit}`;
 }
@@ -165,6 +178,8 @@ export async function selectDealOwners(viewer: Viewer, sql: Sql, a: { spaceId: s
       FROM deals d JOIN users u ON u.id = d.owner_user_id
      WHERE d.space_id = ${a.spaceId} AND d.pipeline_key = ${a.pipelineKey} AND d.status = 'open'
        AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${seesDealsOnlyAsDepartment(viewer)}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))
      ORDER BY u.name, u.id`;
 }
 

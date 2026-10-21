@@ -2,6 +2,7 @@
 // транзакции, где объект уже заблокирован с охватом (appendEvents без охвата, ARCHITECTURE §5.2).
 import type { Viewer } from '@/server/access';
 import { scopeSql, scoped } from '@/server/access/scope';
+import { seesDealsOnlyAsDepartment } from '@/server/domain/deals/visibility';
 import { newId, type Sql } from '@/server/platform/db';
 import { jsonParam } from '@/server/platform/db/core';
 import type { ClientSummaryDto, DealRowDto, NoteDto } from './types';
@@ -53,11 +54,15 @@ export type FeedQuery = {
   dealId?: string | null;
 };
 
-/** Страница ленты: события клиента и клиентов, слитых в него (цепочка до 8 звеньев, D-068). */
+/**
+ * Страница ленты: события клиента и клиентов, слитых в него (цепочка до 8 звеньев, D-068). Отдел передачи (D-300)
+ * видит события без сделки и события лишь тех сделок, чья передача ему видна; события других сделок клиента — нет.
+ */
 export async function readFeed(sql: Sql, viewer: Viewer, q: FeedQuery): Promise<FeedRow[]> {
   const curAt = q.cursor?.at ?? null;
   const curId = q.cursor?.id ?? null;
   const dealId = q.dealId ?? null;
+  const departmentOnly = seesDealsOnlyAsDepartment(viewer);
   return scoped(sql)<FeedRow>`
     WITH RECURSIVE chain(id, depth) AS (
       SELECT ${q.clientId}::text, 0
@@ -72,6 +77,8 @@ export async function readFeed(sql: Sql, viewer: Viewer, q: FeedQuery): Promise<
        AND ${scopeSql(viewer, 'client_event', 'card.read')}
        AND ev.kind = ANY(${q.kinds}::text[])
        AND (${dealId}::text IS NULL OR ev.deal_id = ${dealId}::text)
+       AND (NOT ${departmentOnly}::boolean OR ev.deal_id IS NULL
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = ev.deal_id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))
        AND NOT (ev.kind = 'field.changed' AND COALESCE(ev.data->>'sys', 'false') <> 'true'
                 AND NOT (((ev.data->>'obj') || ':' || (ev.data->>'field')) = ANY(${q.visibleRefs}::text[])))
        AND (${curAt}::bigint IS NULL OR (ev.at, ev.id) < (${curAt}::bigint, ${curId}::text))
@@ -101,11 +108,13 @@ export async function lockClientForNote(sql: Sql, viewer: Viewer, clientId: stri
   return rows.length === 1;
 }
 
-/** Сделка того же клиента, видимая зрителю. */
+/** Сделка того же клиента, видимая зрителю; отделу передачи (D-300) — только сделка видимой ему передачи. */
 export async function dealOfClientVisible(sql: Sql, viewer: Viewer, clientId: string, dealId: string): Promise<boolean> {
   const rows = await scoped(sql)<{ id: string }>`
     SELECT d.id FROM deals d
-     WHERE d.id = ${dealId} AND d.client_id = ${clientId} AND ${scopeSql(viewer, 'deal', 'deal.read')}`;
+     WHERE d.id = ${dealId} AND d.client_id = ${clientId} AND ${scopeSql(viewer, 'deal', 'deal.read')}
+       AND (NOT ${seesDealsOnlyAsDepartment(viewer)}::boolean
+            OR EXISTS (SELECT 1 FROM handoffs hd WHERE hd.deal_id = d.id AND ${scopeSql(viewer, 'handoff', 'handoff.read', { alias: 'hd' })}))`;
   return rows.length === 1;
 }
 

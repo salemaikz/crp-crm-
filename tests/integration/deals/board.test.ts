@@ -234,3 +234,36 @@ test('флаг FEATURE_KANBAN выключен — обе доски отвеч�
     process.env.FEATURE_KANBAN = '1';
   }
 });
+
+test('отдел передачи (D-300): на доске, в «Ещё», закрытых и выборе сотрудников только сделка передачи; РОП видит все', async () => {
+  // У клиента живой передачи (dl-b7, выиграна) есть ещё открытая и выигранная сделки — для отдела они «чужие».
+  // Давнее на этапе — выше: плитка попадает в первые 50 колонки РОП, сколько бы сделок ни добавили тесты выше.
+  const t = SEED_NOW - 10 * DAY;
+  for (const [id, stageKey, status] of [['probe-other', 'negotiation', 'open'], ['probe-other-won', 'won', 'won']] as const) {
+    await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, stage_changed_at,
+                                    won_at, created_by, created_at, updated_at)
+                 VALUES (${id}, ${SPACE}, 'sales', ${stageKey}, ${status}, 'cl-b-7', 'cd-b-7', ${U.opB}, ${t},
+                         ${status === 'won' ? t : null}, ${U.opB}, ${t}, ${t})`;
+  }
+  try {
+    for (const who of [U.mktHead, U.marketer]) {
+      const v = await viewerOf(who);
+      const board = await getDealsBoard(v);
+      assert.deepEqual(board.columns.flatMap((c) => c.deals.map((d) => d.id)), [], who);
+      assert.deepEqual(board.columns.map((c) => c.total), [0, 0, 0], who);
+      assert.deepEqual(board.owners, [], `сотрудники продаж в выборе у ${who}`);
+      const more = await getDealsColumn(v, { stage: 'negotiation', after: null });
+      assert.deepEqual([more.total, more.deals.map((d) => d.id)], [0, []], who);
+      const closed = await getClosedDeals(v, { before: null });
+      assert.deepEqual(closed.deals.map((d) => d.id), ['dl-b7'], who);
+      assert.ok(!JSON.stringify({ board, more, closed }).includes('probe-other'), who);
+    }
+    const rop = await viewerOf(U.rop);
+    const ropBoard = await getDealsBoard(rop);
+    assert.ok(ropBoard.columns.some((c) => c.deals.some((d) => d.id === 'probe-other')));
+    const ropClosed = await getClosedDeals(rop, { before: null });
+    assert.ok(ropClosed.deals.some((d) => d.id === 'probe-other-won'));
+  } finally {
+    await db.sql`DELETE FROM deals WHERE id IN ('probe-other', 'probe-other-won')`;
+  }
+});
