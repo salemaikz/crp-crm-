@@ -89,6 +89,18 @@ docker cp "$CID:/app/dist/crmctl.mjs" "$LIB/crmctl.mjs.new"
 chmod 0755 "$LIB/node.new"
 mv -f "$LIB/node.new" "$LIB/node"
 mv -f "$LIB/crmctl.mjs.new" "$LIB/crmctl.mjs"
+# Первая установка: crmctl пришёл из самого пакета, поэтому его подпись пока ничего не доказывает. Якорь доверия —
+# sha256 архива, который root сверил с числом от владельца ДО распаковки (RUNBOOK «Первая установка», D-315 §6).
+# Здесь пакет проверяется ещё раз: подпись ключами релизов, вшитыми в этот crmctl, и sha256 каждого файла.
+echo "      проверка подписи и состава пакета"
+if ! "$LIB/node" "$LIB/crmctl.mjs" package verify "$PACKAGE"; then
+  echo "Проверка пакета не прошла: crmctl удалён, установка остановлена." >&2
+  rm -f /usr/local/bin/crmctl "$LIB/node" "$LIB/crmctl.mjs"
+  docker rmi "crm-app:$VERSION" >/dev/null 2>&1 || true
+  exit 1
+fi
+# Отпечатки ключей релизов, которым теперь доверяет сервер: владелец сверяет их со своими (RUNBOOK)
+"$LIB/node" "$LIB/crmctl.mjs" keys
 cat >/usr/local/bin/crmctl <<'WRAP'
 #!/bin/sh
 exec /usr/local/lib/crm/node /usr/local/lib/crm/crmctl.mjs "$@"

@@ -24,7 +24,7 @@ COPY --from=deps /build/node_modules ./node_modules
 COPY . .
 # Ядро (D-028, D-101): esbuild + обфускация → packages/core/dist/index.cjs, ДО next build. Сборка клиента:
 #   docker build --build-arg CUSTOMER_ID=<клиент> --build-arg BUILD_ID=<id> --build-arg BUILT_AT=$(date +%s%3N) \
-#     --secret id=license_keys,src=<keys.json> .
+#     --secret id=license_keys,src=<keys.json> --secret id=release_keys,src=<release-keys.json> .
 # BUILT_AT (epoch-мс) — время сборки в водяном знаке: лицензия прежней сборки работает в льготе не дольше
 # 7 суток от него (D-290). Пусто — build.mjs берёт момент сборки слоя.
 # keys.json — JSON { "<kid>": "<открытый ключ Ed25519 base64>" } (только открытые половины; D-211). С CUSTOMER_ID
@@ -44,7 +44,13 @@ RUN npx next build --webpack && mkdir -p public
 # Скрипты migrate, crmctl, worker — один минифицированный .mjs на каждый, без исходников в образе.
 # Ядро @crm/core в них не вшивается (build-cli.mjs): берётся из образа, тот же обфусцированный dist,
 # что у приложения, — лицензия проверяется ключами образа. Без migrate образ не собирается.
-RUN node scripts/crmctl/build-cli.mjs --outdir dist
+# Клиентская сборка: открытые ключи релизов вшиваются в crmctl (секрет release_keys, JSON { "rel-…": ключ base64 };
+# D-315). С CUSTOMER_ID без секрета, а также с ключами stage-*/test-* сборка падает; в такой crmctl нет заглушки подписи.
+RUN --mount=type=secret,id=release_keys,required=false \
+    set -eu; set --; \
+    if [ -n "$CUSTOMER_ID" ]; then set -- --customer "$CUSTOMER_ID"; fi; \
+    if [ -s /run/secrets/release_keys ]; then set -- "$@" --release-keys /run/secrets/release_keys; fi; \
+    node scripts/crmctl/build-cli.mjs --outdir dist "$@"
 # Страховка: ни одной карты кода в результатах сборки
 RUN test -z "$(find .next/standalone .next/static dist -name '*.map' -print -quit)"
 

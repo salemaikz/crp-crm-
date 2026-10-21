@@ -12,7 +12,9 @@ import { applyGrants, ensureRoles, runMigrate } from './db';
 import { probeHost, waitHealthy } from './health';
 import { loadImages } from './images';
 import { assertImageForCustomer } from './license';
-import { openPackage, isDirectory } from './manifest';
+import { isDirectory } from './manifest';
+import { assertImageKeys } from './pkgcmd';
+import { embeddedCustomer, keepManifest, verifyAndUnpack } from './verify';
 import { ensureFrameCsp } from './nginxCsp';
 import { ensureEnvFiles, ensureProxyTrust, envValue } from './secrets';
 import { composeFile, readState, writeProjectEnv, writeState } from './state';
@@ -33,9 +35,6 @@ async function preflight(deps: Deps): Promise<void> {
   if (cmp.code !== 0) throw new CrmctlError('Нет плагина docker compose');
   const net = await deps.exec.run('docker', ['network', 'inspect', 'crm_ingest']);
   if (net.code !== 0) throw new CrmctlError('Нет сети crm_ingest: сначала deploy/install.sh (docker network create crm_ingest)');
-  if (await readState(deps.paths)) {
-    throw new CrmctlError('Установка уже выполнена (есть state.json). Для новой версии — crmctl update');
-  }
 }
 
 export async function install(deps: Deps, args: ParsedArgs): Promise<number> {
@@ -51,14 +50,25 @@ export async function install(deps: Deps, args: ParsedArgs): Promise<number> {
   const waitMs = intFlag(args.flags, 'wait-seconds', 90) * 1000;
   const { io, paths } = deps;
 
-  io.out('[1/8] Проверка окружения');
-  await preflight(deps);
-
-  io.out('[2/8] Пакет и подпись');
-  const { dir, manifest } = await openPackage(deps, pkg);
-  const verdict = await deps.verifier.verifyPackage({ dir, manifest });
-  if (!verdict.ok) throw new CrmctlError(`Подпись пакета не принята: ${verdict.reason}`);
+  // Подпись и состав пакета проверяются ДО любого вызова docker и записи в /etc/crm (D-315, §4.1)
+  io.out('[1/8] Пакет и подпись');
+  if (await readState(paths)) {
+    throw new CrmctlError('Установка уже выполнена (есть state.json). Для новой версии — crmctl update');
+  }
+  const embedded = embeddedCustomer();
+  const pk = await verifyAndUnpack(deps, pkg, {
+    write: true,
+    sig: typeof args.flags.sig === 'string' ? args.flags.sig : undefined,
+    check: (m) => {
+      if (embedded && m.customer !== embedded) throw new CrmctlError(`Пакет для другого клиента: ${m.customer}`);
+    },
+  });
+  const { dir, manifest } = pk;
+  await keepManifest(deps, pk);
   const version = manifest.version;
+
+  io.out('[2/8] Проверка окружения');
+  await preflight(deps);
 
   io.out('[3/8] Окружение и секреты');
   const gen = await ensureEnvFiles(deps, { domain });
@@ -82,7 +92,8 @@ export async function install(deps: Deps, args: ParsedArgs): Promise<number> {
   io.out('[4/8] Образы');
   await loadImages(deps, dir, manifest);
   // До БД и installId: общий образ или образ другого клиента не должен дойти до запуска
-  await assertImageForCustomer(deps, `crm-app:${version}`, manifest.customer);
+  await assertImageForCustomer(deps, `crm-app:${version}`, manifest.customer, undefined, manifest.builtAt);
+  await assertImageKeys(deps, `crm-app:${version}`, manifest);
 
   io.out('[5/8] База данных: роли, миграции, права');
   await mustCompose(deps, version, 'Запуск БД', ['up', '-d', '--wait', 'db']);
@@ -128,7 +139,7 @@ SELECT install_id FROM license_state WHERE id = 1;
   await writeState(paths, {
     installId,
     customer: manifest.customer,
-    current: { version, buildId: manifest.buildId, switchedAt: now },
+    current: { version, buildId: manifest.buildId, switchedAt: now, manifestSha256: pk.manifestSha256, kid: pk.kid, verified: pk.verified },
     previous: null,
     hostPort,
   });

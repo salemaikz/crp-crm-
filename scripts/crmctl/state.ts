@@ -5,11 +5,19 @@ import path from 'node:path';
 import { z } from 'zod';
 import { CrmctlError, type Paths } from './types';
 
+// Чем проверена версия (D-315, §4.4): sha256 сохранённого манифеста, ключ подписи, вид проверки.
+// Поля необязательны: записи до O4c читаются, но на бою откат на такую версию запрещён.
+const verifiedFields = z.object({
+  manifestSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  kid: z.string().optional(),
+  verified: z.enum(['signature', 'stub']).optional(),
+});
+
 const stateSchema = z.object({
   installId: z.string().min(1),
   customer: z.string(),
-  current: z.object({ version: z.string(), buildId: z.string(), switchedAt: z.number() }),
-  previous: z.object({ version: z.string(), buildId: z.string() }).nullable(),
+  current: z.object({ version: z.string(), buildId: z.string(), switchedAt: z.number() }).merge(verifiedFields),
+  previous: z.object({ version: z.string(), buildId: z.string() }).merge(verifiedFields).nullable(),
   hostPort: z.number().int().positive(),
 });
 export type State = z.infer<typeof stateSchema>;

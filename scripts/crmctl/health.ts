@@ -1,5 +1,5 @@
 // Проверки живости: приложение на хосте (127.0.0.1:порт) и кандидат внутри сети до переключения.
-import { CANDIDATE_NAME } from './compose';
+import { CANDIDATE_NAME, compose } from './compose';
 import type { Deps } from './types';
 
 export interface HealthResult {
@@ -55,4 +55,15 @@ export async function waitHealthy(deps: Deps, probe: () => Promise<HealthResult>
     if (last.ok || spent >= waitMs) return last;
     await deps.sleep(step);
   }
+}
+
+/**
+ * worker здоров по healthcheck compose (пульс файла живости): D-315 §4.3. Без него app отвечал бы, а фоновые
+ * задачи (расписание, inbox/outbox) стояли бы после обновления.
+ */
+export async function probeWorker(deps: Deps, version: string): Promise<HealthResult> {
+  const r = await compose(deps, version, ['ps', '--format', '{{.Health}}', 'worker']);
+  const h = r.stdout.trim();
+  if (r.code !== 0) return { ok: false, detail: 'worker: статус не получен' };
+  return h === 'healthy' ? { ok: true, detail: 'ok' } : { ok: false, detail: `worker: ${h || 'нет контейнера'}` };
 }

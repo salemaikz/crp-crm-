@@ -11,7 +11,8 @@ import { rollback } from './rollback';
 import { health, status } from './status';
 import { CrmctlError, type Deps } from './types';
 import { update } from './update';
-import { stubVerifier } from './verify';
+import { embeddedReleaseKeys } from './verify';
+import { keys, packageCommand } from './pkgcmd';
 import { backupMain } from './backup';
 import { restoreMain } from './restore';
 import { imageLicenseVerifier, license } from './license';
@@ -29,6 +30,8 @@ export const commands: Record<string, Command> = {
   status: (deps) => status(deps),
   health: (deps) => health(deps),
   license,
+  keys,
+  package: packageCommand,
 };
 
 /**
@@ -51,8 +54,10 @@ export const USAGE = `crmctl — сопровождение установки C
 
   install <пакет> --domain <хост> --admin-phone <номер> --admin-name <имя>
                   [--invite-ttl-hours 72] [--host-port 3100]
-  update <пакет>  [--wait-seconds 90] [--recheck-seconds 120]
+  update <пакет>  [--sig <файл>] [--wait-seconds 90] [--recheck-seconds 120]
   rollback        [--wait-seconds 90]
+  package verify <архив|каталог> [--sig <файл>]   проверить подпись и состав пакета (только чтение)
+  keys [--json]   ключи релизов, вшитые в crmctl (и ключи стенда)
   status
   health          код выхода 0 — приложение здорово
   config …        настройки и пресеты (crmctl config --help)
@@ -64,7 +69,7 @@ export const USAGE = `crmctl — сопровождение установки C
   job …           фоновые задачи: list | run <имя> [--space <ключ>] [--slot <ключ>]
   secrets rotate  перешифровать секреты интеграций текущим ключом [--check — только проверка]
 
-Пакет — каталог или .tar.zst. Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;
+Пакет — каталог или .tar.zst; подпись — <архив>.manifest.sig рядом (D-315). Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;
 
 export function defaultDeps(env: Record<string, string | undefined> = process.env): Deps {
   const deps: Deps = {
@@ -77,7 +82,8 @@ export function defaultDeps(env: Record<string, string | undefined> = process.en
       backupCmd: env.CRM_BACKUP_CMD ?? '/usr/local/lib/crm/backup.sh',
       cliDir: env.CRM_CLI_DIR ?? '/usr/local/lib/crm',
     },
-    verifier: stubVerifier(env),
+    verifier: { verifyLicense: async () => ({ ok: false, reason: 'проверка лицензии не подключена' }) },
+    trust: { release: embeddedReleaseKeys() },
     http: async (url) => {
       const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
       return { status: res.status, body: await res.text() };
@@ -87,8 +93,8 @@ export function defaultDeps(env: Record<string, string | undefined> = process.en
     randomBytes: (n) => randomBytes(n),
     randomUuid: () => randomUUID(),
   };
-  // Лицензия проверяется ядром НОВОГО образа до переключения (P10, D-211); подпись пакета — пока заглушка (O4c)
-  deps.verifier = { ...deps.verifier, verifyLicense: imageLicenseVerifier(deps).verifyLicense };
+  // Лицензия проверяется ядром НОВОГО образа до переключения (P10, D-211); подпись пакета — verify.ts (O4c)
+  deps.verifier = { verifyLicense: imageLicenseVerifier(deps).verifyLicense };
   return deps;
 }
 

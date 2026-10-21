@@ -3,9 +3,28 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
 import type { Deps, Executor, PackageManifest, RunOptions, RunResult, Verifier } from '../../../scripts/crmctl/types';
 import { writeProjectEnv, writeState, type State } from '../../../scripts/crmctl/state';
+import { encodeSigFile, keyFingerprint, rawPublicKeyBase64, signingBytes, writeArchive } from '../../../scripts/crmctl/package-format';
+
+/** Ключи тестов создаются на лету (D-315 §7): закрытой половины нет ни в репозитории, ни на диске. */
+export function makeKeyPair(): { priv: KeyObject; pub: string } {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  return { priv: privateKey, pub: rawPublicKeyBase64(publicKey) };
+}
+export const TEST_KID = 'test-fake';
+export const TEST_KEYS = makeKeyPair();
+/** Другая пара: подпись «чужим» ключом, которого crmctl не знает. */
+export const FOREIGN_KEYS = makeKeyPair();
+/** Ключи релизов, которые «несёт» crmctl (вшиты) и перечисляет манифест: пары созданы на лету. */
+export const REL_A = makeKeyPair();
+export const REL_B = makeKeyPair();
+export const FAKE_RELEASE_KEYS = [
+  { kid: 'rel-test-a', sha256: keyFingerprint(REL_A.pub) },
+  { kid: 'rel-test-b', sha256: keyFingerprint(REL_B.pub) },
+];
+export const FAKE_RELEASE_PUB = { 'rel-test-a': REL_A.pub, 'rel-test-b': REL_B.pub };
 
 export interface Call {
   cmd: string;
@@ -34,6 +53,10 @@ export interface FakeServer {
   /** Вызывается при sleep (например, «через 2 минуты приложение упало»). */
   onSleep?: () => void;
   candidate?: string;
+  /** Версии, у которых worker не становится healthy. */
+  workerUnhealthy: Set<string>;
+  /** Что сообщает `crmctl keys --json` образа. */
+  imageKeys: { kid: string; sha256: string }[];
   /**
    * Водяной знак ядра образа для `docker run … license verify` (D-213); customer null — общий образ.
    * builtAt нет или null — образ собран до D-290 (install, update и rollback его не ставят, D-307).
@@ -48,7 +71,7 @@ export interface Fake {
   out: string[];
   err: string[];
   dirs: { etc: string; lib: string; cli: string; nginxConf: string };
-  verdicts: { package: boolean; license: boolean };
+  verdicts: { license: boolean };
   sleeps: number[];
   /** Номера вызовов compose-подкоманд, например ['up','run']. */
   compose(sub: string): Call[];
@@ -83,13 +106,15 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
     backupCode: 0,
     migrateCode: 0,
     composeUpFails: new Set(),
+    workerUnhealthy: new Set(),
+    imageKeys: FAKE_RELEASE_KEYS,
     imageWatermark: { customer: 'crp', buildId: null, builtAt: 1_790_000_000_000 },
   };
   const calls: Call[] = [];
   const out: string[] = [];
   const err: string[] = [];
   const sleeps: number[] = [];
-  const verdicts = { package: true, license: true };
+  const verdicts = { license: true };
 
   const exec: Executor = {
     async run(cmd, args, opts = {}) {
@@ -113,6 +138,9 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
         return server.images.has(ref) ? ok() : fail('No such image');
       }
       // Проверка лицензии ядром образа без файла: «missing» и водяной знак (тесты с файлом подменяют override)
+      if (a[0] === 'run' && a.includes('dist/crmctl.mjs') && a.includes('keys')) {
+        return ok(`${JSON.stringify({ release: server.imageKeys, stage: [] })}\n`);
+      }
       if (a[0] === 'run' && a.includes('dist/crmctl.mjs') && a.includes('license')) {
         return { code: 3, stdout: `${JSON.stringify({ ok: false, reason: 'missing', watermark: server.imageWatermark })}\n`, stderr: '' };
       }
@@ -150,14 +178,16 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
           if (input.includes('FROM license_state WHERE id = 1')) return ok('11111111-2222-3333-4444-555555555555\n');
           return ok();
         }
-        if (sub[0] === 'ps') return ok('app\trunning\thealthy');
+        if (sub[0] === 'ps') {
+          if (sub.includes('worker')) return ok(server.workerUnhealthy.has(server.running) ? 'starting\n' : 'healthy\n');
+          return ok('app\trunning\thealthy');
+        }
       }
       return ok();
     },
   };
 
   const verifier: Verifier = {
-    verifyPackage: async () => (verdicts.package ? { ok: true } : { ok: false, reason: 'подпись не сошлась' }),
     verifyLicense: async () => (verdicts.license ? { ok: true } : { ok: false, reason: 'invalid: чужой водяной знак' }),
   };
 
@@ -167,6 +197,7 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
     env: { CRM_NGINX_CONF: dirs.nginxConf },
     paths: { etcDir: dirs.etc, libDir: dirs.lib, backupCmd: '/fake/backup.sh', cliDir: dirs.cli },
     verifier,
+    trust: { release: { ...FAKE_RELEASE_PUB }, test: { [TEST_KID]: TEST_KEYS.pub } },
     http: async (url) => {
       if (!url.endsWith('/api/health')) return { status: 404, body: '' };
       const bad = server.unhealthy.has(server.running);
@@ -201,28 +232,71 @@ export async function makeFake(override?: Override, now = 1_800_000_000_000): Pr
 }
 
 export function manifestFor(version: string, over: Partial<PackageManifest> = {}): PackageManifest {
+  const files = fileBodies(version);
   return {
+    format: 2,
     customer: 'crp',
     version,
     buildId: `build-${version}`,
+    builtAt: 1_790_000_000_000,
+    commit: createHash('sha1').update(`commit-${version}`).digest('hex'),
     schemaVersion: '2026-10-21-platform-schema-v1.sql',
     configSchemaVersion: 1,
     minFromVersion: '',
     images: [{ ref: `crm-app:${version}`, digest: imageId(`crm-app:${version}`) }],
+    releaseKeys: FAKE_RELEASE_KEYS,
+    files: [...files].map(([p, b]) => ({ path: p, sha256: createHash('sha256').update(b).digest('hex'), size: b.length })),
     ...over,
   };
 }
 
-/** Пакет-каталог: manifest.json, manifest.sig, images.tar, compose/compose.yaml. */
-export async function writePackage(dir: string, version: string, over: Partial<PackageManifest> = {}): Promise<string> {
+/** Содержимое файлов пакета: образ-заглушка и compose версии. */
+export function fileBodies(version: string): Map<string, Buffer> {
+  return new Map([
+    ['compose/compose.yaml', Buffer.from(`# compose для ${version}\n`)],
+    ['images.tar', Buffer.from(`images:${version}`)],
+  ]);
+}
+
+export function signManifest(bytes: Buffer, key: KeyObject = TEST_KEYS.priv, kid = TEST_KID): string {
+  return encodeSigFile(kid, sign(null, signingBytes(bytes), key));
+}
+
+/** Каталог пакета: manifest.json, manifest.sig (подпись test-fake), images.tar, compose/compose.yaml. */
+export async function writePackage(
+  dir: string,
+  version: string,
+  over: Partial<PackageManifest> = {},
+  opts: { key?: KeyObject; kid?: string; sig?: boolean; manifestBytes?: Buffer } = {},
+): Promise<string> {
   const pkg = path.join(dir, `pkg-${version}`);
-  await mkdir(path.join(pkg, 'compose'), { recursive: true });
-  await writeFile(path.join(pkg, 'manifest.json'), JSON.stringify(manifestFor(version, over)));
-  await writeFile(path.join(pkg, 'manifest.sig'), 'sig');
-  await writeFile(path.join(pkg, 'images.tar'), '');
-  await writeFile(path.join(pkg, 'compose', 'compose.yaml'), `# compose для ${version}\n`);
+  for (const [p, body] of fileBodies(version)) {
+    await mkdir(path.dirname(path.join(pkg, p)), { recursive: true });
+    await writeFile(path.join(pkg, p), body);
+  }
+  const bytes = opts.manifestBytes ?? Buffer.from(JSON.stringify(manifestFor(version, over)));
+  await writeFile(path.join(pkg, 'manifest.json'), bytes);
+  if (opts.sig !== false) await writeFile(path.join(pkg, 'manifest.sig'), signManifest(bytes, opts.key, opts.kid));
   return pkg;
 }
+
+/** Архив .tar.zst и подпись рядом (`<имя>.manifest.sig`). Возвращает путь архива. */
+export async function writePackageArchive(
+  dir: string,
+  version: string,
+  over: Partial<PackageManifest> = {},
+  opts: { key?: KeyObject; kid?: string; sig?: boolean } = {},
+): Promise<string> {
+  const m = manifestFor(version, over);
+  const bytes = Buffer.from(JSON.stringify(m));
+  const out = path.join(dir, `crm-${m.customer}-${version}.tar.zst`);
+  const members = [...fileBodies(version)].map(([p, data]) => ({ path: p, kind: 'file' as const, data }));
+  await writeArchive(out, [{ path: 'manifest.json', kind: 'file', data: bytes }, { path: 'compose', kind: 'dir' }, ...members], m.builtAt);
+  if (opts.sig !== false) await writeFile(out.replace(/\.tar\.zst$/, '.manifest.sig'), signManifest(bytes, opts.key, opts.kid));
+  return out;
+}
+
+export { keyFingerprint };
 
 /** app.env «старой» установки: синтетика, без CRM_PROXY_SECRET. */
 export const SEED_APP_ENV = [
@@ -249,6 +323,18 @@ export async function seedInstalled(f: Fake, version: string, previous: string |
   // app.env установки до D-155: без CRM_PROXY_SECRET (update его допишет)
   await writeFile(path.join(f.dirs.etc, 'app.env'), SEED_APP_ENV, { mode: 0o600 });
   await writeProjectEnv(f.deps.paths, version, state.current.buildId, 3100);
+  // Сохранённые update/install манифест и подпись версий: по ним rollback перепроверяет прежнюю версию (§4.4)
+  for (const v of previous ? [version, previous] : [version]) {
+    const bytes = Buffer.from(JSON.stringify(manifestFor(v)));
+    const pdir = path.join(f.dirs.lib, 'packages', `crp-${v}`);
+    await mkdir(pdir, { recursive: true });
+    await writeFile(path.join(pdir, 'manifest.json'), bytes);
+    await writeFile(path.join(pdir, 'manifest.sig'), signManifest(bytes));
+    const rec = { manifestSha256: createHash('sha256').update(bytes).digest('hex'), kid: TEST_KID, verified: 'signature' as const };
+    if (v === version) Object.assign(state.current, rec);
+    else if (state.previous) Object.assign(state.previous, rec);
+  }
+  await writeState(f.deps.paths, state);
   f.server.running = version;
   f.server.images.add(`crm-app:${version}`);
   if (previous) f.server.images.add(`crm-app:${previous}`);

@@ -5,13 +5,18 @@
 // клиента). Иначе проверка лицензии в crmctl и воркере шла бы по исходнику ядра, а не по ядру образа.
 //
 //   node scripts/crmctl/build-cli.mjs [--outdir dist] [--only crmctl,worker] [--core-exports a,b,c]
+//                                     [--customer <клиент> --release-keys <keys.json>]
+//
+// Клиентская сборка (--customer) вшивает в crmctl открытые ключи релизов (D-315, §3): JSON { "rel-…": "<ключ
+// Ed25519 base64>" } из BuildKit-секрета release_keys, и вырезает из него заглушку CRM_VERIFY_STUB. Без ключей, а также
+// с ключами не класса `rel-*` (stage-*, test-*) сборка падает: crmctl без ключей не принял бы ни одного пакета.
 //
 // Именованный импорт из обфусцированного CJS в Node не работает (cjs-module-lexer не видит экспорт),
 // поэтому @crm/core подменяется тонкой прокладкой: каждый экспорт — ленивая обёртка над require('@crm/core')
 // в момент первого обращения. Хост-копия dist/crmctl.mjs (deploy/install.sh берёт её из образа) запускается
 // без ядра: команды, которым оно нужно, исполняются в образе, а на хосте обращения к ядру не происходит.
 import { build } from 'esbuild';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -56,7 +61,31 @@ export function corePlugin(names) {
   };
 }
 
-export async function buildCli({ outdir, only, coreExports, cwd = process.cwd() }) {
+/** Ключи релизов: kid `rel-*` → сырой ключ Ed25519 (32 байта) в base64. Любое отклонение — исключение. */
+export function parseReleaseKeys(text) {
+  let obj;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    throw new Error('release keys: не JSON');
+  }
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) throw new Error('release keys: ожидается объект kid → ключ');
+  const out = {};
+  for (const [kid, b64] of Object.entries(obj)) {
+    if (!/^rel-[A-Za-z0-9._-]{1,40}$/.test(kid)) throw new Error(`release keys: kid ${kid} не класса rel-* (ключи stage-* и test-* в клиентскую сборку не входят)`);
+    const raw = typeof b64 === 'string' ? Buffer.from(b64, 'base64') : Buffer.alloc(0);
+    if (raw.length !== 32 || raw.toString('base64') !== b64) throw new Error(`release keys: ключ ${kid} должен быть 32 байта Ed25519 в base64`);
+    out[kid] = b64;
+  }
+  return out;
+}
+
+export async function buildCli({ outdir, only, coreExports, customer, releaseKeysFile, cwd = process.cwd() }) {
+  let releaseKeys = {};
+  if (releaseKeysFile) releaseKeys = parseReleaseKeys(readFileSync(releaseKeysFile, 'utf8'));
+  if (customer && Object.keys(releaseKeys).length === 0) {
+    throw new Error('release keys: для клиентской сборки (--customer) нужен непустой --release-keys');
+  }
   const names =
     coreExports ?? Object.keys(createRequire(join(cwd, 'noop.js'))(CORE));
   if (names.length === 0) throw new Error('у ядра нет экспортов: собран ли packages/core/dist?');
@@ -82,6 +111,11 @@ export async function buildCli({ outdir, only, coreExports, cwd = process.cwd() 
       logLevel: 'error',
       tsconfig: resolve(cwd, 'tsconfig.json'),
       banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
+      define: {
+        __CRM_CLIENT_BUILD__: customer ? 'true' : 'false',
+        __CRM_CUSTOMER__: JSON.stringify(customer ?? ''),
+        __CRM_RELEASE_KEYS__: JSON.stringify(JSON.stringify(releaseKeys)),
+      },
       plugins: [corePlugin(names)],
     });
     built.push(e.out);
@@ -91,12 +125,20 @@ export async function buildCli({ outdir, only, coreExports, cwd = process.cwd() 
 
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const { values } = parseArgs({
-    options: { outdir: { type: 'string', default: 'dist' }, only: { type: 'string' }, 'core-exports': { type: 'string' } },
+    options: {
+      outdir: { type: 'string', default: 'dist' },
+      only: { type: 'string' },
+      'core-exports': { type: 'string' },
+      customer: { type: 'string' },
+      'release-keys': { type: 'string' },
+    },
   });
   const built = await buildCli({
     outdir: values.outdir,
     only: values.only?.split(','),
     coreExports: values['core-exports']?.split(','),
+    customer: values.customer || undefined,
+    releaseKeysFile: values['release-keys'],
   });
   console.log(`build-cli: ${built.join(', ')}`);
 }

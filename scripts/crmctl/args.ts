@@ -16,6 +16,7 @@ const VALUE_FLAGS = new Set([
   'recheck-seconds',
   'host-port',
   'wait-seconds',
+  'sig',
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {

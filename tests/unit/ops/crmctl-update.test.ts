@@ -45,10 +45,11 @@ test('без новых миграций копия не делается', asyn
 
 test('подпись пакета не принята: стоп до загрузки образов и переключения', async () => {
   const { f, pkg } = await setup();
-  f.verdicts.package = false;
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(path.join(pkg, 'manifest.sig'), '{"format":1,"kid":"test-fake","sig":"' + 'A'.repeat(86) + '=="}');
   assert.equal(await run(['update', pkg, ...FAST], f.deps), 1);
   assert.match(f.err.join('\n'), /Подпись пакета не принята/);
-  assert.equal(f.calls.some((c) => c.args[0] === 'load'), false);
+  assert.equal(f.calls.length, 0, 'ни одного вызова exec');
   assert.equal(switched(f).length, 0);
   assert.equal(f.server.running, '1.0.0');
 });
@@ -160,25 +161,17 @@ test('отказы по пакету: та же версия, старше, др
   for (const x of [f, f2, f3, f4, f5]) assert.equal(switched(x).length, 0);
 });
 
-test('повреждённый manifest.json не доходит до проверки подписи', async () => {
-  const { f, pkg } = await setup();
-  const { writeFile } = await import('node:fs/promises');
-  await writeFile(path.join(pkg, 'manifest.json'), JSON.stringify({ version: '1.1.0' }));
+test('повреждённый, но подписанный manifest.json не проходит схему', async () => {
+  const { f } = await setup();
+  const pkg = await writePackage(f.dirs.lib, '1.1.0', {}, { manifestBytes: Buffer.from(JSON.stringify({ version: '1.1.0' })) });
   assert.equal(await run(['update', pkg, ...FAST], f.deps), 1);
   assert.match(f.err.join('\n'), /manifest\.json не прошёл проверку/);
+  assert.equal(f.calls.length, 0);
 });
 
 test('образ не совпадает с digest из manifest: стоп', async () => {
-  const { f, pkg } = await setup();
-  const { writeFile } = await import('node:fs/promises');
-  await writeFile(
-    path.join(pkg, 'manifest.json'),
-    JSON.stringify({
-      customer: 'crp', version: '1.1.0', buildId: 'b', schemaVersion: '2026-10-21-platform-schema-v1.sql',
-      configSchemaVersion: 1, minFromVersion: '',
-      images: [{ ref: 'crm-app:1.1.0', digest: `sha256:${'0'.repeat(64)}` }],
-    }),
-  );
+  const { f } = await setup();
+  const pkg = await writePackage(f.dirs.lib, '1.1.0', { images: [{ ref: 'crm-app:1.1.0', digest: `sha256:${'0'.repeat(64)}` }] });
   assert.equal(await run(['update', pkg, ...FAST], f.deps), 1);
   assert.match(f.err.join('\n'), /не совпадает с manifest/);
   assert.equal(switched(f).length, 0);
@@ -250,11 +243,3 @@ test('status и health: код выхода отражает /api/health', async
   assert.equal(await run(['status'], g.deps), 1);
 });
 
-test('заглушка проверок закрыта по умолчанию и открывается только явным CRM_VERIFY_STUB=allow', async () => {
-  const { stubVerifier } = await import('../../../scripts/crmctl/verify');
-  const dummy = { dir: '/x', manifest: (await import('./crmctl-fakes')).manifestFor('1.0.0') };
-  assert.equal((await stubVerifier({}).verifyPackage(dummy)).ok, false);
-  assert.equal((await stubVerifier({ CRM_VERIFY_STUB: '1' }).verifyPackage(dummy)).ok, false);
-  assert.equal((await stubVerifier({ CRM_VERIFY_STUB: 'allow' }).verifyPackage(dummy)).ok, true);
-  assert.equal((await stubVerifier({}).verifyLicense({ image: 'x', licenseDir: '/l', installId: 'i' })).ok, false);
-});

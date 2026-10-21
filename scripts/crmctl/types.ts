@@ -47,6 +47,7 @@ export interface HttpResponse {
 export type Verdict = { ok: true; warning?: string } | { ok: false; reason: string };
 
 export interface PackageManifest {
+  format: 2;
   customer: string;
   version: string;
   buildId: string;
@@ -57,16 +58,29 @@ export interface PackageManifest {
   /** Минимальная версия, с которой можно обновиться; '' — без ограничения. */
   minFromVersion: string;
   images: { ref: string; digest: string }[];
+  /** Время сборки (epoch-мс): совпадает с BUILT_AT водяного знака ядра образа. */
+  builtAt: number;
+  commit: string;
+  /** Ключи релизов, которым будет доверять crmctl этой версии (kid и sha256 сырого ключа). */
+  releaseKeys: { kid: string; sha256: string }[];
+  /** Все члены архива, кроме manifest.json и каталогов. */
+  files: { path: string; sha256: string; size: number }[];
 }
 
 /**
- * Проверки, которые реализуют другие задачи. Здесь только контракт.
- * Реализует O4c (подпись пакета, manifest.sig, Ed25519) и P10 (формат и состояния лицензии).
+ * Проверка лицензии ядром образа (P10). Подпись пакета проверяет verify.ts (O4c, D-315) по deps.trust.
  */
 export interface Verifier {
-  verifyPackage(input: { dir: string; manifest: PackageManifest }): Promise<Verdict>;
   /** Проверка действующей лицензии НОВЫМ образом до переключения (DEPLOY §5.2 п. 2). */
   verifyLicense(input: { image: string; licenseDir: string; installId: string }): Promise<Verdict>;
+}
+
+/** Доверенные открытые ключи подписи пакетов (kid → сырой ключ Ed25519 в base64). */
+export interface Trust {
+  /** Ключи релизов `rel-*`: вшиты в crmctl при сборке клиента (build-cli.mjs --release-keys). */
+  release: Record<string, string>;
+  /** Ключи `test-*`: только тесты, передаются через Deps. */
+  test?: Record<string, string>;
 }
 
 export interface Deps {
@@ -75,6 +89,7 @@ export interface Deps {
   env: Record<string, string | undefined>;
   paths: Paths;
   verifier: Verifier;
+  trust: Trust;
   http: (url: string) => Promise<HttpResponse>;
   now: () => number;
   sleep: (ms: number) => Promise<void>;

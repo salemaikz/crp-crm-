@@ -47,7 +47,7 @@ function sh(cmd: string, args: string[], opts: RunOptions & { env?: Record<strin
 async function realDb(cmd: string, args: string[], opts: RunOptions): Promise<RunResult | undefined> {
   if (cmd !== 'docker') return undefined;
   // `docker run … license verify` (водяной знак образа, D-213) отвечает базовый фейк: образ клиента crp
-  if (args[0] === 'run' && args.includes('--entrypoint') && !args.includes('license')) {
+  if (args[0] === 'run' && args.includes('--entrypoint') && !args.includes('license') && !args.includes('keys')) {
     return { code: 0, stdout: await readFile(path.join(REPO, 'deploy/postgres/grants.sql'), 'utf8'), stderr: '' };
   }
   if (args[0] !== 'compose') return undefined;

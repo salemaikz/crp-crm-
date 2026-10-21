@@ -5,13 +5,16 @@ import path from 'node:path';
 import { intFlag, type ParsedArgs } from './args';
 import { CANDIDATE_NAME, compose, describe } from './compose';
 import { applyGrants, currentSchema, pendingMigrations, runMigrate } from './db';
-import { probeCandidate, probeHost, waitHealthy } from './health';
+import { probeCandidate, probeHost, probeWorker, waitHealthy } from './health';
 import { loadImages, syncCli } from './images';
-import { compareVersions, isDirectory, openPackage } from './manifest';
+import { assertImageForCustomer } from './license';
+import { compareVersions, isDirectory } from './manifest';
+import { assertImageKeys } from './pkgcmd';
 import { ensureFrameCsp } from './nginxCsp';
 import { ensureProxyTrust } from './secrets';
 import { composeFile, requireState, writeProjectEnv, writeState, type State } from './state';
 import { CrmctlError, type Deps } from './types';
+import { embeddedCustomer, keepManifest, verifyAndUnpack } from './verify';
 
 const prevComposeDir = (deps: Deps) => path.join(deps.paths.libDir, 'compose.prev');
 
@@ -59,17 +62,26 @@ export async function update(deps: Deps, args: ParsedArgs): Promise<number> {
   const old = original.current.version;
 
   io.out('[1/7] Пакет и подпись');
-  const { dir, manifest } = await openPackage(deps, pkg);
+  // До этой проверки ни docker, ни /etc/crm, ни compose/, ни state.json не трогаются (D-315, §4.1)
+  const embedded = embeddedCustomer();
+  const pk = await verifyAndUnpack(deps, pkg, {
+    write: true,
+    sig: typeof args.flags.sig === 'string' ? args.flags.sig : undefined,
+    check: (m) => {
+      if (m.customer !== original.customer || (embedded && m.customer !== embedded)) {
+        throw new CrmctlError(`Пакет для другого клиента: ${m.customer}`);
+      }
+      const cmp = compareVersions(m.version, old);
+      if (cmp === 0) throw new CrmctlError(`Версия ${m.version} уже установлена`);
+      if (cmp < 0) throw new CrmctlError(`Пакет ${m.version} старше установленной ${old}; для возврата — crmctl rollback`);
+      if (m.minFromVersion && compareVersions(old, m.minFromVersion) < 0) {
+        throw new CrmctlError(`Обновление возможно с ${m.minFromVersion} и выше, установлена ${old}`);
+      }
+    },
+  });
+  const { dir, manifest } = pk;
+  await keepManifest(deps, pk);
   const version = manifest.version;
-  if (manifest.customer !== original.customer) throw new CrmctlError(`Пакет для другого клиента: ${manifest.customer}`);
-  const cmp = compareVersions(version, old);
-  if (cmp === 0) throw new CrmctlError(`Версия ${version} уже установлена`);
-  if (cmp < 0) throw new CrmctlError(`Пакет ${version} старше установленной ${old}; для возврата — crmctl rollback`);
-  if (manifest.minFromVersion && compareVersions(old, manifest.minFromVersion) < 0) {
-    throw new CrmctlError(`Обновление возможно с ${manifest.minFromVersion} и выше, установлена ${old}`);
-  }
-  const verdict = await deps.verifier.verifyPackage({ dir, manifest });
-  if (!verdict.ok) throw new CrmctlError(`Подпись пакета не принята: ${verdict.reason}`);
   const schemaNow = await currentSchema(deps, old);
   if (manifest.schemaVersion < schemaNow) {
     throw new CrmctlError(`Схема пакета (${manifest.schemaVersion}) ниже текущей (${schemaNow})`);
@@ -77,6 +89,9 @@ export async function update(deps: Deps, args: ParsedArgs): Promise<number> {
 
   io.out('[2/7] Образы и лицензия новым образом');
   await loadImages(deps, dir, manifest);
+  // Ядро образа несёт водяной знак клиента и время сборки из манифеста; crmctl образа — ключи из манифеста
+  await assertImageForCustomer(deps, `crm-app:${version}`, manifest.customer, 'Образ не принят', manifest.builtAt);
+  await assertImageKeys(deps, `crm-app:${version}`, manifest);
   const lic = await deps.verifier.verifyLicense({
     image: `crm-app:${version}`,
     licenseDir: path.join(paths.libDir, 'license'),
@@ -112,8 +127,14 @@ export async function update(deps: Deps, args: ParsedArgs): Promise<number> {
   if (replaceCompose) await cp(newCompose, path.dirname(composeFile(paths)), { recursive: true });
   const next: State = {
     ...original,
-    current: { version, buildId: manifest.buildId, switchedAt: deps.now() },
-    previous: { version: old, buildId: original.current.buildId },
+    current: { version, buildId: manifest.buildId, switchedAt: deps.now(), manifestSha256: pk.manifestSha256, kid: pk.kid, verified: pk.verified },
+    previous: {
+      version: old,
+      buildId: original.current.buildId,
+      ...(original.current.manifestSha256 ? { manifestSha256: original.current.manifestSha256 } : {}),
+      ...(original.current.kid !== undefined ? { kid: original.current.kid } : {}),
+      ...(original.current.verified ? { verified: original.current.verified } : {}),
+    },
   };
   await writeProjectEnv(paths, version, manifest.buildId, original.hostPort);
   await writeState(paths, next);
@@ -133,9 +154,13 @@ export async function update(deps: Deps, args: ParsedArgs): Promise<number> {
   io.out('[6/7] Проверка после переключения');
   const h1 = await waitHealthy(deps, () => probeHost(deps, original.hostPort, version), waitMs);
   if (!h1.ok) return failRollback(`/api/health после переключения: ${h1.detail}`);
+  const w1 = await waitHealthy(deps, () => probeWorker(deps, version), waitMs);
+  if (!w1.ok) return failRollback(`${w1.detail} после переключения`);
   await deps.sleep(recheckMs);
   const h2 = await probeHost(deps, original.hostPort, version);
   if (!h2.ok) return failRollback(`/api/health через ${Math.round(recheckMs / 1000)} с: ${h2.detail}`);
+  const w2 = await probeWorker(deps, version);
+  if (!w2.ok) return failRollback(`${w2.detail} через ${Math.round(recheckMs / 1000)} с`);
 
   io.out('[7/7] Готово');
   await syncCli(deps, version);

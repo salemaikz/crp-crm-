@@ -140,9 +140,19 @@ function builtAtProblem(v: ImageVerdict): string | null {
  * без лицензии, поэтому на сервер клиента он не ставится. Файл лицензии не нужен: без него образ отвечает
  * «missing» и своим водяным знаком.
  */
-export async function assertImageForCustomer(deps: Deps, image: string, customer: string, action = 'Образ не подходит для установки'): Promise<void> {
+export async function assertImageForCustomer(
+  deps: Deps,
+  image: string,
+  customer: string,
+  action = 'Образ не подходит для установки',
+  builtAt?: number,
+): Promise<void> {
   const v = await verifyInImage(deps, image, null, 'watermark-check');
-  const wm = watermarkProblem(v, customer) ?? builtAtProblem(v);
+  const wm =
+    watermarkProblem(v, customer) ??
+    builtAtProblem(v) ??
+    // Время сборки в водяном знаке совпадает с подписанным манифестом (D-315 §4.2)
+    (builtAt !== undefined && v.watermark.builtAt !== builtAt ? 'время сборки ядра образа не совпадает с подписанным manifest.json' : null);
   if (wm) throw new CrmctlError(`${action}: ${wm}`);
 }
 

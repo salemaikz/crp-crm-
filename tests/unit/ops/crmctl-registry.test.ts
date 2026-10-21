@@ -27,9 +27,8 @@ test('verifyLicense в defaultDeps не заглушка: идёт к состо
       deps.verifier.verifyLicense({ image: 'crm-app:9.9.9', licenseDir: path.join(dir, 'lib/license'), installId: 'x' }),
       (e: Error) => !/не реализована/.test(e.message),
     );
-    // а проверка подписи пакета остаётся заглушкой до O4c
-    const pkg = await deps.verifier.verifyPackage({ dir, manifest: {} as never });
-    assert.equal(pkg.ok, false);
+    // подпись пакета — не заглушка: без файла подписи пакет не принимается (verify.ts, O4c)
+    assert.equal(typeof deps.trust.release, 'object');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
