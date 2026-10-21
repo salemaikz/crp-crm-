@@ -309,16 +309,28 @@ test('предпросмотр: прошлая запись конфликта �
 });
 
 test('предпросмотр: повтор ключа раньше поиска клиента; тот же автор — skip_same, другой — changed_in_file', () => {
-  const w: World = { rows: [row(), row({ op: 'Оператор-02' }), row({ name: NAMES[1] as string, phone: PH[1] as string })], candidates: [] };
+  const w: World = { rows: [row(), row({ name: NAMES[1] as string, phone: PH[1] as string })], candidates: [] };
   const parsed = parse(w.rows);
   const key = (i: number) => bookingImportKey('sp', (parsed.rows[i] as ParsedBookingRow).rowKey, sha);
   const prior = new Map([[key(0), { bookingId: 'b1', stateKey: (parsed.rows[0] as ParsedBookingRow).stateKey }]]);
   // клиентов нет вообще: без prior было бы client_not_found, с prior — уже загружено
-  assert.deepEqual(actionsOf({ ...w, prior }), ['skip_same', 'changed_in_file', 'client_not_found']);
-  const changed = preview({ ...w, prior }).out.rows[1]!;
-  assert.deepEqual([changed.bookingId, changed.groups], ['b1', ['review']]);
+  assert.deepEqual(actionsOf({ ...w, prior }), ['skip_same', 'client_not_found']);
+  // та же строка, но оператор в таблице сменился
+  const renamed: World = { rows: [row({ op: 'Оператор-02' })], candidates: [] };
+  const old = new Map([[bookingImportKey('sp', (parse(renamed.rows).rows[0] as ParsedBookingRow).rowKey, sha), { bookingId: 'b1', stateKey: (parsed.rows[0] as ParsedBookingRow).stateKey }]]);
+  const changed = preview({ ...renamed, prior: old }).out.rows[0]!;
+  assert.deepEqual([changed.action, changed.bookingId, changed.groups], ['changed_in_file', 'b1', ['review']]);
   // история import отсутствует — запись уже есть, считаем повтором
-  assert.deepEqual(actionsOf({ ...w, prior: new Map([[key(0), { bookingId: 'b1', stateKey: null }]]) }).slice(0, 2), ['skip_same', 'skip_same']);
+  assert.deepEqual(actionsOf({ ...w, prior: new Map([[key(0), { bookingId: 'b1', stateKey: null }]]) }), ['skip_same', 'client_not_found']);
+});
+
+test('предпросмотр: одинаковая строка дважды с разными операторами — повтор, а не смена автора (без «мигания» при повторе файла)', () => {
+  const rows = [row(), row({ op: 'Оператор-02' })];
+  const parsed = parse(rows);
+  const first = parsed.rows[0] as ParsedBookingRow;
+  const prior = new Map([[bookingImportKey('sp', first.rowKey, sha), { bookingId: 'b1', stateKey: first.stateKey }]]);
+  assert.deepEqual(actionsOf({ rows }), ['create', 'duplicate_in_file'], 'первая загрузка');
+  assert.deepEqual(actionsOf({ rows, prior }), ['skip_same', 'duplicate_in_file'], 'повтор файла');
 });
 
 test('предпросмотр: прошедшая дата раньше «нет мероприятия»; ошибка разбора раньше всего', () => {

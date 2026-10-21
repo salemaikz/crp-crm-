@@ -205,6 +205,8 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
   const byGroup = Object.fromEntries(BOOKING_GROUPS.map((g) => [g, 0])) as Record<BookingGroup, number>;
   const byFlag: Record<BookingFlag, number> = { owner_from_author: 0, card_unowned: 0, card_held: 0, author_unknown: 0 };
   let toAgreed = 0;
+  /** Ключи строк, уже встретившихся выше в файле. */
+  const seenKeys = new Set<string>();
   /** Пара «клиент, мероприятие», дошедшая до проверки дубля: вторая такая строка — `duplicate_in_file`. */
   const seenPairs = new Set<string>();
   /** Мест, занятых строками `create` выше по файлу, по мероприятиям. */
@@ -248,8 +250,14 @@ export function buildBookingPreview(input: BookingPreviewInput): BookingPreview 
     // 1. ошибки разбора
     if (row.issues.some((i) => i.severity === 'error')) return done('invalid');
 
+    // Та же строка (ключ) уже была выше в файле: повтор строки, а не новое состояние. Иначе две одинаковые строки
+    // с разными операторами после загрузки давали бы «сменился автор» при каждом повторе файла.
+    const key = input.importKeyOf(row);
+    if (seenKeys.has(key)) return done('duplicate_in_file');
+    seenKeys.add(key);
+
     // 2–3. запись этого ключа уже загружалась: до поиска клиента (его могли слить, запись — отменить)
-    const prior = input.prior.get(input.importKeyOf(row));
+    const prior = input.prior.get(key);
     if (prior) {
       pr.bookingId = prior.bookingId;
       return done(prior.stateKey === null || prior.stateKey === row.stateKey ? 'skip_same' : 'changed_in_file');
