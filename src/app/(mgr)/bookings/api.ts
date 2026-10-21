@@ -1,5 +1,6 @@
 // Клиентские вызовы API записи для кабинета РОП: ошибка = машинный код домена, текст выбирает интерфейс из локали.
-export type ApiResult<T> = { ok: true; data: T; status: number } | { ok: false; code: string; status: number };
+// `fields` — только у 409 `stage_fields_required`: ключи незаполненных требований этапа.
+export type ApiResult<T> = { ok: true; data: T; status: number } | { ok: false; code: string; status: number; fields?: string[] };
 
 export async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, body?: unknown): Promise<ApiResult<T>> {
   try {
@@ -15,7 +16,8 @@ export async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE
     const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (res.ok) return { ok: true, data: json as T, status: res.status };
     const code = typeof json?.detail === 'string' ? json.detail : typeof json?.error === 'string' ? json.error : 'network';
-    return { ok: false, code, status: res.status };
+    const fields = Array.isArray(json?.fields) ? json.fields.filter((f): f is string => typeof f === 'string') : undefined;
+    return fields ? { ok: false, code, status: res.status, fields } : { ok: false, code, status: res.status };
   } catch {
     return { ok: false, code: 'network', status: 0 };
   }

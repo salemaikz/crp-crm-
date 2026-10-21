@@ -1,5 +1,6 @@
 // Консультации (B5): оператор записывает клиента к консультанту по подбору, консультант на телефоне ведёт встречу —
-// «Мои консультации» → «Пришёл» → итог с шагом и этапом «Переговоры / КП». Только синтетика (+7 709 …).
+// «Мои консультации» → «Пришёл» → итог с шагом и этапом «Переговоры / КП» (без шага этап отказывает подсказкой).
+// Только синтетика (+7 709 …).
 // БД — E2E_DATABASE_URL (та же, что у запущенного сервера); сервер запущен с FEATURE_BK_WIZARD=1 (playwright.config.ts).
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
@@ -73,8 +74,11 @@ test('оператор записывает к консультанту, кон�
   await page.getByRole('button', { name: 'Пришёл', exact: true }).click();
   await expect(page.getByTestId('result-form')).toBeVisible();
   await page.getByLabel('Что обсудили').fill('Показали услуги по маркетингу');
-  await page.getByLabel('Следующий шаг').selectOption({ label: 'Звонок' });
+  // Этап «Переговоры / КП» требует следующий шаг (requires.nextTask): без шага — подсказка сделок, а не «данные изменились»
   await page.getByLabel('Этап сделки').selectOption({ label: 'Переговоры / КП' });
+  await page.getByRole('button', { name: 'Сохранить итог' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Добавьте следующий шаг с датой' })).toBeVisible();
+  await page.getByLabel('Следующий шаг').selectOption({ label: 'Звонок' });
   expect(await noHScroll(page)).toBe(true);
   await page.getByRole('button', { name: 'Сохранить итог' }).click();
   await expect(page.getByText('Итог сохранён')).toBeVisible();

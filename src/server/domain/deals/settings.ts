@@ -72,6 +72,7 @@ const SpaceSlice = z
     reasons: z.record(z.string(), z.array(Reason)).optional(),
     deals: z.object({ purchaseFutureLimitHours: z.number().int().min(0) }).passthrough(),
     handoff: z.object({ acceptSlaWorkdays: z.number().int().min(1) }).passthrough(),
+    fields: z.array(z.object({ key: z.string().min(1), object: z.string(), label: Label.optional() }).passthrough()).optional(),
   })
   .passthrough();
 
@@ -135,6 +136,8 @@ export function parseDealsSettings(input: { spaceId: string; global: unknown; sp
       .map((r) => ({ key: r.key, label: label(r.label, r.key), softness: r.softness, needsText: r.needsText })),
     purchaseFutureLimitHours: sp.deals.purchaseFutureLimitHours,
     acceptSlaWorkdays: sp.handoff.acceptSlaWorkdays,
+    // И архивные: требование этапа может ссылаться на поле, снятое с форм
+    fieldLabels: Object.fromEntries((sp.fields ?? []).filter((f) => f.object === 'deal').map((f) => [f.key, label(f.label, f.key)])),
   };
 }
 

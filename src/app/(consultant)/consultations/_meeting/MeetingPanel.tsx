@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Alert, Badge, Button, Card, Field, Select, Textarea, ToastProvider, useToast } from '@/ui/kit';
 import { call, newKey } from '@/app/(mgr)/bookings/api';
+import { meetingErrorText } from './errorText';
 
 interface Props {
   bookingId: string;
@@ -15,6 +16,8 @@ interface Props {
   laterStages: { key: string; label: string }[];
   /** Флаг PURCHASES: страница «Покупка» (B6) есть. */
   purchase: boolean;
+  /** Подписи полей сделки по ключу — для отказа `stage_fields_required`. */
+  fieldLabels: Record<string, string>;
 }
 
 const DAY_MS = 86_400_000;
@@ -33,9 +36,10 @@ export function MeetingPanel(props: Props) {
   );
 }
 
-function Panel({ bookingId, version, status, cardId, deal, laterStages, purchase }: Props) {
+function Panel({ bookingId, version, status, cardId, deal, laterStages, purchase, fieldLabels }: Props) {
   const t = useTranslations('booking.consultations');
   const te = useTranslations('booking.errors');
+  const td = useTranslations('deals');
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -48,7 +52,8 @@ function Panel({ bookingId, version, status, cardId, deal, laterStages, purchase
   const [days, setDays] = useState('1');
   const [toStage, setToStage] = useState('');
 
-  const problem = (code: string) => setError(te.has(code) ? te(code) : te('conflict'));
+  // Отказ требований этапа приходит кодом модуля сделок: текст из `deals`, с подписями незаполненных полей
+  const problem = (code: string, fields?: string[]) => setError(meetingErrorText(code, fields, te, td, fieldLabels));
   const live = status === 'registered' || status === 'confirmed';
 
   const mark = async (to: 'attended' | 'no_show') => {
@@ -83,7 +88,7 @@ function Panel({ bookingId, version, status, cardId, deal, laterStages, purchase
     setBusy(false);
     if (!r.ok) {
       if (r.status === 409) setResultKey(newKey());
-      return problem(r.code);
+      return problem(r.code, r.fields);
     }
     setResultKey(newKey());
     setNote('');

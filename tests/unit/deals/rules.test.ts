@@ -103,8 +103,15 @@ test('parseDealsSettings: архивные этапы, услуги и прич�
     reasons: { deal_lost: [{ key: 'r1', label: { ru: 'Причина' }, softness: 'soft', needsText: false }, { key: 'r_old', softness: 'hard', needsText: true, archived: true }] },
     deals: { purchaseFutureLimitHours: 36 },
     handoff: { acceptSlaWorkdays: 1, alarmTo: [] },
+    fields: [
+      { key: 'budget', object: 'deal', label: { ru: 'Бюджет' } },
+      { key: 'budget_old', object: 'deal', label: { ru: 'Бюджет (старый)' }, archived: true },
+      { key: 'niche', object: 'card', label: { ru: 'Ниша' } },
+    ],
   };
   const s = parseDealsSettings({ spaceId: 'sp', global, space });
+  // подписи полей сделки для отказа требований этапа: и архивные, без полей карточки
+  assert.deepEqual(s.fieldLabels, { budget: { ru: 'Бюджет' }, budget_old: { ru: 'Бюджет (старый)' } });
   assert.deepEqual(s.pipelines[0]!.stages.map((x) => x.key), ['offer', 'paid']);
   assert.equal(s.pipelines[0]!.stages[0]!.requires.nextTask, true);
   assert.equal(s.pipelines[0]!.stages[0]!.staleDays, 14);

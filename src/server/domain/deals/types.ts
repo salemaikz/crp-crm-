@@ -64,6 +64,8 @@ export interface DealsSettings {
   purchaseFutureLimitHours: number;
   /** `handoff.acceptSlaWorkdays`. */
   acceptSlaWorkdays: number;
+  /** Подписи полей сделки (`fields[]`, `object: 'deal'`) по ключу: текст отказа `stage_fields_required`. */
+  fieldLabels: Record<string, { ru: string; kk?: string }>;
 }
 
 export type LoadDealsSettings = (spaceId: string, now: number) => Promise<DealsSettings>;
