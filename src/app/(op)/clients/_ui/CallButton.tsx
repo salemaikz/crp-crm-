@@ -8,7 +8,7 @@ import { formatPhone } from './format';
 
 /**
  * Главное действие карточки — одна кнопка «Позвонить» по режиму телефонии (`tel:` звонилки телефона или звонок
- * через провайдера). На телефоне закреплена внизу экрана с отступом под системную панель. Нет рабочего номера —
+ * через провайдера). На телефоне закреплена над нижним меню (--bottom-nav-h). Нет рабочего номера —
  * вместо кнопки пояснение.
  */
 export async function CallButton({ phone, modes }: { phone: PhoneDto | null; modes: ChannelModes }) {
@@ -21,7 +21,7 @@ export async function CallButton({ phone, modes }: { phone: PhoneDto | null; mod
     );
   }
   return (
-    <div className="sticky bottom-0 z-10 -mx-4 bg-[var(--canvas)] px-4 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:static lg:mx-0 lg:bg-transparent lg:p-0">
+    <div className="sticky bottom-[var(--bottom-nav-h)] z-10 -mx-[var(--gutter)] bg-[var(--canvas)] px-[var(--gutter)] py-2 lg:static lg:mx-0 lg:bg-transparent lg:p-0">
       <Button {...dialProps(phone, modes)} variant="primary" size="lg" block aria-label={t('call.aria', { phone: formatPhone(phone.e164) })}>
         <Phone aria-hidden="true" />
         {t('call.button')}

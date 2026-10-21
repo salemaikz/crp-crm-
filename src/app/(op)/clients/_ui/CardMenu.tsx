@@ -108,7 +108,7 @@ export function CardMenu({ cardId, clientId, version, can, phones, reasons }: Pr
             <Button variant="quiet" onClick={() => open('not_target')}>
               {t('menu.notTarget')}
             </Button>
-            <Button variant="quiet" onClick={() => open('do_not_call')}>
+            <Button variant="danger-quiet" onClick={() => open('do_not_call')}>
               {t('menu.doNotCall')}
             </Button>
           </>
