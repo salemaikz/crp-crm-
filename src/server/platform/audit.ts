@@ -4,7 +4,7 @@
 import { newId, now, type Sql } from './db';
 import { jsonParam } from './db/core';
 
-export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'proposal' | 'client';
+export type AuditEntity = 'user' | 'session' | 'config' | 'license' | 'system' | 'event' | 'series' | 'ingest_key' | 'distribution' | 'card' | 'proposal' | 'client' | 'pair';
 
 /**
  * Реестр имён действий. Имя — «<сущность>.<глагол_snake>» в два сегмента, первый совпадает с
@@ -55,6 +55,9 @@ export const AUDIT_ACTIONS = [
   'proposal.resolve',
   // B9a: передача клиентов (в meta — числа и коды режима, без имён)
   'client.transfer',
+  // B9b: слияние клиентов и решение по спорной паре (в meta — id, коды и счётчики, без ПДн)
+  'client.merge',
+  'pair.resolve',
   // P10: лицензия (в meta — lid, kid, коды состояний и причин, часы в часах; без ПДн)
   'license.install',
   'license.state_change',

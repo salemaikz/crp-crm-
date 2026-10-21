@@ -10,6 +10,8 @@ const HREF: Record<string, string> = {
   client_transferred: '/clients',
   staff_disabled: '/clients',
   staff_disabled_orphans: '/distribution',
+  // B9b: карточка объединена с дублем — в список клиентов (самой карточки у получателя больше нет)
+  card_merged: '/clients',
 };
 
 const KNOWN = new Set(Object.keys(HREF));

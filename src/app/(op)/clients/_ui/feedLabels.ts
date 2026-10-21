@@ -43,6 +43,7 @@ export const DESCRIBED_KINDS = [
   'dnc.cleared',
   'import.row',
   'client.created',
+  'client.merged',
   'task.created',
   'task.done',
   'task.cancelled',
@@ -95,6 +96,7 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'dnc.cleared':
     case 'import.row':
     case 'client.created':
+    case 'client.merged':
     case 'task.created':
     case 'task.done':
     case 'task.cancelled':

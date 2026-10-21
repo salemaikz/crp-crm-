@@ -75,6 +75,30 @@ const entries: ManifestEntry[] = [
     mutation: true,
     touches: ['cards', 'assign_log', 'client_events', 'notifications', 'audit_log'],
   },
+  // B9b: спорные пары и слияние (за FEATURE_MERGE). Пара — не охватываемая сущность: раздел, стороны — по охвату.
+  { kind: 'page', path: '/(mgr)/pairs', method: 'GET', perm: 'pool.read', target: 'section', mutation: false },
+  { kind: 'route', path: `${API}/pairs`, method: 'GET', perm: 'pool.read', target: 'section', mutation: false },
+  {
+    kind: 'route',
+    path: `${API}/pairs/[id]/resolve`,
+    method: 'POST',
+    perm: 'card.assign',
+    target: 'section',
+    sampleBody: { decision: 'split_allowed', comment: 'синтетика' },
+    mutation: true,
+    touches: ['dup_pairs', 'cards', 'audit_log'],
+  },
+  { kind: 'route', path: `${API}/pairs/[id]/merge-preview`, method: 'GET', perm: 'client.merge', target: 'section', mutation: false },
+  {
+    kind: 'route',
+    path: `${API}/pairs/[id]/merge`,
+    method: 'POST',
+    perm: 'client.merge',
+    target: 'section',
+    sampleBody: { opId: OP_ID, survivor: 'a', owner: 'auto', fingerprint: '0'.repeat(64) },
+    mutation: true,
+    touches: ['clients', 'cards', 'client_phones', 'contacts', 'calls', 'deals', 'bookings', 'tasks', 'notes', 'dup_pairs', 'change_snapshots', 'client_events', 'audit_log'],
+  },
 ];
 
 export default defineManifest('distribution', entries);

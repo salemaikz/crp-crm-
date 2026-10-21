@@ -49,6 +49,8 @@ export const EVENT_KINDS = {
   // повторной загрузки), `deferred` — итог отложен; в ленту они не идут.
   'import.row': { group: 'system', dataKeys: ['importId', 'rowNo', 'action', 'outcomeKey'] },
   'client.created': { group: 'system', dataKeys: ['sourceKind', 'importId'] },
+  // Слияние (B9b): у выжившего — id слитого клиента; его события лента читает по цепочке merged_into_id (D-068)
+  'client.merged': { group: 'system', dataKeys: ['otherClientId'] },
 } as const satisfies Record<string, KindSpec>;
 
 export type EventKind = keyof typeof EVENT_KINDS;
