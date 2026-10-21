@@ -98,6 +98,13 @@ test.afterAll(async () => {
 const tileOf = (page: Page, name: string) => page.getByTestId('deal-tile').filter({ hasText: name });
 const column = (page: Page, key: string) => page.getByTestId(`col-${key}`);
 
+// В общей базе копятся карточки прошлых прогонов, а колонка показывает первые 50: сужаем доску до оператора этого прогона.
+async function onlyMine(page: Page, filterId: 'owner-filter' | 'worker-filter'): Promise<void> {
+  const select = page.getByTestId(filterId);
+  await select.selectOption(operator.id);
+  await expect(select).toHaveValue(operator.id);
+}
+
 const stageOf = async (dealId: string) => (await sql<{ stage_key: string; version: number }[]>`SELECT stage_key, version FROM deals WHERE id = ${dealId}`)[0]!;
 
 test('доска сделок: «Переместить в…» → тост с «Отменить»; отмена в окне ничего не отправляет', async ({ page }) => {
@@ -107,6 +114,7 @@ test('доска сделок: «Переместить в…» → тост с 
   });
   await login(page, rop);
   await page.goto('/deals');
+  await onlyMine(page, 'owner-filter');
   await expect(page.getByRole('heading', { name: 'Сделки', level: 1 })).toBeVisible();
   await expect(column(page, 'offer').getByText(NAME.back)).toBeVisible();
 
@@ -139,6 +147,7 @@ test('перенос уходит в настоящий маршрут B6 чер
   });
   await login(page, rop);
   await page.goto('/deals');
+  await onlyMine(page, 'owner-filter');
   await tileOf(page, NAME.back).getByTestId('deal-move').click();
   const movedAt = Date.now();
   await page.getByTestId('pick-booked').click();
@@ -155,6 +164,7 @@ test('перенос уходит в настоящий маршрут B6 чер
 test('перенос → требование шага → шаг → перенос прошёл (настоящий маршрут B6)', async ({ page }) => {
   await login(page, rop);
   await page.goto('/deals');
+  await onlyMine(page, 'owner-filter');
   await tileOf(page, NAME.forward).getByTestId('deal-move').click();
   await page.getByTestId('pick-offer').click();
   const panel = page.getByTestId('move-panel');
@@ -177,6 +187,7 @@ test('перенос → требование шага → шаг → перен
 test('сервер отказал 409 next_step_required (шаг пропал после загрузки): плитка назад, панель шага, затем перенос прошёл', async ({ page }) => {
   await login(page, rop);
   await page.goto('/deals');
+  await onlyMine(page, 'owner-filter');
   await expect(column(page, 'booked').getByText(NAME.staleStep)).toBeVisible();
   // доска видит задачу и считает, что шага хватает; задачу закрывают, пока страница открыта
   await sql`UPDATE tasks SET status = 'done' WHERE deal_id = ${ids.staleStepDeal}`;
@@ -197,6 +208,7 @@ test('сервер отказал 409 next_step_required (шаг пропал п
 test('«Выиграна» ведёт на форму покупки по карточке сделки, а не на 404', async ({ page }) => {
   await login(page, rop);
   await page.goto('/deals');
+  await onlyMine(page, 'owner-filter');
   await tileOf(page, NAME.won).getByTestId('deal-move').click();
   await page.getByTestId('pick-paid').click();
   await page.waitForURL(`**/deals/purchase/${cards[ids.wonDeal]}`);
@@ -207,6 +219,7 @@ test('«Выиграна» ведёт на форму покупки по кар
 test('«Проиграна» ведёт на страницу сделки с действием «Проигран», а не на 404', async ({ page }) => {
   await login(page, rop);
   await page.goto('/deals');
+  await onlyMine(page, 'owner-filter');
   await tileOf(page, NAME.lost).getByTestId('deal-move').click();
   await page.getByTestId('pick-lost').click();
   await page.waitForURL(`**/deals/${ids.lostDeal}`);
@@ -226,6 +239,7 @@ test('оператору вид «Обзвон» недоступен, API от�
 test('вид «Обзвон»: перенос карточки = итог «Перезвонить» с via manual_entry', async ({ page }) => {
   await login(page, rop);
   await page.goto('/deals/calling');
+  await onlyMine(page, 'worker-filter');
   await expect(page.getByRole('heading', { name: 'Обзвон', level: 1 })).toBeVisible();
   const tile = page.getByTestId('calling-tile').filter({ hasText: NAME.call });
   await expect(tile).toBeVisible();
@@ -253,6 +267,7 @@ test('вид «Обзвон»: перенос карточки = итог «Пе
 test('вид «Обзвон»: карточку изменили после загрузки доски — 409, плитка на месте, тост, итог не записан', async ({ page }) => {
   await login(page, rop);
   await page.goto('/deals/calling');
+  await onlyMine(page, 'worker-filter');
   const tile = page.getByTestId('calling-tile').filter({ hasText: NAME.stale });
   await expect(tile).toBeVisible();
   await tile.getByTestId('calling-move').click();
