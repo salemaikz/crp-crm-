@@ -1,5 +1,6 @@
 // SQL досок (B8): сделки по этапам и вид «Обзвон». Строки сделок, карточек и задач — только через scopeSql
-// (сделка видна по карточке клиента, `deal.read`; обзвон — `card.read`). Один проход на колонки, без запроса на плитку.
+// (сделка видна по карточке клиента, `deal.read`; обзвон — `card.read`); номер и ЛПР на плитке — своим охватом
+// `client.read` (client_phone, contact), а не охватом сделки. Один проход на колонки, без запроса на плитку.
 // Тексты запросов повторяют список колонок намеренно: общий фрагмент собирать из доменного кода нельзя (слои).
 import { scopeSql, scoped } from '@/server/access/scope';
 import type { Viewer } from '@/server/access';
@@ -46,9 +47,11 @@ export async function selectDealWindow(viewer: Viewer, sql: Sql, a: BoardArgs & 
          AND ${scopeSql(viewer, 'deal', 'deal.read')})
     SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.needs_rebook, d.custom,
            cl.name AS client_name, cl.custom AS client_custom, u.name AS owner_name,
-           (SELECT p.digits FROM client_phones p WHERE p.client_id = d.client_id AND p.is_working
-             ORDER BY p.is_primary DESC, p.created_at, p.id LIMIT 1) AS phone,
+           (SELECT cp.digits FROM client_phones cp WHERE cp.client_id = d.client_id AND cp.is_working
+               AND ${scopeSql(viewer, 'client_phone', 'client.read')}
+             ORDER BY cp.is_primary DESC, cp.created_at, cp.id LIMIT 1) AS phone,
            (SELECT ct.name FROM contacts ct WHERE ct.client_id = d.client_id AND ct.is_decision_maker AND ct.archived_at IS NULL
+               AND ${scopeSql(viewer, 'contact', 'client.read')}
              ORDER BY ct.created_at, ct.id LIMIT 1) AS contact_name,
            EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status IN ('registered','confirmed','attended','no_show')) AS has_booking,
            EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status = 'attended') AS has_attendance,
@@ -72,9 +75,11 @@ export async function selectDealColumnPage(
   return scoped(sql)<DealRow>`
     SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.needs_rebook, d.custom,
            cl.name AS client_name, cl.custom AS client_custom, u.name AS owner_name,
-           (SELECT p.digits FROM client_phones p WHERE p.client_id = d.client_id AND p.is_working
-             ORDER BY p.is_primary DESC, p.created_at, p.id LIMIT 1) AS phone,
+           (SELECT cp.digits FROM client_phones cp WHERE cp.client_id = d.client_id AND cp.is_working
+               AND ${scopeSql(viewer, 'client_phone', 'client.read')}
+             ORDER BY cp.is_primary DESC, cp.created_at, cp.id LIMIT 1) AS phone,
            (SELECT ct.name FROM contacts ct WHERE ct.client_id = d.client_id AND ct.is_decision_maker AND ct.archived_at IS NULL
+               AND ${scopeSql(viewer, 'contact', 'client.read')}
              ORDER BY ct.created_at, ct.id LIMIT 1) AS contact_name,
            EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status IN ('registered','confirmed','attended','no_show')) AS has_booking,
            EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.status = 'attended') AS has_attendance,
@@ -127,9 +132,11 @@ export async function selectClosedDeals(viewer: Viewer, sql: Sql, a: BoardArgs &
     SELECT d.id, d.version, d.stage_key, d.status, d.stage_changed_at, d.client_id, d.needs_rebook, d.custom,
            COALESCE(d.won_at, d.lost_at) AS closed_at,
            cl.name AS client_name, cl.custom AS client_custom, u.name AS owner_name,
-           (SELECT p.digits FROM client_phones p WHERE p.client_id = d.client_id AND p.is_working
-             ORDER BY p.is_primary DESC, p.created_at, p.id LIMIT 1) AS phone,
+           (SELECT cp.digits FROM client_phones cp WHERE cp.client_id = d.client_id AND cp.is_working
+               AND ${scopeSql(viewer, 'client_phone', 'client.read')}
+             ORDER BY cp.is_primary DESC, cp.created_at, cp.id LIMIT 1) AS phone,
            (SELECT ct.name FROM contacts ct WHERE ct.client_id = d.client_id AND ct.is_decision_maker AND ct.archived_at IS NULL
+               AND ${scopeSql(viewer, 'contact', 'client.read')}
              ORDER BY ct.created_at, ct.id LIMIT 1) AS contact_name,
            FALSE AS has_booking, FALSE AS has_attendance,
            NULL::text AS task_id, NULL::bigint AS task_due_at, NULL::text AS task_title
@@ -189,6 +196,7 @@ export async function selectCallingCards(viewer: Viewer, sql: Sql, a: CallingArg
            COALESCE(c.acting_user_id, c.owner_user_id) AS worker_id, u.name AS worker_name,
            c.attempts, c.next_call_at, c.last_outcome_code, c.last_outcome_at,
            (SELECT ct.id FROM contacts ct WHERE ct.client_id = c.client_id AND ct.is_decision_maker AND ct.archived_at IS NULL
+               AND ${scopeSql(viewer, 'contact', 'client.read')}
              ORDER BY ct.created_at, ct.id LIMIT 1) AS decision_maker_id
       FROM cards c JOIN clients cl ON cl.id = c.client_id
       LEFT JOIN users u ON u.id = COALESCE(c.acting_user_id, c.owner_user_id)

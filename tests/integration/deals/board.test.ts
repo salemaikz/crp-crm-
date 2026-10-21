@@ -6,6 +6,10 @@ import { getCallingBoard, getCallingColumn, getClosedDeals, getDealsBoard, getDe
 import type { DealPipelineInfo } from '../../../src/server/domain/deals/types';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { SEED_NOW, SPACE, U, closeWorld, openWorld, viewerOf } from '../reports/helpers';
+import { testViewer } from '../../../src/server/access/testing';
+import type { RoleConfig } from '@crm/core/access';
+import { configDoc } from '../../isolation/harness/config';
+import { SEED_TZ } from '../../isolation/harness/seed';
 
 const DAY = 86_400_000;
 let db: TestDb;
@@ -71,6 +75,27 @@ test('оператор видит только свои сделки (охват
   const ids = board.columns.flatMap((c) => c.deals.map((d) => d.id)).sort();
   assert.deepEqual(ids, ['dl-a-1', 'dl-a-2', 'dl-a-3']);
   assert.ok(!JSON.stringify(board).includes('Бета'));
+});
+
+test('номер и ЛПР на плитке — по охвату client.read, а не по охвату сделки', async () => {
+  await db.sql`INSERT INTO contacts (id, client_id, name, is_decision_maker, created_at) VALUES ('ct-b-1-dm', 'cl-b-1', 'ЛПР Синтетик Бета', TRUE, ${SEED_NOW})`;
+  try {
+    const tile = (b: Awaited<ReturnType<typeof getDealsBoard>>) => b.columns.flatMap((c) => c.deals).find((d) => d.id === 'dl-b-1')!;
+    const full = tile(await getDealsBoard(await viewerOf(U.rop)));
+    assert.ok(full.phone, 'контроль: РОП с client.read на пространство видит номер');
+    assert.equal(full.contactName, 'ЛПР Синтетик Бета');
+    // Сделки — на всё пространство, клиенты — только свои: чужая сделка видна, её номер и ЛПР — нет
+    const roles = (configDoc() as { global: { roles: RoleConfig[] } }).global.roles;
+    const rop = roles.find((r) => r.key === 'rop')!;
+    const narrow: RoleConfig = { ...rop, grants: rop.grants.map((g) => (g.perm === 'client.read' ? { ...g, scope: 'own' } : g)) };
+    const v = testViewer({ userId: U.rop, role: narrow, spaceId: SPACE, now: SEED_NOW, timeZone: SEED_TZ });
+    const t = tile(await getDealsBoard(v));
+    assert.ok(t, 'сделка видна по deal.read на пространство');
+    assert.equal(t.phone, null);
+    assert.equal(t.contactName, null);
+  } finally {
+    await db.sql`DELETE FROM contacts WHERE id = 'ct-b-1-dm'`;
+  }
 });
 
 test('недостающее считается по каждому открытому этапу; залежалась по staleDays', async () => {
