@@ -320,8 +320,9 @@ ON CONFLICT (user_id, device_id) DO UPDATE
   `POST /api/device/outbox-expired` (запись `audit_log` `user.outbox_expired`: actor — сотрудник телефона, объект —
   автор итогов, `meta.claimed` — `count`, `opIds`, `deviceId`, `meta.confirmed` — `authorExists`, `alreadyReceived`,
   `authorPendingOnDevice`). Мутация безопасности `device.outbox_expire` (D-308). Не дошло (`retry`: сеть, 5xx, 429,
-  401) — сообщение ждёт в `meta.expiredReports` (`expiredReports.ts`) до следующей загрузки или `online`; 400/404 —
-  снимается. Сервер: автор существует (иначе 404), `opId` из `calls` отбрасываются, 20/ч на устройство и 60/ч на
+  401) — сообщение ждёт в `meta.expiredReports` (`expiredReports.ts`) до следующей загрузки или `online` и уходит под
+  тем, кто вошёл, в том числе под самим автором (`actor_id = entity_id`, тост автору через `onOwnLost`, D-309); 400/404 —
+  не повторяется, переходит в след `meta.expiredRefused`. Сервер: автор существует (иначе 404), `opId` из `calls` отбрасываются, 20/ч на устройство и 60/ч на
   сотрудника.
 - **Выход с итогами со свободным текстом** (D-293): `flushDeviceOutbox` возвращает `{ count, freeText }`;
   `freeText` — записи outbox с признаком `freeText` (ставит экран при постановке итога по видам полей из настроек;
