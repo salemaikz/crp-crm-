@@ -4,7 +4,7 @@ import type { ActiveConfig } from '@crm/core/config';
 import type { JobDefinition, JobInstance, QueueSpec } from '@/server/platform/jobs';
 import { countOwnerlessWorkingCards } from '@/server/domain/cards';
 import { purgeDeviceStatus } from '@/server/domain/calls';
-import { distributeJob } from '@/server/domain/distribution';
+import { absenceJob, distributeJob } from '@/server/domain/distribution';
 import { purgeExpiredImportRows } from '@/server/domain/import';
 import { purgeChangeSnapshots } from '@/server/domain/team';
 import { alarmsJob, digestJob } from '@/server/domain/notify';
@@ -39,7 +39,7 @@ export const purgeParts: PurgePart[] = [
 ];
 
 export function jobDefinitions(): JobDefinition[] {
-  return [eventsEnsureJob, distributeJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob];
+  return [eventsEnsureJob, distributeJob, absenceJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob];
 }
 
 /** Очереди: обработчики появятся с плагинами (O6) и push (P8b); без обработчика строки уходят в retry no_handler. */

@@ -66,3 +66,28 @@ test('временный владелец чужой карточки не ви�
     await db.sql`UPDATE cards SET acting_user_id = NULL, acting_until_day = '' WHERE id = ${acted.card}`;
   }
 });
+
+test('срок замещения истёк (acting_until_day < сегодня в поясе установки) — карточка и задачи временному 404, даже если задача absence ещё не сняла временного', async () => {
+  // Мир изоляции: сегодня 2026-10-28. Последний день замещения включительно — ещё видно; накануне закончилось — нет.
+  const cardIds = async (v: Viewer) =>
+    (await scoped(db.sql)<{ id: string }>`SELECT c.id FROM cards c WHERE c.id = ${acted.card} AND ${scopeSql(v, 'card', 'card.read')}`).map((r) => r.id);
+  try {
+    await db.sql`UPDATE cards SET acting_user_id = ${U.opB}, acting_until_day = '2026-10-28' WHERE id = ${acted.card}`;
+    const B = await viewerOf(U.opB);
+    assert.equal(B.today, '2026-10-28');
+    assert.deepEqual(await cardIds(B), [acted.card], 'последний день замещения — видно');
+    assert.deepEqual(await visible(B, 'task.read'), ['tk-act-owner']);
+
+    await db.sql`UPDATE cards SET acting_until_day = '2026-10-27' WHERE id = ${acted.card}`;
+    assert.deepEqual(await cardIds(B), []);
+    assert.deepEqual(await visible(B, 'task.read'), []);
+    assert.deepEqual(await visible(B, 'task.write'), []);
+    await assert.rejects(throwNotFoundOrConflict(B, db.sql, 'card', acted.card), { code: 'not_found' });
+    await assert.rejects(throwNotFoundOrConflict(B, db.sql, 'task', 'tk-act-owner'), { code: 'not_found' });
+    // Владелец свою карточку и задачи видит по-прежнему
+    const A = await viewerOf(U.opA);
+    assert.deepEqual(await cardIds(A), [acted.card]);
+  } finally {
+    await db.sql`UPDATE cards SET acting_user_id = NULL, acting_until_day = '' WHERE id = ${acted.card}`;
+  }
+});

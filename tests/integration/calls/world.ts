@@ -112,6 +112,8 @@ export interface CardSeed {
   state?: string;
   owner?: string | null;
   acting?: string | null;
+  /** Последний день замещения; по умолчанию при заданном временном — ACTING_UNTIL (охват ограничен сроком, D-303). */
+  actingUntilDay?: string;
   attempts?: number;
   nextCallAt?: number | null;
   lastOutcomeAt?: number | null;
@@ -119,11 +121,18 @@ export interface CardSeed {
   version?: number;
 }
 
+/** Срок замещения в сценариях по умолчанию: позже любых часов тестов мира (сегодня — 2026-10-28). */
+export const ACTING_UNTIL = '2026-11-30';
+
 /** Привести карточку к нужному состоянию (прямой UPDATE: подготовка сценария, не продуктовый путь). */
 export async function setCard(sql: Sql, id: string, s: CardSeed): Promise<void> {
   if (s.state !== undefined) await sql`UPDATE cards SET state = ${s.state} WHERE id = ${id}`;
   if (s.owner !== undefined) await sql`UPDATE cards SET owner_user_id = ${s.owner} WHERE id = ${id}`;
-  if (s.acting !== undefined) await sql`UPDATE cards SET acting_user_id = ${s.acting} WHERE id = ${id}`;
+  if (s.acting !== undefined) {
+    // Как ядро события `absence`: временный всегда со сроком, без временного — пустой срок
+    const until = s.acting === null ? '' : (s.actingUntilDay ?? ACTING_UNTIL);
+    await sql`UPDATE cards SET acting_user_id = ${s.acting}, acting_until_day = ${until} WHERE id = ${id}`;
+  }
   if (s.attempts !== undefined) await sql`UPDATE cards SET attempts = ${s.attempts} WHERE id = ${id}`;
   if (s.nextCallAt !== undefined) await sql`UPDATE cards SET next_call_at = ${s.nextCallAt} WHERE id = ${id}`;
   if (s.lastOutcomeAt !== undefined) await sql`UPDATE cards SET last_outcome_at = ${s.lastOutcomeAt} WHERE id = ${id}`;

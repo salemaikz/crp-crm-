@@ -10,10 +10,12 @@
 //   if (upd.length === 0) await throwNotFoundOrConflict(viewer, sql, 'card', id);
 //
 // Правила охвата:
-// - карточка: own — владелец или временный владелец; team — они же в моей команде; space — текущее
+// - карточка: own — владелец или временный владелец в срок замещения (acting_until_day ≥ сегодня в поясе
+//   установки, D-303); team — они же в моей команде; space — текущее
 //   пространство; all — все пространства с членством; плюс отношения, дающие это разрешение;
 // - клиент, контакты, номера, сделки, записи, звонки, заметки, лента, чаты — через карточку;
-// - задачи: own — исполнитель я (или владелец карточки, где я временный владелец, D-252) и карточка видна;
+// - задачи: own — исполнитель я (или владелец карточки, где я временный владелец в срок, D-252, D-303) и
+//   карточка видна;
 //   иначе охват роли; плюс задачи передачи;
 // - пишущее разрешение у роли «только чтение» — FALSE; у отношения — только из его списка действий.
 import { access as coreAccess } from '@crm/core';
@@ -97,13 +99,15 @@ function cardGrant(v: Viewer, scope: Scope | null, A: Frag): Frag {
   if (!scope || v.spaceId === null) return FALSE;
   const me = v.userId;
   const space = v.spaceId;
-  const mine = frag`(${A}.owner_user_id = ${me} OR ${A}.acting_user_id = ${me})`;
+  // Временный владелец — только в срок замещения (D-303): видимость не ждёт снятия задачей `absence`
+  const live = frag`${A}.acting_until_day >= ${v.today}`;
+  const mine = frag`(${A}.owner_user_id = ${me} OR (${A}.acting_user_id = ${me} AND ${live}))`;
   switch (scope) {
     case 'own':
       return frag`(${A}.space_id = ${space} AND ${mine})`;
     case 'team':
       if (v.teamId === null) return frag`(${A}.space_id = ${space} AND ${mine})`;
-      return frag`(${A}.space_id = ${space} AND (${mine} OR EXISTS (SELECT 1 FROM memberships acc_tm WHERE acc_tm.space_id = ${A}.space_id AND acc_tm.team_id = ${v.teamId} AND (acc_tm.user_id = ${A}.owner_user_id OR acc_tm.user_id = ${A}.acting_user_id))))`;
+      return frag`(${A}.space_id = ${space} AND (${mine} OR EXISTS (SELECT 1 FROM memberships acc_tm WHERE acc_tm.space_id = ${A}.space_id AND acc_tm.team_id = ${v.teamId} AND (acc_tm.user_id = ${A}.owner_user_id OR (acc_tm.user_id = ${A}.acting_user_id AND ${live})))))`;
     case 'space':
       return frag`(${A}.space_id = ${space})`;
     case 'all':
@@ -189,12 +193,12 @@ function taskPred(v: Viewer, a: Access, X: Frag): Frag {
   const space = v.spaceId;
   const parts: Frag[] = [];
   const own = () => {
-    // «Своё»: исполнитель я — или исполнитель владелец карточки клиента, где я временный владелец (D-252:
-    // задачи отсутствующего не переназначаются, снятие временного само закрывает видимость); и карточка
+    // «Своё»: исполнитель я — или исполнитель владелец карточки клиента, где я временный владелец в срок (D-252:
+    // задачи отсутствующего не переназначаются, конец срока или снятие временного закрывает видимость, D-303); и карточка
     // клиента задачи мне видна (охват card.read и отношения).
     const card = viaCard(v, accessFor(v, 'card.read'), (C) => frag`${C}.client_id = ${X}.client_id AND ${C}.space_id = ${X}.space_id`);
     if (card === FALSE) return FALSE;
-    const acting = frag`EXISTS (SELECT 1 FROM cards acc_ta WHERE acc_ta.space_id = ${X}.space_id AND acc_ta.client_id = ${X}.client_id AND acc_ta.acting_user_id = ${me} AND acc_ta.owner_user_id = ${X}.assignee_user_id)`;
+    const acting = frag`EXISTS (SELECT 1 FROM cards acc_ta WHERE acc_ta.space_id = ${X}.space_id AND acc_ta.client_id = ${X}.client_id AND acc_ta.acting_user_id = ${me} AND acc_ta.acting_until_day >= ${v.today} AND acc_ta.owner_user_id = ${X}.assignee_user_id)`;
     return frag`((${X}.assignee_user_id = ${me} OR ${acting}) AND ${card})`;
   };
   switch (a.scope) {

@@ -12,10 +12,11 @@ const text = (f: ScopeFragment) => inspectScope(f).text;
 
 const operator = () => testViewer({ userId: 'u-op-a', role: presetRole('operator'), spaceId: 'sp-1', now: Date.UTC(2026, 9, 28, 6) });
 
-test('оператор: карточка — только своя или временная, в текущем пространстве; id — параметрами', () => {
+test('оператор: карточка — только своя или временная в срок замещения, в текущем пространстве; id — параметрами', () => {
   const f = inspectScope(scopeSql(operator(), 'card', 'card.read'));
-  assert.equal(f.text, '((c.space_id = $1 AND (c.owner_user_id = $2 OR c.acting_user_id = $3)))');
-  assert.deepEqual(f.values, ['sp-1', 'u-op-a', 'u-op-a']);
+  assert.equal(f.text, '((c.space_id = $1 AND (c.owner_user_id = $2 OR (c.acting_user_id = $3 AND c.acting_until_day >= $4))))');
+  // сегодня — местный день установки зрителя (D-303)
+  assert.deepEqual(f.values, ['sp-1', 'u-op-a', 'u-op-a', '2026-10-28']);
 });
 
 test('нет права — FALSE; система — TRUE; администратор без роли — FALSE везде', () => {
@@ -107,10 +108,10 @@ test('scoped(sql) разворачивает фрагмент в один шаб
   await scoped(fakeSql)`SELECT c.id FROM cards c WHERE c.id = ${'card-9'} AND ${scopeSql(operator(), 'card', 'card.read')} LIMIT ${20}`;
   const [call] = calls;
   assert.ok(call);
-  assert.deepEqual(call.values, ['card-9', 'sp-1', 'u-op-a', 'u-op-a', 20]);
+  assert.deepEqual(call.values, ['card-9', 'sp-1', 'u-op-a', 'u-op-a', '2026-10-28', 20]);
   assert.equal(call.strings.length, call.values.length + 1);
   assert.equal(
     call.strings.join('?'),
-    'SELECT c.id FROM cards c WHERE c.id = ? AND ((c.space_id = ? AND (c.owner_user_id = ? OR c.acting_user_id = ?))) LIMIT ?',
+    'SELECT c.id FROM cards c WHERE c.id = ? AND ((c.space_id = ? AND (c.owner_user_id = ? OR (c.acting_user_id = ? AND c.acting_until_day >= ?)))) LIMIT ?',
   );
 });
