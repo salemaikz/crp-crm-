@@ -7,7 +7,7 @@ import { limitsFor } from '@/server/platform/files';
 import { applyImport } from './apply';
 import { ImportError } from './errors';
 import { computePreview } from './load';
-import { importEnabled } from './platformGlue';
+import { importEnabled, standImportBlocked } from './platformGlue';
 import { assertOwners, blockersOf, countHeldWorking, loadImportOrThrow, restoreOwnerMap, stampOf, summaryOf } from './preview';
 import * as repo from './repo';
 import { csvOf, filteredRows } from './rows';
@@ -34,6 +34,12 @@ export const MAX_LIST = 50;
 /** Выключенный модуль и пользователь без пространства неотличимы от «нет такого». */
 function assertAvailable(actor: ImportActor): void {
   if (!importEnabled() || !actor.spaceId) throw new NotFoundError();
+}
+
+/** Загрузка файла на тестовом стенде Vercel закрыта (D-318): таблицы клиентов туда не попадают. */
+function assertUploadAllowed(actor: ImportActor): void {
+  assertAvailable(actor);
+  if (standImportBlocked()) throw new ImportError('stand_unavailable');
 }
 
 function itemOf(i: repo.ImportRow, hasRows: boolean): ImportListItem {
@@ -72,7 +78,7 @@ export const importService: ImportService = {
   },
 
   async upload(actor, input: UploadInput, now): Promise<UploadResult> {
-    assertAvailable(actor);
+    assertUploadAllowed(actor);
     const ctx = await loadImportContext(actor.spaceId);
     return uploadImport(ctx, actor, input, now);
   },
@@ -136,7 +142,8 @@ export async function listProfiles(actor: ImportActor): Promise<{ key: string; l
 
 /** Предел тела загрузки в байтах: import.maxFileMb, но не больше жёсткого потолка (D-112). */
 export async function uploadLimitBytes(actor: ImportActor): Promise<number> {
-  assertAvailable(actor);
+  // Маршрут спрашивает предел до чтения тела: на стенде Vercel отказ приходит раньше, чем файл
+  assertUploadAllowed(actor);
   const ctx = await loadImportContext(actor.spaceId);
   return limitsFor(ctx.settings).maxBytes;
 }

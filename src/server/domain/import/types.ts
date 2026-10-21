@@ -279,7 +279,8 @@ export interface ImportDetails extends ImportListItem {
 /**
  * Ошибки сервиса → HTTP в маршруте: not_found 404 (и чужое пространство), feature_off 404,
  * busy 409, preview_stale 409 (+ свежая сводка), blocked 409 (+ blockers), rows_expired 410,
- * bad_owner 400, bad_profile 400, header_not_found 422, файл — коды SpreadsheetError (413/415/422/429).
+ * bad_owner 400, bad_profile 400, header_not_found 422, stand_unavailable 409 (тестовый стенд Vercel, D-318),
+ * файл — коды SpreadsheetError (413/415/422/429).
  */
 export type ImportErrorCode =
   | 'not_found'
@@ -290,7 +291,8 @@ export type ImportErrorCode =
   | 'rows_expired'
   | 'bad_owner'
   | 'bad_profile'
-  | 'header_not_found';
+  | 'header_not_found'
+  | 'stand_unavailable';
 
 /** Сигнатуры сервиса импорта (service.ts). `now` — параметром, как в ядре. */
 export interface ImportService {

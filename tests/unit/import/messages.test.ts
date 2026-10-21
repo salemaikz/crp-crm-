@@ -11,7 +11,7 @@ const keys = (o: unknown): string[] => (o && typeof o === 'object' ? Object.keys
 
 test('коды ошибок файла и импорта имеют текст', () => {
   const files: SpreadsheetErrorCode[] = ['too_large', 'empty', 'bad_type', 'legacy_xls', 'macro', 'corrupt', 'zip_limits', 'xml_doctype', 'unsupported_encoding', 'sheet_required', 'sheet_not_found', 'too_many_rows', 'busy'];
-  const imp: ImportErrorCode[] = ['not_found', 'feature_off', 'busy', 'preview_stale', 'blocked', 'rows_expired', 'bad_owner', 'bad_profile', 'header_not_found'];
+  const imp: ImportErrorCode[] = ['not_found', 'feature_off', 'busy', 'preview_stale', 'blocked', 'rows_expired', 'bad_owner', 'bad_profile', 'header_not_found', 'stand_unavailable'];
   const have = new Set(keys(msg.errors));
   for (const c of [...files, ...imp, 'generic', 'network', 'rate_limited']) {
     if (c === 'feature_off') continue; // выключенный модуль отдаётся как 404

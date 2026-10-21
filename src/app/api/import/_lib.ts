@@ -37,6 +37,7 @@ const IMPORT_STATUS: Record<string, number> = {
   bad_owner: 400,
   bad_profile: 400,
   header_not_found: 422,
+  stand_unavailable: 409,
 };
 
 const json = (status: number, body: unknown): Response => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });

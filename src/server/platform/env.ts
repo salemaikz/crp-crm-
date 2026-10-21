@@ -1,8 +1,10 @@
 // Окружение установки: чтение переменных и проверки конфигурации (fail closed).
 // Нормативно: docs/CONFIG.md §7. Секреты читаются только здесь и в secrets/ (позже).
 // Источник: платформа LMS 2cd8a2b src/lib/env.ts (без режима демо: встроенной БД в продукте нет).
+import type { Watermark } from '@crm/core/license';
 import { appOrigin } from './auth/csrf';
 import { clientIpConfigProblem } from './http/clientIp';
+import { buildWatermark, isVercelStand, standRequested, vercelStandOverlay } from './stand';
 
 /** Окружение как словарь: совместимо с process.env, тестам можно передать любой объект. */
 export type Env = Record<string, string | undefined>;
@@ -53,13 +55,20 @@ export function migrateDatabaseUrl(e: Env = process.env): string {
  * Что в окружении не даёт запустить веб-приложение (пусто — можно). Проверяет src/instrumentation.ts при
  * старте сервера Next; в production нужны APP_ORIGIN (иначе 403 на любую мутацию, D-153) и
  * CRM_PROXY_SECRET (иначе IP клиентов неизвестен и лимиты входа общие, D-155). Обе строки пишет crmctl.
+ * Режим стенда на Vercel (D-318) вместо CRM_PROXY_SECRET требует то, без чего стенд не работает (база,
+ * CRM_DEMO_SECRET для выведенных секретов); в сборке клиента просьба о нём — отказ запуска.
  */
-export function startupConfigProblems(e: Env = process.env): string[] {
+export function startupConfigProblems(e: Env = process.env, watermark: Pick<Watermark, 'customer'> = buildWatermark()): string[] {
   const problems: string[] = [];
-  if (isProduction(e) && !appOrigin(e)) {
+  if (standRequested(e) && watermark.customer !== null) {
+    problems.push('VERCEL=1 и CRM_STAND=1 в сборке клиента: режим стенда на Vercel только для общей сборки на синтетике (D-318). Уберите CRM_STAND из окружения');
+  }
+  const stand = isVercelStand(e, watermark);
+  if (stand) problems.push(...vercelStandOverlay(e).problems);
+  if (isProduction(e) && !appOrigin(e) && !(stand && problems.some((p) => p.startsWith('APP_ORIGIN')))) {
     problems.push('APP_ORIGIN не задан или не адрес http(s): без него любая мутация получает 403 (docs/CONFIG.md §7)');
   }
-  const ip = clientIpConfigProblem(e);
+  const ip = clientIpConfigProblem(e, watermark);
   if (ip) problems.push(ip);
   return problems;
 }

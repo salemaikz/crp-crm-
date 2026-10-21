@@ -44,6 +44,9 @@ export async function createPostgresDb(url: string, opts: { schema?: string } = 
       int8: { to: 20, from: [20], serialize: (x: number) => String(x), parse: (x: string) => Number(x) },
     },
     max: Number(process.env.DB_POOL_MAX) || 10,
+    // DB_PREPARE=0 — без именованных подготовленных запросов: пулер в режиме транзакций (PgBouncer, пулер Neon на
+    // стенде Vercel, D-318) не гарантирует, что следующий запрос попадёт в то же соединение
+    prepare: process.env.DB_PREPARE?.trim() !== '0',
     idle_timeout: 20,
     connect_timeout: 15,
     onnotice: () => {},

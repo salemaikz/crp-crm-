@@ -1,6 +1,7 @@
 // Проверка Origin мутирующих запросов (CSRF поверх SameSite=Lax, D-095, ARCHITECTURE §5.2 п. 3).
 // Чистая функция от заголовков и env: её зовут src/proxy.ts (первый рубеж) и обёртки
 // route()/publicRoute()/action() (второй рубеж — Next пропускает server action без Origin).
+import { configuredAppOrigin } from '../stand/origin';
 import type { OriginVerdict } from './types';
 
 type HeaderGetter = { get(name: string): string | null | undefined };
@@ -30,9 +31,9 @@ export function checkOrigin(headers: HeaderGetter, env: Env = process.env, opts:
   return 'ok';
 }
 
-/** origin из APP_ORIGIN (нормализованный) или null: не задан или не URL. */
+/** origin из APP_ORIGIN (нормализованный; на стенде Vercel без него — адрес проекта, D-318) или null: не задан или не URL. */
 export function appOrigin(env: Env = process.env): string | null {
-  const raw = env.APP_ORIGIN?.trim();
+  const raw = configuredAppOrigin(env);
   if (!raw) return null;
   try {
     const url = new URL(raw);
@@ -44,7 +45,7 @@ export function appOrigin(env: Env = process.env): string | null {
 
 /** origin из APP_ORIGIN; вне production без него — из запроса или Host (разработка, тесты). Иначе null (fail closed). */
 function expectedOrigin(headers: HeaderGetter, env: Env, requestOrigin: string | undefined): string | null {
-  if (env.APP_ORIGIN?.trim()) return appOrigin(env);
+  if (configuredAppOrigin(env)) return appOrigin(env);
   if (env.NODE_ENV === 'production') return null;
   if (requestOrigin) return requestOrigin;
   const host = headers.get('host')?.trim();

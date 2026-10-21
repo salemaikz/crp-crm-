@@ -3,7 +3,13 @@
 // заголовки, которые ставит nginx (X-Real-IP, X-Forwarded-For, X-Via-Proxy), принимаются только вместе с
 // X-Proxy-Secret, равным CRM_PROXY_SECRET из app.env. nginx берёт секрет из /etc/crm/nginx-proxy.d/
 // (пишет crmctl install/update), клиентский X-Proxy-Secret затирается своим proxy_set_header.
+//
+// Режим стенда на Vercel (D-318): nginx и сети crm_ingest нет, каждый запрос приходит с края Vercel, который сам
+// перезаписывает X-Forwarded-For и X-Real-IP (https://vercel.com/docs/headers/request-headers). Там любой запрос —
+// 'proxy' (внешний), секрет не нужен; вне режима правила выше не меняются.
 import { createHash, timingSafeEqual } from 'node:crypto';
+import type { Watermark } from '@crm/core/license';
+import { buildWatermark, isVercelStand } from '../stand';
 
 type HeaderGetter = { get(name: string): string | null | undefined };
 type Env = Record<string, string | undefined>;
@@ -36,7 +42,8 @@ export function secretsEqual(presented: string, expected: string): boolean {
  */
 export type RequestPath = 'proxy' | 'direct' | 'forged';
 
-export function classifyRequest(headers: HeaderGetter, env: Env = process.env): RequestPath {
+export function classifyRequest(headers: HeaderGetter, env: Env = process.env, watermark: Pick<Watermark, 'customer'> = buildWatermark()): RequestPath {
+  if (isVercelStand(env, watermark)) return 'proxy';
   const presented = headers.get(PROXY_SECRET_HEADER);
   const secret = proxySecret(env);
   if (secret && presented && secretsEqual(presented, secret)) return 'proxy';
@@ -48,8 +55,8 @@ export function classifyRequest(headers: HeaderGetter, env: Env = process.env): 
  * Пускать ли запрос на /api/ingest/ (второй рубеж за nginx, INTEGRATIONS §5.1): внутренний источник
  * ('direct') — да; через nginx — только при INGEST_PUBLIC=1; поддельная метка — нет никогда.
  */
-export function ingestReachable(headers: HeaderGetter, env: Env = process.env): boolean {
-  const path = classifyRequest(headers, env);
+export function ingestReachable(headers: HeaderGetter, env: Env = process.env, watermark: Pick<Watermark, 'customer'> = buildWatermark()): boolean {
+  const path = classifyRequest(headers, env, watermark);
   if (path === 'direct') return true;
   if (path === 'proxy') return env.INGEST_PUBLIC?.trim() === '1';
   return false;

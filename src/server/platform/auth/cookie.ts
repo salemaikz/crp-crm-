@@ -1,4 +1,5 @@
 // Параметры cookie сессии без Next (D-091). Set-Cookie ставит src/server/platform/http/sessionCookie.ts.
+import { configuredAppOrigin } from '../stand/origin';
 import type { SessionCookieSpec } from './types';
 
 type Env = Record<string, string | undefined>;
@@ -15,7 +16,7 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
  */
 export function sessionCookieSpec(env: Env = process.env): SessionCookieSpec {
   const production = env.NODE_ENV === 'production';
-  const raw = env.APP_ORIGIN?.trim();
+  const raw = configuredAppOrigin(env);
   if (!raw) {
     if (production) throw new Error('APP_ORIGIN is not set in production (docs/CONFIG.md §7): cookie сессии не выдаётся.');
     return { name: SESSION_COOKIE_PLAIN, httpOnly: true, secure: false, sameSite: 'lax', path: '/' };

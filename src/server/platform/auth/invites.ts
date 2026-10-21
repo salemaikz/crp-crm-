@@ -4,6 +4,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { writeAudit } from '../audit';
 import { newId, type Sql } from '../db';
+import { configuredAppOrigin } from '../stand/origin';
 import { maskPhone } from './login';
 import { hashPassword, passwordProblem, PASSWORD_INPUT_MAX_CHARS } from './password';
 import { createSession, revokeAllSessions, SESSION_TOKEN_RE } from './session';
@@ -25,7 +26,7 @@ const newToken = () => randomBytes(32).toString('base64url');
 
 /** Ссылка приглашения: токен только во фрагменте `#`. */
 export function inviteLink(token: string, env: Env = process.env): string {
-  const raw = env.APP_ORIGIN?.trim();
+  const raw = configuredAppOrigin(env);
   if (!raw && env.NODE_ENV === 'production') throw new Error('APP_ORIGIN is not set in production (docs/CONFIG.md §7).');
   const origin = raw ? new URL(raw).origin : 'http://localhost:3000';
   return `${origin}/invite#${token}`;
