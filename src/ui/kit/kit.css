@@ -403,15 +403,33 @@
     border-radius: var(--radius-control);
     background: transparent;
     background-clip: padding-box;
+    /* перенесённая на телефоне подпись — по центру, как у соседей в одну строку */
+    text-align: center;
   }
+  /* Заливка — только внутри прозрачной рамки: шорткат background из .k-chip:hover и .k-chip[aria-pressed]
+     (та же специфичность, ниже в файле) сбрасывает background-clip, поэтому он задан здесь заново */
   .k-segmented > .k-chip:hover {
-    background: var(--canvas);
+    background-color: var(--canvas);
+    background-clip: padding-box;
   }
+  /* Выбранный отступает от рамки группы так же, как остальные: border-color из .k-chip[aria-pressed] сброшен */
   .k-segmented > .k-chip[aria-pressed='true'],
   .k-segmented > .k-chip[aria-selected='true'],
   .k-segmented > .k-chip[aria-current='page'] {
-    background: var(--brand);
+    border-color: transparent;
+    background-color: var(--brand);
+    background-clip: padding-box;
     color: var(--on-brand);
+  }
+  /* Фокус внутри группы: overflow-x: auto режет всё за её краем. Кольцо лежит в прозрачной рамке сегмента
+     (offset −3 px) на фоне группы; у выбранного там тот же фон, поэтому кольцо — цветом текста на бренде
+     внутри заливки (--ring темы может совпадать с --brand) */
+  .k-segmented > .k-chip:focus-visible {
+    outline-offset: -3px;
+  }
+  .k-segmented > .k-chip:is([aria-pressed='true'], [aria-selected='true'], [aria-current='page']):focus-visible {
+    outline: 2px solid var(--on-brand);
+    outline-offset: -7px;
   }
   .k-tabs__list.k-segmented {
     gap: 0;

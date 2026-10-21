@@ -214,6 +214,119 @@ test('оператор (телефон): шторка итога — ЛПР «Д
   expect(geo.undoH, '«Отменить» в тосте: высота касания').toBeGreaterThanOrEqual(44);
 });
 
+type SegFocus = {
+  label: string;
+  focusVisible: boolean;
+  selected: boolean;
+  ringInside: boolean;
+  ring: number[];
+  group: number[];
+  outline: string;
+  behind: string;
+  border: string;
+  clip: string;
+};
+
+/** Tab до сегмента с подписью label: только клавиатура, чтобы сработал :focus-visible. */
+async function tabToSegment(page: Page, label: string): Promise<SegFocus> {
+  for (let i = 0; i < 40; i++) {
+    await page.keyboard.press('Tab');
+    const hit = await page.evaluate((l) => {
+      const a = document.activeElement;
+      return !!a?.closest('.k-segmented') && (a.textContent ?? '').trim().startsWith(l);
+    }, label);
+    if (hit) break;
+  }
+  return page.evaluate(() => {
+    const seg = document.activeElement as HTMLElement;
+    const group = seg.closest('.k-segmented') as HTMLElement | null;
+    const cs = getComputedStyle(seg);
+    const selected = seg.matches("[aria-pressed='true'], [aria-selected='true'], [aria-current='page']");
+    // кольцо контура: рамка элемента, раздвинутая на outline-offset + outline-width
+    const grow = parseFloat(cs.outlineOffset) + parseFloat(cs.outlineWidth);
+    const s = seg.getBoundingClientRect();
+    const g = group?.getBoundingClientRect() ?? new DOMRect();
+    const ring = [s.left - grow, s.top - grow, s.right + grow, s.bottom + grow];
+    const box = [g.left, g.top, g.right, g.bottom];
+    const ringInside = !!group && ring[0]! >= box[0]! - 0.5 && ring[1]! >= box[1]! - 0.5 && ring[2]! <= box[2]! + 0.5 && ring[3]! <= box[3]! + 0.5;
+    // под кольцом: у выбранного — заливка сегмента, у прочих — фон группы (сегмент прозрачен)
+    const behind = selected ? cs.backgroundColor : group ? getComputedStyle(group).backgroundColor : '';
+    return {
+      label: (seg.textContent ?? '').trim(),
+      focusVisible: seg.matches(':focus-visible') && cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0,
+      selected,
+      ringInside,
+      ring: ring.map((v) => Math.round(v)),
+      group: box.map((v) => Math.round(v)),
+      outline: cs.outlineColor,
+      behind,
+      border: cs.borderTopColor,
+      clip: cs.backgroundClip,
+    };
+  });
+}
+
+/** Контраст двух цветов rgb()/rgba() по WCAG (непрозрачные). */
+function contrast(a: string, b: string): number {
+  const lum = (c: string) => {
+    const [r, g, bl] = (c.match(/[\d.]+/g) ?? ['0', '0', '0']).slice(0, 3).map((v) => {
+      const x = Number(v) / 255;
+      return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
+function expectSegFocus(f: SegFocus, where: string): void {
+  const w = (m: string) => `${where} «${f.label}»: ${m}`;
+  expect(f.focusVisible, w('кольцо фокуса с клавиатуры')).toBe(true);
+  expect(f.ringInside, w(`кольцо ${f.ring} внутри группы ${f.group}, не срезано overflow`)).toBe(true);
+  expect(contrast(f.outline, f.behind), w(`контраст кольца ${f.outline} к фону ${f.behind}`)).toBeGreaterThanOrEqual(3);
+}
+
+test('оператор (телефон): переключатель видов — кольцо фокуса внутри группы и контрастно, выбранный не закрывает рамку, подпись по центру', async ({ page }) => {
+  const op = await makeOperator(1);
+  await login(page, op);
+
+  await page.goto('/clients');
+  await expect(page.locator('.k-segmented')).toBeVisible();
+  const all = await tabToSegment(page, 'Все');
+  expect(all.selected, '«Все» выбран по умолчанию').toBe(true);
+  expectSegFocus(all, '/clients');
+  // выбранный сегмент отступает от рамки группы так же, как невыбранный: его рамка прозрачна
+  expect(all.border, 'рамка выбранного сегмента прозрачна').toBe('rgba(0, 0, 0, 0)');
+  expect(all.clip, 'заливка выбранного — внутри прозрачной рамки, не под ней').toBe('padding-box');
+  const mine = await tabToSegment(page, 'Мои');
+  expect(mine.selected).toBe(false);
+  expectSegFocus(mine, '/clients');
+  const archive = page.locator('.k-segmented > .k-chip', { hasText: 'Архив' });
+  await archive.hover();
+  expect(await archive.evaluate((el) => getComputedStyle(el).backgroundClip), 'подсветка наведения — внутри рамки').toBe('padding-box');
+
+  // перенесённая подпись: каждая строка по центру сегмента, как у соседей в одну строку
+  const lines = await page.locator('.k-segmented > .k-chip').evaluateAll((segs) =>
+    segs.flatMap((seg) => {
+      const s = seg.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(seg);
+      const center = s.left + s.width / 2;
+      return [...range.getClientRects()].filter((r) => r.width > 0).map((r) => ({ text: (seg.textContent ?? '').trim(), off: Math.round(Math.abs(r.left + r.width / 2 - center)) }));
+    }),
+  );
+  expect(lines.length).toBeGreaterThan(0);
+  expect(lines.filter((l) => l.off > 2), 'строки подписей по центру сегмента').toEqual([]);
+
+  await page.goto('/tasks');
+  await expect(page.locator('.k-segmented')).toBeVisible();
+  const myTasks = await tabToSegment(page, 'Мои');
+  expect(myTasks.selected, 'вкладка «Мои» выбрана').toBe(true);
+  expectSegFocus(myTasks, '/tasks');
+  expect(myTasks.border, 'рамка выбранной вкладки прозрачна').toBe('rgba(0, 0, 0, 0)');
+  expect(myTasks.clip, 'заливка выбранной вкладки — внутри прозрачной рамки').toBe('padding-box');
+});
+
 test('консультант (телефон): сетка страниц меню', async ({ page }) => {
   const c = await makeConsultant();
   await login(page, { id: c.userId, phone: c.phone, cardIds: [], names: [], clientIds: [] });
@@ -244,10 +357,14 @@ test('дежурный (телефон): экран дежурства на се
 test('директор (телефон): сетка страниц меню', async ({ page }) => {
   const d = await makeStaff('director', 'Директор Синтетик');
   await login(page, d);
-  await page.goto('/director');
+  // сводка директора — за FEATURE_REPORTS (меню, D-055): без флага вход на «Отчёты», там только полная выгрузка
+  const reportsOn = process.env.FEATURE_REPORTS !== '0';
+  await page.goto(reportsOn ? '/director' : '/reports');
   await expectBrand(page);
   const hrefs = (await menuHrefs(page, true)).filter((h) => h !== '/account');
-  expect(hrefs).toContain('/director');
+  if (reportsOn) expect(hrefs).toContain('/director');
+  else expect(hrefs, 'без отчётов за период: нет сводки директора, есть выгрузка').toEqual(expect.arrayContaining(['/reports']));
+  if (!reportsOn) expect(hrefs).not.toContain('/director');
   for (const href of [...hrefs, '/notifications']) await check(page, href, true);
 });
 
