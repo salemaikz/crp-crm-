@@ -471,6 +471,8 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `FEATURE_REPORTS`, `FEATURE_SALES_SETTINGS` | отчёты за период с их CSV/XLSX и панелью директора; экран настроек продаж (D-295). Выключен — 404 и пункт меню скрыт. Полная выгрузка и журнал выгрузок флагом не закрываются (D-055): их выключатель — право `data.export_all` в ролях | нет | нет |
 | `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_ZADARMA`, `FEATURE_TELEPHONY_BEELINE` | флаги интеграций (D-025 crp-kz) | нет | нет |
 | `TELEMETRY` | `off` по умолчанию | нет | нет |
+| `DB_POOL_MAX`, `DB_PREPARE` | размер пула postgres.js (по умолчанию 10); `DB_PREPARE=0` — без именованных подготовленных запросов, для пулера в режиме транзакций (PgBouncer) | нет | нет |
+| `CRM_STAND`, `CRM_DEMO_SECRET` | учебный стенд на синтетике: `CRM_STAND=1` разрешает сид (`--i-know-this-is-a-stand`). Вместе с `VERCEL=1` в общей сборке — **режим стенда на Vercel** (D-318, `docs/ops/VERCEL.md`): `APP_ORIGIN` по умолчанию `https://$VERCEL_PROJECT_PRODUCTION_URL`; `CRM_PROXY_SECRET` не нужен (IP — `X-Real-IP` или первый `X-Forwarded-For` от края Vercel); `CRM_PHONE_HMAC_KEY`, `CRM_IIN_HMAC_KEY` и ключ секретов интеграций выводятся HKDF из `CRM_DEMO_SECRET` (от 32 символов), если не заданы; `DATABASE_URL` можно не задавать при `POSTGRES_URL`; `DB_PREPARE=0`, `DB_POOL_MAX=3`; флаги стенда включены, `WAZZUP` и телефония выключены; загрузка файлов импорта закрыта. В сборке клиента режим не включается: запуск отказывает. На боевой установке не задаются | только стенд | `CRM_DEMO_SECRET` — да |
 
 Проверка при старте (`src/instrumentation.ts`): в production без `APP_ORIGIN` или без
 `CRM_PROXY_SECRET` веб-приложение не запускается и пишет в лог, какой строки не хватает и что
