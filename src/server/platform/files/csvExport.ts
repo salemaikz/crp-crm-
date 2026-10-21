@@ -11,11 +11,12 @@ export function looksLikeFormula(s: string): boolean {
 
 /**
  * Ячейка CSV: строка, похожая на формулу, получает ведущий апостроф; «;», кавычка и перевод строки
- * берут ячейку в кавычки с удвоением. Числа — как есть.
+ * берут ячейку в кавычки с удвоением. Числа — как есть, но дробные с запятой: русский Excel
+ * иначе примет «12.5» за дату. Целые и деньги не меняются.
  */
 export function csvCell(value: CsvCellValue): string {
   if (value === null || value === undefined) return '';
-  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value).replace('.', ',') : '';
   let s = String(value);
   if (FORMULA.test(s)) s = `'${s}`;
   return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

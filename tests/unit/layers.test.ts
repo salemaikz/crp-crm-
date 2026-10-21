@@ -114,7 +114,7 @@ export function checkFile(file: string, source: string): Violation[] {
     }
     if (under(file, 'src/app') || under(file, 'src/ui')) {
       if (spec === 'postgres' || under(target, 'src/server/platform/db')) bad('SQL и БД — только в репозиториях домена');
-      if (/^src\/server\/domain\/[^/]+\/repo(\.|$)/.test(target)) bad('репозитории домена недоступны интерфейсу');
+      if (/^src\/server\/domain\/[^/]+\/(repo|[A-Za-z]+Repo)(\.|$)/.test(target)) bad('репозитории домена недоступны интерфейсу');
     }
     // SystemActor — только в scripts/**, src/server/jobs/** (а в домене и доступе — как тип)
     if (target === 'src/server/access/systemActor') {

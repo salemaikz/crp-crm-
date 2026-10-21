@@ -103,10 +103,21 @@ test('409 config_conflict при старой ревизии; ничего не 
   assert.equal(stale.status, 409);
   assert.deepEqual(await stale.json(), { error: 'conflict', detail: 'config_conflict' });
   assert.equal((await revRows(spaceId)).length, before);
-  // чужая ревизия global тоже даёт конфликт
+  // старая ревизия global конфликтует, только если global пишется (окно звонков)
   const cur = await read();
-  const staleGlobal = await patch({ expectedRev: { global: cur.revs.global - 1, space: cur.revs.space }, patch: { dailyCap: 13 } });
+  const staleGlobal = await patch({ expectedRev: { global: cur.revs.global - 1, space: cur.revs.space }, patch: { callWindow: { start: '09:00', end: '18:00' } } });
   assert.equal(staleGlobal.status, 409);
+});
+
+test('правка праздников администратором не даёт 409 РОП, меняющему только dailyCap', async () => {
+  const b = await read(); // экран РОП открыт с этими ревизиями
+  actAs(U.admin);
+  const hol = await holidaysPut(req('PUT', HOL, { expectedRev: { global: b.revs.global }, holidays: [{ date: '2027-03-08', kind: 'holiday', note: 'Синтетика' }] }), ctx);
+  assert.equal(hol.status, 200);
+  actAs(U.rop);
+  const res = await patch({ expectedRev: b.revs, patch: { dailyCap: 14 } });
+  assert.equal(res.status, 200);
+  assert.equal((await read()).values.dailyCap, 14);
 });
 
 test('гонка: два PATCH с одной ревизией — один 200, другой 409', async () => {

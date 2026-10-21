@@ -135,3 +135,19 @@ test('билеты: одноразовые, 60 с, только свои; хра
   assert.ok(ticketCount() <= TICKETS_MAX);
   resetTicketsForTests();
 });
+
+test('CSV для русского Excel: доли с запятой (12.5, 33.3), целые и деньги не портятся', () => {
+  const r: OperatorsReport = {
+    period,
+    grouping: 'total',
+    callsPerHourTarget: null,
+    rows: [{ ...metrics, userId: 'u1', name: 'Иван', bucket: 'total', belowTarget: false, attendanceRate: 12.5, callsPerHour: 33.3, purchaseSumKzt: 1_500_000 }],
+    totals: metrics,
+  };
+  const x = toExportTable('operators', r, t);
+  const csv = toExcelCsv([x.columns.map((c) => c.label), ...x.rows]);
+  assert.ok(csv.includes(';12,5;'), '12,5');
+  assert.ok(csv.includes('33,3'), '33,3');
+  assert.ok(csv.includes(';1500000;'), 'деньги целым');
+  assert.ok(!/\d\.\d/.test(csv), 'точки в числах нет');
+});

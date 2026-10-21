@@ -6,3 +6,4 @@ export { runDigest } from './digest';
 export { notifyDeps, overrideNotifyDepsForTests } from './deps';
 export { loadNotifyConfig, parseNotifyConfig } from './settings';
 export * from './types';
+export { notifyRoles } from './service';

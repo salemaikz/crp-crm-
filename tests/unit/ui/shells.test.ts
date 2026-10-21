@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { RoleConfig } from '@crm/core/access';
 import { can } from '../../../src/server/access/viewer';
 import { testViewer } from '../../../src/server/access/testing';
-import { buildMenu, isCurrentPath, shellKindOf, type ShellKind } from '../../../src/ui/shells/menu';
+import { buildMenu, currentHref, isCurrentPath, shellKindOf, type ShellKind } from '../../../src/ui/shells/menu';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 
@@ -162,4 +162,13 @@ test('«Выгрузки»: директору (export.journal) и админи�
   const viewer = testViewer({ userId: 'u-admin', role: null, isAdmin: true });
   const m = buildMenu({ shell: shellKindOf([]), menu: [], can: (p) => can(viewer, p), isAdmin: true, features: ALL });
   assert.ok(hrefs(m).includes('/reports/exports'));
+});
+
+test('currentHref: из совпавших пунктов побеждает самый длинный href (/reports/exports)', () => {
+  const hrefs = ['/reports', '/reports/exports', '/clients'];
+  assert.equal(currentHref('/reports/exports', hrefs), '/reports/exports');
+  assert.equal(currentHref('/reports', hrefs), '/reports');
+  assert.equal(currentHref('/reports/x', hrefs), '/reports');
+  assert.equal(currentHref('/other', hrefs), null);
+  assert.equal(currentHref(null, hrefs), null);
 });

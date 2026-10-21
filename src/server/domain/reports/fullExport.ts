@@ -6,7 +6,7 @@ import { fields, time } from '@crm/core';
 import pkg from '../../../../package.json';
 import { ForbiddenError, NotFoundError, can, scopeOf, type Viewer } from '@/server/access';
 import { fieldViewer, loadClientsConfig } from '@/server/domain/clients';
-import { insertNotifications, listRecipients } from '@/server/domain/notify/repo';
+import { notifyRoles } from '@/server/domain/notify';
 import { EVENT_KINDS } from '@/server/domain/timeline';
 import { pickData } from '@/server/domain/timeline/kinds';
 import { getActiveConfig } from '@/server/platform/config/active';
@@ -396,11 +396,13 @@ export const streamFullExport: StreamFullExport = async (viewer, input) => {
       const counts = await repo.countFullExport(viewer, sql, { spaceId, kinds: ctx.kinds, visibleRefs: ctx.visibleRefs });
       const rows = Object.values(counts).reduce((s, n) => s + n, 0);
       await writeExportLogIn(sql, viewer, { kind: 'full', reportKey: null, format: 'zip', rows, filterKeys: [], periodDays: null });
-      const recipients = new Set([...(await listRecipients(sql, { spaceId, roles: ctx.recipientRoles })), ...(await repo.selectActiveAdmins(sql))]);
-      const exportId = newId();
-      await insertNotifications(sql, {
-        rows: [...recipients].map((userId) => ({ id: newId(), userId, kind: NOTIFY_KIND_FULL_EXPORT, params: {}, dedupeKey: `export_full:${exportId}:${userId}` })),
-        mode: 'ignore',
+      await notifyRoles(sql, {
+        spaceId,
+        roles: ctx.recipientRoles,
+        extraUserIds: await repo.selectActiveAdmins(sql),
+        kind: NOTIFY_KIND_FULL_EXPORT,
+        eventId: `export_full:${newId()}`,
+        newId,
         now: viewer.now,
       });
       return counts;

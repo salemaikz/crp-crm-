@@ -99,7 +99,8 @@ export async function patchSalesSettings(viewer: Viewer, input: SalesPatchInput)
   await write({
     docs: { ...(touchesGlobal ? { global: globalDoc } : {}), ...(touchesSpace ? { spaces: { [key]: spaceDoc } } : {}) },
     source: 'ui',
-    expectedRev: { global: input.expectedRev.global, [key]: input.expectedRev.space },
+    // сверяем ревизии только тех областей, которые пишем: чужая правка соседней области не даёт 409
+    expectedRev: { ...(touchesGlobal ? { global: input.expectedRev.global } : {}), ...(touchesSpace ? { [key]: input.expectedRev.space } : {}) },
     authorId: viewer.userId,
     note: `ui: ${paths.join(', ')}`,
   });

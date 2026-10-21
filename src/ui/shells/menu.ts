@@ -134,6 +134,13 @@ export function buildMenu(input: MenuInput): BuiltMenu {
   return { shell: input.shell, items, bottomSlots: spec.bottomSlots, home: byRoleHrefs[0] ?? items[0]?.href ?? '/account' };
 }
 
+/** Текущий пункт среди всех: из совпавших побеждает самый длинный href (`/reports/exports` — не «Отчёты»). */
+export function currentHref(pathname: string | null, hrefs: readonly string[]): string | null {
+  let best: string | null = null;
+  for (const h of hrefs) if (isCurrentPath(pathname, h) && (best === null || h.length > best.length)) best = h;
+  return best;
+}
+
 /** Пункт текущий, если адрес совпал или лежит внутри раздела (`/clients` и `/clients/x`). */
 export function isCurrentPath(pathname: string | null, href: string): boolean {
   if (!pathname) return false;
