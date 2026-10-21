@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
-import { Alert, Page, PageHeader, Tabs } from '@/ui/kit';
+import { Alert, Button, Page, PageHeader, Tabs } from '@/ui/kit';
 import { JournalPanel } from './JournalPanel';
 import { OwnerlessPanel } from './OwnerlessPanel';
 import { ParticipantsPanel } from './ParticipantsPanel';
@@ -16,7 +16,15 @@ export function DistributionScreen({ data }: { data: DistributionData }) {
   const refresh = () => router.refresh();
   return (
     <Page width="wide">
-      <PageHeader title={t('title')} lead={t('lead')} />
+      <PageHeader
+        title={t('title')}
+        lead={t('lead')}
+        actions={
+          <Button variant="quiet" size="sm" href="/pairs">
+            {t('pool.pairsLink')}
+          </Button>
+        }
+      />
       {data.participants.length === 0 && <Alert tone="info">{t('participants.empty.description')}</Alert>}
       <Tabs
         label={t('tabs.label')}

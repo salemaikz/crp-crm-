@@ -22,6 +22,7 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
   const [result, setResult] = useState<IssueResultData | null>(null);
   const summary = data.pool.summary;
   const operators = data.participants.filter((p) => p.status === 'working');
+  const held = HOLD_KINDS.filter((k) => summary.held[k] > 0);
 
   const toggle = (item: PoolItemRow, on: boolean) => {
     const copy = new Set(selected);
@@ -92,35 +93,32 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
   ];
 
   return (
-    <>
+    <div className="flex flex-col gap-[var(--space-stack)]">
       <StatGrid aria-label={t('pool.summary.label')}>
         <Stat value={summary.ready} label={t('pool.summary.ready')} />
         <Stat value={summary.roomToday} label={t('pool.summary.room')} />
         <Stat value={summary.overCap} label={t('pool.summary.overCap')} tone={summary.overCap > 0 ? 'danger' : 'default'} />
       </StatGrid>
-      <ul aria-label={t('pool.held.title')} className="flex flex-wrap gap-2">
-        {HOLD_KINDS.filter((k) => summary.held[k] > 0).map((k) => (
-          <li key={k}>
-            <Badge tone="warning">
-              {t(`pool.held.${k}`)}: {summary.held[k]}
-            </Badge>
-          </li>
-        ))}
-      </ul>
-      {/* Над таблицей: слева «Выбрано: N» и ссылка на пары, справа «Раздать выбранные» (неактивная — нейтральная) */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          {data.canIssue && <span aria-live="polite">{t('pool.selected', { count: selected.size })}</span>}
-          <Button variant="quiet" size="sm" href="/pairs">
-            {t('pool.pairsLink')}
-          </Button>
-        </div>
-        {data.canIssue && (
+      {held.length > 0 && (
+        <ul aria-label={t('pool.held.title')} className="flex flex-wrap gap-2">
+          {held.map((k) => (
+            <li key={k}>
+              <Badge tone="warning">
+                {t(`pool.held.${k}`)}: {summary.held[k]}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* Над таблицей: слева «Выбрано: N», справа «Раздать выбранные» (неактивная — нейтральная). Ссылка на пары — в шапке экрана */}
+      {data.canIssue && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span aria-live="polite">{t('pool.selected', { count: selected.size })}</span>
           <Button disabled={selected.size === 0} onClick={() => setOpen(true)}>
             {t('pool.issue')}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
       <Table
         columns={columns}
         rows={items}
@@ -172,6 +170,6 @@ export function PoolPanel({ data, onChanged }: { data: DistributionData; onChang
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 }
