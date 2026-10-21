@@ -563,6 +563,36 @@ test('часы в одной точке и перезапуск перед ка�
   restart();
 });
 
+test('часы спешили на 5 ч (в том числе со старта процесса), затем NTP: 3 суток после починки — без read_only', async () => {
+  for (const boot of [false, true]) {
+    const t = (await row()).lastSeenAt + H;
+    const lic = signed({ lid: `lic-clock-ahead-${boot}`, expiresAt: t + 365 * DAY, graceDays: 0 });
+    await fresh(lic, t);
+    await put(lic);
+    restart();
+    mono = 0;
+    assert.equal(await state(t), 'valid');
+    // Час со спешащими часами, пересчёт раз в минуту; boot — процесс стартовал уже со спешащими часами
+    for (let m = 1; m <= 60; m++) {
+      if (boot && m === 1) restart();
+      mono = m * 60_000;
+      assert.equal(await state(t + m * 60_000 + 5 * H), 'valid');
+    }
+    // chrony исправил время: пересчёт раз в час трое суток
+    const seen: string[] = [];
+    for (let h = 1; h <= 72; h++) {
+      mono = H + h * H;
+      seen.push(await state(t + H + h * H));
+    }
+    assert.ok(seen.every((x) => x === 'valid'), `boot=${boot}: ${seen.join(',')}`);
+    const r = await row();
+    assert.deepEqual([r.clockBehindSince, r.reason], [null, ''], `boot=${boot}`);
+    assert.equal(r.lastSeenAt, t + 73 * H, 'часы догнали время лицензии — дальше по ним');
+  }
+  mono = 0;
+  restart();
+});
+
 // ── Файл есть, но не читается: как без файла (D-054, D-290) ─────────────────────────────────────────────────
 
 /** На месте файла — то, что не читается как файл. root (тесты в контейнере) права chmod 000 не держат,

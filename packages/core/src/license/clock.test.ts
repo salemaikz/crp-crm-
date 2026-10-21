@@ -234,3 +234,95 @@ test('законные перезапуски при верных часах: н
     assert.deepEqual([c.now, c.jump, c.alert, c.locked], [T0 + 1_000 + m * MIN, 'none', false, false], `минута ${m}`);
   }
 });
+
+// ── Часы спешили, их починили (круг 1 раунда 4 волны B): ложной блокировки нет ────────────────────────────────
+
+type Restarts = 'none' | 'boot' | 'each';
+
+/** Часы спешат на ahead в течение часа (пересчёт раз в минуту), затем NTP; дальше 5 суток пересчётов с верными часами.
+ *  boot — процесс стартовал уже со спешащими часами (первый пересчёт без опоры), each — перезапуск перед каждым. */
+function aheadThenFixed(ahead: number, restarts: Restarts, downtime = 0) {
+  const s = server(T0);
+  let real = T0 + downtime;
+  let mono = 0;
+  let k = 0;
+  const out: { real: number; c: ClockResult }[] = [];
+  const step = (clock: number) => {
+    k++;
+    mono += MIN;
+    const restart = restarts === 'each' || (restarts === 'boot' && k === 1);
+    out.push({ real, c: s.check(clock, mono, { restart }) });
+    real += MIN;
+  };
+  for (let m = 0; m < 60; m++) step(real + ahead);
+  const fixedAt = out.length;
+  for (let m = 0; m < 5 * 24 * 60; m++) step(real);
+  return { out, fixedAt };
+}
+
+test('часы спешили на 15 мин / 5 ч / 47 ч, затем NTP: блокировки нет, время стоит на величину ошибки, потом снова по часам', () => {
+  for (const ahead of [15 * MIN, 5 * H, 47 * H]) {
+    for (const restarts of ['none', 'boot', 'each'] as const) {
+      const tag = `${ahead / MIN} мин, перезапуски: ${restarts}`;
+      const { out, fixedAt } = aheadThenFixed(ahead, restarts);
+      let prev = 0;
+      for (const [i, { real, c }] of out.entries()) {
+        assert.equal(c.locked, false, `${tag}, пересчёт ${i}`);
+        assert.ok(c.now >= prev, `${tag}, пересчёт ${i}: время назад`);
+        // Время лицензии не убегает дальше ошибки часов и после починки стоит, а не идёт от ложной точки
+        assert.ok(c.now <= real + ahead + MIN, `${tag}, пересчёт ${i}: +${(c.now - real) / MIN} мин`);
+        prev = c.now;
+      }
+      const last = out.at(-1)!;
+      assert.deepEqual([last.c.now, last.c.jump, last.c.behind, last.c.locked], [last.real, 'none', null, false], tag);
+      // Часы догнали время лицензии примерно через величину ошибки
+      const caught = out.findIndex((o, i) => i >= fixedAt && o.c.now === o.real);
+      assert.ok(caught - fixedAt <= ahead / MIN + 2, `${tag}: догнали через ${caught - fixedAt} мин`);
+    }
+  }
+});
+
+test('часы спешили на 100 ч час (скачок больше 48 ч), затем NTP: блокировки нет и с перезапусками, потом снова по часам', () => {
+  for (const restarts of ['none', 'boot', 'each'] as const) {
+    const { out } = aheadThenFixed(100 * H, restarts);
+    assert.ok(out.every((o) => !o.c.locked), restarts);
+    const last = out.at(-1)!;
+    assert.deepEqual([last.c.now, last.c.jump, last.c.behind], [last.real, 'none', null], restarts);
+  }
+});
+
+test('RTC в местном времени: после простоя контейнеры стартовали до chrony (+5 ч), затем NTP — блокировки нет', () => {
+  for (const downtime of [0, 10 * H, 47 * H]) {
+    const { out } = aheadThenFixed(5 * H, 'boot', downtime);
+    assert.ok(out.every((o) => !o.c.locked), `простой ${downtime / H} ч`);
+    const last = out.at(-1)!;
+    assert.deepEqual([last.c.now, last.c.behind], [last.real, null], `простой ${downtime / H} ч`);
+  }
+});
+
+test('простой не копится запасом: после многих простоев часы на год назад — read_only не позже 48 ч простоя + 48 ч', () => {
+  const s = server(T0);
+  let real = T0;
+  let mono = 0;
+  // 30 суток: 10 ч работы (пересчёт раз в час), 14 ч простоя, старт без опоры, часы верные
+  for (let d = 0; d < 30; d++) {
+    for (let h = 0; h < 10; h++) {
+      mono += H;
+      s.check(real, mono, { restart: h === 0 });
+      real += H;
+    }
+    real += 14 * H;
+  }
+  // Часы на год назад без правки БД, пересчёт раз в минуту без перезапуска
+  let c: ClockResult | null = null;
+  let m = 0;
+  while (m < 200 * 60) {
+    m++;
+    mono += MIN;
+    c = s.check(real - YEAR, mono);
+    real += MIN;
+    if (c.locked) break;
+  }
+  assert.equal(c!.locked, true);
+  assert.ok(m <= (96 * 60) + 1, `блокировка через ${(m / 60).toFixed(1)} ч`);
+});
