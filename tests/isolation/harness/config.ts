@@ -2,7 +2,7 @@
 // плюс пояс установки. Форма — ConfigV1 (CONFIG §3.2): { rev, global: { org, roles }, spaces }.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SEED_TZ } from './seed';
+import { SEED_EVENT_TYPE, SEED_TZ } from './seed';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 
@@ -27,6 +27,27 @@ export const SEED_LAYERS: readonly string[] =
   SEED_PRESET === 'base' ? ['base', 'kz', 'consulting-sales'] : ['base', 'kz', 'consulting-sales', join(ROOT, 'presets', 'clients', 'crp')];
 
 /**
+ * Синтетика сеет групповое мероприятие видом SEED_EVENT_TYPE. В слое base видов нет (booking.eventTypes = []) —
+ * для продукта это нормально, но прогон должен проверять изоляцию, а не отсутствие вида. Поэтому вид
+ * дописывается в ревизию настроек ПРОГОНА (presets/base не трогаем), если его там ещё нет.
+ * Экран дежурства без вида в каталоге не падает: подпись берёт ключ (см. page.tsx).
+ */
+export function withSyntheticEventTypes(spaces: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(spaces)) {
+    const space = raw as { booking?: { eventTypes?: Array<{ key: string }> } };
+    const types = space.booking?.eventTypes;
+    if (!space.booking || !Array.isArray(types) || types.some((x) => x.key === SEED_EVENT_TYPE)) {
+      out[key] = raw;
+      continue;
+    }
+    const added = { key: SEED_EVENT_TYPE, behavior: 'group', label: { ru: 'Группа' }, short: { ru: 'Гр' }, capacity: 30, durationMin: 180, directions: [] };
+    out[key] = { ...space, booking: { ...space.booking, eventTypes: [...types, added] } };
+  }
+  return out;
+}
+
+/**
  * Записать в БД прогона ревизии настроек собранного пресета ЦРП, как `crmctl config apply`: модули
  * домена (клиенты, запись, сделки) читают активные настройки из БД, а не из подмены Viewer. Без этого
  * каждый их маршрут отвечает 500 ConfigMissingError. Пояс — как у синтетики. Вызывать после seed.
@@ -44,7 +65,8 @@ export async function applySeedConfig(): Promise<void> {
   );
   const global = { ...(set.global as Record<string, unknown>) };
   global.org = { ...(global.org as Record<string, unknown>), timezone: SEED_TZ };
-  const docs = { global: global as never, spaces: set.spaces };
+  const spaces = withSyntheticEventTypes(set.spaces as Record<string, unknown>);
+  const docs = { global: global as never, spaces: spaces as never };
   const check = validateConfigSet(docs);
   if (!check.ok) throw new Error(`пресет прогона не прошёл проверку: ${check.issues.map((i) => i.path).join(', ')}`);
   resetConfigCache();

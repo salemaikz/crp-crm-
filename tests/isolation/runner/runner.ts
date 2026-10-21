@@ -18,10 +18,11 @@ import { createTestDb, type TestDb } from '../../../src/server/platform/db/testi
 import { can } from '../../../src/server/access/viewer';
 import { resetAccessForTests } from '../../../src/server/access/testing';
 import type { Viewer } from '../../../src/server/access/types';
+import { bookingDeps, overrideBookingDepsForTests } from '../../../src/server/domain/booking';
 import { actAs, enterSeedWorld, viewerOf } from '../harness/actors';
 import { applySeedConfig } from '../harness/config';
 import { allEntries } from '../harness/load';
-import { U, seedIsolation } from '../harness/seed';
+import { SEED_NOW, U, seedIsolation } from '../harness/seed';
 import { crashViolations, leakViolations, leaks, notFoundViolations, snapshotViolations, type Reply } from './checks';
 import { invoke } from './invoke';
 import { FOREIGN, allForeignNeedles, markFixtures, needlesOf } from './objects';
@@ -68,6 +69,8 @@ export async function createRunner(opts: RunnerOptions = {}): Promise<Runner> {
   await applySeedConfig();
   await markFixtures(db.sql);
   enterSeedWorld();
+  // Часы записи — «сейчас» прогона, как и часы доступа: мероприятия синтетики привязаны к SEED_TODAY
+  overrideBookingDepsForTests({ ...bookingDeps(), now: () => SEED_NOW });
   const viewerA = await viewerOf(U.opA);
   const viewerB = await viewerOf(U.opB);
   const everyone = await allForeignNeedles(db.sql);
@@ -170,6 +173,7 @@ export async function createRunner(opts: RunnerOptions = {}): Promise<Runner> {
       if (closed) return;
       closed = true;
       resetAccessForTests();
+      overrideBookingDepsForTests(null);
       await db.close();
     },
   };

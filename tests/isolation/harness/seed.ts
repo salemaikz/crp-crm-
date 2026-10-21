@@ -9,6 +9,10 @@ import { addDays } from '../../../packages/core/src/access';
 export const SEED_NOW = Date.UTC(2026, 9, 28, 6, 0);
 export const SEED_TODAY = '2026-10-28';
 export const SEED_TZ = 'Asia/Almaty';
+/** Вид групповых мероприятий синтетики: заведён в ревизии настроек прогона (harness/config.ts). */
+export const SEED_EVENT_TYPE = 'group';
+/** 10:00 по поясу прогона в день SEED_TODAY (05:00 UTC) — раньше SEED_NOW. */
+const EVENT_STARTS_AT = Date.UTC(2026, 9, 28, 5, 0);
 
 export const SPACE = 'sp-sales';
 export const TEAM_MKT = 'team-mkt';
@@ -157,14 +161,16 @@ export async function seedIsolation(sql: Sql, opts: SeedOptions = {}): Promise<v
   }
 
   // Групповые мероприятия сегодня и завтра с дежурным; по одному гостю у каждого.
-  for (const [ev, date] of [[FX.eventToday, SEED_TODAY], [FX.eventTomorrow, addDays(SEED_TODAY, 1)]] as const) {
+  for (const [ev, date, shiftDays] of [[FX.eventToday, SEED_TODAY, 0], [FX.eventTomorrow, addDays(SEED_TODAY, 1), 1]] as const) {
+    // Начало 10:00 по поясу прогона (UTC+5), раньше «сейчас» прогона: «сегодняшнее» мероприятие уже идёт
+    const startsAt = EVENT_STARTS_AT + shiftDays * 86_400_000;
     await sql`INSERT INTO events (id, space_id, event_type_key, event_date, start_time, starts_at, duration_min, capacity, created_at, updated_at)
-              VALUES (${ev.event}, ${SPACE}, 'group', ${date}, '15:00', ${t}, 180, 30, ${t}, ${t})`;
+              VALUES (${ev.event}, ${SPACE}, ${SEED_EVENT_TYPE}, ${date}, '10:00', ${startsAt}, 180, 30, ${t}, ${t})`;
     await sql`INSERT INTO event_duty (event_id, user_id, created_at) VALUES (${ev.event}, ${U.duty}, ${t})`;
     await sql`INSERT INTO bookings (id, space_id, kind, event_type_key, event_id, client_id, card_id, booking_date, start_time,
                                     starts_at, duration_min, booked_by_user_id, responsible_user_id, created_at, updated_at)
-              VALUES (${ev.booking}, ${SPACE}, 'group', 'group', ${ev.event}, ${ev.client}, ${ev.card}, ${date}, '15:00',
-                      ${t}, 180, ${U.opB}, ${U.opB}, ${t}, ${t})`;
+              VALUES (${ev.booking}, ${SPACE}, 'group', ${SEED_EVENT_TYPE}, ${ev.event}, ${ev.client}, ${ev.card}, ${date}, '10:00',
+                      ${startsAt}, 180, ${U.opB}, ${U.opB}, ${t}, ${t})`;
   }
 
   // Передачи отделу маркетинга: живая (с задачей маркетологу) и отклонённая.
