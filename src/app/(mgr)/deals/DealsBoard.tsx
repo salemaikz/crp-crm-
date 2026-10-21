@@ -331,12 +331,14 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
 
   return (
     <Page width="full" data-testid="deals-board">
-      <PageHeader title={t('title')} lead={t('lead')} />
-      <BoardTabs active="deals" showCalling={showCalling} />
-
-      <div className="flex flex-wrap items-center gap-2">
+      <PageHeader
+        title={t('title')}
+        lead={t('lead')}
+        tabs={showCalling ? <BoardTabs active="deals" showCalling /> : undefined}
+        actions={
+          <>
         {board.pipelines.length > 1 && (
-          <Select aria-label={t('filters.pipeline')} value={board.pipeline.key} onChange={(e) => void reload({ pipeline: e.target.value })}>
+          <Select className="w-52" aria-label={t('filters.pipeline')} value={board.pipeline.key} onChange={(e) => void reload({ pipeline: e.target.value })}>
             {board.pipelines.map((p) => (
               <option key={p.key} value={p.key}>
                 {p.label}
@@ -345,6 +347,7 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
           </Select>
         )}
         <Select
+          className="w-56"
           aria-label={t('filters.owner')}
           value={owner}
           onChange={(e) => {
@@ -360,10 +363,12 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
             </option>
           ))}
         </Select>
-        <Button variant="quiet" size="sm" onClick={() => void reload()}>
+        <Button variant="secondary" size="sm" onClick={() => void reload()}>
           {t('filters.refresh')}
         </Button>
-      </div>
+          </>
+        }
+      />
 
       {failed && <Alert tone="warning">{t('errors.offline')}</Alert>}
       {empty && <EmptyState title={t('empty.title')} description={t('empty.text')} />}
@@ -381,7 +386,7 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
               key={col.stageKey}
               aria-label={stage?.label}
               className="flex w-[85%] min-w-[16rem] shrink-0 snap-start flex-col gap-2 rounded-xl p-2 md:w-72"
-              style={{ background: 'var(--surface-2)', outline: dragging ? (can ? '2px dashed var(--brand)' : 'none') : 'none', opacity: dragging && !can && dragging.stageKey !== col.stageKey ? 0.5 : 1 }}
+              style={{ background: 'var(--canvas)', border: '1px solid var(--border)', outline: dragging ? (can ? '2px dashed var(--brand)' : 'none') : 'none', opacity: dragging && !can && dragging.stageKey !== col.stageKey ? 0.5 : 1 }}
               onDragOver={(e) => {
                 if (can) e.preventDefault();
               }}
@@ -394,7 +399,7 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
             >
               <h2 className="flex items-center justify-between px-1 text-sm font-semibold">
                 {stage?.label}
-                <Badge tone="neutral">{col.total}</Badge>
+                <Badge tone="neutral" variant="count">{col.total}</Badge>
               </h2>
               <ul className="flex flex-col gap-2">
                 {col.deals.map((d) => (
@@ -426,7 +431,7 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
               key={s.key}
               aria-label={s.label}
               className="hidden w-48 shrink-0 flex-col gap-2 rounded-xl p-3 md:flex"
-              style={{ background: 'var(--surface-2)', outline: dragging ? (can ? '2px dashed var(--brand)' : 'none') : 'none', opacity: dragging && !can ? 0.5 : 1 }}
+              style={{ background: 'var(--canvas)', border: '1px solid var(--border)', outline: dragging ? (can ? '2px dashed var(--brand)' : 'none') : 'none', opacity: dragging && !can ? 0.5 : 1 }}
               onDragOver={(e) => {
                 if (can) e.preventDefault();
               }}

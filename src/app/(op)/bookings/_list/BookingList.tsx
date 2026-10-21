@@ -22,7 +22,7 @@ export async function BookingList({ items, today, locale, typeLabels }: { items:
               <ListItem
                 key={b.id}
                 href={`/clients/${b.clientId}`}
-                title={`${b.startTime} · ${typeLabels[b.eventTypeKey] ?? b.eventTypeKey} · ${b.clientName}`}
+                title={<><span className="k-num">{b.startTime}</span>{` · ${typeLabels[b.eventTypeKey] ?? b.eventTypeKey} · ${b.clientName}`}</>}
                 trailing={
                   <span className="flex flex-col items-end gap-1">
                     <Badge tone={b.status === 'confirmed' ? 'success' : 'info'}>{t(`status.${b.status}`)}</Badge>

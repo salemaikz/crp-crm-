@@ -1,5 +1,4 @@
 import { notFound, redirect } from 'next/navigation';
-import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { can, page } from '@/server/access';
 import { loadClientPage } from '@/server/domain/clients';

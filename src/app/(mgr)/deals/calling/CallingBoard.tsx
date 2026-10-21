@@ -227,15 +227,14 @@ export function CallingBoard({ initial, config, userId }: { initial: Board; conf
     },
   });
   const zoneStyle = (target: DropTarget) => ({
-    background: 'var(--surface-2)',
+    background: 'var(--canvas)', border: '1px solid var(--border)',
     outline: dragging && accepts(target) ? '2px dashed var(--brand)' : 'none',
     opacity: dragging && !accepts(target) ? 0.5 : 1,
   });
 
   return (
     <Page width="full" data-testid="calling-board">
-      <PageHeader title={t('calling.title')} lead={t('calling.lead')} />
-      <BoardTabs active="calling" showCalling />
+      <PageHeader title={t('calling.title')} lead={t('calling.lead')} tabs={<BoardTabs active="calling" showCalling />} />
       <div className="flex items-center gap-2">
         <Select
           aria-label={t('calling.worker')}

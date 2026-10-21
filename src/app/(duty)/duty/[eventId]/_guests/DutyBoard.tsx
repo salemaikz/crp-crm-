@@ -107,7 +107,7 @@ function Board({ event: initialEvent, guests: initialGuests, typeLabel }: Props)
         </ul>
       )}
 
-      <div className="sticky bottom-0 flex flex-col gap-2 bg-[var(--bg)] py-3">
+      <div className="sticky bottom-[var(--bottom-nav-h)] z-10 -mx-[var(--gutter)] flex flex-col gap-2 border-t border-[var(--border)] bg-[var(--canvas)] px-[var(--gutter)] py-3">
         <Button variant="secondary" size="lg" block disabled={busy || !event.started || unmarked.length === 0} onClick={() => setConfirmRest(true)}>
           {t('rest')}
         </Button>

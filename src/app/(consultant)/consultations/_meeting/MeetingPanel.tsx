@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Alert, Badge, Button, Card, Field, Select, Textarea, ToastProvider, useToast } from '@/ui/kit';
+import { ActionBar, Alert, Badge, Button, Card, Field, Select, Textarea, ToastProvider, useToast } from '@/ui/kit';
 import { call, newKey } from '@/app/(mgr)/bookings/api';
 import { meetingErrorText } from './errorText';
 
@@ -103,14 +103,14 @@ function Panel({ bookingId, version, status, cardId, deal, laterStages, purchase
       {error && <Alert tone="danger">{error}</Alert>}
       {live && (
         <Card as="section">
-          <div className="grid grid-cols-2 gap-2">
+          <ActionBar equal>
             <Button variant="primary" size="lg" disabled={busy} onClick={() => void mark('attended')}>
               {t('attended')}
             </Button>
             <Button variant="secondary" size="lg" disabled={busy} onClick={() => void mark('no_show')}>
               {t('noShow')}
             </Button>
-          </div>
+          </ActionBar>
         </Card>
       )}
       {status === 'no_show' && (
@@ -161,13 +161,16 @@ function Panel({ bookingId, version, status, cardId, deal, laterStages, purchase
                 </Select>
               </Field>
             )}
-            <Button variant="primary" size="lg" block disabled={busy} onClick={() => void save()}>
-              {t('saveResult')}
-            </Button>
+            {/* Липкий футер стоит над нижним меню, а не под ним */}
+            <div className="sticky bottom-[var(--bottom-nav-h)] z-10 -mb-2 bg-[var(--surface)] py-2">
+              <Button variant="primary" size="lg" block disabled={busy} onClick={() => void save()}>
+                {t('saveResult')}
+              </Button>
+            </div>
           </div>
         </Card>
       )}
-      <div className="flex flex-wrap gap-2">
+      <ActionBar equal>
         <Button href={`/bookings/new/${encodeURIComponent(cardId)}`} variant="secondary">
           {t('bookNext')}
         </Button>
@@ -176,7 +179,7 @@ function Panel({ bookingId, version, status, cardId, deal, laterStages, purchase
             {t('purchase')}
           </Button>
         )}
-      </div>
+      </ActionBar>
     </div>
   );
 }

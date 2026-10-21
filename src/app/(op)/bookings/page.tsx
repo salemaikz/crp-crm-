@@ -1,10 +1,11 @@
 import { getLocale, getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { booking } from '@crm/core';
-import { page } from '@/server/access';
+import { can, page } from '@/server/access';
 import { bookingDeps, listBookingItems, pickLabel } from '@/server/domain/booking';
 import { EmptyState, Page, PageHeader } from '@/ui/kit';
 import { BookingList } from './_list/BookingList';
+import { BookingsViews } from './_list/BookingsViews';
 
 // «Записи» (B3a): только чтение — ближайшие записи по охвату (оператор — свои, РОП — все). Действия, фильтры
 // и вид РОП добавляет B3b.
@@ -20,7 +21,7 @@ export default page<object, ReactNode>({ perm: 'booking.read', target: 'section'
   const typeLabels = Object.fromEntries((settings?.catalog.eventTypes ?? []).map((x) => [x.key, pickLabel(x.short, locale)]));
   return (
     <Page width="list">
-      <PageHeader title={t('title')} />
+      <PageHeader title={t('title')} tabs={can(viewer, 'booking.manage') ? <BookingsViews active="list" /> : undefined} />
       {items.length === 0 ? <EmptyState title={t('empty')} /> : <BookingList items={items} today={today} locale={locale} typeLabels={typeLabels} />}
     </Page>
   );
