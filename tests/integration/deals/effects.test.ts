@@ -105,14 +105,13 @@ test('applyDealEffects: ensure_open, advance по записи, set_needs_rebook
   assert.equal((await dealRows(5)).length, 1);
 });
 
-test('ensure_open при воронке manual сделку не создаёт; reassign_open — B9a', async () => {
+test('ensure_open при воронке manual сделку не создаёт; reassign_open без открытых сделок ничего не пишет', async () => {
   const resolve = async (): Promise<PipelineInfo[]> => [{ key: 'sales', createDealOn: 'manual', stages: PIPELINES[0]!.stages }];
   await db.tx((tx) => applyDealEffects(tx, actor, lockedCard(6), [{ op: 'ensure_open', stage: 'on_agreed', requestId: uuid() }], SEED_NOW, { resolve }));
   assert.equal((await dealRows(6)).length, 0);
-  await assert.rejects(
-    db.tx((tx) => applyDealEffects(tx, actor, lockedCard(6), [{ op: 'reassign_open', to: U.opB }], SEED_NOW, { resolve })),
-    /B9a/,
-  );
+  // reassign_open исполняет линия команды (B9a): без открытых сделок — пусто, без ошибки и без сделок
+  await db.tx((tx) => applyDealEffects(tx, actor, lockedCard(6), [{ op: 'reassign_open', to: U.opB }], SEED_NOW, { resolve }));
+  assert.equal((await dealRows(6)).length, 0);
 });
 
 test('reassign_open: открытая сделка уходит новому ответственному, выигранная остаётся у прежнего', async () => {
