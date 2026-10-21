@@ -67,8 +67,9 @@ test('номер у другого клиента: ответ тот же, кл�
   assert.equal(review.matchedClientId, 'cl-b-1');
   const [n] = await db.sql<{ n: number }>`SELECT count(*)::int AS n FROM clients WHERE name = 'ТОО Дубль'`;
   assert.equal(n?.n, 0);
-  const probe = await db.sql<{ matched: boolean }>`SELECT matched FROM phone_probes WHERE user_id = ${U.opA} ORDER BY created_at DESC, id LIMIT 1`;
-  assert.equal(probe[0]?.matched, true);
+  // проверки этого и прошлого сценария записаны в один момент мира: сверяем набор, а не «последнюю» по времени
+  const probes = await db.sql<{ matched: boolean }>`SELECT matched FROM phone_probes WHERE user_id = ${U.opA} ORDER BY matched`;
+  assert.deepEqual(probes.map((p) => p.matched), [false, true]);
 });
 
 test('стоп-лист: предложение на разбор без клиента', async () => {
