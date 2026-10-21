@@ -14,7 +14,7 @@ import { loadImages } from './images';
 import { assertImageForCustomer } from './license';
 import { isDirectory } from './manifest';
 import { assertImageKeys } from './pkgcmd';
-import { embeddedCustomer, keepManifest, verifyAndUnpack } from './verify';
+import { embeddedCustomer, verifyAndUnpack } from './verify';
 import { ensureFrameCsp } from './nginxCsp';
 import { ensureEnvFiles, ensureProxyTrust, envValue } from './secrets';
 import { composeFile, readState, writeProjectEnv, writeState } from './state';
@@ -63,8 +63,8 @@ export async function install(deps: Deps, args: ParsedArgs): Promise<number> {
       if (embedded && m.customer !== embedded) throw new CrmctlError(`Пакет для другого клиента: ${m.customer}`);
     },
   });
+  // dir — проверенная копия в packages/<клиент>-<версия>, а не исходный путь: дальше читается только она
   const { dir, manifest } = pk;
-  await keepManifest(deps, pk);
   const version = manifest.version;
 
   io.out('[2/8] Проверка окружения');

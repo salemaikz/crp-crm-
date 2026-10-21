@@ -156,9 +156,20 @@ test('отказ: лишний, отсутствующий, изменённый
 test('каталог пакета: верный проходит; ссылка, подмена и лишний файл отвергаются', async () => {
   const f = await makeFake();
   const pkg = await writePackage(f.dirs.lib, '1.0.0');
-  assert.equal((await verifyAndUnpack(f.deps, pkg, { write: true })).verified, 'signature');
+  // только проверка: ничего не копируется
+  await verifyAndUnpack(f.deps, pkg, { write: false });
+  assert.equal((await readdir(packagesDir(f)).catch(() => [])).length, 0, 'write=false ничего не пишет');
+  // установка: каталог обрабатывается как архив — копия в packages/<клиент>-<версия>, дальше работают только с ней
+  const v = await verifyAndUnpack(f.deps, pkg, { write: true });
+  assert.equal(v.verified, 'signature');
   assert.equal(f.calls.length, 0);
-  assert.equal((await readdir(packagesDir(f)).catch(() => [])).length, 0, 'каталог на месте, не копируется');
+  assert.equal(v.dir, path.join(packagesDir(f), 'crp-1.0.0'));
+  assert.deepEqual((await readdir(packagesDir(f))).sort(), ['crp-1.0.0']);
+  assert.deepEqual((await readdir(v.dir)).sort(), ['compose', 'images.tar', 'manifest.json', 'manifest.sig']);
+  assert.equal(createHash('sha256').update(await readFile(path.join(v.dir, 'manifest.json'))).digest('hex'), v.manifestSha256);
+  // правка исходного каталога после проверки не меняет копию
+  await writeFile(path.join(pkg, 'images.tar'), 'подмена после проверки');
+  assert.equal(await readFile(path.join(v.dir, 'images.tar'), 'utf8'), 'images:1.0.0');
 
   await symlink('/etc/passwd', path.join(pkg, 'link'));
   await assert.rejects(verifyAndUnpack(f.deps, pkg, { write: true }), /ссылка: link/);

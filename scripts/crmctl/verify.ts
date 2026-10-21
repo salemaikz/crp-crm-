@@ -3,11 +3,12 @@
 // docker и записи в /etc/crm, compose/ и state.json. Ключи `stage-*` признаются только на стенде
 // (CRM_STAND=1 в app.env), `test-*` — только через Deps в тестах. Ядро и БД модулю не нужны.
 import { createHash, randomUUID, type KeyObject } from 'node:crypto';
+import { constants as fsc } from 'node:fs';
 import { type FileHandle, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  MANIFEST_MAX_BYTES,
   MANIFEST_NAME,
-  hashFile,
   keyFingerprint,
   parseManifest,
   parseSigFile,
@@ -111,7 +112,7 @@ export interface VerifiedPackage {
 export interface VerifyOptions {
   /** Файл подписи; по умолчанию рядом с архивом или manifest.sig в каталоге. */
   sig?: string;
-  /** Записывать ли распакованный архив в libDir/packages (false — только проверка). */
+  /** Записывать ли проверенную копию пакета (архива или каталога) в libDir/packages (false — только проверка). */
   write: boolean;
   /** Контекст установки (клиент, версия): исключение останавливает работу до записи. */
   check?: (m: ReleaseManifest) => void;
@@ -177,18 +178,104 @@ async function walkFiles(root: string, rel = ''): Promise<string[]> {
   return out;
 }
 
+/**
+ * Открыть файл каталога пакета: последний сегмент — без следования ссылке (O_NOFOLLOW), промежуточные каталоги —
+ * через lstat; FIFO и устройства не блокируют чтение (O_NONBLOCK) и отвергаются по fstat. Гонка с подменой
+ * промежуточного каталога не страшна: содержимое всё равно сверяется с sha256 манифеста по ходу копирования.
+ */
+async function openPackageFile(root: string, rel: string): Promise<FileHandle> {
+  const segs = rel.split('/');
+  for (let i = 1; i < segs.length; i++) {
+    const st = await lstat(path.join(root, ...segs.slice(0, i))).catch(() => null);
+    if (st?.isSymbolicLink()) throw new CrmctlError(`В каталоге пакета ссылка: ${segs.slice(0, i).join('/')}`);
+  }
+  let fh: FileHandle;
+  try {
+    fh = await open(path.join(root, ...segs), fsc.O_RDONLY | fsc.O_NOFOLLOW | fsc.O_NONBLOCK);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ELOOP') throw new CrmctlError(`В каталоге пакета ссылка: ${rel}`);
+    if (code === 'ENOENT' || code === 'ENOTDIR') throw new CrmctlError(`В каталоге пакета нет файла: ${rel}`);
+    throw e;
+  }
+  const st = await fh.stat();
+  if (!st.isFile()) {
+    await fh.close();
+    throw new CrmctlError(`В каталоге пакета особый файл: ${rel}`);
+  }
+  return fh;
+}
+
+/** Прочитать открытый файл целиком, но не больше limit байт (+1, чтобы заметить превышение). */
+async function readLimited(fh: FileHandle, limit: number, onChunk: (b: Buffer) => Promise<void>): Promise<number> {
+  const buf = Buffer.alloc(1 << 20);
+  let total = 0;
+  for (;;) {
+    const { bytesRead } = await fh.read(buf, 0, buf.length, null);
+    if (bytesRead === 0) return total;
+    total += bytesRead;
+    if (total > limit) return total;
+    await onChunk(buf.subarray(0, bytesRead));
+  }
+}
+
+/**
+ * Файл каталога пакета: читается один раз, sha256 и размер считаются по ходу; при `dst` те же байты пишутся в
+ * копию. Поэтому в копии ровно то, что сверено с подписанным манифестом, что бы ни делали с исходным файлом.
+ */
+async function copyChecked(srcRoot: string, f: ReleaseManifest['files'][number], dst: string | null): Promise<void> {
+  const src = await openPackageFile(srcRoot, f.path);
+  let out: FileHandle | null = null;
+  try {
+    const exec = ((await src.stat()).mode & 0o100) !== 0;
+    if (dst !== null) {
+      const target = path.join(dst, ...f.path.split('/'));
+      await mkdir(path.dirname(target), { recursive: true });
+      out = await open(target, 'wx', exec ? 0o755 : 0o644);
+    }
+    const h = createHash('sha256');
+    const size = await readLimited(src, f.size, async (chunk) => {
+      h.update(chunk);
+      let off = 0;
+      while (out && off < chunk.length) off += (await out.write(chunk, off, chunk.length - off)).bytesWritten;
+    });
+    if (size !== f.size || h.digest('hex') !== f.sha256) {
+      throw new CrmctlError(`Файл ${f.path} не совпадает с manifest.json (размер или sha256)`);
+    }
+  } finally {
+    await src.close().catch(() => {});
+    await out?.close().catch(() => {});
+  }
+}
+
+/**
+ * Каталог пакета обрабатывается как архив (Q2a, круг 2): подпись над манифестом, затем каждый файл из manifest.files
+ * копируется в `dst` (packages/.incoming-*) со сверкой sha256 по ходу копирования. install и update дальше работают
+ * только с копией: подмена файлов в исходном каталоге после проверки ничего не меняет. При `dst = null` — только сверка.
+ */
 async function verifyDirectory(
   dir: string,
   verifyManifest: (bytes: Buffer) => void,
   check: ((m: ReleaseManifest) => void) | undefined,
+  dst: string | null,
 ): Promise<{ manifest: ReleaseManifest; manifestBytes: Buffer }> {
-  const mp = path.join(dir, MANIFEST_NAME);
-  const st = await lstat(mp).catch(() => null);
-  if (!st?.isFile()) throw new CrmctlError(`В пакете нет manifest.json: ${dir}`);
-  const manifestBytes = await readFile(mp);
+  let manifestBytes: Buffer;
+  const mf = await openPackageFile(dir, MANIFEST_NAME).catch((e: unknown) => {
+    if (e instanceof CrmctlError && /нет файла/.test(e.message)) throw new CrmctlError(`В пакете нет manifest.json: ${dir}`);
+    throw e;
+  });
+  try {
+    const parts: Buffer[] = [];
+    const n = await readLimited(mf, MANIFEST_MAX_BYTES, async (b) => void parts.push(Buffer.from(b)));
+    if (n > MANIFEST_MAX_BYTES) throw new CrmctlError('manifest.json больше допустимого');
+    manifestBytes = Buffer.concat(parts);
+  } finally {
+    await mf.close();
+  }
   verifyManifest(manifestBytes);
   const manifest = parseManifest(manifestBytes);
   check?.(manifest);
+  // Состав: ссылки, особые и лишние файлы — отказ до копирования
   const files = await walkFiles(dir);
   const want = new Map(manifest.files.map((f) => [f.path, f]));
   for (const f of files) {
@@ -198,15 +285,16 @@ async function verifyDirectory(
   const have = new Set(files);
   for (const f of manifest.files) {
     if (!have.has(f.path)) throw new CrmctlError(`В каталоге пакета нет файла из manifest.json: ${f.path}`);
-    const h = await hashFile(path.join(dir, f.path));
-    if (h.size !== f.size || h.sha256 !== f.sha256) throw new CrmctlError(`Файл ${f.path} не совпадает с manifest.json (размер или sha256)`);
   }
+  if (dst !== null) await mkdir(dst, { recursive: true });
+  for (const f of manifest.files) await copyChecked(dir, f, dst);
   return { manifest, manifestBytes };
 }
 
 /**
- * Проверить пакет (архив .tar.zst или каталог) и, для архива при opts.write, распаковать его в
- * libDir/packages/<клиент>-<версия>/. До возврата ни docker, ни /etc/crm, ни compose/, ни state.json не трогаются.
+ * Проверить пакет (архив .tar.zst или каталог) и при opts.write записать проверенную копию в
+ * libDir/packages/<клиент>-<версия>/ (через .incoming-*). install и update работают только с этой копией.
+ * До возврата ни docker, ни /etc/crm, ни compose/, ни state.json не трогаются.
  */
 export async function verifyAndUnpack(deps: Deps, pkg: string, opts: VerifyOptions): Promise<VerifiedPackage> {
   const set = await loadKeySet(deps);
@@ -233,24 +321,24 @@ export async function verifyAndUnpack(deps: Deps, pkg: string, opts: VerifyOptio
     }
   };
 
-  if (isDir) {
-    const r = await verifyDirectory(pkg, verifyManifest, opts.check);
-    return done(r.manifest, r.manifestBytes, pkg);
-  }
-
   const packagesDir = path.join(deps.paths.libDir, 'packages');
   const incoming = path.join(packagesDir, `.incoming-${randomUUID()}`);
   const handles = new Set<FileHandle>();
   try {
-    const r = await scanArchive(pkg, {
-      verifyManifest,
-      onAccepted: async (m) => {
-        opts.check?.(m);
-        if (opts.write) await mkdir(incoming, { recursive: true });
-      },
-      sinkFor: opts.write ? (rel, m) => fileSink(incoming, rel, m.exec, handles) : undefined,
-      onDir: opts.write ? async (rel) => void (await mkdir(path.join(incoming, ...rel.split('/')), { recursive: true })) : undefined,
-    });
+    let r: { manifest: ReleaseManifest; manifestBytes: Buffer };
+    if (isDir) {
+      r = await verifyDirectory(pkg, verifyManifest, opts.check, opts.write ? incoming : null);
+    } else {
+      r = await scanArchive(pkg, {
+        verifyManifest,
+        onAccepted: async (m) => {
+          opts.check?.(m);
+          if (opts.write) await mkdir(incoming, { recursive: true });
+        },
+        sinkFor: opts.write ? (rel, m) => fileSink(incoming, rel, m.exec, handles) : undefined,
+        onDir: opts.write ? async (rel) => void (await mkdir(path.join(incoming, ...rel.split('/')), { recursive: true })) : undefined,
+      });
+    }
     if (!opts.write) return done(r.manifest, r.manifestBytes, '');
     await writeFile(path.join(incoming, MANIFEST_NAME), r.manifestBytes, { mode: 0o644 });
     if (sigText) await writeFile(path.join(incoming, 'manifest.sig'), sigText, { mode: 0o644 });
@@ -260,6 +348,7 @@ export async function verifyAndUnpack(deps: Deps, pkg: string, opts: VerifyOptio
       if (!old.equals(r.manifestBytes)) {
         throw new CrmctlError(`В ${final} уже лежит другой пакет этой версии; удалите каталог вручную, если он не нужен`);
       }
+      // Тот же манифест (в том числе update прямо из packages/<клиент>-<версия>): копия уже сверена и заменяет его
       await rm(final, { recursive: true, force: true });
     }
     await rename(incoming, final);
@@ -302,16 +391,4 @@ export function sameKeys(a: { kid: string; sha256: string }[], b: { kid: string;
 export function keysSubset(sub: { kid: string; sha256: string }[], sup: { kid: string; sha256: string }[]): boolean {
   const have = new Set(sup.map((k) => `${k.kid}:${k.sha256}`));
   return sub.every((k) => have.has(`${k.kid}:${k.sha256}`));
-}
-
-/**
- * Для dir-формы: рядом с state нужна копия манифеста и подписи, чтобы rollback мог их перепроверить (§4.4).
- * Каталог, распакованный из архива, уже лежит в packages/<клиент>-<версия>/.
- */
-export async function keepManifest(deps: Deps, v: VerifiedPackage): Promise<void> {
-  const target = path.join(deps.paths.libDir, 'packages', `${v.manifest.customer}-${v.manifest.version}`);
-  if (path.resolve(v.dir) === path.resolve(target)) return;
-  await mkdir(target, { recursive: true });
-  await writeFile(path.join(target, MANIFEST_NAME), v.manifestBytes, { mode: 0o644 });
-  if (v.sigText) await writeFile(path.join(target, 'manifest.sig'), v.sigText, { mode: 0o644 });
 }

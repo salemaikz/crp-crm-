@@ -8,9 +8,13 @@
 //       [--release-keys <файл.json>]   { "rel-…": ключ base64 }; по умолчанию спрашивается crmctl образа
 //       [--commit <40 hex>] [--min-from <версия>] [--config-schema <n>] [--migrations-dir <каталог>]
 //       [--repo <корень>] [--out-dir <каталог>]
+//       [--skip-image-check <причина>]  только с --image: не запускать scripts/check-image.sh (пропуск пишется
+//                                       в манифест сборки и печатается в сводке)
 //   Печатает sha256 архива и манифеста: их владелец сверяет при подписи и передаёт root клиента (§6).
+//   Рядом с архивом пишет манифест сборки crm-<клиент>-<версия>.build.json (не подписывается и в архив не входит):
+//   образ, sha256 и итог проверки образа check-image.sh (Q2a, круг 2).
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -163,6 +167,48 @@ function docker(args: string[]): string {
   return r.stdout;
 }
 
+/** scripts/check-image.sh лежит рядом с этим файлом. */
+function checkImage(image: string): { code: number; output: string } {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'check-image.sh');
+  const r = spawnSync('bash', [script, image], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  return { code: r.status ?? 1, output: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? r.error.message : ''}` };
+}
+
+/** Внешние вызовы main: в тестах подменяются фейком (docker нет). */
+export interface PackDeps {
+  docker: (args: string[]) => string;
+  /** `scripts/check-image.sh <образ>`: код выхода и вывод. */
+  checkImage: (image: string) => { code: number; output: string };
+  log: (line: string) => void;
+}
+
+const realDeps: PackDeps = { docker, checkImage, log: (l) => console.log(l) };
+
+/** Итог проверки содержимого образа (ARCHITECTURE §8.2 п. 4) для манифеста сборки. */
+export type ImageCheck =
+  | { status: 'passed'; tool: 'scripts/check-image.sh' }
+  | { status: 'skipped'; reason: string }
+  | { status: 'not-run'; reason: string };
+
+/**
+ * Перед сборкой из docker образ проверяется check-image.sh: без src/, *.ts, *.map, tests/, ключей. Пропуск —
+ * только явным флагом с причиной; он попадает в манифест сборки и в сводку, которую видит владелец при подписи.
+ */
+export function imageCheckStep(deps: PackDeps, image: string, skipReason: string | undefined): ImageCheck {
+  if (skipReason !== undefined) return { status: 'skipped', reason: skipReason };
+  const r = deps.checkImage(image);
+  if (r.code !== 0) {
+    throw new Error(`check-image.sh не прошёл для ${image}: пакет не собран\n${r.output.trim().split('\n').slice(-20).join('\n')}`);
+  }
+  return { status: 'passed', tool: 'scripts/check-image.sh' };
+}
+
+function describeCheck(c: ImageCheck): string {
+  if (c.status === 'passed') return 'пройдена (scripts/check-image.sh)';
+  if (c.status === 'skipped') return `ПРОПУЩЕНА (${c.reason})`;
+  return `НЕ ЗАПУСКАЛАСЬ (${c.reason})`;
+}
+
 export function parseKeyList(text: string): { kid: string; sha256: string }[] {
   const obj = JSON.parse(text) as unknown;
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) throw new Error('release keys: ожидается объект kid → ключ');
@@ -171,7 +217,7 @@ export function parseKeyList(text: string): { kid: string; sha256: string }[] {
     .sort((a, b) => (a.kid < b.kid ? -1 : 1));
 }
 
-async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[], deps: PackDeps = realDeps): Promise<number> {
   const { values: v } = parseArgs({
     args: argv,
     strict: true,
@@ -189,6 +235,7 @@ async function main(argv: string[]): Promise<number> {
       'config-schema': { type: 'string' },
       repo: { type: 'string' },
       'out-dir': { type: 'string' },
+      'skip-image-check': { type: 'string' },
     },
   });
   const need = (x: string | undefined, n: string): string => {
@@ -197,31 +244,42 @@ async function main(argv: string[]): Promise<number> {
   };
   const repoRoot = path.resolve(v.repo ?? process.cwd());
   const version = need(v.version, 'version');
+  const skipReason = v['skip-image-check']?.trim();
+  if (v['skip-image-check'] !== undefined && !skipReason) throw new Error('--skip-image-check: нужна причина пропуска');
+  if (skipReason !== undefined && !v.image) throw new Error('--skip-image-check — только вместе с --image');
   const tmp = await mkdtemp(path.join(tmpdir(), 'release-pack-'));
   try {
     let imagesTar = v['images-tar'];
     let digest = v['image-digest'];
     let imageMigrationsDir: string | undefined;
     let releaseKeys: { kid: string; sha256: string }[];
+    let imageCheck: ImageCheck;
     if (v.image) {
+      // До docker save: образ с исходниками или картами кода в пакет не попадает
+      imageCheck = imageCheckStep(deps, v.image, skipReason);
       imagesTar = path.join(tmp, 'images.tar');
-      digest = docker(['image', 'inspect', '--format', '{{.Id}}', v.image]).trim();
-      docker(['save', '-o', imagesTar, v.image]);
-      const cid = docker(['create', v.image]).trim();
+      digest = deps.docker(['image', 'inspect', '--format', '{{.Id}}', v.image]).trim();
+      deps.docker(['save', '-o', imagesTar, v.image]);
+      const cid = deps.docker(['create', v.image]).trim();
       try {
         imageMigrationsDir = path.join(tmp, 'image-migrations');
-        docker(['cp', `${cid}:/app/migrations`, imageMigrationsDir]);
+        deps.docker(['cp', `${cid}:/app/migrations`, imageMigrationsDir]);
       } finally {
-        spawnSync('docker', ['rm', '-f', cid]);
+        try {
+          deps.docker(['rm', '-f', cid]);
+        } catch {
+          // контейнер-однодневка: не удалился — не повод останавливать сборку
+        }
       }
       releaseKeys = v['release-keys']
         ? parseKeyList(await readFile(v['release-keys'], 'utf8'))
         : (JSON.parse(
-            docker(['run', '--rm', '--network', 'none', '--entrypoint', 'node', v.image, 'dist/crmctl.mjs', 'keys', '--json']).trim().split('\n').pop() ?? '',
+            deps.docker(['run', '--rm', '--network', 'none', '--entrypoint', 'node', v.image, 'dist/crmctl.mjs', 'keys', '--json']).trim().split('\n').pop() ?? '',
           ) as { release: { kid: string; sha256: string }[] }).release;
     } else {
       if (!imagesTar || !digest) throw new Error('нужен --image или пара --images-tar и --image-digest');
       releaseKeys = v['release-keys'] ? parseKeyList(await readFile(v['release-keys'], 'utf8')) : [];
+      imageCheck = { status: 'not-run', reason: 'пакет из --images-tar: образ проверяется check-image.sh там, где собран' };
     }
     let configSchema = v['config-schema'] === undefined ? undefined : Number(v['config-schema']);
     if (configSchema === undefined) {
@@ -245,11 +303,31 @@ async function main(argv: string[]): Promise<number> {
       imageMigrationsDir,
       outDir: path.resolve(v['out-dir'] ?? 'release'),
     });
-    console.log(`архив:          ${r.archive}`);
-    console.log(`sha256 архива:  ${r.archiveSha256}`);
-    console.log(`sha256 манифеста: ${r.manifestSha256}`);
-    console.log(`клиент ${r.manifest.customer}, версия ${r.manifest.version}, файлов ${r.manifest.files.length}`);
-    console.log(`ключи релизов: ${r.manifest.releaseKeys.map((k) => `${k.kid}:${k.sha256.slice(0, 16)}`).join(', ') || '— (общая сборка)'}`);
+    const buildRecord = path.join(path.dirname(r.archive), `crm-${r.manifest.customer}-${r.manifest.version}.build.json`);
+    await writeFile(
+      buildRecord,
+      `${JSON.stringify(
+        {
+          format: 1,
+          customer: r.manifest.customer,
+          version: r.manifest.version,
+          image: v.image ?? null,
+          imageDigest: digest,
+          archiveSha256: r.archiveSha256,
+          manifestSha256: r.manifestSha256,
+          imageCheck,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    deps.log(`архив:          ${r.archive}`);
+    deps.log(`sha256 архива:  ${r.archiveSha256}`);
+    deps.log(`sha256 манифеста: ${r.manifestSha256}`);
+    deps.log(`клиент ${r.manifest.customer}, версия ${r.manifest.version}, файлов ${r.manifest.files.length}`);
+    deps.log(`ключи релизов: ${r.manifest.releaseKeys.map((k) => `${k.kid}:${k.sha256.slice(0, 16)}`).join(', ') || '— (общая сборка)'}`);
+    deps.log(`проверка образа: ${describeCheck(imageCheck)}`);
+    deps.log(`манифест сборки: ${buildRecord}`);
     return 0;
   } finally {
     await rm(tmp, { recursive: true, force: true });

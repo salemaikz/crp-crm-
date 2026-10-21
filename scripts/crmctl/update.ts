@@ -14,7 +14,7 @@ import { ensureFrameCsp } from './nginxCsp';
 import { ensureProxyTrust } from './secrets';
 import { composeFile, requireState, writeProjectEnv, writeState, type State } from './state';
 import { CrmctlError, type Deps } from './types';
-import { embeddedCustomer, keepManifest, verifyAndUnpack } from './verify';
+import { embeddedCustomer, verifyAndUnpack } from './verify';
 
 const prevComposeDir = (deps: Deps) => path.join(deps.paths.libDir, 'compose.prev');
 
@@ -79,8 +79,8 @@ export async function update(deps: Deps, args: ParsedArgs): Promise<number> {
       }
     },
   });
+  // dir — проверенная копия в packages/<клиент>-<версия>, а не исходный путь: дальше читается только она
   const { dir, manifest } = pk;
-  await keepManifest(deps, pk);
   const version = manifest.version;
   const schemaNow = await currentSchema(deps, old);
   if (manifest.schemaVersion < schemaNow) {

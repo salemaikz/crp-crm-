@@ -3,13 +3,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, stat, writeFile, readdir } from 'node:fs/promises';
+import { cpSync, writeFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, stat, writeFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { run } from '../../../scripts/crmctl';
 import { readState } from '../../../scripts/crmctl/state';
 import { hashFile, keyFingerprint, scanArchive } from '../../../scripts/crmctl/package-format';
-import { assertAllowedPath, assertNodeZstd, packRelease, type PackInput } from '../../../scripts/release-pack';
+import { assertAllowedPath, assertNodeZstd, main as packMain, packRelease, type PackDeps, type PackInput } from '../../../scripts/release-pack';
 import { main as signMain, type SignIo } from '../../../scripts/release-sign';
 import { imageId, makeFake } from './crmctl-fakes';
 
@@ -212,4 +213,77 @@ test('прогон: собрать пакет на тестовом ключе -
   const p3 = await pack(dir, '0.9.2', keys);
   const c = cli(['0.9.2']);
   assert.equal(await signMain(['sign', p3.archive, '--key', stranger.key, '--kid', 'rel-test', '--expect-sha256', p3.archiveSha256], c.io), 1, 'ключ другого владельца под kid rel-test: отпечаток не входит в манифест');
+});
+
+// ------------------------------------------- release-pack --image: проверка образа check-image.sh (Q2a, круг 2)
+
+/** Фейк docker для `release-pack --image` и счётчик вызовов check-image.sh. */
+function packDeps(checkCode: number): { deps: PackDeps; checked: string[]; docker: string[][]; log: string[] } {
+  const checked: string[] = [];
+  const docker: string[][] = [];
+  const log: string[] = [];
+  const deps: PackDeps = {
+    docker: (args) => {
+      docker.push(args);
+      if (args[0] === 'image' && args[1] === 'inspect') return `${imageId(args.at(-1) as string)}\n`;
+      if (args[0] === 'save') writeFileSync(args[2] as string, 'синтетический docker save');
+      if (args[0] === 'create') return 'cid\n';
+      if (args[0] === 'cp') cpSync(path.join(REPO, 'migrations'), args[2] as string, { recursive: true });
+      if (args[0] === 'run') return `${JSON.stringify({ release: [], stage: [] })}\n`;
+      return '';
+    },
+    checkImage: (image) => {
+      checked.push(image);
+      return { code: checkCode, output: checkCode === 0 ? 'check-image: OK' : 'НАРУШЕНИЕ: *.map\ncheck-image: FAIL' };
+    },
+    log: (l) => log.push(l),
+  };
+  return { deps, checked, docker, log };
+}
+
+const PACK_ARGS = (out: string) => [
+  '--customer', 'crp', '--version', '0.9.0', '--build-id', 'b-1', '--built-at', '1790000000000',
+  '--commit', 'a'.repeat(40), '--config-schema', '1', '--repo', REPO, '--out-dir', out,
+];
+
+test('release-pack --image: check-image.sh по образу обязателен; провал — пакета нет', async () => {
+  const dir = await tmp();
+  const bad = packDeps(1);
+  await assert.rejects(packMain([...PACK_ARGS(path.join(dir, 'bad')), '--image', 'crm-app:0.9.0'], bad.deps), /check-image\.sh не прошёл[\s\S]*\*\.map/);
+  assert.deepEqual(bad.checked, ['crm-app:0.9.0']);
+  assert.equal(bad.docker.some((a) => a[0] === 'save'), false, 'docker save не запускался');
+  assert.deepEqual(await readdir(path.join(dir, 'bad')).catch(() => []), []);
+
+  const good = packDeps(0);
+  assert.equal(await packMain([...PACK_ARGS(path.join(dir, 'good')), '--image', 'crm-app:0.9.0'], good.deps), 0);
+  assert.deepEqual(good.checked, ['crm-app:0.9.0']);
+  const rec = JSON.parse(await readFile(path.join(dir, 'good', 'crm-crp-0.9.0.build.json'), 'utf8'));
+  assert.deepEqual(rec.imageCheck, { status: 'passed', tool: 'scripts/check-image.sh' });
+  assert.equal(rec.image, 'crm-app:0.9.0');
+  assert.equal(rec.archiveSha256, (await hashFile(path.join(dir, 'good', 'crm-crp-0.9.0.tar.zst'))).sha256);
+  assert.match(good.log.join('\n'), /проверка образа:\s+пройдена/);
+});
+
+test('release-pack --image --skip-image-check: только с причиной, пропуск записан в манифест сборки', async () => {
+  const dir = await tmp();
+  const d = packDeps(1);
+  assert.equal(await packMain([...PACK_ARGS(path.join(dir, 's')), '--image', 'crm-app:0.9.0', '--skip-image-check', 'стенд без docker export'], d.deps), 0);
+  assert.deepEqual(d.checked, [], 'check-image.sh не вызывался');
+  const rec = JSON.parse(await readFile(path.join(dir, 's', 'crm-crp-0.9.0.build.json'), 'utf8'));
+  assert.deepEqual(rec.imageCheck, { status: 'skipped', reason: 'стенд без docker export' });
+  assert.match(d.log.join('\n'), /проверка образа:\s+ПРОПУЩЕНА \(стенд без docker export\)/);
+  // пустая причина — отказ
+  await assert.rejects(packMain([...PACK_ARGS(path.join(dir, 'e')), '--image', 'crm-app:0.9.0', '--skip-image-check', ' '], packDeps(0).deps), /--skip-image-check: нужна причина/);
+  // без --image флаг не имеет смысла
+  const tar = path.join(dir, 'img.tar');
+  await writeFile(tar, 'x');
+  const imgArgs = ['--images-tar', tar, '--image-digest', imageId('crm-app:0.9.0')];
+  await assert.rejects(packMain([...PACK_ARGS(path.join(dir, 'n')), ...imgArgs, '--skip-image-check', 'x'], packDeps(0).deps), /только вместе с --image/);
+  // --images-tar: образа в docker нет, проверка не запускалась — так и записано
+  const t = packDeps(0);
+  assert.equal(await packMain([...PACK_ARGS(path.join(dir, 't')), ...imgArgs], t.deps), 0);
+  assert.deepEqual(t.checked, []);
+  const rt = JSON.parse(await readFile(path.join(dir, 't', 'crm-crp-0.9.0.build.json'), 'utf8'));
+  assert.equal(rt.imageCheck.status, 'not-run');
+  assert.match(t.log.join('\n'), /проверка образа:\s+НЕ ЗАПУСКАЛАСЬ/);
 });

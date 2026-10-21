@@ -9,43 +9,91 @@ import { isDirectory } from './manifest';
 import { imageExists, syncCli } from './images';
 import { parseManifest } from './package-format';
 import { restoreVersion } from './update';
-import { checkSignature, isStand, keysSubset, loadKeySet, releaseKeyList, sha256 } from './verify';
+import { checkSignature, isStand, keysSubset, loadKeySet, releaseKeyList, sha256, type KeySet } from './verify';
 import { composeFile, requireState, type State } from './state';
 import { CrmctlError, type Deps, type PackageManifest } from './types';
 
+type Target = NonNullable<State['previous']>;
+/** Запись о проверке подписи версии, как её пишет update (manifestSha256, kid, verified). */
+type VerifyRecord = Pick<Target, 'manifestSha256' | 'kid' | 'verified'>;
+
+interface Stored {
+  manifest: PackageManifest | null;
+  /** Запись о проверке, восстановленная задним числом для версии, поставленной до O4c. */
+  backfill: VerifyRecord | null;
+}
+
+const LEGACY_HINT = 'порядок — docs/ops/RUNBOOK.md, RUNBOOK «Откат на версию до O4c»';
+
+/**
+ * Версия поставлена прежним crmctl (до O4c): в state.json нет записи о проверке. Откат разрешён, если в
+ * packages/<клиент>-<версия> лежит manifest.json этой версии и сборки с подписью, проходящей текущими ключами;
+ * Id образа сверяется дальше так же, как для обычной записи. Запись (manifestSha256, kid) дописывается в state.
+ */
+function legacyCheck(set: KeySet, customer: string, target: Target, dir: string, mbytes: Buffer | null, sigText: string | null): { problem: string | null; manifest: PackageManifest | null; backfill: VerifyRecord | null } {
+  const why = (p: string) => `версия поставлена до проверки подписи (O4c), ${p}; ${LEGACY_HINT}`;
+  if (mbytes === null) return { problem: why(`подписанного manifest.json в ${dir} нет`), manifest: null, backfill: null };
+  if (sigText === null) return { problem: why('сохранённой подписи нет'), manifest: null, backfill: null };
+  let kid: string;
+  let manifest: PackageManifest;
+  try {
+    kid = checkSignature(set, mbytes, sigText);
+    manifest = parseManifest(mbytes);
+  } catch (e) {
+    return { problem: why(e instanceof Error ? e.message : String(e)), manifest: null, backfill: null };
+  }
+  if (manifest.customer !== customer || manifest.version !== target.version) {
+    return { problem: why('сохранённый manifest.json — для другой версии или клиента'), manifest: null, backfill: null };
+  }
+  if (manifest.buildId !== target.buildId) {
+    return { problem: why('buildId манифеста не совпадает с записью в state.json'), manifest: null, backfill: null };
+  }
+  return { problem: null, manifest, backfill: { manifestSha256: sha256(mbytes), kid, verified: 'signature' } };
+}
+
 /**
  * §4.4: перед откатом перепроверяется то, что сохранил `update`: manifest.json в packages/ совпадает с записью
- * в state.json, подпись проходит текущим доверенным набором, Id образа равен digest. Нет записи или ключ
- * отозван — на бою откат запрещён (нужен пакет через update), на стенде идёт с предупреждением.
+ * в state.json, подпись проходит текущим доверенным набором, Id образа равен digest. Нет записи (версия до O4c) —
+ * см. legacyCheck. Запись есть, но манифест изменён или ключ отозван — на бою откат запрещён (нужен пакет через
+ * update), на стенде идёт с предупреждением.
  */
-async function verifyStored(deps: Deps, customer: string, target: NonNullable<Awaited<ReturnType<typeof requireState>>['previous']>): Promise<PackageManifest | null> {
+async function verifyStored(deps: Deps, customer: string, target: Target): Promise<Stored> {
   const stand = await isStand(deps);
   const dir = path.join(deps.paths.libDir, 'packages', `${customer}-${target.version}`);
   const mbytes = await readFile(path.join(dir, 'manifest.json')).catch(() => null);
   const sigText = await readFile(path.join(dir, 'manifest.sig'), 'utf8').catch(() => null);
+  const set = await loadKeySet(deps);
   let problem: string | null = null;
   let manifest: PackageManifest | null = null;
-  if (!target.manifestSha256 || !target.verified) problem = 'о версии нет записи о проверке подписи';
-  else if (mbytes === null) problem = 'сохранённого manifest.json нет';
-  else if (sha256(mbytes) !== target.manifestSha256) problem = 'сохранённый manifest.json изменён';
-  else if (target.verified === 'stub') problem = 'версия была поставлена без проверки подписи (заглушка стенда)';
-  else if (sigText === null) problem = 'сохранённой подписи нет';
-  else {
-    try {
-      checkSignature(await loadKeySet(deps), mbytes, sigText);
-    } catch (e) {
-      problem = e instanceof Error ? e.message : String(e);
+  let backfill: VerifyRecord | null = null;
+  const legacy = !target.manifestSha256 || !target.verified;
+  if (legacy) {
+    ({ problem, manifest, backfill } = legacyCheck(set, customer, target, dir, mbytes, sigText));
+  } else {
+    if (mbytes === null) problem = 'сохранённого manifest.json нет';
+    else if (sha256(mbytes) !== target.manifestSha256) problem = 'сохранённый manifest.json изменён';
+    else if (target.verified === 'stub') problem = 'версия была поставлена без проверки подписи (заглушка стенда)';
+    else if (sigText === null) problem = 'сохранённой подписи нет';
+    else {
+      try {
+        checkSignature(set, mbytes, sigText);
+      } catch (e) {
+        problem = e instanceof Error ? e.message : String(e);
+      }
     }
-  }
-  if (mbytes !== null && sha256(mbytes) === target.manifestSha256) {
-    try {
-      manifest = parseManifest(mbytes);
-    } catch (e) {
-      problem ??= e instanceof Error ? e.message : String(e);
+    if (mbytes !== null && sha256(mbytes) === target.manifestSha256) {
+      try {
+        manifest = parseManifest(mbytes);
+      } catch (e) {
+        problem ??= e instanceof Error ? e.message : String(e);
+      }
     }
   }
   if (problem) {
-    if (!stand) throw new CrmctlError(`Откат на ${target.version} запрещён: ${problem}. Нужен пакет через crmctl update`);
+    if (!stand) {
+      // у версии до O4c путь — в RUNBOOK (LEGACY_HINT уже в тексте); у остальных — новый пакет через update
+      throw new CrmctlError(`Откат на ${target.version} запрещён: ${problem}${legacy ? '' : '. Нужен пакет через crmctl update'}`);
+    }
     deps.io.err(`Предупреждение (стенд): ${problem}`);
   }
   if (manifest) {
@@ -56,7 +104,7 @@ async function verifyStored(deps: Deps, customer: string, target: NonNullable<Aw
       throw new CrmctlError(`Откат на ${target.version} невозможен: Id образа ${ref} не совпадает с подписанным manifest.json`);
     }
   }
-  return manifest;
+  return { manifest, backfill };
 }
 
 export async function rollback(deps: Deps, args: ParsedArgs): Promise<number> {
@@ -67,13 +115,14 @@ export async function rollback(deps: Deps, args: ParsedArgs): Promise<number> {
   if (!(await imageExists(deps, `crm-app:${target.version}`))) {
     throw new CrmctlError(`Образа crm-app:${target.version} нет на сервере (почищен?). Загрузите пакет через crmctl update`);
   }
-  const stored = await verifyStored(deps, state.customer, target);
+  const { manifest: stored, backfill } = await verifyStored(deps, state.customer, target);
   await assertImageForCustomer(deps, `crm-app:${target.version}`, state.customer, `Откат на ${target.version} невозможен`, stored?.builtAt);
+  if (backfill) deps.io.out(`Версия ${target.version} поставлена до O4c: запись о проверке подписи ${target.version} восстановлена по сохранённому manifest.json (ключ ${backfill.kid}).`);
   deps.io.out(`Откат ${state.current.version} -> ${target.version}`);
   deps.io.out('Внимание: правки настроек, сделанные версией ' + state.current.version + ', после отката не видны (D-060).');
   const next: State = {
     ...state,
-    current: { ...target, switchedAt: deps.now() },
+    current: { ...target, ...(backfill ?? {}), switchedAt: deps.now() },
     previous: {
       version: state.current.version,
       buildId: state.current.buildId,

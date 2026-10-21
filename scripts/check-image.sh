@@ -22,6 +22,8 @@ else
   cid="$(docker create "$1")"
   # Содержимое файловой системы образа без /proc, /sys, /dev
   docker export "$cid" | tar -x -C "$tmp" --exclude='./proc' --exclude='./sys' --exclude='./dev' 2>/dev/null || true
+  # Пустой экспорт (docker export упал) не должен выглядеть как чистый образ
+  if [ ! -d "$tmp/app" ]; then echo "НАРУШЕНИЕ: файловая система образа не извлечена (нет /app)" >&2; echo "check-image: FAIL" >&2; exit 1; fi
   root="$tmp"
 fi
 
@@ -40,6 +42,10 @@ report "*.ts / *.tsx вне node_modules" \
 # Исходники продукта: src/ рядом с приложением (корень или /app) и packages/core/src
 report "каталог src/ приложения" \
   "$(find "$root" -path '*/node_modules' -prune -o -type d -name src \( -path "$root/src" -o -path "$root/app/src" -o -path '*/packages/core/src' \) -print)"
+# Пакеты продукта @crm/* в node_modules: в образе это ссылка на packages/<пакет> (Dockerfile). Если трассировка
+# standalone положила туда каталог, `ln -sfn` его не заменит — исходники пакета остались бы под node_modules
+report "исходники пакетов @crm/* в node_modules" \
+  "$(find "$root" -path '*/node_modules/@crm/*' \( -type d -name src -o -type f \( -name '*.ts' -o -name '*.tsx' \) ! -name '*.d.ts' \) -print)"
 report "tests/, .git, .github" \
   "$(find "$root" -path '*/node_modules' -prune -o -type d \( -name tests -o -name .git -o -name .github \) -print)"
 # Карты кода: везде, включая node_modules (клиенту отдаём только то, что нужно)
