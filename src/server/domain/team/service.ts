@@ -7,6 +7,7 @@ import { NotFoundError } from '@/server/access/errors';
 import { revokeAllSessions, issueInvite, issuePasswordReset, revokePendingInvites, readSecurityPolicy, maskPhone, loginPhoneDigits } from '@/server/platform/auth';
 import { writeAudit } from '@/server/platform/audit';
 import { getDb, type Sql } from '@/server/platform/db';
+import { standPhoneRejected } from '@/server/platform/stand';
 import { badRequest, conflict } from './errors';
 import { staffHandover, type HandoverResult, type StaffHandover } from './handover';
 import * as repo from './repo';
@@ -59,6 +60,8 @@ function link(userId: string, invite: { link: string; expiresAt: number }, ttlHo
 export async function inviteStaff(viewer: Viewer, input: InviteInput, deps?: Clock): Promise<IssuedLink> {
   const phoneDigits = loginPhoneDigits(input.phone);
   if (!phoneDigits) throw badRequest('phone');
+  // Стенд на Vercel (D-318): сотрудники — только со служебными номерами +7 709
+  if (standPhoneRejected(phoneDigits)) throw badRequest('stand_phone');
   if (input.roleKey) await requireAssignable(input.roleKey);
   const policy = await readSecurityPolicy();
   const db = await getDb();

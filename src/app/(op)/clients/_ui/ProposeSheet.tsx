@@ -26,7 +26,7 @@ function ProposeForm() {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [phoneError, setPhoneError] = useState(false);
+  const [phoneError, setPhoneError] = useState<boolean | 'stand'>(false);
   const [busy, setBusy] = useState(false);
   const opId = useRef<string>(crypto.randomUUID());
 
@@ -46,8 +46,9 @@ function ProposeForm() {
       toast.show({ message: t('propose.sent'), tone: 'success' });
       return;
     }
-    if (result.kind === 'invalid' && (data as { detail?: string } | null)?.detail === 'phone_invalid') {
-      setPhoneError(true);
+    const detail = (data as { detail?: string } | null)?.detail;
+    if (result.kind === 'invalid' && (detail === 'phone_invalid' || detail === 'stand_phone')) {
+      setPhoneError(detail === 'stand_phone' ? 'stand' : true);
       return;
     }
     setError(t('propose.failure'));
@@ -61,7 +62,7 @@ function ProposeForm() {
       <BottomSheet open={open} onClose={() => setOpen(false)} title={t('propose.title')} description={t('propose.lead')} closeLabel={t('form.close')}>
         <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
           {error && <Alert tone="danger">{error}</Alert>}
-          <Field label={t('propose.phone')} error={phoneError ? t('propose.invalidPhone') : undefined}>
+          <Field label={t('propose.phone')} error={phoneError === 'stand' ? t('propose.standPhone') : phoneError ? t('propose.invalidPhone') : undefined}>
             <Input name="propose-phone" type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={60} />
           </Field>
           <Field label={t('propose.name')}>

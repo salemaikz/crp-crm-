@@ -8,6 +8,7 @@ import { loadClientsConfig, type ClientsConfig } from '@/server/domain/clients/c
 import { getDb, newId, type Sql } from '@/server/platform/db';
 import { getActiveConfig } from '@/server/platform/config/active';
 import { phoneHmac } from '@/server/platform/hmac';
+import { standPhoneRejected } from '@/server/platform/stand';
 import * as repo from './repo';
 
 export interface ProposeInput {
@@ -96,6 +97,8 @@ export async function proposeContact(viewer: Viewer, input: ProposeInput): Promi
     const parsed = phoneCore.parsePhone(input.phone, cfg.phoneRules);
     if (!parsed || !parsed.working || !parsed.digits) throw new BadRequestError('phone_invalid');
     const digits = parsed.digits;
+    // Стенд на Vercel (D-318): только служебные номера +7 709, настоящие на стенд не вводятся
+    if (standPhoneRejected(digits)) throw new BadRequestError('stand_phone');
 
     const used = await repo.countProbesOnDay(sql, viewer.userId, viewer.today);
     const stopped = await repo.phoneInStopList(sql, phoneHmac(digits));

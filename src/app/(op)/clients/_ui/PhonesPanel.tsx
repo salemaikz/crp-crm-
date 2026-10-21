@@ -41,7 +41,8 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
       return;
     }
     if (result.kind !== 'network') opId.current = crypto.randomUUID();
-    setError(result.kind === 'invalid' ? t('phones.invalid') : t(`form.failure.${result.kind === 'fields' ? 'invalid' : result.kind}`));
+    const stand = (data as { detail?: string } | null)?.detail === 'stand_phone';
+    setError(result.kind === 'invalid' ? t(stand ? 'phones.standPhone' : 'phones.invalid') : t(`form.failure.${result.kind === 'fields' ? 'invalid' : result.kind}`));
   }
 
   async function act(p: PhoneView, body: { working: false } | { primary: true }) {

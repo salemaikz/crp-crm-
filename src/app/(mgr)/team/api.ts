@@ -6,7 +6,7 @@ type ErrorBody = { error?: string; detail?: string };
 /** Ключ текста в team.errors по ответу API: сначала detail, потом код. */
 export function errorKey(body: ErrorBody | null, status: number): string {
   const known = new Set([
-    'exists', 'disabled', 'self_role', 'unknown_role', 'phone', 'name', 'role_required', 'no_space', 'not_activated', 'already_active',
+    'exists', 'disabled', 'self_role', 'unknown_role', 'phone', 'stand_phone', 'name', 'role_required', 'no_space', 'not_activated', 'already_active',
     'forbidden', 'unauthorized', 'not_found', 'read_only', 'card_changed', 'same_owner', 'recipient', 'too_many',
   ]);
   if (body?.detail && known.has(body.detail)) return body.detail;

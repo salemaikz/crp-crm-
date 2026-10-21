@@ -9,6 +9,7 @@ import { ensureAutoTask } from '@/server/domain/tasks/auto';
 import { writeAudit } from '@/server/platform/audit';
 import { newId, type Sql } from '@/server/platform/db';
 import { phoneHmac } from '@/server/platform/hmac';
+import { standPhoneRejected } from '@/server/platform/stand';
 import { markAttendanceIn } from './bookings';
 import { noteCardEvent } from './cardEvents';
 import { BookingDomainError } from './errors';
@@ -94,6 +95,8 @@ export const registerWalkIn: RegisterWalkIn = async (deps, viewer, input) => {
   const parsed = phone.parsePhone(input.phone, ops.phoneRules);
   if (!parsed || !parsed.working || parsed.digits === null) throw new BadRequestError('phone_invalid');
   const digits = parsed.digits;
+  // Стенд на Vercel (D-318): только служебные номера +7 709, настоящие на стенд не вводятся
+  if (standPhoneRejected(digits)) throw new BadRequestError('stand_phone');
   const phoneKind = parsed.kind;
 
   return inBookingTx({}, async (tx): Promise<WalkInResult> => {

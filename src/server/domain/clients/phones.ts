@@ -3,6 +3,7 @@ import { phone as phoneCore } from '@crm/core';
 import { BadRequestError, type Viewer } from '@/server/access';
 import { getDb, type Sql } from '@/server/platform/db';
 import { phoneHmac } from '@/server/platform/hmac';
+import { standPhoneRejected } from '@/server/platform/stand';
 import { appendEvents } from '../timeline/repo';
 import { loadClientsConfig } from './config';
 import { toPhoneDto } from './dto';
@@ -51,6 +52,8 @@ export async function addPhone(viewer: Viewer, clientId: string, body: AddPhoneB
     const parsed = phoneCore.parsePhone(body.phone, cfg.phoneRules);
     if (!parsed || !parsed.working || !parsed.digits) throw new BadRequestError('phone_invalid');
     const digits = parsed.digits;
+    // Стенд на Vercel (D-318): только служебные номера +7 709, настоящие на стенд не вводятся
+    if (standPhoneRejected(digits)) throw new BadRequestError('stand_phone');
 
     // Свой номер: повтор безопасен, проверка номера не считается (это свой клиент)
     const own = await selectPhoneByDigits(sql, viewer, clientId, digits);
