@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl';
 import { useEffect } from 'react';
 import {
   browserStorage,
+  clearLogoutPending,
   completePendingLogout,
   isLogoutPending,
   LOGOUT_PENDING_ATTR,
@@ -44,6 +45,8 @@ export function LogoutGuard() {
             },
           });
           if (done) {
+            // Без хранилища флага не было, но метка для сервера (D-310) стоит: снимаем и её
+            clearLogoutPending(storage);
             stop?.();
             window.location.replace('/login');
           }

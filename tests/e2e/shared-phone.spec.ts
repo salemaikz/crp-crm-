@@ -77,16 +77,18 @@ test('«Всё равно выйти» без сети: экран блокир�
   // Сеть есть, но запрос выхода не проходит: новая загрузка любой страницы — снова блокировка, без данных и отправки
   await context.route('**/api/auth/logout', (r) => r.abort());
   await context.setOffline(false);
-  // /call: карточки приходят из API, а его страница не запрашивает — названий нет даже в разметке
+  // /call: метка «выход не завершён» уходит с запросом страницы — сервер сам закрывает сессию (D-310), запрос выхода
+  // для этого уже не нужен; названий нет даже в разметке
   await page.goto('/call');
   await expect(page.getByTestId('logout-lock')).toBeVisible();
   await expect(page.getByTestId('call-card')).toHaveCount(0);
   const html = await page.content();
   for (const name of op.names) expect(html).not.toContain(name);
-  // Страница с серверной разметкой (список клиентов): сессия ещё жива, разметка пришла, но не рисуется
+  expect(await sessionsOf(op.id)).toBe(0);
+  // Страница с серверной разметкой (список клиентов): сессии нет — разметки с данными тоже
   await page.goto('/clients');
   await expect(page.getByTestId('logout-lock')).toBeVisible();
-  const visible = await page.locator('body').innerText();
+  const visible = await page.content();
   for (const name of op.names) expect(visible).not.toContain(name);
   expect(await callsOf(op.id)).toHaveLength(0);
 
@@ -379,7 +381,7 @@ function outboxIds(page: Page): Promise<string[]> {
   });
 }
 
-type ExpiredMeta = { claimed: { count: number; opIds: string[]; deviceId: string }; confirmed: { authorExists: boolean; alreadyReceived: number } };
+type ExpiredMeta = { claimed: { count: number; opIds: string[]; deviceId: string; reason: string }; checked: { authorExists: boolean; alreadyReceived: number } };
 const expiredRows = (authorId: string) =>
   sql<{ actorId: string; meta: ExpiredMeta }[]>`
     SELECT actor_id AS "actorId", meta FROM audit_log WHERE action = 'user.outbox_expired' AND entity = 'user' AND entity_id = ${authorId}`;
@@ -409,16 +411,21 @@ test('итоги A со свободным текстом старше calling.o
   expect(dump).not.toContain('Берик Синтетик-ЛПР');
   expect(dump).not.toContain('Старая заметка Синтетик');
   expect(dump).toContain('Дана Синтетик-ЛПР');
-  // Потеря видна: запись журнала о сотруднике A от сотрудника B, без ПДн; заявленное телефоном отделено от проверенного
+  // Потеря видна: запись журнала о сотруднике A от сотрудника B, без ПДн; заявленное телефоном отделено от проверенного.
+  // Переход посреди уборки (здесь — сразу на /call после входа) может повторить сообщение — строка всё равно одна (D-311)
+  await expect.poll(async () => (await expiredRows(a.id)).length, { timeout: 15_000 }).toBe(1);
   const rows = await expiredRows(a.id);
-  // Переход посреди уборки (здесь — сразу на /call после входа) может повторить запись: opId сводят повторы
-  expect(rows.length).toBeGreaterThanOrEqual(1);
   for (const r of rows) {
     expect(r.actorId).toBe(b.id);
     expect(r.meta.claimed.opIds).toEqual([ids.old]);
-    expect(r.meta.confirmed.authorExists).toBe(true);
+    expect(r.meta.claimed.reason).toBe('expired');
+    expect(r.meta.checked.authorExists).toBe(true);
     expect(JSON.stringify(r.meta)).not.toContain('Синтетик');
   }
+  // Повтор загрузки (вторая уборка, событие online) строк не прибавляет
+  await page.reload();
+  await expect(page.getByTestId('call-card')).toBeVisible();
+  expect(await expiredRows(a.id)).toHaveLength(1);
   expect(await callsOf(a.id)).toHaveLength(0);
 });
 
@@ -453,7 +460,7 @@ test('D-308: вошёл сотрудник «только чтение», сер
   // Следующая загрузка: сообщение доходит, роль «только чтение» его не блокирует (мутация безопасности, D-054)
   await context.unroute('**/api/device/outbox-expired');
   await page.reload();
-  await expect.poll(async () => (await expiredRows(a.id)).length, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => (await expiredRows(a.id)).length, { timeout: 15_000 }).toBe(1);
   for (const r of await expiredRows(a.id)) {
     expect(r.actorId).toBe(dir.id);
     expect(r.meta.claimed.opIds).toEqual([old]);

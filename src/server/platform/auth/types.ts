@@ -5,6 +5,11 @@
 export type SecurityPolicy = {
   /** Скользящий срок сессии, дни (1…365). */
   sessionDays: number;
+  /**
+   * Простой (D-310), часы (2…720): сессия, которую не продлевали запросы дольше этого, недействительна. Продление идёт
+   * не чаще раза в час (SESSION_TOUCH_INTERVAL_MS), поэтому фактический простой — от idleHours − 1 ч до idleHours.
+   */
+  idleHours: number;
   /** Срок ссылки приглашения и сброса, часы (1…720). */
   inviteTtlHours: number;
   loginAttempts: {
@@ -19,6 +24,7 @@ export type SecurityPolicy = {
 /** Значения по умолчанию CONFIG §6.16: ими же работает вход, если настройки ещё не применены. */
 export const DEFAULT_SECURITY_POLICY: SecurityPolicy = Object.freeze({
   sessionDays: 30,
+  idleHours: 12,
   inviteTtlHours: 72,
   loginAttempts: Object.freeze({ perPhone: 5, perIp: 20, windowMin: 15 }),
 }) as SecurityPolicy;

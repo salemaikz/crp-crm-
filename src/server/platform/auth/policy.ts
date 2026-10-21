@@ -10,6 +10,7 @@ const int = (min: number, max: number) => z.number().int().min(min).max(max);
 const SecuritySchema = z
   .object({
     sessionDays: int(1, 365).optional(),
+    idleHours: int(2, 720).optional(),
     inviteTtlHours: int(1, 720).optional(),
     loginAttempts: z
       .object({ perPhone: int(1, 100).optional(), perIp: int(1, 1000).optional(), windowMin: int(1, 1440).optional() })
@@ -95,6 +96,7 @@ export async function readSecurityPolicy(load: () => Promise<unknown> = getActiv
   const v = parsed.data;
   return {
     sessionDays: v.sessionDays ?? d.sessionDays,
+    idleHours: v.idleHours ?? d.idleHours,
     inviteTtlHours: v.inviteTtlHours ?? d.inviteTtlHours,
     loginAttempts: {
       perPhone: v.loginAttempts?.perPhone ?? d.loginAttempts.perPhone,

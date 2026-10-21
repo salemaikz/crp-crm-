@@ -7,6 +7,7 @@ import {
   completePendingLogout,
   isLogoutPending,
   LOGOUT_GUARD_SCRIPT,
+  LOGOUT_MARKER_COOKIE,
   LOGOUT_PENDING_ATTR,
   LOGOUT_PENDING_KEY,
   markLogoutPending,
@@ -73,4 +74,50 @@ test('довести выход: без сети флаг остаётся; от
   assert.deepEqual(calls, ['post', 'post', 'cleanup']);
   assert.equal(await completePendingLogout(deps(true)), true);
   assert.equal(calls.length, 3, 'флага нет — запроса нет');
+});
+
+/** Записи document.cookie в контексте скрипта или страницы. */
+function cookieJar(protocol: string) {
+  const writes: string[] = [];
+  const document = {
+    documentElement: { setAttribute: () => undefined },
+    set cookie(v: string) {
+      writes.push(v);
+    },
+    get cookie() {
+      return '';
+    },
+  };
+  return { writes, document, location: { protocol } };
+}
+
+test('метка для сервера (D-310): скрипт в <head> ставит её, пока стоит флаг; Secure только на https; без ПДн', () => {
+  const s = mem();
+  const none = cookieJar('https:');
+  vm.runInNewContext(LOGOUT_GUARD_SCRIPT, { localStorage: s, ...none });
+  assert.deepEqual(none.writes, [], 'нет флага — нет метки');
+  s.setItem(LOGOUT_PENDING_KEY, '1');
+  const https = cookieJar('https:');
+  vm.runInNewContext(LOGOUT_GUARD_SCRIPT, { localStorage: s, ...https });
+  assert.equal(https.writes.length, 1);
+  assert.match(https.writes[0]!, new RegExp(`^${LOGOUT_MARKER_COOKIE}=1; Path=/; SameSite=Strict; Max-Age=\\d+; Secure$`));
+  const http = cookieJar('http:');
+  vm.runInNewContext(LOGOUT_GUARD_SCRIPT, { localStorage: s, ...http });
+  assert.match(http.writes[0]!, /SameSite=Strict; Max-Age=\d+$/);
+});
+
+test('метка для сервера (D-310): флаг ставит её первой, даже без хранилища; снятие флага стирает её', () => {
+  const g = globalThis as { document?: unknown; location?: unknown };
+  const jar = cookieJar('http:');
+  g.document = jar.document;
+  g.location = jar.location;
+  try {
+    assert.equal(markLogoutPending(null), false, 'хранилища нет');
+    assert.match(jar.writes[0]!, new RegExp(`^${LOGOUT_MARKER_COOKIE}=1; Path=/; SameSite=Strict; Max-Age=[1-9]\\d*$`), 'метка всё равно стоит');
+    clearLogoutPending(mem());
+    assert.match(jar.writes[1]!, new RegExp(`^${LOGOUT_MARKER_COOKIE}=1; Path=/; SameSite=Strict; Max-Age=0$`));
+  } finally {
+    delete g.document;
+    delete g.location;
+  }
 });

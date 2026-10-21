@@ -229,5 +229,60 @@ test.describe('пути выхода', () => {
     expect(await callsOf(a.id)).toHaveLength(1);
     expect(await callsOnCards(a.cardIds)).toHaveLength(1);
     expect(await callsOf(b.id)).toHaveLength(0);
+    // Но не молча (D-311): при загрузке под B сообщение о явной потере ушло на сервер — одна запись, только id
+    const discarded = () =>
+      sql<{ actorId: string; meta: { claimed: { opIds: string[]; reason: string } } }[]>`
+        SELECT actor_id AS "actorId", meta FROM audit_log WHERE action = 'user.outbox_expired' AND entity_id = ${a.id}`;
+    await expect.poll(async () => (await discarded()).length, { timeout: 15_000 }).toBe(1);
+    const [row] = await discarded();
+    expect(row!.actorId).toBe(b.id);
+    expect(row!.meta.claimed.reason).toBe('discarded');
+    expect(row!.meta.claimed.opIds).toHaveLength(1);
+    expect(JSON.stringify(row!.meta)).not.toContain('Синтетик');
+    await page.reload();
+    await expect(page.getByTestId('call-card')).toBeVisible();
+    expect(await discarded()).toHaveLength(1);
+  });
+
+  test('D-310: «Всё равно выйти» без сети, вкладку закрыли, сеть есть — следующий человек по адресу API ничего не видит, сессии A на сервере нет', async ({ page, context }) => {
+    const a = await makeOperator(3, { lpr: true });
+    await openCall(page, a);
+    // A открывал карточку клиента: её адрес и id лежат в истории браузера
+    await page.goto(`/clients/${a.clientIds[0]}`);
+    await expect(page.locator('body')).toContainText(a.names[0]!);
+    await page.goto('/call');
+    await expect(page.getByTestId('call-card')).toBeVisible();
+    await context.setOffline(true);
+    await callAndOutcome(page, 'no_answer');
+    await menuLogout(page);
+    await expect(page.getByTestId('logout-unsent')).toBeVisible();
+    await page.getByTestId('logout-force').click();
+    await expect(page.getByTestId('logout-lock')).toBeVisible();
+    expect(await sessionsOf(a.id)).toBe(1);
+    // Браузер выгрузил вкладку, сеть вернулась
+    await page.close();
+    await context.setOffline(false);
+
+    // Следующий человек: новая вкладка, адрес API в адресной строке — без страницы приложения
+    const next = await context.newPage();
+    const nav = await next.goto('/api/calls/queue?limit=4');
+    expect(nav!.status()).not.toBe(200);
+    const navBody = await nav!.text();
+    for (const name of a.names) expect(navBody).not.toContain(name);
+    expect(navBody).not.toContain('Асель Синтетик');
+    // Тот же адрес запросом (как fetch) — сервер видит метку и закрывает сессию A
+    const api = await context.request.get(`/api/clients/${a.clientIds[0]}`);
+    expect(api.status()).not.toBe(200);
+    const apiBody = await api.text();
+    for (const name of a.names) expect(apiBody).not.toContain(name);
+    expect(apiBody).not.toContain('Асель Синтетик');
+    expect(await sessionsOf(a.id)).toBe(0);
+    // И после этого ни очередь, ни карточка, ни страница не отдают данных A
+    const queue = await context.request.get('/api/calls/queue?limit=4');
+    expect(queue.status()).toBe(401);
+    const html = await (await context.request.get(`/clients/${a.clientIds[0]}`)).text();
+    for (const name of a.names) expect(html).not.toContain(name);
+    // Неотправленный итог A не потерян: ждёт входа A на телефоне
+    expect(await dumpDevice(next)).toContain(a.id);
   });
 });

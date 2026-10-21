@@ -13,10 +13,36 @@ export const LOGOUT_PENDING_EVENT = 'crm:logout-pending';
 export const LOGOUT_RETRY_MS = 5_000;
 
 /**
- * Скрипт в <head> корневого layout: выполняется до первой отрисовки любой страницы, в том числе оболочки /call из
- * кэша service worker, и прячет страницу, если выход не завершён. Ключ и атрибут — те же, что выше.
+ * Метка для сервера (D-310): cookie без ПДн, не httpOnly — её ставит страница. Сервер на любом запросе с меткой
+ * закрывает сессию по cookie, даже если HTML приложения больше не откроют (следующий человек сразу идёт на адрес API).
+ * Снимают её успешный вход и выход (сервер) и снятие флага (страница). Имя — то же, что в
+ * src/server/platform/auth/cookie.ts (проверяет тест).
  */
-export const LOGOUT_GUARD_SCRIPT = `try{if(localStorage.getItem(${JSON.stringify(LOGOUT_PENDING_KEY)}))document.documentElement.setAttribute(${JSON.stringify(LOGOUT_PENDING_ATTR)},'')}catch(e){}`;
+export const LOGOUT_MARKER_COOKIE = 'crm_logout';
+/** Срок метки: дольше любого простоя сессии; снимается раньше — входом или выходом. */
+const LOGOUT_MARKER_MAX_AGE_SEC = 30 * 86_400;
+
+/** Строка document.cookie метки; maxAge 0 — стереть. Secure — только на https (на http браузер её не примет). */
+export function logoutMarkerCookie(maxAgeSec: number, https: boolean): string {
+  return `${LOGOUT_MARKER_COOKIE}=1; Path=/; SameSite=Strict; Max-Age=${maxAgeSec}${https ? '; Secure' : ''}`;
+}
+
+function writeMarker(maxAgeSec: number): void {
+  try {
+    if (typeof document === 'undefined') return;
+    document.cookie = logoutMarkerCookie(maxAgeSec, location.protocol === 'https:');
+  } catch {
+    // cookie недоступны: остаются флаг и экран блокировки
+  }
+}
+
+/**
+ * Скрипт в <head> корневого layout: выполняется до первой отрисовки любой страницы, в том числе оболочки /call из
+ * кэша service worker, и прячет страницу, если выход не завершён. Пока флаг стоит, он же ставит метку для сервера
+ * (D-310): сервер мог снять её, закрыв сессию, а флаг снимается только после ответа на запрос выхода. Ключ, атрибут и
+ * метка — те же, что выше.
+ */
+export const LOGOUT_GUARD_SCRIPT = `try{if(localStorage.getItem(${JSON.stringify(LOGOUT_PENDING_KEY)})){document.documentElement.setAttribute(${JSON.stringify(LOGOUT_PENDING_ATTR)},'');document.cookie=${JSON.stringify(`${LOGOUT_MARKER_COOKIE}=1; Path=/; SameSite=Strict; Max-Age=${LOGOUT_MARKER_MAX_AGE_SEC}`)}+(location.protocol==='https:'?'; Secure':'')}}catch(e){}`;
 
 /** localStorage, если доступен (SSR, приватный режим и запрет хранилища дают null). */
 export function browserStorage(): Storage | null {
@@ -36,8 +62,13 @@ export function isLogoutPending(storage: StorageLike | null = browserStorage()):
   }
 }
 
-/** Поставить флаг. false — хранилище недоступно: блокировка держится только в этой вкладке. */
+/**
+ * Поставить флаг и метку для сервера (D-310). Метка ставится первой и без хранилища: закроют вкладку — сервер всё
+ * равно закроет сессию на первом же запросе. false — хранилище недоступно: экран блокировки держится только в этой
+ * вкладке, но метка стоит.
+ */
 export function markLogoutPending(storage: StorageLike | null = browserStorage()): boolean {
+  writeMarker(LOGOUT_MARKER_MAX_AGE_SEC);
   if (!storage) return false;
   try {
     storage.setItem(LOGOUT_PENDING_KEY, '1');
@@ -47,7 +78,9 @@ export function markLogoutPending(storage: StorageLike | null = browserStorage()
   }
 }
 
+/** Снять флаг и метку: сервер ответил на запрос выхода, сессии нет. */
 export function clearLogoutPending(storage: StorageLike | null = browserStorage()): void {
+  writeMarker(0);
   try {
     storage?.removeItem(LOGOUT_PENDING_KEY);
   } catch {

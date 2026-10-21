@@ -24,14 +24,22 @@ export const SESSION_TOUCH_INTERVAL_MS = 60 * 60_000;
 export const MAX_SESSIONS_PER_USER = 10;
 
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 async function loadSession(): Promise<SessionInfo | null> {
   // Динамически: next/headers нужен только в запросе Next, модуль остаётся загружаемым в unit-тестах
-  const { readSessionToken, setSessionCookie } = await import('../http/sessionCookie');
+  const { clearSessionCookie, hasLogoutMarker, readSessionToken, setSessionCookie } = await import('../http/sessionCookie');
   const token = await readSessionToken();
   if (!token || !SESSION_TOKEN_RE.test(token)) return null; // гость без запроса в БД
-  const policy = await readSecurityPolicy();
   const db = await getDb();
+  // Выход на телефоне не завершён (D-310): эта сессия закрывается здесь, на любом запросе с данными, а не только
+  // когда телефон откроет страницу приложения. Ответ — как без сессии (401 или переход на вход).
+  if (await hasLogoutMarker()) {
+    await revokeSessionByToken(db.sql, token);
+    await clearSessionCookie().catch(() => undefined); // серверный компонент cookie не меняет: строки в БД уже нет
+    return null;
+  }
+  const policy = await readSecurityPolicy();
   const now = Date.now();
   // Продление срока в БД — только вместе с перевыпуском cookie (D-154): сначала cookie, потом UPDATE.
   // В серверном компоненте cookie менять нельзя — тогда и в БД не продлеваем: продлит первый же
@@ -109,7 +117,7 @@ export async function createSession(
 
 /**
  * Сессия по сырому токену. Действительна, если expires_at > now, last_seen_at + sessionDays > now
- * (уменьшение срока в настройках действует сразу), users.status = 'active', password_hash не NULL.
+ * (уменьшение срока в настройках действует сразу), last_seen_at + idleHours > now (простой, D-310), users.status = 'active', password_hash не NULL.
  * Прошло SESSION_TOUCH_INTERVAL_MS с last_seen_at — продлевает срок (touched = true).
  * `opts.beforeTouch(newExpiresAt)` — вызывается перед продлением (перевыпуск cookie); false — срок
  * не продлевается (touched = false), сессия при этом действительна.
@@ -137,6 +145,8 @@ export async function resolveSession(
   if (!row) return null;
   if (row.expiresAt <= nowMs) return null;
   if (row.lastSeenAt + policy.sessionDays * DAY_MS <= nowMs) return null;
+  // Простой (D-310): сессию продлевает только активность — запросы route handler и server action
+  if (row.lastSeenAt + policy.idleHours * HOUR_MS <= nowMs) return null;
   if (row.status !== 'active' || !row.hasPassword) return null;
   let expiresAt = row.expiresAt;
   let touched = false;
