@@ -312,3 +312,15 @@ test('параллель: два apply одного импорта — один 
   const active = await db.sql<any>`SELECT count(*)::int AS n FROM bookings WHERE client_id = ${clients[0]!.clientId} AND status IN ('registered','confirmed')`;
   assert.ok(active[0].n <= 1);
 });
+
+// ---------- выгрузка ----------
+
+test('выгрузка строк CSV: формулы обезврежены, в аудит — только код фильтра и число строк', async () => {
+  const x = await preview([{ name: '=1+1', phone: ph() }, { name: '@ТОО «Формула»', phone: ph() }]);
+  const out = await importApi.exportRowsCsv(x.actor, x.up.importId, 'all', t(), { bookings: ['row', 'name', 'phones', 'date', 'time', 'type', 'operator', 'action', 'groups', 'flags', 'issues'] });
+  assert.equal(out.rows, 2);
+  assert.ok(out.csv.startsWith('﻿row;name;'));
+  assert.ok(out.csv.includes("'=1+1") && out.csv.includes("'@ТОО"), 'ячейки с формулами начинаются с апострофа');
+  const [a] = await db.sql<any>`SELECT meta::text AS meta FROM audit_log WHERE action = 'import.export' AND entity_id = ${x.up.importId}`;
+  assert.deepEqual(JSON.parse(a.meta), { importId: x.up.importId, filter: 'all', rows: 2 });
+});
