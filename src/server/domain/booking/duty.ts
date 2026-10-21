@@ -55,8 +55,8 @@ async function todayBounds(deps: BookingDeps, spaceId: string, now: number): Pro
 }
 
 /**
- * Сегодняшние мероприятия, где зритель отмечает явку по booking.attend: охват space/all — все, дежурство — своё
- * (D-317). Чужих и завтрашних нет.
+ * Сегодняшние мероприятия, где зритель отмечает явку по booking.attend: охват team/space/all — по охвату роли,
+ * дежурство (`duty_today`) — своё (D-317). Чужих и завтрашних нет.
  */
 export const listDutyEvents: ListDutyEvents = async (deps, viewer) => {
   const spaceId = requireSpace(viewer);
