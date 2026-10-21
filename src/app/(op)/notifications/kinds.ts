@@ -37,9 +37,9 @@ const HREF: Record<string, string> = {
  * Известные виды без ссылки. Полная выгрузка (R3b, PROCESS 8.6): журнал видят не все получатели (РОП — нет), поэтому
  * ссылки нет, текст отсылает к журналу. Резерв, ставший основной записью, получают и консультант, и владелец
  * карточки — общего экрана у них нет. Состояние канала и пределы мессенджера получают руководители без доступа
- * к экрану «Интеграции».
+ * к экрану «Интеграции». Сброс часов лицензии (D-314) — экрана лицензии нет, подробности в журнале аудита.
  */
-const TEXT_ONLY = ['export_full_done', 'reserve_promoted', 'messenger_channel_down', 'messenger_flood', 'messenger_dnc_unknown'];
+const TEXT_ONLY = ['export_full_done', 'reserve_promoted', 'messenger_channel_down', 'messenger_flood', 'messenger_dnc_unknown', 'license_clock_reset'];
 
 const KNOWN = new Set([...Object.keys(HREF), ...TEXT_ONLY]);
 

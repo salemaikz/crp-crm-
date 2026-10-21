@@ -27,3 +27,13 @@ test('для каждого вида есть текст, аргументы с�
   }
   assert.ok(msgs.kinds.unknown, 'нет текста для неизвестного вида');
 });
+
+test('сброс часов лицензии (D-314): аргументы текста — ровно числа из params, текст собирается', async () => {
+  const text = msgs.kinds['license_clock_reset'];
+  assert.ok(text);
+  assert.deepEqual(icuArgs(text), ['rewindHours', 'wasLocked']);
+  const { createTranslator } = await import('next-intl');
+  const t = createTranslator({ locale: 'ru', messages: { kinds: msgs.kinds }, namespace: 'kinds' });
+  assert.match(t('license_clock_reset', { rewindHours: 52, wasLocked: 1 }), /52 ч, режим «только чтение» снят\./);
+  assert.match(t('license_clock_reset', { rewindHours: 3, wasLocked: 0 }), /3 ч\. Подробности/);
+});

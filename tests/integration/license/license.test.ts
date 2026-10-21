@@ -731,10 +731,21 @@ test('crmctl license clock-reset: эпизод после спешивших ч�
   assert.equal(resets.length, 1);
   assert.equal(resets[0]!.rewindHours, Math.floor((ahead - clock) / H));
   assert.equal(resets[0]!.wasLocked, true);
+  // Колокол каждому активному администратору (D-314): только числа, без имён, номеров и id установки
+  const bells = async () =>
+    db.sql<{ userId: string; params: Record<string, unknown>; entityType: string; entityId: string }>`
+      SELECT user_id, params, entity_type, entity_id FROM notifications WHERE kind = 'license_clock_reset' ORDER BY user_id`;
+  const admins = (await db.sql<{ id: string }>`SELECT id FROM users WHERE is_admin AND status = 'active' ORDER BY id`).map((u) => u.id);
+  assert.ok(admins.includes(U.admin));
+  const sent = await bells();
+  assert.deepEqual(sent.map((b) => b.userId), admins);
+  assert.ok(sent.every((b) => b.entityType === '' && b.entityId === ''), 'без ссылки на установку');
+  assert.deepEqual(sent[0]!.params, { rewindHours: Math.floor((ahead - clock) / H), wasLocked: 1 });
   // Часы не позади — сбрасывать нечего, журнал не растёт
   const again = await resetLicenseClock(await getDb(), { clock: () => clock + MIN });
   assert.equal(again.status, 'not_behind');
   assert.equal((await audit('license.clock_reset')).length, 1);
+  assert.equal((await bells()).length, admins.length, 'нового колокола нет');
   restart();
 });
 

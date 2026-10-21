@@ -1,7 +1,8 @@
 // SQL лицензии: одна строка license_state (id = 1). Платформа без домена (D-011): SQL лежит здесь.
 import { license as coreLicense } from '@crm/core';
 import type { LicenseStatus } from '@crm/core/license';
-import type { Sql } from '../db';
+import { newId, type Sql } from '../db';
+import { jsonParam } from '../db/core';
 
 /** Всё, что идёт в BIGINT, — целые мс: дробь (performance.now()) Postgres не примет (22P02, D-314). */
 const ms = (n: number): number => coreLicense.wholeMs(n);
@@ -71,4 +72,22 @@ export async function resetLicenseClockRow(sql: Sql, at: number): Promise<void> 
        SET last_seen_at = ${ms(at)}, checked_at = ${ms(at)},
            clock_real_at = NULL, clock_behind_since = NULL, clock_behind_last = NULL
      WHERE id = 1`;
+}
+
+/**
+ * Колокол `license_clock_reset` каждому активному администратору (D-314): время лицензии откатили сбросом часов.
+ * В params только числа — часы отката и была ли блокировка (0/1); ни имён, ни id установки. Один раз на сброс:
+ * ключ — момент сброса и получатель. Вызывать в транзакции сброса.
+ */
+export async function insertClockResetNotices(sql: Sql, a: { rewindHours: number; wasLocked: boolean; at: number }): Promise<number> {
+  const admins = await sql<{ id: string }>`SELECT id FROM users WHERE is_admin AND status = 'active' ORDER BY id`;
+  const at = ms(a.at);
+  for (const u of admins) {
+    await sql`
+      INSERT INTO notifications (id, user_id, kind, params, dedupe_key, not_before, created_at)
+      VALUES (${newId()}, ${u.id}, 'license_clock_reset', ${jsonParam({ rewindHours: a.rewindHours, wasLocked: a.wasLocked ? 1 : 0 })},
+              ${`license_clock_reset:${at}:${u.id}`}, ${at}, ${at})
+      ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`;
+  }
+  return admins.length;
 }
