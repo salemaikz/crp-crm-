@@ -112,11 +112,11 @@ export function SalesSettingsForm({ data, justSaved = false, onSaved, onConflict
           </FormGrid>
           <p className="k-field__hint">{t('hints.callWindow')}</p>
         </fieldset>
-        <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
+        <div className="flex flex-col gap-2">
           <Field width="xs" label={t('callsPerHourTarget')} hint={t('hints.callsPerHourTarget')}>
             <Input name="callsPerHourTarget" type="number" inputMode="numeric" min={1} max={100} value={target} disabled={!editable || noTarget} onChange={(e) => setTarget(e.target.value)} />
           </Field>
-          <Checkbox name="targetNone" label={t('targetNone')} checked={noTarget} disabled={!editable} onChange={(e) => setNoTarget(e.target.checked)} className="pt-7" />
+          <Checkbox name="targetNone" label={t('targetNone')} checked={noTarget} disabled={!editable} onChange={(e) => setNoTarget(e.target.checked)} />
         </div>
         {error && <Alert tone="danger">{error}</Alert>}
         {saved && <Alert tone="success">{t('saved')}</Alert>}

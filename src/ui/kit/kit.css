@@ -79,11 +79,6 @@
   .k-btn--danger-quiet:hover {
     --btn-bg: var(--danger-tint);
   }
-  /* Тихая кнопка первой в колонке: текст встаёт на край контента */
-  .k-btn--flush {
-    justify-content: flex-start;
-    padding-inline-start: 0;
-  }
   .k-btn--danger {
     --btn-bg: var(--surface);
     --btn-fg: var(--danger);
@@ -111,6 +106,12 @@
   }
   .k-btn--icon.k-btn--sm {
     width: var(--tap-min);
+  }
+  /* Тихая кнопка первой в колонке: текст встаёт на край контента. Стоит после размеров и с двойным классом:
+     сокращённое padding у --sm/--lg иначе перекрывает отступ слева */
+  .k-btn.k-btn--flush {
+    justify-content: flex-start;
+    padding-inline-start: 0;
   }
   /* Неактивная кнопка любого вида нейтральная: не бледный цвет бренда, а канва с серым текстом */
   .k-btn:disabled,
@@ -355,18 +356,18 @@
       grid-column: span 6;
     }
   }
-  .k-field--w-xs {
+  /* Ширина поля — это ширина контрола: метка и подсказка остаются на ширину формы и не сжимаются в столбик */
+  .k-field--w-xs > :is(.k-input, .k-input-group) {
     max-width: var(--field-w-xs);
   }
-  .k-field--w-sm {
+  .k-field--w-sm > :is(.k-input, .k-input-group) {
     max-width: var(--field-w-sm);
   }
-  .k-field--w-md {
+  .k-field--w-md > :is(.k-input, .k-input-group) {
     max-width: var(--field-w-md);
   }
-  .k-formgrid > .k-field--w-xs,
-  .k-formgrid > .k-field--w-sm,
-  .k-formgrid > .k-field--w-md {
+  /* В сетке формы ширину задаёт колонка */
+  .k-formgrid > .k-field > :is(.k-input, .k-input-group) {
     max-width: none;
   }
   .k-filterbar {
@@ -382,23 +383,26 @@
   }
 
   /* ---------- Переключатель видов страницы (соединённая группа) ---------- */
+  /* Рамка группы — внутренней тенью, а промежуток до неё — прозрачной рамкой сегмента: сегмент нажимается
+     на всю высоту группы, цель касания 44 px (а не 44 минус отступ рамки) */
   .k-segmented {
     display: inline-flex;
     max-width: 100%;
     overflow-x: auto;
-    padding: 3px;
-    border: 1px solid var(--border-strong);
+    padding: 0;
     border-radius: var(--radius-control);
     background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     scrollbar-width: none;
   }
   .k-segmented > .k-chip {
     flex: 1 0 auto;
     justify-content: center;
-    min-height: calc(var(--tap-min) - 8px);
-    border: 0;
-    border-radius: calc(var(--radius-control) - 3px);
+    min-height: var(--tap-min);
+    border: 3px solid transparent;
+    border-radius: var(--radius-control);
     background: transparent;
+    background-clip: padding-box;
   }
   .k-segmented > .k-chip:hover {
     background: var(--canvas);
@@ -411,7 +415,7 @@
   }
   .k-tabs__list.k-segmented {
     gap: 0;
-    padding: 3px;
+    padding: 0;
   }
   @media (max-width: 767.98px) {
     .k-segmented {
