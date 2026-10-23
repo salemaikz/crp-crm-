@@ -26,6 +26,9 @@
   --border: #dcdfe4;
   --border-strong: #8c919a;
   --overlay: rgb(20 22 27 / 48%);
+  --logo-plate: transparent;
+  --logo-pad: 0px;
+  --shadow-float: 0 12px 40px rgb(20 22 27 / 22%);
   --radius-control: 10px;
   --radius-card: 16px;
   --radius-sheet: 22px;
@@ -46,9 +49,9 @@
   --info-tint: #e7effb;
   --danger: #b3151b;
   --danger-tint: #fdeceb;
+  --on-success: #ffffff;
 
-  /* Не из настроек: тень только у всплывающих слоёв (шторка, диалог, тост). */
-  --shadow-float: 0 12px 40px rgb(20 22 27 / 22%);
+  /* Не из настроек: слои. Тень всплывающих слоёв (--shadow-float) — выше, она зависит от темы. */
   --z-sheet: 50;
   --z-toast: 60;
 
@@ -121,6 +124,7 @@
   --color-info-tint: var(--info-tint);
   --color-danger: var(--danger);
   --color-danger-tint: var(--danger-tint);
+  --color-on-success: var(--on-success);
   --font-body: var(--font-body);
   --font-display: var(--font-display);
   --radius-control: var(--radius-control);

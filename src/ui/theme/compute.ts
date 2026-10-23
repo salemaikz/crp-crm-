@@ -15,6 +15,7 @@ import {
   normalizeHex,
   readableOn,
 } from './color';
+import type { ThemeMode } from './mode';
 import {
   DANGER_HUE,
   DEFAULT_BRAND,
@@ -22,8 +23,12 @@ import {
   DENSITY,
   FONT_PRESETS,
   NEUTRALS,
+  NEUTRALS_DARK,
+  OVERLAY,
   RADIUS,
+  SHADOW_FLOAT,
   STATES,
+  STATES_DARK,
   TAP_MIN,
   type DensityKey,
   type RadiusKey,
@@ -32,7 +37,13 @@ import {
 
 export type StatusStyle = 'color' | 'color_text_icon';
 
+/** Тёмная тема клиента (theme.dark): всё необязательно, недостающее — нейтральная палитра продукта. */
+export type DarkSettings = { canvas: string | null; surface: string | null; brandColor: string | null; accentColor: string | null };
+
 export type ThemeSettings = {
+  /** Вид по умолчанию, пока сотрудник не выбрал сам; не задан — «как в системе» при включённом флаге. */
+  defaultMode: ThemeMode | null;
+  dark: DarkSettings;
   brandColor: string;
   accentColor: string | null;
   fontPreset: string;
@@ -41,7 +52,8 @@ export type ThemeSettings = {
   statusStyle: StatusStyle;
 };
 
-export type ThemeWarning = 'invalid-setting' | 'unknown-font-preset' | 'brand-near-danger' | 'brand-adjusted' | 'status-color-only';
+export type ThemeWarning = 'invalid-setting' | 'unknown-font-preset' | 'brand-near-danger' | 'brand-adjusted' | 'status-color-only' | 'dark-brand-lightened' | 'dark-accent-lightened' | 'dark-surface-invalid';
+export type ThemeVariant = 'light' | 'dark';
 
 export type Theme = {
   settings: ThemeSettings;
@@ -53,6 +65,8 @@ export type Theme = {
 };
 
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
+  defaultMode: null,
+  dark: { canvas: null, surface: null, brandColor: null, accentColor: null },
   brandColor: DEFAULT_BRAND,
   accentColor: null,
   fontPreset: DEFAULT_FONT_PRESET,
@@ -79,7 +93,18 @@ export function parseThemeSettings(raw: unknown): { settings: ThemeSettings; inv
     return fallback;
   };
   const d = DEFAULT_THEME_SETTINGS;
+  const darkRaw = src.dark && typeof src.dark === 'object' && !Array.isArray(src.dark) ? (src.dark as Record<string, unknown>) : {};
+  if (src.dark !== undefined && src.dark !== null && darkRaw !== src.dark) invalid.push('dark');
+  const pickDark = (key: keyof DarkSettings): string | null => {
+    const v = darkRaw[key];
+    if (v === undefined || v === null) return null;
+    if (isHex(v)) return normalizeHex(v);
+    invalid.push(`dark.${key}`);
+    return null;
+  };
   const settings: ThemeSettings = {
+    defaultMode: pick<ThemeMode | null>('defaultMode', (v): v is ThemeMode => v === 'light' || v === 'dark' || v === 'system', null),
+    dark: { canvas: pickDark('canvas'), surface: pickDark('surface'), brandColor: pickDark('brandColor'), accentColor: pickDark('accentColor') },
     brandColor: normalizeHex(pick('brandColor', isHex, d.brandColor)),
     accentColor: ((a) => (a ? normalizeHex(a) : null))(pick<string | null>('accentColor', isHex, null)),
     fontPreset: pick('fontPreset', (v): v is string => typeof v === 'string' && v.length > 0, d.fontPreset),
@@ -113,15 +138,55 @@ export function deriveBrandRole(color: string) {
   return { base, onColor, hover, tint, ink, adjusted: base !== original };
 }
 
+/** Заливка не менее 3:1 к поверхности и подложке (WCAG 1.4.11): иначе кнопка сливается с фоном. */
+const AA_FILL = 3;
+
+/**
+ * Роли цвета бренда на тёмном фоне. Заливка, которая сливается с поверхностью (< 3:1), осветляется до порога —
+ * `adjusted: true`; текст на заливке — не ниже AA; цвет текста и ссылок осветляется до 4.5:1 к поверхности,
+ * подложке и фону. Подложка — бренд, приглушённый в поверхность.
+ */
+export function deriveBrandRoleDark(color: string, canvas: string, surface: string) {
+  const original = normalizeHex(color);
+  const fillOk = (c: string) => contrast(c, surface) >= AA_FILL && contrast(c, canvas) >= AA_FILL;
+  const onOf = (c: string) => readableOn(c, [WHITE, NEUTRALS.text]);
+  let base = original;
+  for (let i = 1; i <= 100 && !(fillOk(base) && contrast(onOf(base), base) >= AA_TEXT); i++) base = mix(original, WHITE, i / 100);
+  const onColor = onOf(base);
+  const hover = mix(base, onColor === WHITE ? BLACK : WHITE, 0.14);
+  const tint = mix(surface, base, 0.2);
+  const ink = ensureContrast(base, [surface, tint, canvas], AA_TEXT, WHITE);
+  return { base, onColor, hover, tint, ink, adjusted: base !== original };
+}
+
 const px = (n: number) => `${n}px`;
 
-export function computeTheme(raw: unknown): Theme {
+export function computeTheme(raw: unknown, variant: ThemeVariant = 'light'): Theme {
   const { settings, invalidKeys } = parseThemeSettings(raw);
   const warnings: ThemeWarning[] = [];
   if (invalidKeys.length > 0) warnings.push('invalid-setting');
 
-  const brand = deriveBrandRole(settings.brandColor);
-  const accent = deriveBrandRole(settings.accentColor ?? settings.brandColor);
+  const dark = variant === 'dark';
+  const N = dark ? NEUTRALS_DARK : NEUTRALS;
+  // Фон и поверхность клиента для тёмной темы: текст продукта обязан читаться на них (AA), иначе — палитра продукта
+  let canvas: string = N.canvas;
+  let surface: string = N.surface;
+  if (dark) {
+    const c = settings.dark.canvas ?? NEUTRALS_DARK.canvas;
+    const sf = settings.dark.surface ?? NEUTRALS_DARK.surface;
+    if (contrast(NEUTRALS_DARK.text, c) >= AA_TEXT && contrast(NEUTRALS_DARK.text3, sf) >= AA_TEXT) {
+      canvas = c;
+      surface = sf;
+    } else {
+      warnings.push('dark-surface-invalid');
+    }
+  }
+  const role = (color: string) => (dark ? deriveBrandRoleDark(color, canvas, surface) : deriveBrandRole(color));
+  const brand = role(dark ? (settings.dark.brandColor ?? settings.brandColor) : settings.brandColor);
+  const accent = role(dark ? (settings.dark.accentColor ?? settings.accentColor ?? settings.brandColor) : (settings.accentColor ?? settings.brandColor));
+  if (dark && brand.adjusted) warnings.push('dark-brand-lightened');
+  if (dark && accent.adjusted) warnings.push('dark-accent-lightened');
+  const states = dark ? STATES_DARK : STATES;
 
   let font = FONT_PRESETS[settings.fontPreset];
   if (!font) {
@@ -131,7 +196,7 @@ export function computeTheme(raw: unknown): Theme {
   if (chroma(settings.brandColor) > 0.2 && hueDistance(hue(settings.brandColor), DANGER_HUE) <= 25) {
     warnings.push('brand-near-danger');
   }
-  if (brand.adjusted || accent.adjusted) warnings.push('brand-adjusted');
+  if (!dark && (brand.adjusted || accent.adjusted)) warnings.push('brand-adjusted');
   if (settings.statusStyle === 'color') warnings.push('status-color-only');
 
   const r = RADIUS[settings.radius];
@@ -151,14 +216,18 @@ export function computeTheme(raw: unknown): Theme {
     '--on-accent': accent.onColor,
     '--ring': brand.ink,
     // Слой 2. Нейтральные
-    '--canvas': NEUTRALS.canvas,
-    '--surface': NEUTRALS.surface,
-    '--text': NEUTRALS.text,
-    '--text-2': NEUTRALS.text2,
-    '--text-3': NEUTRALS.text3,
-    '--border': NEUTRALS.border,
-    '--border-strong': NEUTRALS.borderStrong,
-    '--overlay': 'rgb(20 22 27 / 48%)',
+    '--canvas': canvas,
+    '--surface': surface,
+    '--text': N.text,
+    '--text-2': N.text2,
+    '--text-3': N.text3,
+    '--border': N.border,
+    '--border-strong': N.borderStrong,
+    '--overlay': dark ? OVERLAY.dark : OVERLAY.light,
+    // Логотип клиента не перекрашиваем: на тёмной теме он стоит на светлой плашке
+    '--logo-plate': dark ? N.text : 'transparent',
+    '--logo-pad': dark ? '3px 8px' : '0px',
+    '--shadow-float': dark ? SHADOW_FLOAT.dark : SHADOW_FLOAT.light,
     // Форма и плотность
     '--radius-control': px(r.control),
     '--radius-card': px(r.card),
@@ -177,9 +246,11 @@ export function computeTheme(raw: unknown): Theme {
   };
   // Слой 3. Состояния
   for (const key of Object.keys(STATES) as StateKey[]) {
-    vars[`--${key}`] = STATES[key].ink;
-    vars[`--${key}-tint`] = STATES[key].tint;
+    vars[`--${key}`] = states[key].ink;
+    vars[`--${key}-tint`] = states[key].tint;
   }
+  // Текст на сплошной зелёной кнопке (кнопка «Позвонить»): белый на светлой теме, тёмный на светлом зелёном тёмной
+  vars['--on-success'] = readableOn(states.success.ink, [WHITE, NEUTRALS.text]);
   return { settings, vars, warnings, invalidKeys };
 }
 
@@ -189,4 +260,13 @@ export function themeToCss(vars: Record<string, string>, selector = ':root'): st
     .map(([k, v]) => `${k}:${v};`)
     .join('');
   return `${selector}{${body}}`;
+}
+
+/**
+ * Блок тёмной темы: только переменные, отличающиеся от светлой (форма, шрифты и плотность общие).
+ * `selector` — например `:root[data-theme="dark"]`; `color-scheme: dark` подключает тёмные системные элементы.
+ */
+export function themeToCssDark(light: Record<string, string>, dark: Record<string, string>, selector: string): string {
+  const diff = Object.fromEntries(Object.entries(dark).filter(([k, v]) => light[k] !== v));
+  return themeToCss({ 'color-scheme': 'dark', ...diff }, selector);
 }

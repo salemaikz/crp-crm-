@@ -110,7 +110,7 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
             {...dialProps(main)}
             size="lg"
             block
-            className="bg-success text-white"
+            className="bg-success text-on-success"
             aria-label={t('call.aria', { phone: formatKzPhone(main.digits) })}
             onClick={() => onCall(main)}
             data-testid="call-button"

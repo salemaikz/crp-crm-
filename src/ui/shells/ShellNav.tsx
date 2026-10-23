@@ -81,7 +81,7 @@ type BottomProps = {
   /** Все пункты меню: первые `slots` стоят в панели, остальные уходят в «Ещё». */
   items: readonly NavEntry[];
   slots: number;
-  more: { label: string; closeLabel: string; account: { href: string; label: string }; logout: ReactNode };
+  more: { label: string; closeLabel: string; account: { href: string; label: string }; logout: ReactNode; extra?: ReactNode };
 };
 
 const slot = 'flex min-h-11 min-w-0 flex-1 basis-0 flex-col items-center justify-center gap-0.5 px-1 py-1 text-xs aria-[current=page]:font-semibold';
@@ -148,6 +148,7 @@ export function BottomNav({ label, always, items, slots, more }: BottomProps) {
               {more.account.label}
             </Link>
           </li>
+          {more.extra ? <li className="px-2 py-2">{more.extra}</li> : null}
           <li>{more.logout}</li>
         </ul>
       </BottomSheet>

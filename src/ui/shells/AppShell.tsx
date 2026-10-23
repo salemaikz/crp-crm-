@@ -3,6 +3,7 @@
 // (работает с телефона); остальные роли — боковая колонка на ноутбуке и нижняя панель на телефоне.
 import type { ReactNode } from 'react';
 import { PushSync } from '../push/PushSync';
+import { ThemeSwitch, type ThemeSwitchProps } from '../theme/ThemeSwitch';
 import { DeviceOwnerGuard } from './DeviceOwnerGuard';
 import type { BannerView } from './LicenseBannerBar';
 import { BrandMark } from './BrandMark';
@@ -30,10 +31,12 @@ export type AppShellProps = {
   outboxTtlMs: number | null;
   /** Полоса состояния лицензии (P10b); null — нет. */
   banner?: BannerView | null;
+  /** Личный переключатель вида (D-342); null — флаг THEME_DARK выключен, переключателя нет. */
+  themeSwitch?: Omit<ThemeSwitchProps, 'compact'> | null;
   children: ReactNode;
 };
 
-export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots, account, bell, more, userId, outboxTtlMs, banner = null, children }: AppShellProps) {
+export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots, account, bell, more, userId, outboxTtlMs, banner = null, themeSwitch = null, children }: AppShellProps) {
   const side = variant === 'side';
   return (
     <div
@@ -52,6 +55,11 @@ export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots,
           <BrandMark name={brand.name} logoSrc={brand.logoSrc} size={side ? 'side' : 'bar'} />
           <NotificationBell {...bell} />
         </div>
+        {side && themeSwitch ? (
+          <div className="hidden px-5 pb-2 md:block">
+            <ThemeSwitch {...themeSwitch} compact />
+          </div>
+        ) : null}
         {side ? <SideNav label={navLabel} items={items} groups={groups} /> : null}
         {side ? (
           <div className="mt-auto hidden flex-col gap-1 border-t px-2 py-3 md:flex" style={{ borderColor: 'var(--border)' }}>
@@ -69,7 +77,14 @@ export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots,
         always={!side}
         items={items}
         slots={bottomSlots}
-        more={{ label: more.label, closeLabel: more.closeLabel, account, logout: <LogoutButton userId={userId} /> }}
+        more={{
+          label: more.label,
+          closeLabel: more.closeLabel,
+          account,
+          logout: <LogoutButton userId={userId} />,
+          // личный вид интерфейса (D-342): на телефоне в «Ещё», на ноутбуке выше, в боковой колонке
+          extra: themeSwitch ? <ThemeSwitch {...themeSwitch} /> : null,
+        }}
       />
     </div>
   );

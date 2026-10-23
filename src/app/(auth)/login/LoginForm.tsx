@@ -94,7 +94,7 @@ export function LoginForm() {
           />
           <button
             type="button"
-            className="min-h-11 shrink-0 rounded-lg border border-neutral-300 px-3 text-sm"
+            className="min-h-11 shrink-0 rounded-lg border border-line-strong px-3 text-sm"
             aria-pressed={show}
             onClick={() => setShow((s) => !s)}
           >

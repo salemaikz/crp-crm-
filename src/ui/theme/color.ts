@@ -84,17 +84,17 @@ export function readableOn(bg: string, candidates: readonly string[]): string {
 }
 
 /**
- * Затемняет fg (к чёрному) минимальными шагами, пока контраст со всеми фонами не достигнет min.
+ * Сдвигает fg (по умолчанию к чёрному, на тёмной теме — к белому) минимальными шагами, пока контраст со всеми фонами не достигнет min.
  * Для светлых фонов (поверхность, подложка-тинт) всегда сходится.
  */
-export function ensureContrast(fg: string, backgrounds: readonly string[], min: number = AA_TEXT): string {
+export function ensureContrast(fg: string, backgrounds: readonly string[], min: number = AA_TEXT, toward: string = BLACK): string {
   const ok = (c: string) => backgrounds.every((bg) => contrast(c, bg) >= min);
   if (ok(fg)) return normalizeHex(fg);
   for (let i = 1; i <= 100; i++) {
-    const c = mix(fg, BLACK, i / 100);
+    const c = mix(fg, toward, i / 100);
     if (ok(c)) return c;
   }
-  return BLACK;
+  return toward;
 }
 
 /** Тон (0..360) цвета; у серых — 0. */

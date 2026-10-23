@@ -40,7 +40,7 @@ export function BrandMark({ name, logoSrc, size }: Props) {
         decoding="async"
         onError={() => setFailedSrc(logoSrc)}
         onLoad={() => setFailedSrc(null)}
-        style={{ height: BRAND_HEIGHT[size], width: 'auto', maxWidth: '100%', objectFit: 'contain' }}
+        style={{ height: BRAND_HEIGHT[size], width: 'auto', maxWidth: '100%', objectFit: 'contain', background: 'var(--logo-plate)', padding: 'var(--logo-pad)', borderRadius: 6, boxSizing: 'content-box' }}
       />
     </span>
   );
