@@ -8,6 +8,11 @@ import { generateVapidKeys } from './src/server/platform/push/vapid';
 // Каталог ассетов (логотип, D-333): prepare-db копирует туда ассеты накладки, сервер отдаёт файл оттуда же.
 // Задаётся до defineConfig, чтобы его видели и воркеры тестов, и сервер.
 process.env.CRM_ASSETS_DIR ||= path.join(tmpdir(), `crm-e2e-assets-${process.env.E2E_PORT || 3100}`);
+// Доска оператора (OP_BOARD) и новое окно «Перезвон» (CALLBACK_V2) за флагами (D-335…D-347). По умолчанию выключены, как
+// в бою: основной прогон проверяет прежнее поведение. Сценарии доски и перезвона идут отдельным прогоном с
+// FEATURE_OP_BOARD=1 FEATURE_CALLBACK_V2=1 (tests/e2e/calling-board, calling-callback, shell-menu; см. e2e.yml).
+process.env.FEATURE_OP_BOARD ||= '0';
+process.env.FEATURE_CALLBACK_V2 ||= '0';
 const PORT = Number(process.env.E2E_PORT) || 3100;
 const isCI = !!process.env.CI;
 // Одноразовая пара VAPID для e2e: push на стенде включён, ключ нигде не хранится (P8b)
@@ -62,6 +67,8 @@ export default defineConfig({
       // Импорт таблиц и профиль «Записи» (C4, C4b) за флагами; на бою выключены до приёмки
       FEATURE_IMPORT: '1',
       FEATURE_IMPORT_BOOKINGS: '1',
+      FEATURE_OP_BOARD: process.env.FEATURE_OP_BOARD,
+      FEATURE_CALLBACK_V2: process.env.FEATURE_CALLBACK_V2,
       // Тёмная тема и переключатель (D-342) за флагом; FEATURE_THEME_DARK=0 проверяет прежнее поведение без флага
       FEATURE_THEME_DARK: process.env.FEATURE_THEME_DARK || '1',
       // Web-push (P8b): флаг и одноразовые ключи; переключатель и отметку решения клиента спецификация ставит в БД
