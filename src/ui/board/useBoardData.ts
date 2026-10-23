@@ -24,9 +24,13 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
   const [cols, setCols] = useState<Record<string, ColState>>({});
   const [placements, setPlacements] = useState<Placement[]>([]);
   const token = useRef(0);
+  const colsRef = useRef<Record<string, ColState>>({});
   const qRef = useRef({ q, filters });
   useEffect(() => {
     qRef.current = { q, filters };
+  });
+  useEffect(() => {
+    colsRef.current = cols;
   });
 
   const load = useCallback(async () => {
@@ -40,7 +44,8 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
       if (!res.ok) return setPhase('error');
       const data = (await res.json()) as BoardDto;
       setBoard(data);
-      setCols(Object.fromEntries(data.columns.map((c) => [c.key, { cards: c.cards, next: c.next, loadingMore: false }])));
+      const fresh = Object.fromEntries(data.columns.map((c) => [c.key, { cards: c.cards, next: c.next, loadingMore: false }]));
+      setCols(fresh);
       setPhase('ready');
     } catch {
       if (my !== token.current) return;
@@ -78,6 +83,33 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
     }
   }, [cols]);
 
+  /**
+   * Догрузить колонку до `limit` карточек (сортировки на устройстве, §9.4: сервер отдаёт только порядок по горячести,
+   * поэтому порядок «по сроку» честен лишь над целой колонкой). Страницы идут по курсору подряд; устаревший ответ
+   * (сменились поиск или фильтры) обрывает цикл.
+   */
+  const fill = useCallback(async (column: string, limit: number) => {
+    const my = token.current;
+    let cur = colsRef.current[column];
+    while (cur && cur.next && cur.cards.length < limit && my === token.current) {
+      let page: BoardColumnPage;
+      try {
+        const res = await fetch(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters)}`, JSON_INIT);
+        if (!res.ok || my !== token.current) return;
+        page = (await res.json()) as BoardColumnPage;
+      } catch {
+        return;
+      }
+      if (my !== token.current) return;
+      const prev: ColState = colsRef.current[column] ?? cur;
+      const ids = new Set(prev.cards.map((x) => x.id));
+      const merged: ColState = { cards: [...prev.cards, ...page.cards.filter((x) => !ids.has(x.id))], next: page.next, loadingMore: false };
+      colsRef.current = { ...colsRef.current, [column]: merged };
+      setCols((c) => ({ ...c, [column]: merged }));
+      cur = merged;
+    }
+  }, []);
+
   const place = useCallback((p: Placement) => setPlacements((xs) => [...xs.filter((x) => x.cardId !== p.cardId), p]), []);
   const unplaceCard = useCallback((cardId: string) => setPlacements((xs) => xs.filter((x) => x.cardId !== cardId)), []);
   const unplaceOps = useCallback((opIds: readonly string[]) => setPlacements((xs) => xs.filter((x) => !opIds.includes(x.opId))), []);
@@ -89,5 +121,5 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
   const raw: ColumnCards = Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, v.cards]));
   const view = applyPlacements(raw, placements);
 
-  return { phase, board, cols, view, placements, reload: load, more, place, unplaceCard, unplaceOps, drop };
+  return { phase, board, cols, view, placements, reload: load, more, fill, place, unplaceCard, unplaceOps, drop };
 }

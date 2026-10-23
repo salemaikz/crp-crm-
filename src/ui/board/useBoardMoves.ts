@@ -13,7 +13,7 @@ import { hasFreeText } from '@/ui/call/freeText';
 import { clearPending, readPending, writePending, type PendingState } from '@/ui/call/pending';
 import { EMPTY_DRAFT, type OutcomeButton, type PendingCall, type SheetDraft } from '@/ui/call/types';
 import { useToast } from '@/ui/kit';
-import { buildMoveRequest, lockedIds, moveTargets, planFor, quickTrash, moreTrash, trashDraft, type TrashChoice } from './moves';
+import { buildMoveRequest, callBlockedBy, lockedIds, moveTargets, planFor, quickTrash, moreTrash, trashDraft, type TrashChoice } from './moves';
 import type { useBoardData } from './useBoardData';
 import type { useBoardRuntime } from './useBoardRuntime';
 import type { TrashPick } from './TrashSheet';
@@ -53,6 +53,8 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
   const [deferredIds, setDeferredIds] = useState<string[]>([]);
   const deferred = useRef(new Map<string, Deferred>());
   const awayRef = useRef(false);
+  // Намерение звонка, чья карточка не на загруженной доске: пока оно висит, «Позвонить» на других плитках погашено
+  const [orphanPendingId, setOrphanPendingId] = useState<string | null>(null);
   const callSheetRef = useRef<MoveSheetState | null>(null);
   useEffect(() => {
     callSheetRef.current = callSheet;
@@ -62,7 +64,9 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
   const locked = lockedIds(rt ? rt.outbox.cardIds() : [], deferredIds);
   void runtime.version;
 
-  const targetsOf = useCallback((card: BoardCardDto) => moveTargets(card, config.columns, config.canMove), [config.columns, config.canMove]);
+  const pendingCardId = callSheet?.card.id ?? orphanPendingId;
+
+  const targetsOf = useCallback((card: BoardCardDto) => moveTargets(card, config.columns, config.canMove, config.scope), [config.columns, config.canMove, config.scope]);
 
   // ---- общее: итог в очередь устройства --------------------------------------------------------------------------
 
@@ -162,6 +166,8 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
   /** Ручное списание № 32: онлайн, через 5 с (окно «Отменить»); при уходе со страницы отправляется сразу с keepalive. */
   const scheduleWriteOff = useCallback(
     (card: BoardCardDto, reason: string) => {
+      if (runtime.lockedRef.current) return;
+      if (runtime.foreign()) return runtime.leave();
       if (!navigator.onLine) {
         toast.show({ message: t('toast.needNetwork'), tone: 'info' });
         return;
@@ -180,7 +186,8 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
         // Больше не отменить: запись убираем сразу, чтобы повторный вызов (pagehide) не отправил её второй раз
         deferred.current.delete(card.id);
         try {
-          const res = await fetch(`/api/cards/${encodeURIComponent(card.id)}/close`, {
+          // Защищённый запрос: за 5 с мог начаться выход или смениться сотрудник на общем телефоне — тогда не уходит
+          const res = await runtime.safeFetch(`/api/cards/${encodeURIComponent(card.id)}/close`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
@@ -207,7 +214,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
           }
         } catch {
           data.unplaceOps([opId]);
-          toast.show({ message: t('toast.needNetwork'), tone: 'info' });
+          if (!runtime.lockedRef.current) toast.show({ message: t('toast.needNetwork'), tone: 'info' });
         } finally {
           setDeferredIds((x) => x.filter((id) => id !== card.id));
           void data.reload();
@@ -236,7 +243,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
           : {}),
       });
     },
-    [trashColumn, data, toast, t, config.undoMs],
+    [trashColumn, data, toast, t, config.undoMs, runtime],
   );
 
   // Уход со страницы: отложенные списания отправляются сразу (keepalive), как useDeferredMove на доске РОП
@@ -282,6 +289,12 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
       if (runtime.lockedRef.current) return;
       if (runtime.foreign()) return runtime.leave();
       if (!card.phone) return;
+      // Незавершённый звонок другой карточки не затираем: сначала его итог (PROCESS 2.5); на /call так же
+      if (callBlockedBy(pendingCardId, card.id)) {
+        toast.show({ message: t('call.finishFirst'), tone: 'info' });
+        if (callSheetRef.current) openCallSheet();
+        return;
+      }
       const prev = runtime.intentFor(card.id);
       const pc: PendingCall = {
         opId: prev?.call.opId ?? uuid(),
@@ -302,7 +315,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
         if (document.visibilityState === 'visible' && callSheetRef.current?.pending.call.opId === pc.opId) openCallSheet();
       }, OPEN_FALLBACK_MS);
     },
-    [runtime, userId, openCallSheet],
+    [runtime, userId, openCallSheet, pendingCardId, toast, t],
   );
 
   // Вернулись из звонилки: шторка итога открывается сама
@@ -332,6 +345,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
       const p = readPending(window.localStorage, userId);
       const card = p ? findCard(p.call.cardId) : undefined;
       if (p && card) setCallSheet({ card, pending: { ...p, draft: { ...p.draft, open: true } }, intent: p });
+      else if (p) setOrphanPendingId(p.call.cardId);
     }, 0);
     return () => clearTimeout(h);
   }, [data.phase, runtime, userId, findCard]);
@@ -366,6 +380,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
 
   return {
     locked,
+    pendingCardId,
     targetsOf,
     menuFor,
     openMenu: setMenuFor,

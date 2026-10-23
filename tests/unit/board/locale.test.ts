@@ -30,7 +30,7 @@ test('динамические ключи (состояния, сортиров�
     ...['heat', 'due', 'new'].map((s) => `sort.${s}`),
     ...['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased'].map((s) => `filters.${s}`),
     ...['attendedGroup', 'attendedIndividual', 'purchased', 'noShow'].map((s) => `badge.${s}`),
-    ...['same', 'later', 'viewer'].map((s) => `move.blocked.${s}`),
+    ...['same', 'later', 'viewer', 'manual'].map((s) => `move.blocked.${s}`),
     ...['min', 'hour', 'day'].map((s) => `due.ago.${s}`),
   ];
   assert.deepEqual(expected.filter((k) => !all.has(k)), []);

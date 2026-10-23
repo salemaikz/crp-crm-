@@ -1,7 +1,16 @@
 // Сортировка и фильтры над доской (pipeline-v2 §9.4). Сервер отдаёт колонки в порядке горячести; «По сроку» и «Новые
-// сверху» переставляют уже загруженные карточки на устройстве (колонки «Новые» и «Перезвон»), остальные колонки не трогают.
+// сверху» переставляют карточки на устройстве (колонки «Новые» и «Перезвон»), остальные колонки не трогают. Чтобы порядок
+// был честным, при такой сортировке колонка догружается до SORT_LIMIT карточек (useBoardData.fill); если их больше,
+// остальные скрыты и показывается подсказка «уточните поиск» (load-pipeline-v2, C5).
 import { isWorkingRole } from './columns';
 import { BOARD_FILTERS, type BoardCardDto, type BoardFilter, type BoardSort, type ColumnRole } from './types';
+
+/** Предел колонки при сортировке на устройстве (§9.4, второй вариант). */
+export const SORT_LIMIT = 200;
+
+/** Колонка при сортировке на устройстве упёрлась в предел: «Ещё» убрано, вместо него подсказка «уточните поиск». */
+export const sortLimited = (sort: BoardSort, role: ColumnRole, loaded: number, hasNext: boolean): boolean =>
+  sort !== 'heat' && isWorkingRole(role) && hasNext && loaded >= SORT_LIMIT;
 
 const stable = <T>(xs: readonly T[], key: (x: T) => number): T[] =>
   xs.map((x, i) => ({ x, i, k: key(x) })).sort((a, b) => a.k - b.k || a.i - b.i).map((e) => e.x);

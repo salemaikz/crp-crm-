@@ -38,6 +38,8 @@ export function TrashSheet({
   const [lpr, setLpr] = useState<'' | 'yes' | 'no'>('');
   const [note, setNote] = useState('');
 
+  // «Полный отказ» помечает номер плитки; без рабочего номера итог сервер не примет (phone_required)
+  const noPhone = (c: TrashChoice) => c.kind === 'outcome' && c.outcomeKind === 'do_not_call' && !card.phone;
   const list = showMore ? [...quick, ...more] : quick;
   const idOf = (c: TrashChoice) => `${c.kind === 'outcome' ? c.outcomeKind : 'written_off'}:${c.reason}`;
   const def: OutcomeButton | null = chosen?.kind === 'outcome' ? (call.outcomes.find((o) => o.kind === chosen.outcomeKind) ?? null) : null;
@@ -50,7 +52,7 @@ export function TrashSheet({
   });
   const needsLpr = chosen ? def !== null && lprNeeded(def, call) : anyNeedsLpr;
   const needsNote = chosen?.needsText === true;
-  const ready = chosen !== null && missing.length === 0 && (!needsNote || note.trim() !== '') && !(chosen.kind === 'write_off' && chosen.blocked);
+  const ready = chosen !== null && !noPhone(chosen) && missing.length === 0 && (!needsNote || note.trim() !== '') && !(chosen.kind === 'write_off' && chosen.blocked);
 
   return (
     <BottomSheet
@@ -85,7 +87,7 @@ export function TrashSheet({
             <Chip
               key={idOf(c)}
               active={chosen !== null && idOf(chosen) === idOf(c)}
-              disabled={c.kind === 'write_off' && c.blocked !== null}
+              disabled={(c.kind === 'write_off' && c.blocked !== null) || noPhone(c)}
               onClick={() => setChosen(c)}
               data-testid={`trash-reason-${idOf(c).replace(':', '-')}`}
             >
@@ -101,6 +103,11 @@ export function TrashSheet({
         {list.some((c) => c.kind === 'write_off' && c.blocked === 'call_first') && (
           <p className="text-sm" style={{ color: 'var(--text-2)' }} data-testid="trash-call-first">
             {t('trash.callFirst')}
+          </p>
+        )}
+        {list.some(noPhone) && (
+          <p className="text-sm" style={{ color: 'var(--text-2)' }} data-testid="trash-no-phone">
+            {t('trash.noPhone')}
           </p>
         )}
         {chosen && (needsNote || chosen.kind === 'outcome') && (

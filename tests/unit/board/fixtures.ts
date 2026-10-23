@@ -95,6 +95,7 @@ export const CONFIG: BoardConfig = {
   ],
   reasonLabels: { think: 'Подумает' },
   eventLabels: {},
+  attendLabels: { attendedGroup: 'БР', attendedIndividual: 'БК' },
   canMove: true,
   scope: 'own',
   canPurchases: true,

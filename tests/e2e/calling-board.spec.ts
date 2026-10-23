@@ -193,6 +193,24 @@ test('«Позвонить» на плитке пишет намерение з�
   expect((await callsOf(op.id))[0]!.via).toBe('ui');
 });
 
+test('незавершённый звонок A: «Позвонить» у B погашено, намерение A не теряется и уходит итогом', async ({ page }) => {
+  const op = await makeOperator(2);
+  await openBoard(page, op);
+  await tileOf(page, op.names[0]!).getByTestId('tile-call').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeVisible({ timeout: 10_000 });
+  // Шторку закрыли, итог не внесён: висит баннер, у другой плитки звонок погашен, у своей рабочий
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('call-pending-banner')).toBeVisible();
+  await expect(tileOf(page, op.names[1]!).getByTestId('tile-call')).toBeDisabled();
+  await expect(tileOf(page, op.names[0]!).getByTestId('tile-call')).toBeEnabled();
+  await page.getByTestId('call-resume').click();
+  await page.getByTestId('outcome-no_answer').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeHidden();
+  await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 30_000 }).toBe(1);
+  // После итога B снова доступна
+  await expect(tileOf(page, op.names[1]!).getByTestId('tile-call')).toBeEnabled();
+});
+
 test('без сети /board открывает оболочку с «Нет сети», «Звонить подряд» на месте', async ({ page, context }) => {
   const op = await makeOperator(1);
   await openBoard(page, op);

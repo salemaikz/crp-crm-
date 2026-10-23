@@ -1,7 +1,7 @@
 // Куда можно перенести плитку, какой канал у итога, блокировка плиток из очереди устройства (pipeline-v2 §3).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMoveRequest, canMoveAnywhere, lockedIds, moreTrash, moveTargets, planFor, quickTrash, viaFor, writeOffBlocked } from '@/ui/board/moves';
+import { buildMoveRequest, callBlockedBy, canMoveAnywhere, lockedIds, moreTrash, moveTargets, planFor, quickTrash, viaFor, writeOffBlocked } from '@/ui/board/moves';
 import { EMPTY_DRAFT } from '@/ui/call/types';
 import { CALL, COLUMNS, CONFIG, OUTCOMES, card } from './fixtures';
 
@@ -112,4 +112,37 @@ test('раскладка «в уме»: перезвон — в «Перезво
   assert.deepEqual([ni?.column, ni?.patch.state, ni?.patch.closeReasonCode], ['trash', 'not_interested', 'no_need']);
   assert.equal(planFor(c, { kind: 'agreed' }, draft, COLUMNS, 10), null);
   assert.equal(planFor(c, { kind: 'bad_number' }, draft, COLUMNS, 10), null);
+});
+
+// ---------- РОП (охват wide): итоги с доски сервер не принимает ----------
+
+test('РОП (wide): «Перезвон» погашен, в «Мусор» остаётся только ручное списание, а не итог через board', () => {
+  const t = byKey(moveTargets(card({ column: 'new' }), COLUMNS, true, 'wide'));
+  assert.equal(t.callback?.available, false);
+  assert.equal(t.callback?.blocked, 'manual');
+  assert.equal(t.trash?.available, true);
+  const quick = quickTrash(trash, CALL, [{ key: 'unreachable', label: 'Не отвечает', needsText: false }], card(), 'wide');
+  assert.ok(quick.length > 0 && quick.every((c) => c.kind === 'write_off'), 'быстрые причины РОП — только списание');
+  const more = moreTrash(trash, CALL, [{ key: 'unreachable', label: 'Не отвечает', needsText: false }, { key: 'dup', label: 'Дубль', needsText: false }], card(), 'wide');
+  assert.ok(more.every((c) => c.kind === 'write_off'), 'и в «Других причинах» итогов нет');
+});
+
+test('оператор (own): «Перезвон» доступен; канал board без намерения звонка, у РОП намерения не бывает', () => {
+  assert.equal(byKey(moveTargets(card({ column: 'new' }), COLUMNS, true, 'own')).callback?.available, true);
+  assert.equal(viaFor(false, true), 'board');
+});
+
+test('«Мусор»: «Полный отказ» (do_not_call) доступен оператору в «Других причинах» и как быстрая пара пресета', () => {
+  const call = { ...CALL, outcomes: [...CALL.outcomes, { key: 'do_not_call', kind: 'do_not_call' as const, label: 'Полный отказ', color: 'x', requires: { lpr: false, reason: true, callbackAt: false, contact: false, agreement: false, fields: [] as string[] }, reasons: [{ key: 'asked', label: 'Просил не звонить', needsText: false }] }] };
+  const col = { ...trash, drop: [...trash.drop, { kind: 'do_not_call', reason: 'asked', label: 'Просил не звонить' }] };
+  const quick = quickTrash(col, call, [], card(), 'own');
+  assert.ok(quick.some((c) => c.kind === 'outcome' && c.outcomeKind === 'do_not_call' && c.reason === 'asked'));
+  const more = moreTrash({ ...trash, drop: [] }, call, [], card(), 'own');
+  assert.ok(more.some((c) => c.kind === 'outcome' && c.outcomeKind === 'do_not_call'));
+});
+
+test('«Позвонить» на другой плитке погашено, пока висит намерение звонка; своя плитка рабочая', () => {
+  assert.equal(callBlockedBy(null, 'b'), false);
+  assert.equal(callBlockedBy('a', 'a'), false);
+  assert.equal(callBlockedBy('a', 'b'), true);
 });

@@ -23,12 +23,6 @@ function toneStyle(tone: Tone | null): CSSProperties {
   return { background: `var(--${tone}-tint)`, borderLeftColor: `var(--${tone})` };
 }
 
-/** «Открыт WhatsApp» в ленту: без ожидания и без влияния на открытие ссылки; офлайн не шлём. */
-function reportOpened(cardId: string): void {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-  void fetch('/api/messenger/opened', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cardId, templateKey: null }), keepalive: true }).catch(() => undefined);
-}
-
 export interface LeadTileProps {
   card: BoardCardDto;
   tones: readonly { when: string; tone: string }[];
@@ -36,17 +30,22 @@ export interface LeadTileProps {
   /** Подписи причин перезвона и видов записи из настроек. */
   reasonLabels: Record<string, string>;
   eventLabels: Record<string, string>;
+  attendLabels: { attendedGroup: string; attendedIndividual: string };
   /** Итог по карточке ждёт в очереди устройства или в окне «Отменить»: плитка заблокирована. */
   locked: boolean;
   /** Найдена поиском. */
   highlighted?: boolean;
   /** Звонок с плитки разрешён (свои карточки, есть номер). */
   canCall: boolean;
+  /** На устройстве висит намерение звонка другой карточки: «Позвонить» погашено, пока итог не внесён. */
+  callBlocked?: boolean;
   /** Есть куда переносить («⋯ → Перенести в…»). */
   canMenu: boolean;
   dragging?: boolean;
   onOpen: (card: BoardCardDto) => void;
   onCall: (card: BoardCardDto) => void;
+  /** WhatsApp открыт: отметка в ленту (через защищённый запрос доски). */
+  onChatOpened: (card: BoardCardDto) => void;
   onMenu: (card: BoardCardDto) => void;
   onPointerDown?: (card: BoardCardDto, e: ReactPointerEvent) => void;
   /** Клик, которым закончилось перетаскивание, не открывает шторку. */
@@ -97,7 +96,7 @@ export function LeadTile(p: LeadTileProps) {
   function canDial() {
     if (!p.canCall || digits === '') return null;
     // Заблокированная плитка: ссылку убираем, остаётся неактивная кнопка (у ссылки нет disabled)
-    if (p.locked) return {};
+    if (p.locked || p.callBlocked) return {};
     const a = dialAction(digits, modes);
     return a.kind === 'tel' ? { href: a.href, external: true as const } : {};
   }
@@ -147,7 +146,7 @@ export function LeadTile(p: LeadTileProps) {
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {badges.map((b) => (
             <Badge key={b} tone={BADGE_TONE[b]} data-testid={`tile-badge-${b}`}>
-              {t(`badge.${b}`)}
+              {t(`badge.${b}`, { event: (b === 'attendedGroup' ? p.attendLabels.attendedGroup : b === 'attendedIndividual' ? p.attendLabels.attendedIndividual : '') || t('chip.eventUnknown') })}
             </Badge>
           ))}
           {chipText !== '' && (
@@ -175,7 +174,7 @@ export function LeadTile(p: LeadTileProps) {
             {...dial}
             size="md"
             className="min-w-0 flex-1 bg-success text-on-success"
-            {...(p.locked ? { disabled: true } : {})}
+            {...(p.locked || p.callBlocked ? { disabled: true } : {})}
             aria-label={t('call.aria', { name: card.name })}
             onClick={() => p.onCall(card)}
             data-testid="tile-call"
@@ -198,7 +197,7 @@ export function LeadTile(p: LeadTileProps) {
               variant="secondary"
               iconOnly
               aria-label={t('whatsapp.aria', { name: card.name })}
-              onClick={() => reportOpened(card.id)}
+              onClick={() => p.onChatOpened(card)}
               data-testid="tile-whatsapp"
             >
               <MessageCircle aria-hidden="true" />

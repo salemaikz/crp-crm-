@@ -47,6 +47,8 @@ export interface BoardConfig {
   reasonLabels: Record<string, string>;
   /** Названия видов записи по ключу (`booking.eventTypes[]`), для чипа «запись …». */
   eventLabels: Record<string, string>;
+  /** Короткие подписи видов записи «групповая» и «индивидуальная» из пресета (значки «Был: …» и фильтры). */
+  attendLabels: { attendedGroup: string; attendedIndividual: string };
   /** Есть `card.outcome` и зритель не только читает: переносить можно. */
   canMove: boolean;
   /** Охват карточек зрителя: у оператора `own`; цифры номеров и звонок с плитки — только при `own`, `wide` — РОП и шире. */

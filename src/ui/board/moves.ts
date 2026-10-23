@@ -7,7 +7,7 @@ import { EMPTY_DRAFT, type CallConfig, type OutcomeButton, type OutcomeKind, typ
 import type { BoardCardDto, BoardColumnConfig, BoardConfig, BoardReason } from './types';
 
 export type MoveAction = 'callback' | 'trash';
-export type MoveBlocked = 'same' | 'later' | 'viewer';
+export type MoveBlocked = 'same' | 'later' | 'viewer' | 'manual';
 
 export interface MoveTarget {
   column: string;
@@ -20,14 +20,16 @@ export interface MoveTarget {
 export const CALLBACK_KINDS: readonly OutcomeKind[] = ['callback', 'no_answer'];
 
 /** Цели переноса плитки. Пусто, если переносить нельзя вовсе (директор, нет права, плитка не из рабочих колонок). */
-export function moveTargets(card: BoardCardDto, columns: readonly BoardColumnConfig[], canMove: boolean): MoveTarget[] {
+export function moveTargets(card: BoardCardDto, columns: readonly BoardColumnConfig[], canMove: boolean, scope: BoardConfig['scope'] = 'own'): MoveTarget[] {
   const from = columns.find((c) => c.key === card.column);
   return columns.map((col): MoveTarget => {
     if (!canMove) return { column: col.key, available: false, action: null, blocked: 'viewer' };
     if (!from || col.key === from.key) return { column: col.key, available: false, action: null, blocked: 'same' };
     // Откуда: только «Новые» и «Перезвон»; плитки остальных колонок до этапа В открываются через карточку клиента
     if (!isWorkingRole(from.role)) return { column: col.key, available: false, action: null, blocked: 'later' };
-    if (col.role === 'callback') return { column: col.key, available: true, action: 'callback', blocked: null };
+    // Итог с доски (`via = board`) принимает сервер только при охвате own; РОП вносит итог за оператора в карточке клиента
+    // (manual_entry онлайн, §3.2), поэтому «Перезвон» ему погашен, а в «Мусор» остаётся ручное списание № 32.
+    if (col.role === 'callback') return scope === 'wide' ? { column: col.key, available: false, action: null, blocked: 'manual' } : { column: col.key, available: true, action: 'callback', blocked: null };
     if (col.role === 'trash') return { column: col.key, available: true, action: 'trash', blocked: null };
     return { column: col.key, available: false, action: null, blocked: 'later' };
   });
@@ -47,7 +49,7 @@ export function writeOffBlocked(card: BoardCardDto, scope: BoardConfig['scope'])
   return scope === 'wide' || card.attempts >= 1 ? null : 'call_first';
 }
 
-const OUTCOME_TRASH: readonly OutcomeKind[] = ['not_interested', 'not_target'];
+const OUTCOME_TRASH: readonly OutcomeKind[] = ['not_interested', 'not_target', 'do_not_call'];
 
 function outcomeChoice(call: CallConfig, kind: string, reason: string): TrashChoice | null {
   const def = call.outcomes.find((o) => o.kind === kind);
@@ -63,7 +65,8 @@ export function quickTrash(column: BoardColumnConfig, call: CallConfig, writeOff
     if (d.kind === 'written_off') {
       const label = writeOff.find((r) => r.key === d.reason)?.label ?? d.label;
       out.push({ kind: 'write_off', reason: d.reason, label, needsText: false, blocked: writeOffBlocked(card, scope) });
-    } else {
+    } else if (scope !== 'wide') {
+      // Итогом из «Мусора» переносит только оператор со своими карточками (см. moveTargets)
       const c = outcomeChoice(call, d.kind, d.reason);
       if (c) out.push(c);
     }
@@ -71,12 +74,12 @@ export function quickTrash(column: BoardColumnConfig, call: CallConfig, writeOff
   return out;
 }
 
-/** «Другие причины…»: все ручные причины видов «Не интересует» и «Не целевой» и списания, кроме быстрых. */
+/** «Другие причины…»: все ручные причины видов «Не интересует», «Не целевой», «Полный отказ» и списания, кроме быстрых. */
 export function moreTrash(column: BoardColumnConfig, call: CallConfig, writeOff: readonly BoardReason[], card: BoardCardDto, scope: BoardConfig['scope']): TrashChoice[] {
   if (!column.dropMore) return [];
   const quick = new Set(quickTrash(column, call, writeOff, card, scope).map((c) => `${c.kind === 'outcome' ? c.outcomeKind : 'written_off'}:${c.reason}`));
   const out: TrashChoice[] = [];
-  for (const kind of OUTCOME_TRASH) {
+  for (const kind of scope === 'wide' ? [] : OUTCOME_TRASH) {
     const def = call.outcomes.find((o) => o.kind === kind);
     for (const r of def?.reasons ?? []) if (!quick.has(`${kind}:${r.key}`)) out.push({ kind: 'outcome', outcomeKind: kind, reason: r.key, label: r.label, needsText: r.needsText });
   }
@@ -125,6 +128,12 @@ export function buildMoveRequest(i: MoveRequestInput): OutcomeRequest {
 export function trashDraft(def: OutcomeButton, reason: string, lpr: '' | 'yes' | 'no', note: string, target: boolean): SheetDraft {
   return { ...EMPTY_DRAFT, outcomeKey: def.key, reasonCode: reason, lpr, note, target };
 }
+
+/**
+ * «Позвонить» на плитке погашена, пока на устройстве висит намерение звонка другой карточки (PROCESS 2.5): иначе новое
+ * намерение затёрло бы прежнее, и тот звонок не попал бы на сервер. Своя плитка остаётся рабочей (повторный набор).
+ */
+export const callBlockedBy = (pendingCardId: string | null, cardId: string): boolean => pendingCardId !== null && pendingCardId !== cardId;
 
 /** Плитка заблокирована, пока по ней есть итог в очереди устройства или отложенный перенос (§3.2). */
 export function lockedIds(outboxCardIds: readonly string[], deferredCardIds: readonly string[]): Set<string> {

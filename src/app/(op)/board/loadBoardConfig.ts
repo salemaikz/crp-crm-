@@ -26,6 +26,12 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
   const reasonLabels = Object.fromEntries(((doc.reasons as Record<string, Reason[] | undefined>).callback ?? []).map((r) => [r.key, r.label.ru]));
   const eventLabels = Object.fromEntries((doc.booking?.eventTypes ?? []).map((e) => [e.key, e.short?.ru ?? e.label.ru]));
 
+  const eventTypes = doc.booking?.eventTypes ?? [];
+  const attendOf = (behavior: string): string => {
+    const e = eventTypes.find((x) => x.behavior === behavior);
+    return e ? (e.short?.ru ?? e.label.ru) : '';
+  };
+
   const columns = settings.columns.map((info) => ({
     key: info.key,
     label: info.label ?? '',
@@ -42,6 +48,7 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     writeOffReasons,
     reasonLabels,
     eventLabels,
+    attendLabels: { attendedGroup: attendOf('group'), attendedIndividual: attendOf('individual') },
     canMove: viewer.grants.has('card.outcome') && !viewer.readOnly,
     scope: scope === 'own' ? 'own' : 'wide',
     canPurchases: viewer.grants.has('deal.read'),

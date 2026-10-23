@@ -15,6 +15,7 @@ export function BoardControls({
   filters,
   onToggleFilter,
   canPurchases,
+  attendLabels,
 }: {
   q: string;
   onQ: (q: string) => void;
@@ -23,6 +24,7 @@ export function BoardControls({
   filters: readonly BoardFilter[];
   onToggleFilter: (f: BoardFilter) => void;
   canPurchases: boolean;
+  attendLabels: { attendedGroup: string; attendedIndividual: string };
 }) {
   const t = useTranslations('board');
   return (
@@ -57,7 +59,7 @@ export function BoardControls({
         <ChipGroup label={t('filters.label')}>
           {availableFilters(canPurchases).map((f) => (
             <Chip key={f} active={filters.includes(f)} onClick={() => onToggleFilter(f)} data-testid={`filter-${f}`}>
-              {t(`filters.${f}`)}
+              {t(`filters.${f}`, { event: (f === 'attendedGroup' ? attendLabels.attendedGroup : f === 'attendedIndividual' ? attendLabels.attendedIndividual : '') || t('chip.eventUnknown') })}
             </Chip>
           ))}
         </ChipGroup>

@@ -16,6 +16,9 @@ export interface BoardColumnProps {
   dropState: 'idle' | 'ok' | 'no';
   /** Цель под указателем. */
   over: boolean;
+  /** Сортировка на устройстве упёрлась в предел колонки: вместо «Ещё» — подсказка «уточните поиск». */
+  limited?: boolean;
+  limit?: number;
   onMore: () => void;
   children: ReactNode;
   empty: boolean;
@@ -52,7 +55,12 @@ export function BoardColumn(p: BoardColumnProps) {
           {t('column.empty')}
         </p>
       )}
-      {p.hasMore && (
+      {p.hasMore && p.limited && (
+        <p className="px-1 py-2 text-center text-sm" style={{ color: 'var(--text-2)' }} data-testid={`column-limit-${p.columnKey}`}>
+          {t('column.limit', { n: p.limit ?? 0 })}
+        </p>
+      )}
+      {p.hasMore && !p.limited && (
         <Button variant="secondary" block disabled={p.loadingMore} onClick={p.onMore} data-testid={`column-more-${p.columnKey}`}>
           {p.loadingMore ? t('column.loading') : t('column.more')}
         </Button>

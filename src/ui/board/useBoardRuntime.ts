@@ -193,6 +193,15 @@ export function useBoardRuntime(userId: string, events: RuntimeEvents) {
     };
   }, [flush, foreign, leave]);
 
+  /**
+   * Запрос от имени сотрудника устройства: не уходит, если начат выход, оболочка устарела (без сети из кэша), страницу
+   * заняла чужая сессия или экран заблокирован. Прямой `fetch` на доске запрещён: так общий телефон остаётся защищённым.
+   */
+  const safeFetch = useCallback<typeof fetch>(
+    (...a) => (lockedRef.current || isStaleShell() || isLogoutPending() || foreign() ? Promise.reject(new Error('blocked')) : fetch(...a)),
+    [foreign],
+  );
+
   const dismissRejected = useCallback(async (opId: string) => {
     await rtRef.current?.outbox.dismissRejected(opId);
     setRejected((x) => x.filter((r) => r.opId !== opId));
@@ -209,5 +218,5 @@ export function useBoardRuntime(userId: string, events: RuntimeEvents) {
   );
   const clearIntent = useCallback(() => clearPending(window.localStorage, userId), [userId]);
 
-  return { rt, rtRef, version, locked, lockedRef, rejected, dismissRejected, online, stale, flush, leave, foreign, intentFor, clearIntent };
+  return { rt, rtRef, version, locked, lockedRef, rejected, dismissRejected, online, stale, flush, leave, foreign, safeFetch, intentFor, clearIntent };
 }

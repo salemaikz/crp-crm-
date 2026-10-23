@@ -18,8 +18,9 @@ import { LeadTile } from './LeadTile';
 import { MoveMenu } from './MoveMenu';
 import { SearchResults } from './SearchResults';
 import { TrashSheet } from './TrashSheet';
-import { CALLBACK_KINDS, canMoveAnywhere } from './moves';
-import { sortCards } from './order';
+import { CALLBACK_KINDS, callBlockedBy, canMoveAnywhere } from './moves';
+import { isWorkingRole } from './columns';
+import { SORT_LIMIT, sortCards, sortLimited } from './order';
 import { useBoardData } from './useBoardData';
 import { useBoardMoves } from './useBoardMoves';
 import { useBoardRuntime } from './useBoardRuntime';
@@ -70,12 +71,28 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
     return () => clearInterval(h);
   }, []);
 
+  // Сортировка на устройстве честна только над целой колонкой: рабочие колонки догружаются до предела (§9.4)
+  const fill = data.fill;
+  useEffect(() => {
+    if (sort === 'heat' || data.phase !== 'ready') return;
+    for (const c of config.columns) if (isWorkingRole(c.role)) void fill(c.key, SORT_LIMIT);
+  }, [sort, data.phase, data.board, config.columns, fill]);
+
   // Плитки колонок с сортировкой; найденные поиском подсвечиваются
   const sorted = useMemo(
     () => Object.fromEntries(config.columns.map((c) => [c.key, sortCards(data.view[c.key] ?? [], sort, c.role)])),
     [config.columns, data.view, sort],
   );
   const cardOf = useCallback((id: string) => Object.values(sorted).flat().find((c) => c.id === id), [sorted]);
+  // «Открыт WhatsApp» в ленту: без ожидания и без влияния на открытие ссылки; офлайн не шлём
+  const safeFetch = runtime.safeFetch;
+  const reportOpened = useCallback(
+    (card: BoardCardDto) => {
+      if (!navigator.onLine) return;
+      void safeFetch('/api/messenger/opened', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cardId: card.id, templateKey: null }), keepalive: true }).catch(() => undefined);
+    },
+    [safeFetch],
+  );
   const moves = useBoardMoves({ config, userId, runtime, data, findCard: cardOf });
   const titleOf = useCallback((c: BoardColumnConfig) => (c.label !== '' ? c.label : t(`state.${c.states[0] ?? 'new'}`)), [t]);
   const titleOfKey = (key: string | null) => {
@@ -154,6 +171,7 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
         filters={filters}
         onToggleFilter={(f) => setFilters((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]))}
         canPurchases={config.canPurchases}
+        attendLabels={config.attendLabels}
       />
 
       {runtime.rejected.map((r) => (
@@ -230,6 +248,8 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
                   title={titleOf(col)}
                   count={cards.length}
                   hasMore={state?.next != null}
+                  limited={sortLimited(sort, col.role, state?.cards.length ?? 0, state?.next != null)}
+                  limit={SORT_LIMIT}
                   loadingMore={state?.loadingMore ?? false}
                   dropState={drag.drag ? (tg?.available ? 'ok' : 'no') : 'idle'}
                   over={drag.drag?.over === col.key}
@@ -246,13 +266,16 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
                         now={now}
                         reasonLabels={config.reasonLabels}
                         eventLabels={config.eventLabels}
+                        attendLabels={config.attendLabels}
                         locked={moves.locked.has(card.id)}
                         highlighted={matchIds.has(card.id)}
                         canCall={config.scope === 'own' && config.canMove}
+                        callBlocked={callBlockedBy(moves.pendingCardId, card.id)}
                         canMenu={canMoveAnywhere(targets)}
                         dragging={drag.drag?.cardId === card.id}
                         onOpen={setDrawerFor}
                         onCall={moves.startCall}
+                        onChatOpened={reportOpened}
                         onMenu={moves.openMenu}
                         onPointerDown={(c, e) => drag.onPointerDown(c.id, e)}
                         consumeClick={drag.consumeClick}
