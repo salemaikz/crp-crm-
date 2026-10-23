@@ -4,7 +4,6 @@
 // (user_id NULL, via='import', D-067). Побочные эффекты (задачи, стоп-лист) пишутся в той же транзакции.
 import { dedup, fields, imports, time } from '@crm/core';
 import { NotFoundError } from '@/server/access/errors';
-import type { SystemActor } from '@/server/access';
 import { refreshCardDerived } from '@/server/domain/cards';
 import { getDb, newId } from '@/server/platform/db';
 import type { Sql } from '@/server/platform/db/core';
@@ -62,10 +61,10 @@ const DERIVED_BATCH = 2000;
 /**
  * Пересчёт кэша признаков и горячести карточек, записанных импортом (pipeline-v2 §5.1, §5.4): импорт пишет `cards`
  * мимо `persist`, поэтому heat и признаки явки считаются здесь, в той же транзакции. Кэш читает записи и сделки по
- * клиенту, исполнитель в нём только метка (охват не применяется), поэтому без Viewer берётся служебная метка.
+ * клиенту, исполнитель в нём только метка (охват не применяется), поэтому без Viewer берётся явная метка кэша, а не SystemActor (D-231).
  */
-async function refreshImported(sql: Sql, actor: ImportActor, ids: readonly string[], now: number): Promise<void> {
-  const who = actor.viewer ?? ({ kind: 'system', job: 'import.apply', now } as SystemActor);
+async function refreshImported(sql: Sql, actor: ImportActor, ids: readonly string[]): Promise<void> {
+  const who = actor.viewer ?? ({ kind: 'cache', label: 'import.apply' } as const);
   for (let i = 0; i < ids.length; i += DERIVED_BATCH) await refreshCardDerived(who, sql, ids.slice(i, i + DERIVED_BATCH));
 }
 
@@ -419,7 +418,7 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
   counts.phonesAdded = allPhones.length;
   await repo.insertSources(sql, sources, now);
   await repo.insertCards(sql, cards, now);
-  await refreshImported(sql, actor, [...cards.map((c) => c.id), ...updatedCardIds], now);
+  await refreshImported(sql, actor, [...cards.map((c) => c.id), ...updatedCardIds]);
   counts.callsCreated = await repo.insertCalls(sql, ctx.spaceId, calls, now, ctx.rev.space);
   await repo.insertAssignLog(sql, ctx.spaceId, assigns, now);
   await repo.insertEvents(sql, ctx.spaceId, events);

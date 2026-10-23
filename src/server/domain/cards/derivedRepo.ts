@@ -4,7 +4,7 @@
 // карточки, которую уже проверил вызывающий, или из задания.
 import type { calling } from '@crm/core';
 import type { Sql } from '@/server/platform/db';
-import type { CardActor } from './types';
+import type { DerivedActor } from './types';
 
 /** Что пересчёт читает у карточки и её записей и сделок. */
 export interface DerivedSource {
@@ -61,7 +61,7 @@ const toSource = (r: SourceRow): DerivedSource => ({
 });
 
 /** Явки, неявки и покупки клиента карточки (пересчёт из источника, не приращение). */
-export async function selectDerivedSources(_actor: CardActor, tx: Sql, cardIds: readonly string[]): Promise<DerivedSource[]> {
+export async function selectDerivedSources(_actor: DerivedActor, tx: Sql, cardIds: readonly string[]): Promise<DerivedSource[]> {
   if (cardIds.length === 0) return [];
   const rows = await tx<SourceRow>`
     SELECT c.id, c.space_id, c.state, c.callback_reason, c.lpr, c.next_call_at, c.next_call_precision,
@@ -100,7 +100,7 @@ export interface DerivedWrite {
  * Записать кэш. Без `version` и `updated_at`. `skipLocked` — пачечный пересчёт: строку, которую сейчас пишет другая
  * транзакция, пропускаем (её запись сама пересчитает кэш в своей транзакции). Возвращает число записанных строк.
  */
-export async function writeDerived(_actor: CardActor, tx: Sql, rows: readonly DerivedWrite[], opts: { skipLocked: boolean }): Promise<number> {
+export async function writeDerived(_actor: DerivedActor, tx: Sql, rows: readonly DerivedWrite[], opts: { skipLocked: boolean }): Promise<number> {
   if (rows.length === 0) return 0;
   let list = rows;
   if (opts.skipLocked) {
@@ -127,13 +127,13 @@ export async function writeDerived(_actor: CardActor, tx: Sql, rows: readonly De
 }
 
 /** Пачка карточек пространства после курсора по id (пересчёт всех, пачками). */
-export async function selectCardIdsPage(_actor: CardActor, tx: Sql, a: { spaceId: string; afterId: string; limit: number }): Promise<string[]> {
+export async function selectCardIdsPage(_actor: DerivedActor, tx: Sql, a: { spaceId: string; afterId: string; limit: number }): Promise<string[]> {
   const rows = await tx<{ id: string }>`SELECT id FROM cards WHERE space_id = ${a.spaceId} AND id > ${a.afterId} ORDER BY id LIMIT ${a.limit}`;
   return rows.map((r) => r.id);
 }
 
 /** Карточки клиента в пространстве (обычно одна). */
-export async function selectCardIdsOfClient(_actor: CardActor, tx: Sql, a: { spaceId: string; clientId: string }): Promise<string[]> {
+export async function selectCardIdsOfClient(_actor: DerivedActor, tx: Sql, a: { spaceId: string; clientId: string }): Promise<string[]> {
   const rows = await tx<{ id: string }>`SELECT id FROM cards WHERE space_id = ${a.spaceId} AND client_id = ${a.clientId}`;
   return rows.map((r) => r.id);
 }

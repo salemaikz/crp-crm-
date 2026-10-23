@@ -17,6 +17,12 @@ import type { Sql } from '@/server/platform/db';
 
 export type CardActor = Viewer | SystemActor;
 
+/**
+ * Кто пересчитывает кэш карточки. Пересчёт исполнителя не читает (охват не применяется), поэтому, кроме Viewer и
+ * SystemActor, допустима явная метка вызывающего: она не даёт прав и SystemActor не подделывает.
+ */
+export type DerivedActor = CardActor | { readonly kind: 'cache'; readonly label: string };
+
 /** Разрешения, под которыми карточку блокируют ручные события (`scopeSql` умеет любое, D-251). */
 export type CardEventPerm = 'card.outcome' | 'card.edit' | 'card.assign' | 'card.return' | 'card.unblock' | 'client.transfer' | 'client.merge';
 

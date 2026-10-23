@@ -149,6 +149,12 @@ export function checkFile(file: string, source: string): Violation[] {
     // Клиентский компонент не получает ядро и сервер
     if (client && (under(target, 'packages/core') || under(target, 'src/server'))) bad("файл с 'use client' не импортирует ядро и src/server/**");
   }
+  // SystemActor нельзя собрать литералом или приведением типа: только фабрики (D-231), вне доступа, заданий и скриптов
+  if (!under(file, 'src/server/access') && !under(file, 'src/server/jobs') && !under(file, 'scripts') && !under(file, 'tests')) {
+    if (/\bas\s+SystemActor\b|<SystemActor>|kind:\s*'system'\s*,\s*job\s*:/.test(source)) {
+      v.push(`${file}: SystemActor собирается только в src/server/access, src/server/jobs и scripts (домен — systemActorFor)`);
+    }
+  }
   return v;
 }
 
@@ -160,6 +166,10 @@ test('слои кода соблюдены', () => {
 });
 
 test('проверка слоёв ловит нарушения (самопроверка правил)', () => {
+  assert.equal(checkFile('src/server/domain/import/x.ts', "const a = { kind: 'system', job: 'x', now } as SystemActor;").length, 1);
+  assert.equal(checkFile('src/server/domain/x/y.ts', "const a = { kind: 'system', job: 'x', now };").length, 1);
+  assert.equal(checkFile('src/server/jobs/x.ts', "const a = { kind: 'system', job: 'x', now } as SystemActor;").length, 0);
+  assert.equal(checkFile('src/server/domain/cards/actor.ts', "return { userId: null, kind: 'system', scope: 'space' };").length, 0);
   assert.equal(checkFile('packages/core/src/a.ts', "import postgres from 'postgres';").length, 1);
   assert.equal(checkFile('packages/core/src/a.ts', "import { x } from '../../../src/server/platform/env';").length, 1);
   assert.equal(checkFile('packages/core/src/a.ts', "import { z } from 'zod'; import { y } from './b';").length, 0);

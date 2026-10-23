@@ -5,7 +5,7 @@ import { calling } from '@crm/core';
 import type { Sql } from '@/server/platform/db';
 import { loadBoardSettings } from './boardSettings';
 import { selectCardIdsOfClient, selectDerivedSources, writeDerived, type DerivedSource, type DerivedWrite } from './derivedRepo';
-import type { CardActor } from './types';
+import type { DerivedActor } from './types';
 
 /** Горячесть и признаки одной карточки по весам пространства. */
 export function derivedOf(src: DerivedSource, weights: calling.HeatWeights): DerivedWrite {
@@ -44,7 +44,7 @@ export interface RefreshOptions {
  * Пересчитать кэш карточек из источника. Возвращает число изменённых строк (неизменённые не пишутся).
  * Вызывается в транзакции записи карточки (`persist`), из порта `CardPort.refreshDerived` и из задания.
  */
-export async function refreshCardDerived(actor: CardActor, tx: Sql, cardIds: readonly string[], opts: RefreshOptions = {}): Promise<number> {
+export async function refreshCardDerived(actor: DerivedActor, tx: Sql, cardIds: readonly string[], opts: RefreshOptions = {}): Promise<number> {
   if (cardIds.length === 0) return 0;
   const sources = await selectDerivedSources(actor, tx, [...new Set(cardIds)]);
   const weights = new Map<string, calling.HeatWeights>();
@@ -71,6 +71,6 @@ export async function refreshCardDerived(actor: CardActor, tx: Sql, cardIds: rea
 }
 
 /** Порт для booking и deals (B1, этап В): пересчёт клиента в пространстве после явки, неявки, покупки и их отмены. */
-export async function refreshClientDerived(actor: CardActor, tx: Sql, a: { spaceId: string; clientId: string }): Promise<number> {
+export async function refreshClientDerived(actor: DerivedActor, tx: Sql, a: { spaceId: string; clientId: string }): Promise<number> {
   return refreshCardDerived(actor, tx, await selectCardIdsOfClient(actor, tx, a));
 }
