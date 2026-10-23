@@ -31,3 +31,21 @@ export function edgeScroll(x: number, box: { left: number; right: number }, zone
   if (x > box.right - zone) return Math.ceil((maxStep * Math.min(zone, x - (box.right - zone))) / zone);
   return 0;
 }
+
+// ---------- Касание (телефон, этап В) ----------
+
+/** Долгое нажатие, после которого плитка «поднимается» (pipeline-v2 §9.2), мс. */
+export const LONG_PRESS_MS = 350;
+/** Сдвиг пальца до срабатывания долгого нажатия, после которого это прокрутка, а не перенос, пикселей. */
+export const TOUCH_SLOP = 10;
+
+/** Палец ушёл дальше допуска: жест — прокрутка, таймер долгого нажатия сбрасывается. */
+export const scrolledAway = (from: Point, to: Point): boolean => Math.hypot(to.x - from.x, to.y - from.y) > TOUCH_SLOP;
+
+/**
+ * Цель под пальцем: сначала вкладки колонок (на телефоне они и есть цели), затем сами колонки (планшет, где колонки в
+ * ряд). Нет такой — null.
+ */
+export function hitTarget(p: Point, tabs: readonly ColumnRect[], columns: readonly ColumnRect[]): string | null {
+  return hitColumn(p, tabs) ?? hitColumn(p, columns);
+}

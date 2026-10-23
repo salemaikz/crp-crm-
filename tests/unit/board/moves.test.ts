@@ -179,3 +179,37 @@ test('причины списания с текстом не предлагаю�
   assert.ok(all.every((x) => !(x.kind === 'write_off' && x.reason === 'other')));
   assert.ok(all.some((x) => x.kind === 'write_off' && x.reason === 'unreachable'));
 });
+
+// ---------- Выход из «Договорились» (№ 33, этап В) ----------
+
+const agreedCard = () => card({ column: 'meet', state: 'agreed' });
+
+test('№ 33: из «Договорились» в «Перезвон» и «Мусор» - действия выхода, онлайн', () => {
+  const t = byKey(moveTargets(agreedCard(), COLUMNS, true, 'own', { agreedExit: true, online: true }));
+  assert.deepEqual([t.callback?.available, t.callback?.action], [true, 'agreedCallback']);
+  assert.deepEqual([t.trash?.available, t.trash?.action], [true, 'agreedTrash']);
+  // «Покупка» - форма покупки у РОП, запись на другой вид - мастер: из доски недоступны
+  assert.equal(t.paid?.available, false);
+  assert.equal(t.new?.available, false);
+});
+
+test('№ 33 без сети: цели погашены подсказкой «нужна сеть»', () => {
+  const t = byKey(moveTargets(agreedCard(), COLUMNS, true, 'own', { agreedExit: true, online: false }));
+  assert.deepEqual([t.callback?.available, t.callback?.blocked], [false, 'offline']);
+  assert.equal(t.trash?.blocked, 'offline');
+});
+
+test('№ 33 без воронки v2 или без права: как раньше, целей нет', () => {
+  assert.equal(canMoveAnywhere(moveTargets(agreedCard(), COLUMNS, true, 'own', { agreedExit: false, online: true })), false);
+  assert.equal(canMoveAnywhere(moveTargets(agreedCard(), COLUMNS, false, 'own', { agreedExit: true, online: true })), false);
+});
+
+test('№ 33 доступен и РОП (охват wide): итог без звонка вносится онлайн', () => {
+  const t = byKey(moveTargets(agreedCard(), COLUMNS, true, 'wide', { agreedExit: true, online: true }));
+  assert.equal(t.callback?.action, 'agreedCallback');
+});
+
+test('из «Покупки» выхода нет (клиент вернётся сам, № 34)', () => {
+  const t = moveTargets(card({ column: 'paid', state: 'client' }), COLUMNS, true, 'own', { agreedExit: true, online: true });
+  assert.equal(canMoveAnywhere(t), false);
+});

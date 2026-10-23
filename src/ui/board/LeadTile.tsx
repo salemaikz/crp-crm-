@@ -6,13 +6,15 @@
 // Цвет тона (§5.3) не единственный носитель смысла: у плитки с тоном есть значок и текст признака.
 import { Ellipsis, Flame, MessageCircle, Phone } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent } from 'react';
 import { chatAction } from '@/ui/messenger/openChat';
 import { useChannelModes } from '@/ui/channels';
 import { dialAction } from '@/ui/call/dial';
 import { Badge, Button, type BadgeTone } from '@/ui/kit';
+import { AttendToggle } from './AttendToggle';
+import { toggleViews, type AttendKind } from './attend';
 import { badgesOf, chipOf, dueOf, hasFire, overdueParts, toneOf, type BadgeId, type Tone } from './tile';
-import type { BoardCardDto } from './types';
+import type { BoardCardDto, BoardConfig } from './types';
 
 const BADGE_TONE: Record<BadgeId, BadgeTone> = { attendedGroup: 'success', attendedIndividual: 'warning', purchased: 'brand', noShow: 'danger' };
 
@@ -31,6 +33,12 @@ export interface LeadTileProps {
   reasonLabels: Record<string, string>;
   eventLabels: Record<string, string>;
   attendLabels: { attendedGroup: string; attendedIndividual: string };
+  /** Право и виды записи для тумблеров «Был на …». */
+  attend: Pick<BoardConfig, 'canAttend' | 'eventBehaviors'>;
+  /** Отметка явки по тумблеру: запрос уходит из экрана. */
+  onAttend: (card: BoardCardDto, kind: AttendKind) => void;
+  /** Отметка явки этой плитки отправляется. */
+  attendBusy?: boolean;
   /** Итог по карточке ждёт в очереди устройства или в окне «Отменить»: плитка заблокирована. */
   locked: boolean;
   /** Найдена поиском. */
@@ -48,6 +56,8 @@ export interface LeadTileProps {
   onChatOpened: (card: BoardCardDto) => void;
   onMenu: (card: BoardCardDto) => void;
   onPointerDown?: (card: BoardCardDto, e: ReactPointerEvent) => void;
+  /** Долгое нажатие на телефоне: начало жеста переноса. */
+  onTouchStart?: (card: BoardCardDto, e: ReactTouchEvent) => void;
   /** Клик, которым закончилось перетаскивание, не открывает шторку. */
   consumeClick?: () => boolean;
 }
@@ -58,7 +68,9 @@ export function LeadTile(p: LeadTileProps) {
   const f = useFormatter();
   const modes = useChannelModes();
   const tone = toneOf(card, p.tones);
-  const badges = badgesOf(card);
+  // «Был на …» — тумблеры (показ или отметка), остальные признаки — значки
+  const badges = badgesOf(card).filter((b) => b !== 'attendedGroup' && b !== 'attendedIndividual');
+  const toggles = toggleViews(card, p.attend, p.now);
   const chip = chipOf(card);
   const due = dueOf(card, p.now);
   const fire = hasFire(card);
@@ -111,6 +123,9 @@ export function LeadTile(p: LeadTileProps) {
         opacity: p.locked ? 0.65 : 1,
         boxShadow: p.highlighted ? '0 0 0 2px var(--ring)' : p.dragging ? '0 0 0 2px var(--brand)' : undefined,
         cursor: p.canMenu && !p.locked ? 'grab' : undefined,
+        // Долгое нажатие не открывает системное меню и не выделяет текст (iOS, Android)
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
       }}
       aria-busy={p.locked || undefined}
       data-testid="lead-tile"
@@ -118,6 +133,7 @@ export function LeadTile(p: LeadTileProps) {
       data-locked={p.locked ? '1' : undefined}
       data-tone={tone ?? undefined}
       onPointerDown={p.onPointerDown ? (e) => p.onPointerDown!(card, e) : undefined}
+      onTouchStart={p.onTouchStart ? (e) => p.onTouchStart!(card, e) : undefined}
     >
       <div className="flex min-w-0 items-start gap-2">
         {fire && (
@@ -142,11 +158,14 @@ export function LeadTile(p: LeadTileProps) {
         </h3>
       </div>
 
-      {(badges.length > 0 || chipText !== '' || dueText !== '') && (
+      {(toggles.length > 0 || badges.length > 0 || chipText !== '' || dueText !== '') && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {toggles.map((v) => (
+            <AttendToggle key={v.kind} view={v} event={p.attendLabels[v.kind]} {...(p.attendBusy ? { busy: true } : {})} onToggle={() => p.onAttend(card, v.kind)} />
+          ))}
           {badges.map((b) => (
             <Badge key={b} tone={BADGE_TONE[b]} data-testid={`tile-badge-${b}`}>
-              {t(`badge.${b}`, { event: (b === 'attendedGroup' ? p.attendLabels.attendedGroup : b === 'attendedIndividual' ? p.attendLabels.attendedIndividual : '') || t('chip.eventUnknown') })}
+              {t(`badge.${b}`, { event: t('chip.eventUnknown') })}
             </Badge>
           ))}
           {chipText !== '' && (

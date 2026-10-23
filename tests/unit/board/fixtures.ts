@@ -100,4 +100,7 @@ export const CONFIG: BoardConfig = {
   scope: 'own',
   canPurchases: true,
   undoMs: 5000,
+  canAttend: false,
+  eventBehaviors: { meet: 'group', consult: 'individual' },
+  agreedExit: { enabled: true, noShowReasons: { meet: 'no_show_meet', consult: 'no_show_consult' }, attendedReason: 'attended_no_buy', noShowCallback: { kind: 'nextWorkday', time: '10:00' } },
 };

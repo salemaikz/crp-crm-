@@ -6,10 +6,34 @@ import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { CardFieldRow } from '@/ui/call/CardFieldRow';
 import { Button, BottomSheet } from '@/ui/kit';
+import { AttendToggle } from './AttendToggle';
+import { toggleViews, type AttendKind } from './attend';
 import { drawerRows, type DrawerRow } from './drawerFields';
-import type { BoardCardDto } from './types';
+import type { BoardCardDto, BoardConfig } from './types';
 
-export function LeadDrawer({ card, inlineEdit, columnTitle, fetchFn, onClose }: { card: BoardCardDto; inlineEdit: boolean; columnTitle: string; fetchFn: typeof fetch; onClose: () => void }) {
+export function LeadDrawer({
+  card,
+  inlineEdit,
+  columnTitle,
+  fetchFn,
+  onClose,
+  attend,
+  attendLabels,
+  now,
+  attendBusy,
+  onAttend,
+}: {
+  card: BoardCardDto;
+  inlineEdit: boolean;
+  columnTitle: string;
+  fetchFn: typeof fetch;
+  onClose: () => void;
+  attend: Pick<BoardConfig, 'canAttend' | 'eventBehaviors'>;
+  attendLabels: BoardConfig['attendLabels'];
+  now: number;
+  attendBusy: boolean;
+  onAttend: (card: BoardCardDto, kind: AttendKind) => void;
+}) {
   const t = useTranslations('board');
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
   const [rows, setRows] = useState<DrawerRow[]>([]);
@@ -44,6 +68,19 @@ export function LeadDrawer({ card, inlineEdit, columnTitle, fetchFn, onClose }: 
       }
     >
       <div className="flex flex-col gap-3" data-testid="lead-drawer">
+        {/* Тумблеры явки: оба вида; нет записи или права — погашены с подсказкой (§5.2) */}
+        <div className="flex flex-col gap-1" data-testid="drawer-toggles">
+          <div className="flex flex-wrap gap-2">
+            {toggleViews(card, attend, now, true).map((v) => (
+              <AttendToggle key={v.kind} view={v} event={attendLabels[v.kind]} busy={attendBusy} onToggle={() => onAttend(card, v.kind)} />
+            ))}
+          </div>
+          {toggleViews(card, attend, now, true).some((v) => !v.interactive && v.hint === 'noRight') && (
+            <p className="text-xs" style={{ color: 'var(--text-3)' }} data-testid="drawer-toggle-hint">
+              {t('toggle.hint.noRight', { event: '' })}
+            </p>
+          )}
+        </div>
         {phase === 'loading' && (
           <p role="status" style={{ color: 'var(--text-2)' }}>
             {t('drawer.loading')}

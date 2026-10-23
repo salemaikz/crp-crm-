@@ -43,7 +43,7 @@ export type ChipView =
 
 /** Чип под названием: причина перезвона и касание, недозвон, запись или просто состояние. */
 export function chipOf(card: BoardCardDto): ChipView {
-  if (card.state === 'agreed' && card.event) return { kind: 'event', ...card.event };
+  if (card.state === 'agreed' && card.event) return { kind: 'event', type: card.event.type, status: card.event.status, startsAt: card.event.startsAt };
   if (card.state === 'callback' && card.callbackReason !== '') return { kind: 'reason', reason: card.callbackReason, touches: card.callbackTouches };
   if (card.state === 'retry' && card.attempts > 0) return { kind: 'attempts', n: card.attempts };
   if (card.state === 'callback') return { kind: 'state', state: 'callback' };

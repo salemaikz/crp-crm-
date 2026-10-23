@@ -7,8 +7,15 @@ import type { PendingState } from '@/ui/call/pending';
 import { EMPTY_DRAFT, type CallConfig, type OutcomeButton, type OutcomeKind, type OutcomeRequest, type PendingCall, type SheetDraft } from '@/ui/call/types';
 import type { BoardCardDto, BoardColumnConfig, BoardConfig, BoardReason } from './types';
 
-export type MoveAction = 'callback' | 'trash';
-export type MoveBlocked = 'same' | 'later' | 'viewer' | 'manual';
+export type MoveAction = 'callback' | 'trash' | 'agreedCallback' | 'agreedTrash';
+export type MoveBlocked = 'same' | 'later' | 'viewer' | 'manual' | 'offline';
+
+/** Условия переноса, зависящие от устройства и настроек: выход из «Договорились» (№ 33) работает только онлайн. */
+export interface MoveContext {
+  /** Воронка v2 включена: окно № 33 доступно. */
+  agreedExit?: boolean;
+  online?: boolean;
+}
 
 export interface MoveTarget {
   column: string;
@@ -21,12 +28,17 @@ export interface MoveTarget {
 export const CALLBACK_KINDS: readonly OutcomeKind[] = ['callback', 'no_answer'];
 
 /** Цели переноса плитки. Пусто, если переносить нельзя вовсе (директор, нет права, плитка не из рабочих колонок). */
-export function moveTargets(card: BoardCardDto, columns: readonly BoardColumnConfig[], canMove: boolean, scope: BoardConfig['scope'] = 'own'): MoveTarget[] {
+export function moveTargets(card: BoardCardDto, columns: readonly BoardColumnConfig[], canMove: boolean, scope: BoardConfig['scope'] = 'own', ctx: MoveContext = {}): MoveTarget[] {
   const from = columns.find((c) => c.key === card.column);
   return columns.map((col): MoveTarget => {
     if (!canMove) return { column: col.key, available: false, action: null, blocked: 'viewer' };
     if (!from || col.key === from.key) return { column: col.key, available: false, action: null, blocked: 'same' };
-    // Откуда: только «Новые» и «Перезвон»; плитки остальных колонок до этапа В открываются через карточку клиента
+    // «Договорились» (этап В, № 33): в «Перезвон» и «Мусор» без звонка, онлайн; записать на другой вид — мастер в карточке
+    if (from.role === 'agreed' && ctx.agreedExit === true && (col.role === 'callback' || col.role === 'trash')) {
+      if (ctx.online === false) return { column: col.key, available: false, action: null, blocked: 'offline' };
+      return { column: col.key, available: true, action: col.role === 'callback' ? 'agreedCallback' : 'agreedTrash', blocked: null };
+    }
+    // Откуда: только «Новые» и «Перезвон»; остальные колонки открываются через карточку клиента
     if (!isWorkingRole(from.role)) return { column: col.key, available: false, action: null, blocked: 'later' };
     // Итог с доски (`via = board`) принимает сервер только при охвате own; РОП вносит итог за оператора в карточке клиента
     // (manual_entry онлайн, §3.2), поэтому «Перезвон» ему погашен, а в «Мусор» остаётся ручное списание № 32.

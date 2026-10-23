@@ -1,6 +1,6 @@
 // Типы доски оператора: ответ сервера (контракт C5, src/server/domain/cards/board.ts) и настройки страницы.
 // Только типы и константы: файл безопасен и для браузера, и для тестов.
-import type { CallConfig } from '@/ui/call/types';
+import type { CallConfig, CallbackPreset } from '@/ui/call/types';
 
 export type { BoardCardDto, BoardColumnDto, BoardColumnPage, BoardDto } from '@/server/domain/cards';
 
@@ -57,4 +57,24 @@ export interface BoardConfig {
   canPurchases: boolean;
   /** Окно «Отменить» для переноса без звонка, мс. */
   undoMs: number;
+  /**
+   * Право отмечать явку (`booking.attend` у роли, не только чтение). Выдаётся правкой пресета, без кода: у оператора
+   * по умолчанию его нет до ответа владельца (D-340), поэтому тумблеры «Был на …» у него только показывают признак.
+   */
+  canAttend: boolean;
+  /** Поведение вида записи по ключу: связывает запись плитки с тумблером «групповая» / «индивидуальная». */
+  eventBehaviors: Record<string, 'group' | 'individual'>;
+  /** Окно № 33 (выход из «Договорились»): системные причины и срок после неявки из настроек. */
+  agreedExit: AgreedExitConfig;
+}
+
+export interface AgreedExitConfig {
+  /** Выход доступен: воронка v2 включена (`CALLBACK_V2`). */
+  enabled: boolean;
+  /** Причина неявки по виду записи (`reasons.callback[system=no_show].eventTypes`). */
+  noShowReasons: Record<string, string>;
+  /** Причина «пришёл, не купил» (`system=attended_no_purchase`); нет — не подставляется. */
+  attendedReason: string | null;
+  /** Срок после неявки (`booking.noShow.callbackAt`); нет — по касанию. */
+  noShowCallback: CallbackPreset | null;
 }

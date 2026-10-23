@@ -4,15 +4,17 @@
 // вкладки колонок, свайп (scroll-snap), перенос через «⋯ → Перенести в…». Над доской — поиск, сортировка, фильтры.
 // Охват карточек проверяет сервер в SQL каждого запроса; данные доски нигде не кэшируются.
 import { WifiOff } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import Link from 'next/link';
+import { useFormatter, useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatKzPhone } from '@/shared/tel';
 import { OutcomeSheet } from '@/ui/call/OutcomeSheet';
 import { Alert, Button, EmptyState, Page, ToastProvider } from '@/ui/kit';
+import { AgreedExitSheet } from './AgreedExitSheet';
 import { BoardColumn } from './BoardColumn';
 import { BoardControls } from './BoardControls';
-import { ColumnTabs } from './ColumnTabs';
+import { ColumnTabs, type TabDrop } from './ColumnTabs';
 import { LeadDrawer } from './LeadDrawer';
 import { LeadTile } from './LeadTile';
 import { MoveMenu } from './MoveMenu';
@@ -24,7 +26,11 @@ import { SORT_LIMIT, sortCards, sortLimited } from './order';
 import { useBoardData } from './useBoardData';
 import { useBoardMoves } from './useBoardMoves';
 import { useBoardRuntime } from './useBoardRuntime';
+import { exitCallConfig } from './exit';
+import { useAttendance } from './useAttendance';
+import { useMonthPurchases } from './useMonthPurchases';
 import { useMouseDrag } from './useMouseDrag';
+import { useTouchDrag } from './useTouchDrag';
 import type { BoardCardDto, BoardColumnConfig, BoardConfig, BoardFilter, BoardSort } from './types';
 
 export function BoardScreen({ config, userId }: { config: BoardConfig; userId: string }) {
@@ -40,6 +46,7 @@ const noopAsync = async () => ({ ok: false as const, code: 'handled' as const })
 
 function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: string }) {
   const t = useTranslations('board');
+  const f = useFormatter();
   const router = useRouter();
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<BoardSort>('heat');
@@ -94,6 +101,8 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
     [safeFetch],
   );
   const moves = useBoardMoves({ config, userId, runtime, data, findCard: cardOf });
+  const attendance = useAttendance({ config, runtime, data });
+  const month = useMonthPurchases(config.canPurchases && config.scope === 'own', runtime.safeFetch);
   const titleOf = useCallback((c: BoardColumnConfig) => (c.label !== '' ? c.label : t(`state.${c.states[0] ?? 'new'}`)), [t]);
   const titleOfKey = (key: string | null) => {
     const c = config.columns.find((x) => x.key === key);
@@ -118,6 +127,26 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
       if (c) moves.startMove(c, col);
     },
   });
+
+  // Телефон: долгое нажатие поднимает плитку, вкладки колонок становятся целями (§9.2, этап В)
+  const touch = useTouchDrag({
+    enabled: config.canMove,
+    scroller,
+    canDrag: (id) => {
+      const c = cardOf(id);
+      return !!c && !moves.locked.has(id) && canMoveAnywhere(moves.targetsOf(c));
+    },
+    canDrop: (id, col) => {
+      const c = cardOf(id);
+      return !!c && (moves.targetsOf(c).find((x) => x.column === col)?.available ?? false);
+    },
+    onDrop: (id, col) => {
+      const c = cardOf(id);
+      if (c) moves.startMove(c, col);
+    },
+  });
+  const active = touch.drag ?? drag.drag;
+  const consumeClick = () => touch.consumeClick() || drag.consumeClick();
 
   // Телефон: свайп переключает колонку, вкладки синхронизированы
   useEffect(() => {
@@ -152,9 +181,13 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
   void runtime.version;
   const offline = !runtime.online || data.phase === 'offline';
   const search = data.board?.search;
-  const dragCard = drag.drag ? cardOf(drag.drag.cardId) : undefined;
+  const dragCard = active ? cardOf(active.cardId) : undefined;
   const dragTargets = dragCard ? moves.targetsOf(dragCard) : [];
 
+  const tabDrops: Record<string, TabDrop> = Object.fromEntries(
+    config.columns.map((c) => [c.key, { state: !active ? 'idle' : dragTargets.find((x) => x.column === c.key)?.available ? 'ok' : 'no', over: active?.over === c.key } satisfies TabDrop]),
+  );
+  const money = (n: number) => f.number(n, { style: 'currency', currency: 'KZT', maximumFractionDigits: 0 });
   const tabs = config.columns.map((c) => ({ key: c.key, title: titleOf(c), count: sorted[c.key]?.length ?? 0, more: data.cols[c.key]?.next != null }));
   const emptyBoard = data.phase === 'ready' && tabs.every((x) => x.count === 0) && !q && filters.length === 0;
 
@@ -230,7 +263,7 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
 
       {data.phase === 'ready' && (
         <>
-          <ColumnTabs label={t('tabs.label')} tabs={tabs} active={activeTab} onSelect={selectTab} />
+          <ColumnTabs label={t('tabs.label')} tabs={tabs} active={activeTab} onSelect={selectTab} drops={tabDrops} />
           {emptyBoard && <EmptyState title={t('state.emptyTitle')} description={t('state.emptyText')} />}
           <div
             ref={scroller}
@@ -251,8 +284,20 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
                   limited={sortLimited(sort, col.role, state?.cards.length ?? 0, state?.next != null)}
                   limit={SORT_LIMIT}
                   loadingMore={state?.loadingMore ?? false}
-                  dropState={drag.drag ? (tg?.available ? 'ok' : 'no') : 'idle'}
-                  over={drag.drag?.over === col.key}
+                  dropState={active ? (tg?.available ? 'ok' : 'no') : 'idle'}
+                  over={active?.over === col.key}
+                  summary={
+                    col.role === 'client' && month ? (
+                      <div className="flex items-baseline justify-between gap-2 px-1 text-sm" data-testid="purchases-summary">
+                        <span style={{ color: 'var(--text-2)' }} data-testid="purchases-month">
+                          {t('purchases.month', { count: month.count, sum: money(month.sumKzt) })}
+                        </span>
+                        <Link href="/board/purchases" className="font-semibold underline" data-testid="purchases-link">
+                          {t('purchases.link')}
+                        </Link>
+                      </div>
+                    ) : undefined
+                  }
                   onMore={() => void data.more(col.key)}
                   empty={cards.length === 0}
                 >
@@ -272,13 +317,17 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
                         canCall={config.scope === 'own' && config.canMove}
                         callBlocked={callBlockedBy(moves.pendingCardId, card.id)}
                         canMenu={canMoveAnywhere(targets)}
-                        dragging={drag.drag?.cardId === card.id}
+                        dragging={active?.cardId === card.id}
+                        attend={config}
+                        attendBusy={attendance.busy.includes(card.id)}
+                        onAttend={(c, kind) => void attendance.mark(c, kind)}
                         onOpen={setDrawerFor}
                         onCall={moves.startCall}
                         onChatOpened={reportOpened}
                         onMenu={moves.openMenu}
                         onPointerDown={(c, e) => drag.onPointerDown(c.id, e)}
-                        consumeClick={drag.consumeClick}
+                        onTouchStart={(c, e) => touch.onTouchStart(c.id, e)}
+                        consumeClick={consumeClick}
                       />
                     );
                   })}
@@ -289,10 +338,10 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
         </>
       )}
 
-      {drag.drag && dragCard && (
+      {active && dragCard && (
         <div
           className="pointer-events-none fixed z-[70] max-w-64 rounded-[var(--radius-card)] border px-3 py-2 text-sm font-semibold"
-          style={{ left: drag.drag.x + 12, top: drag.drag.y + 12, background: 'var(--surface)', borderColor: 'var(--brand)', boxShadow: 'var(--shadow-float)' }}
+          style={{ left: active.x + 12, top: active.y + 12, background: 'var(--surface)', borderColor: 'var(--brand)', boxShadow: 'var(--shadow-float)' }}
           data-testid="drag-ghost"
         >
           {dragCard.name}
@@ -331,6 +380,18 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
         />
       )}
 
+      {moves.exitFor && <AgreedExitSheet card={moves.exitFor} config={config} now={now} onSubmit={(r) => moves.submitExitCallback(moves.exitFor!, r)} onClose={moves.closeExit} />}
+
+      {moves.exitTrashFor && (
+        <TrashSheet
+          card={moves.exitTrashFor}
+          call={exitCallConfig(config.call)}
+          {...moves.exitTrashChoices()}
+          onPick={(pick) => moves.pickExitTrash(moves.exitTrashFor!, pick)}
+          onClose={moves.closeExitTrash}
+        />
+      )}
+
       {moves.callSheet && moves.callSheet.pending.draft.open && callSheetCard && (
         <OutcomeSheet
           config={config.call}
@@ -350,7 +411,20 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
         />
       )}
 
-      {drawerFor && <LeadDrawer card={drawerFor} inlineEdit={config.call.callbackV2} columnTitle={drawerFor.column ? titleOfKey(drawerFor.column) : ''} fetchFn={runtime.safeFetch} onClose={() => setDrawerFor(null)} />}
+      {drawerFor && (
+        <LeadDrawer
+          card={cardOf(drawerFor.id) ?? drawerFor}
+          inlineEdit={config.call.callbackV2}
+          columnTitle={drawerFor.column ? titleOfKey(drawerFor.column) : ''}
+          fetchFn={runtime.safeFetch}
+          onClose={() => setDrawerFor(null)}
+          attend={config}
+          attendLabels={config.attendLabels}
+          now={now}
+          attendBusy={attendance.busy.includes(drawerFor.id)}
+          onAttend={(c, kind) => void attendance.mark(c, kind)}
+        />
+      )}
     </Page>
   );
 }

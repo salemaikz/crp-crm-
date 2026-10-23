@@ -20,6 +20,8 @@ export interface BoardColumnProps {
   limited?: boolean;
   limit?: number;
   onMore: () => void;
+  /** Строка под заголовком (итог месяца в «Покупке»). */
+  summary?: ReactNode;
   children: ReactNode;
   empty: boolean;
 }
@@ -49,6 +51,7 @@ export function BoardColumn(p: BoardColumnProps) {
           {p.hasMore ? t('column.countMore', { n: p.count }) : p.count}
         </span>
       </header>
+      {p.summary}
       <div className="flex flex-col gap-2">{p.children}</div>
       {p.empty && (
         <p className="px-1 py-4 text-center text-sm" style={{ color: 'var(--text-3)' }}>

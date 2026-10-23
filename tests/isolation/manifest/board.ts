@@ -4,4 +4,5 @@ import { defineManifest } from '../harness/manifest';
 
 export default defineManifest('board', [
   { kind: 'page', path: '/(op)/board', method: 'GET', perm: 'card.outcome', target: 'section', mutation: false },
+  { kind: 'page', path: '/(op)/board/purchases', method: 'GET', perm: 'deal.read', target: 'section', mutation: false },
 ]);

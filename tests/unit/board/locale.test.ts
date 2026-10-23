@@ -30,14 +30,17 @@ test('динамические ключи (состояния, сортиров�
     ...['heat', 'due', 'new'].map((s) => `sort.${s}`),
     ...['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased'].map((s) => `filters.${s}`),
     ...['attendedGroup', 'attendedIndividual', 'purchased', 'noShow'].map((s) => `badge.${s}`),
-    ...['same', 'later', 'viewer', 'manual'].map((s) => `move.blocked.${s}`),
+    ...['same', 'later', 'viewer', 'manual', 'offline'].map((s) => `move.blocked.${s}`),
+    ...['noRight', 'noBooking', 'notStarted', 'done', 'lastStatus'].map((s) => `toggle.hint.${s}`),
+    ...['attended', 'no_show', 'unmarked'].map((s) => `exit.status.${s}`),
+    ...['noRight', 'notStarted'].map((s) => `exit.hint.${s}`),
     ...['min', 'hour', 'day'].map((s) => `due.ago.${s}`),
   ];
   assert.deepEqual(expected.filter((k) => !all.has(k)), []);
 });
 
 test('в локали нет ключей, которых не использует код (мёртвые тексты)', () => {
-  const dynamicPrefixes = ['state.', 'sort.', 'filters.', 'badge.', 'move.blocked.', 'due.ago.'];
+  const dynamicPrefixes = ['state.', 'sort.', 'filters.', 'badge.', 'move.blocked.', 'due.ago.', 'toggle.hint.', 'exit.status.', 'exit.hint.'];
   const dead = [...all].filter((k) => !dynamicPrefixes.some((p) => k.startsWith(p)) && !source.includes(`'${k}'`));
   assert.deepEqual(dead, []);
 });

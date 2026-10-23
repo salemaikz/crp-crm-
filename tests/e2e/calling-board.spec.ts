@@ -272,7 +272,7 @@ test('доска читается в светлой и тёмной теме: п
   await openBoard(page, op);
   const tile = tileOf(page, op.names[0]!);
   await expect(tile).toHaveAttribute('data-tone', 'success');
-  await expect(tile.getByTestId('tile-badge-attendedGroup')).toBeVisible();
+  await expect(tile.getByTestId('tile-toggle-attendedGroup')).toBeVisible();
   const light = await tile.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, text: getComputedStyle(el).color }));
   await testInfo.attach('board-light', { body: await page.screenshot(), contentType: 'image/png' });
 

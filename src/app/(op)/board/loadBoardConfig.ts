@@ -3,9 +3,11 @@
 import type { Viewer } from '@/server/access';
 import { loadBoardSettings } from '@/server/domain/cards/boardSettings';
 import { getActiveConfig } from '@/server/platform/config/active';
-import type { BoardConfig, BoardDrop, BoardReason } from '@/ui/board/types';
+import type { AgreedExitConfig, BoardConfig, BoardDrop, BoardReason } from '@/ui/board/types';
+import type { CallbackPreset } from '@/ui/call/types';
 import { roleOfStates } from '@/ui/board/columns';
 import { loadCallConfig } from '../call/loadCallConfig';
+import { config as coreConfig } from '@crm/core';
 
 type L = { ru: string };
 type Reason = { key: string; label: L; needsText: boolean; archived?: boolean | undefined };
@@ -41,6 +43,22 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     dropMore: info.def.dropMore === true,
   }));
 
+  const eventBehaviors: BoardConfig['eventBehaviors'] = Object.fromEntries(eventTypes.map((e) => [e.key, e.behavior]));
+
+  // Окно № 33: системные причины неявки и «пришёл, не купил» и срок после неявки берутся из настроек, не из кода
+  type SysReason = Reason & { system?: string | undefined; eventTypes?: readonly string[] | undefined; manual?: boolean | undefined };
+  const callbackReasons = ((doc.reasons as Record<string, SysReason[] | undefined>).callback ?? []).filter((r) => r.archived !== true && r.manual !== false);
+  const noShowReasons: Record<string, string> = {};
+  for (const r of callbackReasons) if (r.system === 'no_show') for (const type of r.eventTypes ?? []) noShowReasons[type] ??= r.key;
+  const step = coreConfig.parseStep(doc.booking?.noShow?.callbackAt ?? '');
+  const noShowCallback: CallbackPreset | null = step?.kind === 'plus' ? { kind: 'plus', minutes: step.minutes } : step?.kind === 'nextWorkday' ? { kind: 'nextWorkday', time: step.time } : null;
+  const agreedExit: AgreedExitConfig = {
+    enabled: call.callbackV2,
+    noShowReasons,
+    attendedReason: callbackReasons.find((r) => r.system === 'attended_no_purchase')?.key ?? null,
+    noShowCallback,
+  };
+
   const scope = viewer.grants.get('card.read');
   return {
     call,
@@ -53,5 +71,8 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     scope: scope === 'own' ? 'own' : 'wide',
     canPurchases: viewer.grants.has('deal.read'),
     undoMs: call.undoMs,
+    canAttend: viewer.grants.has('booking.attend') && !viewer.readOnly,
+    eventBehaviors,
+    agreedExit,
   };
 }

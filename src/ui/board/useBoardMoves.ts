@@ -14,6 +14,9 @@ import { clearPending, readPending, writePending, type PendingState } from '@/ui
 import { EMPTY_DRAFT, type OutcomeButton, type PendingCall, type SheetDraft } from '@/ui/call/types';
 import { useToast } from '@/ui/kit';
 import { buildMoveRequest, callBlockedBy, errorCodeOf, keepsCallSheet, restoredCallSheet, lockedIds, moveTargets, planFor, quickTrash, moreTrash, trashDraft, type TrashChoice } from './moves';
+import type { AgreedExitSubmit } from './AgreedExitSheet';
+import { exitToOf, exitTrashChoices } from './exit';
+import { useDeferredExit } from './useDeferredExit';
 import type { useBoardData } from './useBoardData';
 import type { useBoardRuntime } from './useBoardRuntime';
 import type { TrashPick } from './TrashSheet';
@@ -51,6 +54,10 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
   const [trashFor, setTrashFor] = useState<BoardCardDto | null>(null);
   const [callSheet, setCallSheet] = useState<MoveSheetState | null>(null);
   const [deferredIds, setDeferredIds] = useState<string[]>([]);
+  // № 33: выход из «Договорились» (окно явки и причина; «Мусор» - тот же лист причин)
+  const [exitFor, setExitFor] = useState<BoardCardDto | null>(null);
+  const [exitTrashFor, setExitTrashFor] = useState<BoardCardDto | null>(null);
+  const exit = useDeferredExit({ config, runtime, data });
   const deferred = useRef(new Map<string, Deferred>());
   const awayRef = useRef(false);
   // Намерение звонка, чья карточка не на загруженной доске: пока оно висит, «Позвонить» на других плитках погашено
@@ -61,12 +68,16 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
   });
 
   const rt = runtime.rt;
-  const locked = lockedIds(rt ? rt.outbox.cardIds() : [], deferredIds);
+  const locked = lockedIds(rt ? rt.outbox.cardIds() : [], [...deferredIds, ...exit.ids]);
   void runtime.version;
 
   const pendingCardId = callSheet?.card.id ?? orphanPendingId;
 
-  const targetsOf = useCallback((card: BoardCardDto) => moveTargets(card, config.columns, config.canMove, config.scope), [config.columns, config.canMove, config.scope]);
+  const online = runtime.online;
+  const targetsOf = useCallback(
+    (card: BoardCardDto) => moveTargets(card, config.columns, config.canMove, config.scope, { agreedExit: config.agreedExit.enabled, online }),
+    [config.columns, config.canMove, config.scope, config.agreedExit.enabled, online],
+  );
 
   // ---- общее: итог в очередь устройства --------------------------------------------------------------------------
 
@@ -134,19 +145,23 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
     (card: BoardCardDto, column: string) => {
       const target = targetsOf(card).find((x) => x.column === column);
       if (!target?.available || !target.action) return;
-      if (lockedIds(runtime.rtRef.current?.outbox.cardIds() ?? [], [...deferred.current.keys()]).has(card.id)) {
+      if (lockedIds(runtime.rtRef.current?.outbox.cardIds() ?? [], [...deferred.current.keys(), ...exit.ids]).has(card.id)) {
         toast.show({ message: t('toast.locked'), tone: 'info' });
         return;
       }
       setMenuFor(null);
-      if (target.action === 'callback') {
+      if (target.action === 'agreedCallback') {
+        setExitFor(card);
+      } else if (target.action === 'agreedTrash') {
+        setExitTrashFor(card);
+      } else if (target.action === 'callback') {
         const intent = runtime.intentFor(card.id);
         setMoveSheet({ card, pending: syntheticPending(card, intent), intent });
       } else {
         setTrashFor(card);
       }
     },
-    [targetsOf, runtime, toast, t, syntheticPending],
+    [targetsOf, runtime, toast, t, syntheticPending, exit.ids],
   );
 
   const patchMoveDraft = useCallback((patch: Partial<SheetDraft>) => setMoveSheet((s) => (s ? { ...s, pending: { ...s.pending, draft: { ...s.pending.draft, ...patch } } } : s)), []);
@@ -160,6 +175,22 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
     [moveSheet, enqueueOutcome],
   );
 
+  // ---- № 33: выход из «Договорились» ------------------------------------------------------------------------------
+
+  const submitExitCallback = useCallback(
+    (card: BoardCardDto, r: AgreedExitSubmit) => {
+      if (exit.schedule({ card, to: 'callback', reasonCode: r.reasonCode, reasonText: r.reasonText, due: r.due, attendance: r.attendance })) setExitFor(null);
+    },
+    [exit],
+  );
+
+  const pickExitTrash = useCallback(
+    (card: BoardCardDto, pick: TrashPick) => {
+      if (exit.schedule({ card, to: exitToOf(pick.choice), reasonCode: pick.choice.reason, reasonText: pick.note, due: null, attendance: null })) setExitTrashFor(null);
+    },
+    [exit],
+  );
+
   // ---- перенос в «Мусор» -----------------------------------------------------------------------------------------
 
   const trashColumn = config.columns.find((c) => c.role === 'trash') ?? null;
@@ -169,6 +200,11 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
         ? { quick: quickTrash(trashColumn, call, config.writeOffReasons, card, config.scope), more: moreTrash(trashColumn, call, config.writeOffReasons, card, config.scope) }
         : { quick: [], more: [] },
     [trashColumn, call, config.writeOffReasons, config.scope],
+  );
+
+  const exitTrashChoicesOf = useCallback(
+    () => (trashColumn ? exitTrashChoices(trashColumn, call, config.writeOffReasons) : { quick: [], more: [] }),
+    [trashColumn, call, config.writeOffReasons],
   );
 
   /** Ручное списание № 32: онлайн, через 5 с (окно «Отменить»); при уходе со страницы отправляется сразу с keepalive. */
@@ -402,6 +438,13 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
     closeTrash: () => setTrashFor(null),
     trashChoices,
     pickTrash,
+    exitFor,
+    closeExit: () => setExitFor(null),
+    submitExitCallback,
+    exitTrashFor,
+    closeExitTrash: () => setExitTrashFor(null),
+    exitTrashChoices: exitTrashChoicesOf,
+    pickExitTrash,
     startCall,
     callSheet,
     patchCallDraft,

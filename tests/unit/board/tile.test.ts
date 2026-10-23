@@ -37,7 +37,7 @@ test('значки: покупки только при признаке от с�
 test('чип: причина и касание, недозвон, запись, состояние; у нового клиента чипа нет', () => {
   assert.deepEqual(chipOf(card({ state: 'callback', callbackReason: 'think', callbackTouches: 2 })), { kind: 'reason', reason: 'think', touches: 2 });
   assert.deepEqual(chipOf(card({ state: 'retry', attempts: 2 })), { kind: 'attempts', n: 2 });
-  assert.deepEqual(chipOf(card({ state: 'agreed', event: { type: 'g', status: 'registered', startsAt: 5 } })), { kind: 'event', type: 'g', status: 'registered', startsAt: 5 });
+  assert.deepEqual(chipOf(card({ state: 'agreed', event: { type: 'g', status: 'registered', startsAt: 5, bookingId: 'b1', bookingVersion: 0 } })), { kind: 'event', type: 'g', status: 'registered', startsAt: 5 });
   assert.deepEqual(chipOf(card({ state: 'callback' })), { kind: 'state', state: 'callback' });
   assert.deepEqual(chipOf(card({ state: 'client' })), { kind: 'state', state: 'client' });
   assert.deepEqual(chipOf(card()), { kind: 'none' });
