@@ -6,6 +6,7 @@ import { calling, fields } from '@crm/core';
 import { NotFoundError, type Viewer } from '@/server/access';
 import { isRetryableTxError, MAX_TX_ATTEMPTS } from '@/server/domain/booking/tx';
 import { applyCardEventLocked, loadCallingContext, toCoreActor, type LockedCardRow } from '@/server/domain/cards';
+import { refreshCardDerived } from '@/server/domain/cards';
 import { loadSnapshot, lockCardScoped } from '@/server/domain/cards/repo';
 import { loadClientsConfig } from '@/server/domain/clients/config';
 import { reassignOpenTasks } from '@/server/domain/tasks/auto';
@@ -301,6 +302,11 @@ async function mergeTx(tx: Sql, viewer: Viewer, pairId: string, input: MergeInpu
   }
   for (const m of plan.move) await moveLoserCard(tx, { cardId: m.cardId, survivorId: s, now });
   counts.cards = plan.merge.length + plan.move.length;
+  // Явки, неявки и покупки перешли к выжившему клиенту, карточки сменили состояние или клиента: кэш — в этой же транзакции
+  await refreshCardDerived(viewer, tx, [
+    ...plan.merge.flatMap((m) => [m.survivorCardId, m.loserCardId]),
+    ...plan.move.map((m) => m.cardId),
+  ]);
 
   // 4–5. проигравший слит, пустые поля выжившего и строка поиска
   await markLoserMerged(tx, { loserId: l, survivorId: s, now });

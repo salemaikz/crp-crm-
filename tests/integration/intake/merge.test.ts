@@ -255,3 +255,21 @@ test('без флага и без права — раздела нет (404)', a
     process.env.FEATURE_MERGE = '1';
   }
 });
+
+test('W2: карточка проигравшего переходит выжившему клиенту — признаки явки и покупок считаются по новому клиенту', async () => {
+  const t = SEED_NOW;
+  // у выжившего (клиент без карточки в пространстве) есть прошлая явка и выигранная сделка; кэш карточки проигравшего пуст
+  await db.sql`INSERT INTO clients (id, kind, name, name_norm, source_kind, created_at, updated_at)
+               VALUES ('cl-mg-58', 'company', 'ТОО Пример 58', 'пример 58', 'manual', ${t}, ${t})`;
+  await booking('bk-mg-58', 'cl-mg-58', 'cd-a-58', '2026-10-20', { kind: 'individual' });
+  await db.sql`UPDATE bookings SET status = 'attended' WHERE id = 'bk-mg-58'`;
+  await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, won_at, stage_changed_at, created_by, created_at, updated_at)
+               VALUES ('dl-mg-58', ${SPACE}, 'sales', 'won', 'won', 'cl-mg-58', 'cd-a-58', ${U.opB}, ${t - DAY}, ${t - DAY}, ${U.opB}, ${t}, ${t})`;
+  await pair('pr-mg-58', 'cl-b-58', 'cl-mg-58');
+  const p = await previewMerge(rop, 'pr-mg-58', choice({ survivor: 'b' }));
+  assert.deepEqual(p.conflicts, []);
+  await applyMerge(rop, 'pr-mg-58', { ...choice({ survivor: 'b' }), opId: uuid(), fingerprint: p.fingerprint });
+  const [r] = await db.sql<{ client: string; at: number | null; n: number; last: number | null }>`
+    SELECT client_id AS client, attended_individual_at AS at, purchases_total AS n, last_purchase_at AS last FROM cards WHERE id = 'cd-b-58'`;
+  assert.deepEqual([r?.client, r?.at, r?.n, r?.last], ['cl-mg-58', local('2026-10-20', '11:00'), 1, t - DAY]);
+});

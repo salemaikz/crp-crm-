@@ -4,6 +4,8 @@
 // (user_id NULL, via='import', D-067). Побочные эффекты (задачи, стоп-лист) пишутся в той же транзакции.
 import { dedup, fields, imports, time } from '@crm/core';
 import { NotFoundError } from '@/server/access/errors';
+import type { SystemActor } from '@/server/access';
+import { refreshCardDerived } from '@/server/domain/cards';
 import { getDb, newId } from '@/server/platform/db';
 import type { Sql } from '@/server/platform/db/core';
 import { blankCard, planImportedCard, type CardPlan } from './cardPlan';
@@ -54,6 +56,19 @@ function phoneRowsOf(row: imports.ParsedRow, allowed: readonly string[], clientI
   }));
 }
 
+/** Размер пачки пересчёта кэша карточек: один SELECT и один UPDATE на пачку (замер на 20 000 строк — в тесте нагрузки). */
+const DERIVED_BATCH = 2000;
+
+/**
+ * Пересчёт кэша признаков и горячести карточек, записанных импортом (pipeline-v2 §5.1, §5.4): импорт пишет `cards`
+ * мимо `persist`, поэтому heat и признаки явки считаются здесь, в той же транзакции. Кэш читает записи и сделки по
+ * клиенту, исполнитель в нём только метка (охват не применяется), поэтому без Viewer берётся служебная метка.
+ */
+async function refreshImported(sql: Sql, actor: ImportActor, ids: readonly string[], now: number): Promise<void> {
+  const who = actor.viewer ?? ({ kind: 'system', job: 'import.apply', now } as SystemActor);
+  for (let i = 0; i < ids.length; i += DERIVED_BATCH) await refreshCardDerived(who, sql, ids.slice(i, i + DERIVED_BATCH));
+}
+
 /** Запись по предпросмотру. Вызывается внутри транзакции, под блокировками. */
 export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportActor, imp: repo.ImportRow, comp: Computation, now: number): Promise<ApplyCounts> {
   const counts = zeroCounts();
@@ -66,6 +81,7 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
   const created = new Map<number, Pending>();
   const clientLinks: { rowNo: number; clientId: string }[] = [];
   const cards: repo.NewCardRow[] = [];
+  const updatedCardIds: string[] = [];
   const assigns: repo.NewAssignRow[] = [];
   const calls: repo.NewCallRow[] = [];
   const events: repo.NewEventRow[] = [];
@@ -350,6 +366,7 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
           break;
         }
         counts.cardsUpdated++;
+        updatedCardIds.push(card.id);
         if (newOwner) {
           assigns.push({ id: newId(), cardId: card.id, toUserId: newOwner, runId: imp.id, day: today, actorId: actor.userId });
           counts.assigned[newOwner] = (counts.assigned[newOwner] ?? 0) + 1;
@@ -402,6 +419,7 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
   counts.phonesAdded = allPhones.length;
   await repo.insertSources(sql, sources, now);
   await repo.insertCards(sql, cards, now);
+  await refreshImported(sql, actor, [...cards.map((c) => c.id), ...updatedCardIds], now);
   counts.callsCreated = await repo.insertCalls(sql, ctx.spaceId, calls, now, ctx.rev.space);
   await repo.insertAssignLog(sql, ctx.spaceId, assigns, now);
   await repo.insertEvents(sql, ctx.spaceId, events);

@@ -66,7 +66,7 @@ function validRange([a, b]: readonly [number, number]): [number, number] {
  * Настройки установки для импорта: две формы, источник import с правилом «ИП на разбор юриста», профиль.
  * Слоты и fieldTargets — как их задаёт установка; по умолчанию пусто (как в пресете).
  */
-export function importDocs(opts: { slots?: readonly SlotSetting[]; fieldTargets?: Record<string, { object: 'client' | 'card'; fieldKey: string }> } = {}): {
+export function importDocs(opts: { slots?: readonly SlotSetting[]; fieldTargets?: Record<string, { object: 'client' | 'card'; fieldKey: string }>; heat?: Json } = {}): {
   global: Json;
   spaces: Record<string, Json>;
 } {
@@ -92,6 +92,7 @@ export function importDocs(opts: { slots?: readonly SlotSetting[]; fieldTargets?
   g.fields = [textField('head_name', 'client', 'person', false), textField('okved', 'client', 'none', true)];
   const sp = s.spaces.sales as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   sp.fields = [textField('niche', 'card', 'none', false)];
+  if (opts.heat) sp.queue = { ...(sp.queue ?? {}), heat: opts.heat };
   const aliases: Record<string, string[]> = {
     no_answer: ['Отключен/Не берет'],
     callback: ['Перезвонить'],
@@ -150,11 +151,11 @@ export interface World {
 }
 
 /** Синтетический мир: РОП, операторы под слоты генератора, настройки со слотами и fieldTargets. */
-export async function makeWorld(db: DbHandle, rows = 2200, seed = 7, slotsOverride?: imports.OperatorSlot[]): Promise<World> {
+export async function makeWorld(db: DbHandle, rows = 2200, seed = 7, slotsOverride?: imports.OperatorSlot[], heat?: Json): Promise<World> {
   process.env.FEATURE_IMPORT = '1';
   const generated = generateSyntheticSheets({ rows, seed });
   const sheets = slotsOverride ? { ...generated, slots: slotsOverride } : generated;
-  await installImportConfig({ slots: sheets.slots, fieldTargets: { ...FIELD_TARGETS } });
+  await installImportConfig({ slots: sheets.slots, fieldTargets: { ...FIELD_TARGETS }, ...(heat ? { heat } : {}) });
   const spaceId = await spaceIdOf(db);
   const leadId = await mkUser(db, 0, 'Руководитель Синтетик');
   await mkMember(db, leadId, spaceId, 'lead');

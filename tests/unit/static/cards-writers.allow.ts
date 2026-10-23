@@ -11,7 +11,7 @@ export interface WriterEntry {
 const D = 'src/server/domain';
 
 export const CARDS_WRITERS: Record<string, WriterEntry> = {
-  [`${D}/cards/repo.ts::updateCardRow`]: { category: 'persist', note: 'все переходы ядра; цикл — в commit ядра; ждёт W2 (refreshCardDerived)' },
+  [`${D}/cards/repo.ts::updateCardRow`]: { category: 'persist', note: 'все переходы ядра; цикл — в commit ядра; кэш пересчитывает persist (refreshCardDerived)' },
   [`${D}/cards/derivedRepo.ts::writeDerived`]: { category: 'derived-cache', note: 'кэш признаков и heat (§5.1): без version и updated_at, состояние не меняет' },
   [`${D}/cards/repo.ts::writeCardCustom`]: { category: 'custom-only', note: 'только custom' },
   [`${D}/cards/repo.ts::writeCardCustomBumped`]: { category: 'custom-only', note: 'только custom и версия' },
@@ -22,9 +22,9 @@ export const CARDS_WRITERS: Record<string, WriterEntry> = {
   [`${D}/team/transferRepo.ts::replaceActing`]: { category: 'owner-only', note: 'временный владелец' },
   [`${D}/import/bookingRepo.ts::assignImportedOwner`]: { category: 'owner-only', note: 'только владелец' },
   [`${D}/import/repo.ts::insertCards`]: { category: 'insert-defaults', note: 'новая строка: цикл по умолчанию пуст (колонки не пишутся)' },
-  [`${D}/import/repo.ts::updateCardFromImport`]: { category: 'state-change', note: 'сброс цикла по новому состоянию (W1); ждёт W2' },
-  [`${D}/intake/mergeRepo.ts::retireLoserCard`]: { category: 'state-change', note: 'возврат проигравшей в пул: цикл сброшен (W1); ждёт W2' },
-  [`${D}/intake/mergeRepo.ts::moveLoserCard`]: { category: 'owner-only', note: 'client_id; пересчёт кэша ждёт W2' },
+  [`${D}/import/repo.ts::updateCardFromImport`]: { category: 'state-change', note: 'сброс цикла по новому состоянию (W1); кэш пересчитывает apply.ts в той же транзакции' },
+  [`${D}/intake/mergeRepo.ts::retireLoserCard`]: { category: 'state-change', note: 'возврат проигравшей в пул: цикл сброшен (W1); кэш пересчитывает merge.ts в той же транзакции' },
+  [`${D}/intake/mergeRepo.ts::moveLoserCard`]: { category: 'owner-only', note: 'client_id; кэш пересчитывает merge.ts в той же транзакции' },
   [`${D}/intake/mergeRepo.ts::releaseDupPairHolds`]: { category: 'hold-only', note: 'только hold_reason' },
   [`${D}/intake/repo.ts::insertCard`]: { category: 'insert-defaults', note: 'новая карточка, значения по умолчанию' },
   [`${D}/booking/repo.ts::insertWalkInCard`]: { category: 'insert-defaults', note: 'новая карточка, значения по умолчанию' },
