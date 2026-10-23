@@ -78,7 +78,7 @@ export async function lockCardScoped(tx: Sql, viewer: Viewer, cardId: string, pe
     SELECT c.id, c.space_id, c.client_id, c.owner_user_id, c.acting_user_id, c.acting_until_day, c.state, c.hold_reason, c.attempts,
            c.next_call_at, c.return_at, c.lpr, c.is_target, c.last_outcome_code, c.last_outcome_kind, c.last_outcome_at, c.close_reason_code,
            c.closed_at, c.assigned_at, c.touched_in_crm, c.calls_total, c.connects_total, c.no_answer_total, c.first_connect_at,
-           c.last_connect_at, c.last_touch_at, c.version
+           c.last_connect_at, c.last_touch_at, c.callback_reason, c.callback_touches, c.next_call_precision, c.version
       FROM cards c
      WHERE c.id = ${cardId} AND ${scopeSql(viewer, 'card', perm)}
        FOR UPDATE OF c`;
@@ -91,7 +91,7 @@ export async function lockCardUnscoped(tx: Sql, cardId: string): Promise<LockedC
     SELECT c.id, c.space_id, c.client_id, c.owner_user_id, c.acting_user_id, c.acting_until_day, c.state, c.hold_reason, c.attempts,
            c.next_call_at, c.return_at, c.lpr, c.is_target, c.last_outcome_code, c.last_outcome_kind, c.last_outcome_at, c.close_reason_code,
            c.closed_at, c.assigned_at, c.touched_in_crm, c.calls_total, c.connects_total, c.no_answer_total, c.first_connect_at,
-           c.last_connect_at, c.last_touch_at, c.version
+           c.last_connect_at, c.last_touch_at, c.callback_reason, c.callback_touches, c.next_call_precision, c.version
       FROM cards c WHERE c.id = ${cardId} FOR UPDATE OF c`;
   return rows[0] ? toLocked(tx, rows[0]) : null;
 }
@@ -102,7 +102,7 @@ export async function loadSnapshot(tx: Sql, cardId: string): Promise<LockedCardR
     SELECT c.id, c.space_id, c.client_id, c.owner_user_id, c.acting_user_id, c.acting_until_day, c.state, c.hold_reason, c.attempts,
            c.next_call_at, c.return_at, c.lpr, c.is_target, c.last_outcome_code, c.last_outcome_kind, c.last_outcome_at, c.close_reason_code,
            c.closed_at, c.assigned_at, c.touched_in_crm, c.calls_total, c.connects_total, c.no_answer_total, c.first_connect_at,
-           c.last_connect_at, c.last_touch_at, c.version
+           c.last_connect_at, c.last_touch_at, c.callback_reason, c.callback_touches, c.next_call_precision, c.version
       FROM cards c WHERE c.id = ${cardId}`;
   return rows[0] ? toLocked(tx, rows[0]) : null;
 }

@@ -129,7 +129,7 @@ function callRecord(
     id: e.opId,
     outcomeCode: e.outcomeKey,
     outcomeKind: def.kind,
-    reasonCode: def.kind === 'callback' ? callbackReasonOf(e) : e.reasonCode,
+    reasonCode: e.reasonCode,
     lpr: e.lpr,
     callbackAt: e.callbackAt,
     callbackPrecision: e.callbackPrecision ?? 'time',
