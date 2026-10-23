@@ -39,11 +39,16 @@ after(async () => {
   await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
 });
 
-/** Каталог миграций прежней версии: все файлы, кроме этой миграции. */
-async function previousMigrations(): Promise<string> {
+/**
+ * Каталог миграций по эту включительно (`through`) или без неё (прежняя версия): более поздние файлы не берутся, иначе
+ * N−1 получил бы миграцию, которая опирается на эту.
+ */
+async function migrationsUpTo(through: boolean): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), 'crm-migrations-n1-'));
   dirs.push(dir);
-  for (const f of await readdir(MIGRATIONS)) if (f.endsWith('.sql') && f !== FILE) await copyFile(path.join(MIGRATIONS, f), path.join(dir, f));
+  for (const f of await readdir(MIGRATIONS)) {
+    if (f.endsWith('.sql') && (f < FILE || (through && f === FILE))) await copyFile(path.join(MIGRATIONS, f), path.join(dir, f));
+  }
   return dir;
 }
 
@@ -63,14 +68,14 @@ async function constraints(db: TestDb) {
 test('на базе прежней версии: применяется только эта миграция, второй прогон — ничего, sha256 записан', async () => {
   const db = await createTestDb({ migrate: false, register: false });
   try {
-    const prev = await previousMigrations();
-    await migrate(db, prev);
+    await migrate(db, await migrationsUpTo(false));
     const before = await columns(db);
     assert.ok(!before.some((c) => c.columnName === 'heat'), 'в N−1 колонки heat нет');
-    assert.deepEqual((await migrationStatus(db, MIGRATIONS)).pending, [FILE]);
-    assert.deepEqual(await migrate(db, MIGRATIONS), [FILE]);
-    assert.deepEqual(await migrate(db, MIGRATIONS), []);
-    const st = await migrationStatus(db, MIGRATIONS);
+    const cur = await migrationsUpTo(true);
+    assert.deepEqual((await migrationStatus(db, cur)).pending, [FILE]);
+    assert.deepEqual(await migrate(db, cur), [FILE]);
+    assert.deepEqual(await migrate(db, cur), []);
+    const st = await migrationStatus(db, cur);
     assert.deepEqual([st.pending, st.changed, st.unknown], [[], [], []]);
     const [row] = await db.sql<{ sha256: string }>`SELECT sha256 FROM schema_migrations WHERE name = ${FILE}`;
     assert.equal(row?.sha256, sha256Hex(SQL));

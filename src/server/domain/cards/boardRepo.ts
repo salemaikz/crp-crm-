@@ -47,6 +47,13 @@ export interface ColumnSelect {
    * признак стоил бы ~600 мс на страницу (нагрузочный прогон C5).
    */
   mobileFirst: boolean;
+  /**
+   * Охват пространства (РОП, директор): части колонки «Перезвон» читаются с LIMIT в порядке индекса `cards_cb_space_idx`.
+   * Узкий охват (свои и временные, команда) упорядоченный индекс взять не может (условие с OR), и с LIMIT планировщик обходил
+   * бы индекс пространства с фильтром — у оператора без огонька это проход всего индекса. Поэтому узкий охват читает часть
+   * без внутреннего LIMIT по индексам владельца и сортирует в памяти (своих — тысячи). Миграция индексов F2, D-350.
+   */
+  wide: boolean;
   cursor: KeyCursor | null;
   /** Сколько ключей вернуть (вызывающий просит limit + 1, чтобы узнать, есть ли «Ещё»). */
   limit: number;
@@ -79,6 +86,8 @@ async function callbackKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<
   const firstOn = !k.on || k.part === 0;
   const firstCur = k.on && k.part === 0;
   const secondCur = k.on && k.part === 1;
+  // LIMIT NULL — без ограничения: узкий охват планируется на полную выборку своих (см. ColumnSelect.wide)
+  const inner = q.wide ? q.limit : null;
   return scoped(sql)<KeyRow>`
     SELECT u.id, u.part, u.k1, u.k2, 0::bigint AS k3 FROM (
       (SELECT c.id, 0 AS part, c.heat::bigint AS k1, COALESCE(c.next_call_at, ${KEY_MAX}::bigint) AS k2
@@ -96,7 +105,7 @@ async function callbackKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<
                OR (c.heat = ${k.k1}::bigint AND (COALESCE(c.next_call_at, ${KEY_MAX}::bigint) > ${k.k2}::bigint
                     OR (COALESCE(c.next_call_at, ${KEY_MAX}::bigint) = ${k.k2}::bigint AND c.id > ${k.id}::text))))
         ORDER BY c.heat DESC, c.next_call_at, c.id
-        LIMIT ${q.limit})
+        LIMIT ${inner})
       UNION ALL
       (SELECT c.id, 1 AS part, c.heat::bigint AS k1, COALESCE(c.next_call_at, ${KEY_MAX}::bigint) AS k2
          FROM cards c
@@ -114,7 +123,7 @@ async function callbackKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<
                OR (c.heat = ${k.k1}::bigint AND (COALESCE(c.next_call_at, ${KEY_MAX}::bigint) > ${k.k2}::bigint
                     OR (COALESCE(c.next_call_at, ${KEY_MAX}::bigint) = ${k.k2}::bigint AND c.id > ${k.id}::text))))
         ORDER BY c.heat DESC, c.next_call_at NULLS LAST, c.id
-        LIMIT ${q.limit})
+        LIMIT ${inner})
     ) u
     ORDER BY u.part, u.k1 DESC, u.k2, u.id
     LIMIT ${q.limit}`;
