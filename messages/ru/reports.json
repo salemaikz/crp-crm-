@@ -314,15 +314,21 @@
     "prevWeek": "Прошлая неделя: {value}",
     "more": "Подробнее",
     "tiles": {
-      "calls": {
-        "title": "Итоги и дозвоны",
-        "value": "{outcomes} / {connects}",
-        "hint": "итогов / дозвонов"
+      "outcomes": {
+        "title": "Итоги",
+        "hint": "за неделю"
       },
-      "bookings": {
-        "title": "Записи",
-        "value": "{groups} / {consults}",
-        "hint": "на группу / на консультацию"
+      "connects": {
+        "title": "Дозвоны",
+        "hint": "разговор состоялся"
+      },
+      "bookGroup": {
+        "title": "Записи на {event}",
+        "hint": "за неделю"
+      },
+      "bookIndividual": {
+        "title": "Записи на {event}",
+        "hint": "за неделю"
       },
       "attendance": {
         "title": "Явка",
@@ -331,15 +337,17 @@
       },
       "purchases": {
         "title": "Покупки",
-        "value": "{count}",
         "hint": "на сумму {sum}"
       },
-      "stock": {
-        "title": "Запас пула",
-        "value": "{days} дн.",
-        "hint": "готово в пуле: {ready}, выдача в день: {capacity}",
-        "none": "нет выдачи"
+      "pool": {
+        "title": "В пуле",
+        "hint": "готово к раздаче"
       }
+    },
+    "delta": {
+      "up": "на {value} больше",
+      "down": "на {value} меньше",
+      "same": "без изменений"
     },
     "funnel": {
       "title": "Воронка недели"

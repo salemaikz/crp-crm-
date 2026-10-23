@@ -42,7 +42,8 @@ export async function callsByUserDay(viewer: Viewer, sql: Sql, a: PeriodArgs & {
         FROM client_sources s WHERE ${a.sourceKey}::text IS NOT NULL ORDER BY s.client_id, s.first_seen_at, s.id)
     SELECT ca.user_id, to_char(to_timestamp(ca.occurred_at / 1000.0) AT TIME ZONE ${a.timeZone}::text, 'YYYY-MM-DD') AS day,
            count(*)::int AS outcomes,
-           (count(*) FILTER (WHERE ca.outcome_kind = ANY(${[...a.connectedKinds]}::text[])))::int AS connects,
+           -- итог с доски (via = 'board') не звонок: в итоги входит, в дозвоны нет
+           (count(*) FILTER (WHERE ca.via <> 'board' AND ca.outcome_kind = ANY(${[...a.connectedKinds]}::text[])))::int AS connects,
            (count(DISTINCT extract(hour FROM (to_timestamp(ca.occurred_at / 1000.0) AT TIME ZONE ${a.timeZone}::text))))::int AS hours
       FROM calls ca
      WHERE ca.space_id = ${a.spaceId} AND ca.user_id IS NOT NULL AND ca.via <> 'import'

@@ -214,7 +214,9 @@ export interface DirectorDashboard {
   week: ResolvedPeriod;
   /** Прошлая неделя целиком — для сравнения числами, без графика. */
   prevWeek: ResolvedPeriod;
-  calls: { outcomes: number; connects: number; prevOutcomes: number };
+  calls: { outcomes: number; connects: number; prevOutcomes: number; prevConnects: number };
+  /** Короткие подписи видов записи из настроек: первый групповой и первый индивидуальный; пусто — вида нет. */
+  eventLabels: { group: string; individual: string };
   bookings: { groups: number; consults: number };
   attendance: { attended: number; noShow: number; rate: Rate };
   purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number };

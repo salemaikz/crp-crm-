@@ -56,7 +56,8 @@ test('директор: панель недели, пункт меню, без �
   await page.goto('/director');
   await expect(page.getByRole('heading', { name: 'Панель директора', level: 1 })).toBeVisible();
   const tiles = page.getByRole('region', { name: 'Показатели недели' });
-  for (const title of ['Итоги и дозвоны', 'Записи', 'Покупки', 'Запас пула']) await expect(tiles.getByText(title, { exact: true })).toBeVisible();
+  for (const title of ['Итоги', 'Дозвоны', 'Покупки', 'В пуле']) await expect(tiles.getByText(title, { exact: true })).toBeVisible();
+  await expect(tiles.getByText(/^Записи на /).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Воронка недели' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Выручка по типам услуг' })).toBeVisible();
   await expect(page.getByRole('navigation').getByRole('link', { name: 'Панель директора' }).first()).toBeVisible();
@@ -75,6 +76,19 @@ test('директор: панель недели, пункт меню, без �
   // обновление берёт данные из того же API
   await page.getByRole('button', { name: 'Обновить' }).click();
   await expect(page.getByRole('heading', { name: 'Панель директора', level: 1 })).toBeVisible();
+});
+
+test('директор на ноутбуке: плитки недели, отдельные «Итоги» и «Дозвоны», снимок', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await login(page, director);
+  await page.goto('/director');
+  const tiles = page.getByRole('region', { name: 'Показатели недели' });
+  await expect(tiles.getByText('Итоги', { exact: true })).toBeVisible();
+  await expect(tiles.getByText('Дозвоны', { exact: true })).toBeVisible();
+  await expect(tiles.getByText('В пуле', { exact: true })).toBeVisible();
+  await expect(tiles.getByText('Итоги и дозвоны')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await info.attach('director-laptop', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
 });
 
 test('оператору панели нет', async ({ page }) => {

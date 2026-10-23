@@ -6,6 +6,7 @@ import { useCallback, useRef, useState } from 'react';
 import { fmtDec, fmtInt, formatDay } from '../reports/format';
 import { FUNNEL_STEPS } from '../reports/types';
 import { Alert, Button, EmptyState, Page, PageHeader, Section, Stat, StatGrid, Table, type TableColumn } from '@/ui/kit';
+import { delta, directorTiles } from './tiles';
 import type { DirectorData, DirectorProps, RevenueRow } from './types';
 
 type Failure = 'forbidden' | 'unauthorized' | 'network' | 'generic';
@@ -68,7 +69,6 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
     { key: 'purchases', header: tr('cols.purchases'), numeric: true, cell: (r) => fmtInt(r.purchases) },
     { key: 'sum', header: tr('cols.sum'), numeric: true, cell: (r) => money(r.sumKzt) },
   ];
-  const stock = data.stock;
   const updated = new Intl.DateTimeFormat('ru-RU', { timeZone: data.week.timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(data.generatedAt));
 
   return (
@@ -84,43 +84,42 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
       />
       {error && <Alert tone="warning">{t(`errors.${error}`)}</Alert>}
       <StatGrid aria-label={t('tilesLabel')}>
-        <Stat
-          value={t('tiles.calls.value', { outcomes: fmtInt(data.calls.outcomes), connects: fmtInt(data.calls.connects) })}
-          label={t('tiles.calls.title')}
-          hint={
-            <>
-              {t('tiles.calls.hint')}
-              <br />
-              {prev(fmtInt(data.calls.prevOutcomes))}
-            </>
-          }
-        />
-        <Stat
-          value={t('tiles.bookings.value', { groups: fmtInt(data.bookings.groups), consults: fmtInt(data.bookings.consults) })}
-          label={t('tiles.bookings.title')}
-          hint={t('tiles.bookings.hint')}
-        />
-        <Stat
-          value={t('tiles.attendance.value', { attended: fmtInt(att.attended), total: fmtInt(att.attended + att.noShow) })}
-          label={`${t('tiles.attendance.title')}: ${percent(att.rate)}`}
-          hint={t('tiles.attendance.hint', { noShow: fmtInt(att.noShow) })}
-        />
-        <Stat
-          value={t('tiles.purchases.value', { count: fmtInt(data.purchases.count) })}
-          label={t('tiles.purchases.title')}
-          hint={
-            <>
-              {t('tiles.purchases.hint', { sum: money(data.purchases.sumKzt) })}
-              <br />
-              {prev(`${fmtInt(data.purchases.prevCount)} · ${money(data.purchases.prevSumKzt)}`)}
-            </>
-          }
-        />
-        <Stat
-          value={stock.days === null ? t('tiles.stock.none') : t('tiles.stock.value', { days: fmtDec(stock.days) })}
-          label={t('tiles.stock.title')}
-          hint={t('tiles.stock.hint', { ready: fmtInt(stock.poolReady), capacity: fmtInt(stock.capacityPerDay) })}
-        />
+        {directorTiles(data)
+          .filter((x) => x.label !== '')
+          .map((x) => {
+            const cmp = x.prev === undefined ? null : delta(x.value, x.prev);
+            const extra =
+              x.id === 'attendance'
+                ? t('tiles.attendance.hint', { noShow: fmtInt(att.noShow) })
+                : x.id === 'purchases'
+                  ? t('tiles.purchases.hint', { sum: money(data.purchases.sumKzt) })
+                  : t(`tiles.${x.id}.hint`);
+            const title = x.label === undefined ? t(`tiles.${x.id}.title`) : t(`tiles.${x.id}.title`, { event: x.label });
+            return (
+              <Stat
+                key={x.id}
+                value={x.id === 'attendance' ? t('tiles.attendance.value', { attended: fmtInt(att.attended), total: fmtInt(att.attended + att.noShow) }) : fmtInt(x.value)}
+                label={x.id === 'attendance' ? `${title}: ${percent(att.rate)}` : title}
+                hint={
+                  <>
+                    {extra}
+                    {cmp && (
+                      <>
+                        <br />
+                        {prev(t(`delta.${cmp.sign}`, { value: fmtInt(cmp.abs) }))}
+                      </>
+                    )}
+                    {x.id === 'purchases' && (
+                      <>
+                        <br />
+                        {prev(`${fmtInt(data.purchases.prevCount)} · ${money(data.purchases.prevSumKzt)}`)}
+                      </>
+                    )}
+                  </>
+                }
+              />
+            );
+          })}
       </StatGrid>
 
       {/* Каждая «подробнее» стоит в шапке своего блока, а не рядом внизу страницы */}
