@@ -8,6 +8,7 @@ import { ArrowLeft, Check } from 'lucide-react';
 import { BottomSheet, Button, Checkbox, Chip, ChipGroup, Field, Input, Segmented, Select, Textarea } from '@/ui/kit';
 import type { BookingWizardProps } from '@/app/(op)/bookings/_wizard/BookingWizard';
 import { BookingPanel } from './BookingPanel';
+import { CallbackPicker } from './CallbackPicker';
 import { resolvePreset } from './callback';
 import { missingFor, oneTap, type Missing } from './validate';
 import type { PendingState } from './pending';
@@ -28,6 +29,8 @@ type Props = {
   onSubmit: (def: OutcomeButton, fieldValues: Record<string, string>) => void;
   /** Есть ли у клиента контакт ЛПР: он уходит в `agreement.contactId`. */
   hasContact: boolean;
+  /** Перезвонов по карточке уже было (подсказка «N-е касание»); не задано — подсказки нет. */
+  touches?: number;
   /** Мастер записи открыт внутри шторки (состояние держит экран: отказ сервера возвращает к форме). */
   booking: boolean;
   onBookingOpen: (def: OutcomeButton, fieldValues: Record<string, string>) => void;
@@ -38,7 +41,7 @@ type Props = {
   onBooked: NonNullable<BookingWizardProps['onDone']>;
 };
 
-export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSubmit, hasContact, booking, onBookingOpen, onBookingBack, onLater, submitBooking, onBooked }: Props) {
+export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSubmit, hasContact, touches, booking, onBookingOpen, onBookingBack, onLater, submitBooking, onBooked }: Props) {
   const t = useTranslations('call');
   const f = useFormatter();
   const d = pending.draft;
@@ -52,7 +55,7 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
   const choose = (def: OutcomeButton) => {
     if (oneTap(def, d, config)) return onSubmit(def, {});
     if (def.key !== d.outcomeKey) {
-      onChange({ outcomeKey: def.key, reasonCode: '', callbackAt: null, alsoDncPhoneIds: [], phoneId: d.phoneId ?? phones[0]?.id ?? null });
+      onChange({ outcomeKey: def.key, reasonCode: '', callbackAt: null, ...(config.callbackV2 ? { callbackPrecision: 'time' as const } : {}), alsoDncPhoneIds: [], phoneId: d.phoneId ?? phones[0]?.id ?? null });
       setPresetIdx(null);
     }
   };
@@ -164,7 +167,11 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
                 </ChipGroup>
               )}
 
-              {(selected.kind === 'callback' || selected.requires.callbackAt) && (
+              {config.callbackV2 && selected.kind === 'callback' && (
+                <CallbackPicker config={config} draft={d} touches={touches} openedAt={openedAt} onChange={onChange} />
+              )}
+
+              {!(config.callbackV2 && selected.kind === 'callback') && (selected.kind === 'callback' || selected.requires.callbackAt) && (
                 <div className="flex flex-col gap-2">
                   <ChipGroup label={t('sheet.callbackAt')} className="flex-wrap">
                     {config.callbackPresets.map((p, i) => (

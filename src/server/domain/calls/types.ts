@@ -167,6 +167,8 @@ export interface QueueCard {
   skippedToday: boolean;
   name: string;
   attempts: number;
+  /** Перезвонов уже было (колонка воронки v2); следующее касание — +1. */
+  callbackTouches: number;
   lastOutcomeCode: string;
   lastOutcomeAt: number | null;
   nextCallAt: number | null;

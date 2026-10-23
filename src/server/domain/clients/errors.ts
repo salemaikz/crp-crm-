@@ -15,3 +15,13 @@ export class DetailedConflictError extends ConflictError {
     super();
   }
 }
+
+/** 409 при вводе одного поля на месте: поле изменилось, пока его правили; несёт текущее значение этого поля. */
+export class FieldConflictError extends DetailedConflictError {
+  constructor(
+    readonly key: string,
+    readonly current: fields.FieldValue | null,
+  ) {
+    super('card_changed');
+  }
+}

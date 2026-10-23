@@ -60,6 +60,8 @@ export function buildRequest(args: {
   online: boolean;
   fieldValues?: Record<string, string>;
   agreement?: OutcomeRequest['agreement'];
+  /** `CALLBACK_V2`: перезвон уходит с `callbackPrecision` — это и есть признак нового контракта (§4.4). */
+  callbackV2?: boolean;
 }): OutcomeRequest {
   const { def, draft: d } = args;
   const info = lprInfoFilled(d) ? { name: d.lprName.trim(), phone: d.lprPhone.trim(), when: d.lprWhen.trim() } : null;
@@ -83,5 +85,6 @@ export function buildRequest(args: {
     fields,
     durationSec: null,
     agreement: args.agreement ?? null,
+    ...((args.callbackV2 === true || d.callbackPrecision !== undefined) && def.kind === 'callback' ? { callbackPrecision: d.callbackPrecision ?? 'time' } : {}),
   };
 }

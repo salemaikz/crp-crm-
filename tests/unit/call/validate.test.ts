@@ -24,6 +24,9 @@ const CONFIG: CallConfig = {
   callsPerHourTarget: null,
   timeZone: 'Asia/Almaty',
   calendar: { workdays: [1, 2, 3, 4, 5], holidays: [] },
+  callbackV2: false,
+  callbackSchedule: null,
+  callWindowStart: '09:00',
   cardFields: [],
 };
 const draft = (over: Partial<SheetDraft> = {}): SheetDraft => ({ ...EMPTY_DRAFT, ...over });

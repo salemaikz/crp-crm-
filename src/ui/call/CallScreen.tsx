@@ -498,6 +498,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
       now: nowMs,
       online: navigator.onLine,
       fieldValues,
+      callbackV2: config.callbackV2,
       ...(opts.later ? { agreement: laterAgreement(contactId(), config, nowMs) } : {}),
     });
     try {
@@ -741,6 +742,7 @@ function CallScreenInner({ config }: { config: CallConfig }) {
           onClose={closeSheet}
           onSubmit={(d, f) => void submit(d, f)}
           hasContact={current?.decisionMaker != null}
+          touches={queue.find((c) => c.cardId === pending.call.cardId)?.callbackTouches ?? 0}
           booking={booking !== null}
           onBookingOpen={(def, fieldValues) => setBooking({ def, fieldValues })}
           onBookingBack={() => setBooking(null)}

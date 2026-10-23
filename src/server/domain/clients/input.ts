@@ -25,10 +25,14 @@ export const patchBody = z
   });
 export type PatchBody = z.infer<typeof patchBody>;
 
-/** PATCH полей карточки обзвона (C8): версия карточки, значения и то, что интерфейс видел до правки. */
+/**
+ * PATCH полей карточки обзвона (C8): значения и то, что интерфейс видел до правки. Два режима:
+ * с версией карточки (форма «Изменить все», любое число полей) и без неё — ровно одно поле (ввод на месте,
+ * pipeline-v2 §9.6): тогда версию заменяет сверка `expect`, чтобы итог в очереди устройства не давал 409.
+ */
 export const patchCardBody = z
   .object({
-    version: z.number().int().min(0),
+    version: z.number().int().min(0).optional(),
     set: z.object({ custom: record }).strict(),
     expect: z.object({ custom: record }).strict(),
   })
@@ -38,6 +42,9 @@ export const patchCardBody = z
     const exp = Object.keys(b.expect.custom).sort();
     if (set.length !== exp.length || set.some((k, i) => k !== exp[i])) {
       ctx.addIssue({ code: 'custom', path: ['expect', 'custom'], message: 'expect должен содержать те же ключи, что set' });
+    }
+    if (b.version === undefined && set.length !== 1) {
+      ctx.addIssue({ code: 'custom', path: ['version'], message: 'без version правится ровно одно поле' });
     }
   });
 export type PatchCardBody = z.infer<typeof patchCardBody>;

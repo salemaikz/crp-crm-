@@ -3,26 +3,22 @@
 // Карточка «Звонить»: компания, ЛПР, попытка, последний итог, поля, номера и действия. Одна главная кнопка —
 // большая зелёная «Позвонить» (по режиму телефонии: tel: звонилки или звонок через провайдера); остальное вторично.
 import { Phone } from 'lucide-react';
+import { useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { formatKzPhone } from '@/shared/tel';
 import { useChannelModes } from '@/ui/channels';
 import { ActionBar, Badge, Button, Card, DataList, type BadgeTone } from '@/ui/kit';
 import { dialAction } from './dial';
+import { fieldText } from './fieldText';
+import { CardFieldRow } from './CardFieldRow';
 import type { CallConfig, QueueCard, QueuePhone } from './types';
 
 const GROUP_TONE: Record<QueueCard['group'], BadgeTone> = { callbacks: 'warning', retries: 'info', returns: 'neutral', new: 'brand' };
 
+const isBlank = (v: unknown): boolean => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+
 export function primaryPhone(phones: readonly QueuePhone[]): QueuePhone | null {
   return phones.find((p) => p.isPrimary) ?? phones[0] ?? null;
-}
-
-/** Значение поля для строки карточки: вариант списка — подписью, массив — через запятую, прочее — текстом. */
-export function fieldText(value: unknown, options: Record<string, string>): string {
-  if (value === null || value === undefined || value === '') return '';
-  if (Array.isArray(value)) return value.map((v) => options[String(v)] ?? String(v)).join(', ');
-  if (typeof value === 'object') return '';
-  if (typeof value === 'boolean') return '';
-  return options[String(value)] ?? String(value);
 }
 
 type Props = {
@@ -50,10 +46,22 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
   const main = primaryPhone(card.phones);
   const others = card.phones.filter((p) => p.id !== main?.id);
   const lastLabel = card.lastOutcomeCode ? (config.outcomes.find((o) => o.key === card.lastOutcomeCode)?.label ?? card.lastOutcomeCode) : '';
+  // Правка поля на месте (CALLBACK_V2): сохранённые значения живут здесь, пока открыта эта карточка
+  const [saved, setSaved] = useState<{ cardId: string; values: Record<string, unknown> }>({ cardId: card.cardId, values: {} });
+  const overrides = saved.cardId === card.cardId ? saved.values : {};
+  const valueOf = (key: string): unknown => (Object.hasOwn(overrides, key) ? overrides[key] : card.fields[key]);
+  const onValue = (key: string, value: unknown) =>
+    setSaved((cur) => ({ cardId: card.cardId, values: { ...(cur.cardId === card.cardId ? cur.values : {}), [key]: value } }));
+  const inline = config.callbackV2 && config.cardFields.some((fl) => fl.editable);
   const rows = config.cardFields
-    .map((fl) => ({ key: fl.key, label: fl.label, text: fieldText(card.fields[fl.key], fl.options) }))
+    .map((fl) => ({ key: fl.key, label: fl.label, text: fieldText(valueOf(fl.key), fl.options) }))
     .filter((r) => r.text !== '')
     .slice(0, 4);
+  // С правкой на месте: сначала заполненные, затем пустые, которые можно «Добавить» (не больше шести строк)
+  const editableRows = config.cardFields
+    .filter((fl) => fl.editable || fieldText(valueOf(fl.key), fl.options) !== '' || typeof valueOf(fl.key) === 'boolean')
+    .sort((a, b) => Number(isBlank(valueOf(a.key))) - Number(isBlank(valueOf(b.key))))
+    .slice(0, 6);
 
   return (
     <section aria-labelledby="call-title" className="flex flex-col gap-3" data-testid="call-card">
@@ -99,7 +107,14 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
             {card.lastNote.text}
           </blockquote>
         )}
-        {rows.length > 0 && (
+        {inline && editableRows.length > 0 && (
+          <dl className="text-sm" data-testid="call-fields">
+            {editableRows.map((fl) => (
+              <CardFieldRow key={fl.key} field={fl} value={valueOf(fl.key)} cardId={card.cardId} clientId={card.clientId} onValue={onValue} />
+            ))}
+          </dl>
+        )}
+        {!inline && rows.length > 0 && (
           <DataList className="text-sm" items={rows.map((r) => ({ key: r.key, label: r.label, value: r.text }))} />
         )}
       </Card>

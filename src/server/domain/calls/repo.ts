@@ -37,6 +37,8 @@ export interface QueueCardRow {
   state: calling.CardState;
   version: number;
   attempts: number;
+  /** Сколько перезвонов уже было: следующее касание — на единицу больше (подсказка срока в шторке). */
+  callbackTouches: number;
   nextCallAt: number | null;
   lastOutcomeCode: string;
   lastOutcomeAt: number | null;
@@ -66,7 +68,7 @@ export async function selectQueue(sql: Sql, viewer: Viewer, q: QueueSelect): Pro
   const groupState = q.group === 'all' ? null : q.group === 'callbacks' ? 'callback' : q.group === 'retries' ? 'retry' : q.group === 'new' ? 'new' : '-';
   return scoped(sql)<QueueCardRow>`
     WITH mine AS (
-      SELECT c.id, c.client_id, c.state, c.version, c.attempts, c.next_call_at, c.assigned_at, c.created_at,
+      SELECT c.id, c.client_id, c.state, c.version, c.attempts, c.callback_touches, c.next_call_at, c.assigned_at, c.created_at,
              c.last_outcome_code, c.last_outcome_at, c.lpr, c.is_target, c.custom
         FROM cards c
        WHERE c.space_id = ${q.spaceId} AND (c.owner_user_id = ${q.userId} OR c.acting_user_id = ${q.userId})
@@ -76,7 +78,7 @@ export async function selectQueue(sql: Sql, viewer: Viewer, q: QueueSelect): Pro
          AND (${groupState}::text IS NULL OR c.state = ${groupState}::text)
          AND ${scopeSql(viewer, 'card', 'card.outcome')}),
     skipped AS (SELECT card_id, max(created_at) AS at FROM skips WHERE user_id = ${q.userId} AND day = ${q.today} GROUP BY card_id)
-    SELECT m.id, m.client_id, m.state, m.version, m.attempts, m.next_call_at, m.last_outcome_code, m.last_outcome_at, m.lpr, m.is_target,
+    SELECT m.id, m.client_id, m.state, m.version, m.attempts, m.callback_touches, m.next_call_at, m.last_outcome_code, m.last_outcome_at, m.lpr, m.is_target,
            m.custom, s.at AS skipped_at,
            (m.state = 'new' AND EXISTS (SELECT 1 FROM client_phones p
               WHERE p.client_id = m.client_id AND p.is_working AND p.kind = 'mobile')) AS has_mobile

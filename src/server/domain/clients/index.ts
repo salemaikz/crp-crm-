@@ -3,7 +3,7 @@ export { addContact, archiveContactById, updateContact, type PatchContactResult 
 export { cardFieldViewer, updateCardFields, type CardFieldsResult } from './cardFields';
 export { loadCatalogLabels, type CatalogLabels } from './labels';
 export { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
-export { DetailedConflictError, FieldIssuesError } from './errors';
+export { DetailedConflictError, FieldConflictError, FieldIssuesError } from './errors';
 export {
   addContactBody,
   addPhoneBody,

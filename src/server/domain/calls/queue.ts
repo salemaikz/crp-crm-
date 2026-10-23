@@ -83,6 +83,7 @@ export const getQueue: GetQueue = async (deps, viewer, q) => {
       skippedToday: r.skippedAt !== null,
       name: client?.name ?? '',
       attempts: r.attempts,
+      callbackTouches: r.callbackTouches,
       lastOutcomeCode: r.lastOutcomeCode,
       lastOutcomeAt: r.lastOutcomeAt,
       nextCallAt: r.nextCallAt,

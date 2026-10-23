@@ -41,6 +41,13 @@ export interface CardFieldLabel {
   key: string;
   label: string;
   options: Record<string, string>;
+  /** Чей объект: правка идёт в `/api/clients/[id]` или `/api/cards/[id]`. */
+  object: 'client' | 'card';
+  type: string;
+  /** Можно ли править на месте: флаг `CALLBACK_V2`, доступ `edit` у роли, тип поддержан, поле не в архиве. */
+  editable: boolean;
+  /** Варианты для select и multiselect; архивные не предлагаются. */
+  choices: Array<{ key: string; label: string }>;
 }
 
 /** Поле, которое итог просит заполнить в шторке (`requires.fields[]`). */
@@ -62,6 +69,12 @@ export interface CallConfig {
   /** Поля шторки по ключам из `requires.fields[]` итогов. */
   outcomeFields: Record<string, OutcomeField>;
   callbackPresets: CallbackPreset[];
+  /** Воронка v2 включена (`CALLBACK_V2`): новая шторка перезвона и ввод поля на месте. Нет — всё как раньше. */
+  callbackV2: boolean;
+  /** Шаги подсказки срока по касанию (`calling.callbackSchedule.steps`); нет ключа или флаг выключен — null. */
+  callbackSchedule: string[] | null;
+  /** Начало окна звонков `HH:MM`: срок «в течение дня» ставится на него. */
+  callWindowStart: string;
   /** Мягкая цель «звонков в час»; null — не показываем. */
   callsPerHourTarget: number | null;
   timeZone: string;
@@ -96,6 +109,8 @@ export interface SheetDraft {
   reasonCode: string;
   note: string;
   callbackAt: number | null;
+  /** Точность срока (CALLBACK_V2); нет — «время». Старые сохранённые черновики поля не имеют. */
+  callbackPrecision?: 'time' | 'day';
   lprName: string;
   lprPhone: string;
   lprWhen: string;

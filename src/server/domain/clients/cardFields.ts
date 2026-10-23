@@ -6,7 +6,7 @@ import { can, NotFoundError, type Viewer } from '@/server/access';
 import { lockCardScoped, readCustom, writeCardCustomBumped } from '@/server/domain/cards/repo';
 import { getDb, type Sql } from '@/server/platform/db';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
-import { DetailedConflictError, FieldIssuesError } from './errors';
+import { DetailedConflictError, FieldConflictError, FieldIssuesError } from './errors';
 import type { PatchCardBody } from './input';
 import { throwNotFoundOrForbidden } from './repo';
 import { appendEvents } from '../timeline/repo';
@@ -28,7 +28,8 @@ export async function updateCardFields(viewer: Viewer, cardId: string, body: Pat
     const row = await lockCardScoped(sql, viewer, cardId, 'card.edit');
     if (!row || row.spaceId !== viewer.spaceId) return throwNotFoundOrForbidden(viewer, sql, 'card', cardId);
     const current = (await readCustom(sql, { cardId, clientId: row.snapshot.clientId })).card;
-    if (row.snapshot.version !== body.version) throw new DetailedConflictError('card_changed');
+    // Режим «одно поле» (без version): сверка только expect ниже, версия растёт при записи.
+    if (body.version !== undefined && row.snapshot.version !== body.version) throw new DetailedConflictError('card_changed');
     const v = fields
       .buildFieldValidator({ fields: cfg.fields, object: 'card', mode: 'user', viewer: fv, ctx: { phoneRules: cfg.phoneRules } })
       .validate(body.set.custom, current as fields.CustomValues);
@@ -36,7 +37,11 @@ export async function updateCardFields(viewer: Viewer, cardId: string, body: Pat
     for (const [k, exp] of Object.entries(body.expect.custom)) {
       const cur = Object.hasOwn(current, k) ? (current[k] as fields.FieldValue) : null;
       const want = exp === undefined || exp === '' ? null : (exp as fields.FieldValue | null);
-      if (!fields.sameValue(cur, want)) throw new DetailedConflictError('card_changed');
+      if (!fields.sameValue(cur, want)) {
+        // Одно поле: интерфейс получает новое значение (поле уже прошло проверку доступа валидатором).
+        if (body.version === undefined) throw new FieldConflictError(k, cur);
+        throw new DetailedConflictError('card_changed');
+      }
     }
     let version = row.snapshot.version;
     if (v.changes.length > 0) {

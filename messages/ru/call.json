@@ -32,7 +32,22 @@
     "lastNote": "Последняя заметка",
     "lprContact": "ЛПР: {name}",
     "lprContactPosition": "ЛПР: {name}, {position}",
-    "lprPhone": "тел. {phone}"
+    "lprPhone": "тел. {phone}",
+    "field": {
+      "add": "Добавить: {label}",
+      "addAria": "Добавить значение: {label}",
+      "editAria": "Изменить: {label}",
+      "save": "Сохранить",
+      "cancel": "Отмена",
+      "saved": "Сохранено",
+      "conflict": "Значение изменилось. Показано новое.",
+      "invalid": "Проверьте значение.",
+      "network": "Не удалось сохранить. Повторите.",
+      "forbidden": "Нет права менять это поле.",
+      "notChosen": "Не выбрано",
+      "yes": "Да",
+      "no": "Нет"
+    }
   },
   "call": {
     "button": "Позвонить",
@@ -85,7 +100,19 @@
     },
     "book": "Записать клиента",
     "later": "Запишу позже",
-    "back": "Назад к итогу"
+    "back": "Назад к итогу",
+    "callback": {
+      "hint": "{n}-е касание · через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}} — {date}",
+      "hintAria": "Подсказка срока",
+      "tomorrow": "Завтра",
+      "week": "Через неделю",
+      "otherDate": "Другая дата",
+      "dateLabel": "Дата перезвона",
+      "withTime": "Указать время",
+      "timeLabel": "Время перезвона",
+      "anyTime": "в течение дня",
+      "chosen": "Перезвон: {date}, {time}"
+    }
   },
   "presets": {
     "minutes": "Через {n} мин",
