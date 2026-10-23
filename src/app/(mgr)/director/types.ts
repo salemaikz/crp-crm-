@@ -12,6 +12,7 @@ export type DirectorData = {
   eventLabels: { group: string; individual: string };
   bookings: { groups: number; consults: number };
   attendance: { attended: number; noShow: number; rate: Rate };
+  conversion: { average: Rate; team: Rate; operators: number; minConnects: number };
   purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number };
   funnel: FunnelRow;
   revenue: RevenueRow[];

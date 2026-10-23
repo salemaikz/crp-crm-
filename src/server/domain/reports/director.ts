@@ -17,7 +17,7 @@ export function stockDays(poolReady: number, capacityPerDay: number): number | n
   return Math.round((poolReady / capacityPerDay) * 10) / 10;
 }
 
-type EventTypeDoc = { key: string; behavior: string; short?: { ru?: string }; label: { ru?: string } };
+export type EventTypeDoc = { key: string; behavior: string; short?: { ru?: string }; label: { ru?: string } };
 
 /** Короткие подписи плиток «Записи»: первый групповой и первый индивидуальный вид из booking.eventTypes. */
 export function eventShortLabels(eventTypes: readonly EventTypeDoc[]): { group: string; individual: string } {
@@ -60,6 +60,8 @@ export const getDirectorDashboard: GetDirectorDashboard = async (viewer) => {
     eventLabels,
     bookings: { groups: t.groups, consults: t.consults },
     attendance: { attended: t.attended, noShow: t.noShow, rate: t.attendanceRate },
+    // «Средняя конверсия операторов»: среднее «записи / дозвоны» операторов с ≥ minConnects дозвонов, рядом — по команде
+    conversion: { average: ops.average.bookedPerConnect, team: t.bookedPerConnect, operators: ops.average.operators, minConnects: ops.average.minConnects },
     purchases: {
       count: t.purchases,
       sumKzt: t.purchaseSumKzt,

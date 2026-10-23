@@ -3,7 +3,7 @@
 import { calling } from '@crm/core';
 import type { Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db';
-import { callsPerHour, isBelowTarget, ISSUE_KINDS, rate, toKzt } from './definitions';
+import { AVERAGE_MIN_CONNECTS, callsPerHour, isBelowTarget, ISSUE_KINDS, meanRate, rate, toKzt } from './definitions';
 import { bucketOf } from './period';
 import {
   attendanceByUserDay,
@@ -17,10 +17,10 @@ import {
   type PeriodArgs,
 } from './periodRepo';
 import { selectStaff } from './repo';
-import type { Grouping, OperatorMetrics, OperatorPeriodRow, OperatorsReport, ResolvedPeriod } from './reportTypes';
+import type { Grouping, OperatorMetrics, OperatorPeriodRow, OperatorsAverage, OperatorsReport, ResolvedPeriod } from './reportTypes';
 
 /** Счётчики без производных (доли и «звонков в час» считаются после суммирования). */
-export type Counts = Omit<OperatorMetrics, 'attendanceRate' | 'callsPerHour'>;
+export type Counts = Omit<OperatorMetrics, 'attendanceRate' | 'callsPerHour' | 'bookedPerConnect' | 'attendedPerBooked' | 'purchasedPerAttended'>;
 
 export function emptyCounts(): Counts {
   return {
@@ -45,7 +45,27 @@ export function addCounts(into: Counts, add: Partial<Counts>): void {
 
 /** Производные показатели поверх сумм. */
 export function finishCounts(c: Counts): OperatorMetrics {
-  return { ...c, attendanceRate: rate(c.attended, c.attended + c.noShow), callsPerHour: callsPerHour(c.outcomes, c.workedHours) };
+  const booked = c.groups + c.consults;
+  return {
+    ...c,
+    attendanceRate: rate(c.attended, c.attended + c.noShow),
+    bookedPerConnect: rate(booked, c.connects),
+    attendedPerBooked: rate(c.attended, booked),
+    purchasedPerAttended: rate(c.purchases, c.attended),
+    callsPerHour: callsPerHour(c.outcomes, c.workedHours),
+  };
+}
+
+/** Средняя по операторам: среднее долей тех, у кого за период хватает дозвонов (D-343); не конверсия команды. */
+export function averageConversions(perUser: Iterable<Counts>, minConnects: number = AVERAGE_MIN_CONNECTS): OperatorsAverage {
+  const eligible = [...perUser].filter((c) => c.connects >= minConnects).map(finishCounts);
+  return {
+    operators: eligible.length,
+    minConnects,
+    bookedPerConnect: meanRate(eligible.map((m) => m.bookedPerConnect)),
+    attendedPerBooked: meanRate(eligible.map((m) => m.attendedPerBooked)),
+    purchasedPerAttended: meanRate(eligible.map((m) => m.purchasedPerAttended)),
+  };
 }
 
 export interface UserDayCell {
@@ -115,7 +135,13 @@ export function buildOperatorsReport(i: {
 }): OperatorsReport {
   const buckets = new Map<string, { userId: string; bucket: string; counts: Counts }>();
   const totals = emptyCounts();
+  const perUser = new Map<string, Counts>();
+  // В среднюю входят только операторы (участники раздачи): руководитель, вносящий итоги вручную, в неё не идёт
+  const participantSet = new Set(i.participants);
   for (const c of i.cells) {
+    const u = perUser.get(c.userId) ?? emptyCounts();
+    addCounts(u, c.counts);
+    perUser.set(c.userId, u);
     const bucket = bucketOf(c.day, i.grouping);
     const key = `${c.userId}\u0000${bucket}`;
     let b = buckets.get(key);
@@ -138,5 +164,5 @@ export function buildOperatorsReport(i: {
     return { ...m, userId: b.userId, name: i.names.get(b.userId) ?? '', bucket: b.bucket, belowTarget: isBelowTarget(m.callsPerHour, i.target) };
   });
   rows.sort((x, y) => x.name.localeCompare(y.name, 'ru') || x.userId.localeCompare(y.userId) || x.bucket.localeCompare(y.bucket));
-  return { period: i.period, grouping: i.grouping, callsPerHourTarget: i.target, rows, totals: finishCounts(totals) };
+  return { period: i.period, grouping: i.grouping, callsPerHourTarget: i.target, rows, totals: finishCounts(totals), average: averageConversions([...perUser].filter(([id]) => participantSet.has(id)).map(([, c]) => c)) };
 }

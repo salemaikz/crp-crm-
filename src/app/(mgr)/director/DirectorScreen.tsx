@@ -93,12 +93,20 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
                 ? t('tiles.attendance.hint', { noShow: fmtInt(att.noShow) })
                 : x.id === 'purchases'
                   ? t('tiles.purchases.hint', { sum: money(data.purchases.sumKzt) })
-                  : t(`tiles.${x.id}.hint`);
+                  : x.id === 'conversion'
+                    ? t('tiles.conversion.hint', { teamRate: percent(data.conversion.team), min: data.conversion.minConnects })
+                    : t(`tiles.${x.id}.hint`);
             const title = x.label === undefined ? t(`tiles.${x.id}.title`) : t(`tiles.${x.id}.title`, { event: x.label });
             return (
               <Stat
                 key={x.id}
-                value={x.id === 'attendance' ? t('tiles.attendance.value', { attended: fmtInt(att.attended), total: fmtInt(att.attended + att.noShow) }) : fmtInt(x.value)}
+                value={
+                  x.id === 'attendance'
+                    ? t('tiles.attendance.value', { attended: fmtInt(att.attended), total: fmtInt(att.attended + att.noShow) })
+                    : x.id === 'conversion'
+                      ? percent(x.rate ?? null)
+                      : fmtInt(x.value)
+                }
                 label={x.id === 'attendance' ? `${title}: ${percent(att.rate)}` : title}
                 hint={
                   <>

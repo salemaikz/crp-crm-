@@ -2,15 +2,19 @@
 
 import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState } from 'react';
-import { Alert, Checkbox, Field, FilterBar, Page, PageHeader, Segmented, Select } from '@/ui/kit';
+import { Alert, Button, Checkbox, Field, FilterBar, Page, PageHeader, Segmented, Select } from '@/ui/kit';
 import { loadReport, queryString, type LoadFailure } from './api';
 import { periodProblem } from './dates';
 import { ExportBar } from './ExportBar';
 import { PeriodPicker } from './PeriodPicker';
 import { ReportTable } from './ReportTable';
 import {
+  ATTENDANCE_LIST_STATUSES,
   REPORT_KEYS,
   type AttendanceBy,
+  type AttendanceListData,
+  type AttendanceListStatus,
+  type AttendanceView,
   type ExportActions,
   type FunnelBy,
   type Grouping,
@@ -66,6 +70,18 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
     [meta.today],
   );
 
+  /** Следующая страница списка явки: строки добавляются к уже показанным. */
+  const loadMore = async () => {
+    if (!data || !('next' in data) || data.next === null) return;
+    const mine = ++seq.current;
+    setBusy(true);
+    const r = await loadReport(query, data.next);
+    if (mine !== seq.current) return;
+    setBusy(false);
+    if (r.ok && 'next' in r.data) setData({ ...r.data, rows: [...(data as AttendanceListData).rows, ...r.data.rows] });
+    else if (!r.ok) setError(r.key);
+  };
+
   const set = (patch: Partial<ReportQueryState>) => void run({ ...query, ...patch });
   const toggleUser = (id: string, on: boolean) => set({ users: on ? [...query.users, id] : query.users.filter((u) => u !== id) });
   const sourceKeys = Object.keys(meta.labels.sources);
@@ -111,6 +127,17 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
             </Field>
           )}
           {query.key === 'attendance' && (
+            <Field label={t('attendance.view.label')}>
+              <Select name="attView" value={query.attendanceView} onChange={(e) => set({ attendanceView: e.target.value as AttendanceView })}>
+                {(['summary', 'list'] as const).map((v) => (
+                  <option key={v} value={v}>
+                    {t(`attendance.view.${v}`)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          {query.key === 'attendance' && query.attendanceView === 'summary' && (
             <Field label={t('filters.by')}>
               <Select name="attBy" value={query.attendanceBy} onChange={(e) => set({ attendanceBy: e.target.value as AttendanceBy })}>
                 {(['event_type', 'consultant', 'author'] as const).map((b) => (
@@ -120,6 +147,40 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
                 ))}
               </Select>
             </Field>
+          )}
+          {query.key === 'attendance' && query.attendanceView === 'list' && (
+            <>
+              <Field label={t('attendance.list.filters.eventType')}>
+                <Select name="listEventType" value={query.listEventType} onChange={(e) => set({ listEventType: e.target.value })}>
+                  <option value="">{t('attendance.list.filters.all')}</option>
+                  {Object.entries(meta.labels.eventTypes).map(([k, label]) => (
+                    <option key={k} value={k}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={t('attendance.list.filters.status')}>
+                <Select name="listStatus" value={query.listStatus} onChange={(e) => set({ listStatus: e.target.value as '' | AttendanceListStatus })}>
+                  <option value="">{t('attendance.list.filters.all')}</option>
+                  {ATTENDANCE_LIST_STATUSES.map((st) => (
+                    <option key={st} value={st}>
+                      {t(`attendance.list.status.${st}`)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={t('attendance.list.filters.consultant')}>
+                <Select name="listConsultant" value={query.listConsultant} onChange={(e) => set({ listConsultant: e.target.value })}>
+                  <option value="">{t('attendance.list.filters.all')}</option>
+                  {meta.consultants.map((c) => (
+                    <option key={c.userId} value={c.userId}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </>
           )}
         </FilterBar>
         {meta.staff.length > 0 && (
@@ -138,6 +199,13 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
       {error && <Alert tone="warning">{t(`page.errors.${error}`)}</Alert>}
       <div aria-busy={busy} className={busy ? 'opacity-60' : undefined}>
         {data && !isEmpty(shownKey, data) && <ReportTable reportKey={shownKey} data={data} labels={meta.labels} />}
+        {data && 'next' in data && data.next !== null && (
+          <div className="mt-3">
+            <Button variant="secondary" size="sm" onClick={() => void loadMore()} disabled={busy}>
+              {t('attendance.list.more')}
+            </Button>
+          </div>
+        )}
         {data && isEmpty(shownKey, data) && (
           <Alert tone="info">
             {t('page.empty.title')}. {t('page.empty.description')}

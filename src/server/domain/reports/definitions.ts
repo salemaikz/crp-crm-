@@ -7,10 +7,23 @@ export const ISSUE_KINDS = ['auto', 'manual', 'return', 'inbound', 'proposal'] a
 /** Итоги-закрытия с причиной: группы отчёта «Причины» (плюс потерянная сделка). */
 export const CLOSING_KINDS = ['not_interested', 'not_target', 'do_not_call'] as const;
 
+/** Итоги с причиной в отчёте «Причины»: закрытия и «Перезвонить» (D-344). */
+export const REASON_OUTCOME_KINDS = ['callback', ...CLOSING_KINDS] as const;
+
+/** Минимум дозвонов за период, чтобы оператор вошёл в среднюю конверсию (D-343). */
+export const AVERAGE_MIN_CONNECTS = 20;
+
 /** Доля в процентах с одним знаком; нулевой знаменатель — null. */
 export function rate(n: number, d: number): Rate {
   if (d <= 0) return null;
   return Math.round((n / d) * 1000) / 10;
+}
+
+/** Среднее арифметическое долей без пустых; нет ни одной доли — null. Один знак после запятой. */
+export function meanRate(rates: readonly Rate[]): Rate {
+  const vals = rates.filter((r): r is number => r !== null);
+  if (vals.length === 0) return null;
+  return Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10;
 }
 
 /** Звонков в час = итоги / часы в работе, один знак после запятой; нет часов — null. */

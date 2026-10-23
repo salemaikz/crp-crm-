@@ -4,8 +4,12 @@ import { useTranslations } from 'next-intl';
 import { Badge, EmptyState, Table, type TableColumn } from '@/ui/kit';
 import { fmtDec, fmtInt, formatDay } from './format';
 import {
-  FUNNEL_STEPS,
+  FUNNEL_KINDS,
+  type FunnelKind,
   type AttendanceData,
+  type AttendanceListData,
+  type AttendanceListRow,
+  type AttendanceListStatus,
   type AttendanceRow,
   type FunnelData,
   type FunnelRow,
@@ -35,7 +39,7 @@ export function ReportTable({ reportKey, data, labels }: Props) {
     case 'revenue':
       return <RevenueTable data={data as RevenueData} labels={labels} />;
     case 'attendance':
-      return <AttendanceTable data={data as AttendanceData} labels={labels} />;
+      return 'next' in data ? <AttendanceListTable data={data as AttendanceListData} labels={labels} /> : <AttendanceTable data={data as AttendanceData} labels={labels} />;
     case 'reasons':
       return <ReasonsTable data={data as ReasonsData} labels={labels} />;
   }
@@ -53,13 +57,26 @@ function Percent({ value }: { value: number | null }) {
 
 // ---------------------------------------------------------------------------
 
-type OpRow = (OperatorMetrics & { id: string; name: string; bucket: string; belowTarget: boolean; isTotal: boolean });
+type OpRow = OperatorMetrics & { id: string; name: string; bucket: string; belowTarget: boolean; isTotal: boolean; isAverage?: boolean };
 
 function OperatorsTable({ data }: { data: OperatorsData }) {
   const t = useTranslations('reports.operators');
   const rows: OpRow[] = [
     ...data.rows.map((r: OperatorPeriodRow) => ({ ...r, id: `${r.userId}|${r.bucket}`, isTotal: false })),
     { ...data.totals, id: 'total', name: t('total'), bucket: '', belowTarget: false, isTotal: true },
+    // Средняя по операторам: только три конверсии; остальные ячейки пустые
+    {
+      ...data.totals,
+      bookedPerConnect: data.average.bookedPerConnect,
+      attendedPerBooked: data.average.attendedPerBooked,
+      purchasedPerAttended: data.average.purchasedPerAttended,
+      id: 'average',
+      name: t('average'),
+      bucket: '',
+      belowTarget: false,
+      isTotal: true,
+      isAverage: true,
+    },
   ];
   const bucketLabel = (b: string) => (b === 'total' ? t('bucketTotal') : data.grouping === 'week' ? t('bucketWeek', { day: formatDay(b) }) : formatDay(b));
   const cols: TableColumn<OpRow>[] = [
@@ -70,7 +87,13 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
     key,
     header,
     numeric: true,
-    cell: (r) => fmtInt(Number(r[key] ?? 0)),
+    cell: (r) => (r.isAverage ? '' : fmtInt(Number(r[key] ?? 0))),
+  });
+  const pct = (key: 'attendanceRate' | 'bookedPerConnect' | 'attendedPerBooked' | 'purchasedPerAttended', header: string): TableColumn<OpRow> => ({
+    key,
+    header,
+    numeric: true,
+    cell: (r) => (r.isAverage && key === 'attendanceRate' ? '' : <Percent value={r[key]} />),
   });
   cols.push(
     num('issued', t('cols.issued')),
@@ -81,9 +104,12 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
     num('consults', t('cols.consults')),
     num('attended', t('cols.attended')),
     num('noShow', t('cols.noShow')),
-    { key: 'attendanceRate', header: t('cols.attendanceRate'), numeric: true, cell: (r) => <Percent value={r.attendanceRate} /> },
+    pct('attendanceRate', t('cols.attendanceRate')),
+    pct('bookedPerConnect', t('cols.bookedPerConnect')),
+    pct('attendedPerBooked', t('cols.attendedPerBooked')),
+    pct('purchasedPerAttended', t('cols.purchasedPerAttended')),
     num('purchases', t('cols.purchases')),
-    { key: 'purchaseSumKzt', header: t('cols.purchaseSum'), numeric: true, cell: (r) => <Money value={r.purchaseSumKzt} /> },
+    { key: 'purchaseSumKzt', header: t('cols.purchaseSum'), numeric: true, cell: (r) => (r.isAverage ? '' : <Money value={r.purchaseSumKzt} />) },
     num('skips', t('cols.skips')),
     num('workedHours', t('cols.workedHours')),
     {
@@ -91,17 +117,21 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
       header: t('cols.callsPerHour'),
       numeric: true,
       // Мягкая цель: серая отметка рядом с числом, без красного и без блокировок (PROCESS 10.2)
-      cell: (r) => (
+      cell: (r) =>
+        r.isAverage ? (
+          ''
+        ) : (
         <span className="flex flex-wrap items-center justify-end gap-2">
           {r.callsPerHour === null ? '—' : fmtDec(r.callsPerHour)}
           {r.belowTarget && data.callsPerHourTarget !== null && <Badge tone="neutral">{t('belowTarget', { target: data.callsPerHourTarget })}</Badge>}
         </span>
-      ),
+        ),
     },
   );
   return (
     <div className={WRAP}>
       <Table caption={t('caption')} captionHidden columns={cols} rows={rows} rowKey={(r) => r.id} dense stackOnMobile={false} />
+      <p className="mt-2 text-sm text-[var(--text-2)]">{t('averageHint', { min: data.average.minConnects, count: data.average.operators })}</p>
       {data.callsPerHourTarget !== null && <p className="mt-2 text-sm text-[var(--text-2)]">{t('target', { target: data.callsPerHourTarget })}</p>}
     </div>
   );
@@ -109,25 +139,38 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
 
 // ---------------------------------------------------------------------------
 
+function Count({ n, rate }: { n: number; rate: number | null }) {
+  return (
+    <span className="flex flex-col items-end">
+      {fmtInt(n)}
+      {rate !== null && <span className="text-sm text-[var(--text-2)]">{fmtDec(rate)} %</span>}
+    </span>
+  );
+}
+
 function FunnelTable({ data, labels }: { data: FunnelData; labels: ReportLabels }) {
   const t = useTranslations('reports.funnel');
   const nameOf = (r: FunnelRow) => (data.by === 'source' ? (r.key === '' ? t('unknownSource') : (labels.sources[r.key] ?? r.key)) : (r.name ?? r.key));
   const rows = [...data.rows, { ...data.total, key: '__total' }];
+  const step = (s: 'issued' | 'connected' | 'lpr' | 'purchased'): TableColumn<FunnelRow> => ({
+    key: s,
+    header: t(`steps.${s}`),
+    numeric: true,
+    cell: (r) => <Count n={r.counts[s]} rate={r.rates[s]} />,
+  });
+  // «Запись» и «явка» по видам; подпись вида — из настроек, иначе нейтральная из локали
+  const kindLabel = (k: FunnelKind) => labels.eventKinds[k] || t(`kindFallback.${k}`);
+  const kindCols = FUNNEL_KINDS.flatMap((k): TableColumn<FunnelRow>[] => [
+    { key: `${k}Booked`, header: t('kindSteps.booked', { event: kindLabel(k) }), numeric: true, cell: (r) => <Count n={r.kinds[k].booked} rate={r.kindRates[k].booked} /> },
+    { key: `${k}Attended`, header: t('kindSteps.attended', { event: kindLabel(k) }), numeric: true, cell: (r) => <Count n={r.kinds[k].attended} rate={r.kindRates[k].attended} /> },
+  ]);
   const cols: TableColumn<FunnelRow>[] = [
     { key: 'name', header: t(`key.${data.by}`), primary: true, cell: (r) => <strong>{r.key === '__total' ? t('total') : nameOf(r)}</strong> },
-    ...FUNNEL_STEPS.map(
-      (s): TableColumn<FunnelRow> => ({
-        key: s,
-        header: t(`steps.${s}`),
-        numeric: true,
-        cell: (r) => (
-          <span className="flex flex-col items-end">
-            {fmtInt(r.counts[s])}
-            {r.rates[s] !== null && <span className="text-sm text-[var(--text-2)]">{fmtDec(r.rates[s] ?? 0)} %</span>}
-          </span>
-        ),
-      }),
-    ),
+    step('issued'),
+    step('connected'),
+    step('lpr'),
+    ...kindCols,
+    step('purchased'),
   ];
   return (
     <div className={WRAP}>
@@ -197,10 +240,47 @@ function AttendanceTable({ data, labels }: { data: AttendanceData; labels: Repor
 
 // ---------------------------------------------------------------------------
 
+const STATUS_TONE: Record<AttendanceListStatus, 'success' | 'danger' | 'warning' | 'neutral' | 'info'> = {
+  attended: 'success',
+  no_show: 'danger',
+  unmarked: 'warning',
+  planned: 'info',
+  cancelled: 'neutral',
+};
+
+/** Поимённый список явки (D-344). Название клиента — ПДн: список приходит только руководителю и директору. */
+function AttendanceListTable({ data, labels }: { data: AttendanceListData; labels: ReportLabels }) {
+  const t = useTranslations('reports.attendance');
+  const dash = t('list.none');
+  const cols: TableColumn<AttendanceListRow>[] = [
+    { key: 'date', header: t('list.cols.date'), primary: true, cell: (r) => <strong>{`${formatDay(r.date)} ${r.startTime}`}</strong> },
+    { key: 'eventType', header: t('list.cols.eventType'), cell: (r) => labels.eventTypes[r.eventTypeKey] ?? r.eventTypeKey },
+    { key: 'client', header: t('list.cols.client'), cell: (r) => r.clientName },
+    { key: 'bookedBy', header: t('list.cols.bookedBy'), cell: (r) => r.bookedByName ?? dash },
+    { key: 'status', header: t('list.cols.status'), cell: (r) => <Badge tone={STATUS_TONE[r.status]}>{t(`list.status.${r.status}`)}</Badge> },
+    { key: 'markedBy', header: t('list.cols.markedBy'), cell: (r) => r.markedByName ?? dash },
+    { key: 'consultant', header: t('list.cols.consultant'), cell: (r) => r.consultantName ?? dash },
+    { key: 'purchase', header: t('list.cols.purchase'), numeric: true, cell: (r) => (r.purchaseSumKzt === null ? dash : <Money value={r.purchaseSumKzt} />) },
+  ];
+  return (
+    <div className={WRAP}>
+      <Table caption={t('list.caption')} captionHidden columns={cols} rows={data.rows} rowKey={(r) => r.bookingId} dense stackOnMobile={false} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabels }) {
   const t = useTranslations('reports.reasons');
   if (data.rows.length === 0) return <EmptyState title={t('empty')} />;
-  const reasonLabel = (r: ReasonRow) => (r.reasonCode === '' ? t('noReason') : (labels.reasons[r.group]?.[r.reasonCode] ?? r.reasonCode));
+  const reasonLabel = (r: ReasonRow): string => {
+    if (r.group === 'no_show') return labels.eventTypes[r.reasonCode] ?? r.reasonCode; // неявки — по виду мероприятия
+    if (r.reasonCode === '') return r.group === 'callback' ? t('withoutReason') : t('noReason');
+    const fromSettings = labels.reasons[r.group]?.[r.reasonCode];
+    if (fromSettings !== undefined) return fromSettings;
+    return r.group === 'written_off' && (r.reasonCode === 'no_answer_limit' || r.reasonCode === 'no_working_phone') ? t(`system.${r.reasonCode}`) : r.reasonCode;
+  };
   const cols: TableColumn<ReasonRow>[] = [
     { key: 'group', header: t('cols.group'), primary: true, cell: (r) => <strong>{t(`groups.${r.group}`)}</strong> },
     { key: 'reason', header: t('cols.reason'), cell: reasonLabel },

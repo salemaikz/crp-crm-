@@ -242,7 +242,7 @@ export async function funnelBySource(viewer: Viewer, sql: Sql, a: PeriodArgs & {
       LEFT JOIN fs ON fs.client_id = ca.client_id
      WHERE ca.space_id = ${a.spaceId} AND ca.user_id IS NOT NULL AND ca.via <> 'import'
        AND ca.occurred_at >= ${a.fromMs}::bigint AND ca.occurred_at < ${a.toMs}::bigint
-       AND ca.outcome_kind = ANY(${[...a.connectedKinds]}::text[])
+       AND ca.via <> 'board' AND ca.outcome_kind = ANY(${[...a.connectedKinds]}::text[])
        AND (${a.userIds}::text[] IS NULL OR ca.user_id = ANY(${a.userIds}::text[]))
        AND ${scopeSql(viewer, 'call', 'card.read')}
      GROUP BY 1
@@ -285,6 +285,65 @@ export async function funnelBySource(viewer: Viewer, sql: Sql, a: PeriodArgs & {
        AND (${a.userIds}::text[] IS NULL OR COALESCE(fb.booked_by_user_id, d.owner_user_id) = ANY(${a.userIds}::text[]))
        AND ${scopeSql(viewer, 'deal', 'deal.read')}
      GROUP BY 1`;
+}
+
+export interface FunnelKindStepRow {
+  /** userId (по операторам) или ключ источника ('' — без источника). */
+  key: string;
+  kind: 'group' | 'individual';
+  step: 'booked' | 'attended';
+  n: number;
+}
+
+/** Шаги «запись» и «явка» по видам записи и автору (D-344): те же условия, что у bookedByUserDay и attendanceByUserDay. */
+export async function funnelKindsByUser(viewer: Viewer, sql: Sql, a: PeriodArgs): Promise<FunnelKindStepRow[]> {
+  return scoped(sql)<FunnelKindStepRow>`
+    SELECT b.booked_by_user_id AS key, b.kind, 'booked' AS step, count(*)::int AS n
+      FROM bookings b
+     WHERE b.space_id = ${a.spaceId} AND b.booked_by_user_id IS NOT NULL AND b.moved_from_id IS NULL AND b.via <> 'import'
+       AND NOT (b.status = 'cancelled' AND b.cancel_reason = 'operator_error')
+       AND b.created_at >= ${a.fromMs}::bigint AND b.created_at < ${a.toMs}::bigint
+       AND (${a.userIds}::text[] IS NULL OR b.booked_by_user_id = ANY(${a.userIds}::text[]))
+       AND (${a.sourceKey}::text IS NULL OR (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END
+                                               FROM client_sources s WHERE s.client_id = b.client_id
+                                              ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
+       AND ${scopeSql(viewer, 'booking', 'booking.read')}
+     GROUP BY 1, 2
+    UNION ALL
+    SELECT b.booked_by_user_id, b.kind, 'attended', count(*)::int
+      FROM bookings b
+     WHERE b.space_id = ${a.spaceId} AND b.booked_by_user_id IS NOT NULL
+       AND b.booking_date BETWEEN ${a.from}::text AND ${a.to}::text AND NOT b.is_reserve AND b.status = 'attended'
+       AND (${a.userIds}::text[] IS NULL OR b.booked_by_user_id = ANY(${a.userIds}::text[]))
+       AND (${a.sourceKey}::text IS NULL OR (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END
+                                               FROM client_sources s WHERE s.client_id = b.client_id
+                                              ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
+       AND ${scopeSql(viewer, 'booking', 'booking.read')}
+     GROUP BY 1, 2`;
+}
+
+/** То же по первому источнику клиента (как funnelBySource: без фильтра по ключу источника). */
+export async function funnelKindsBySource(viewer: Viewer, sql: Sql, a: PeriodArgs): Promise<FunnelKindStepRow[]> {
+  return scoped(sql)<FunnelKindStepRow>`
+    WITH fs AS (
+      SELECT DISTINCT ON (s.client_id) s.client_id, CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END AS src
+        FROM client_sources s ORDER BY s.client_id, s.first_seen_at, s.id)
+    SELECT COALESCE(fs.src, '') AS key, b.kind, 'booked' AS step, count(*)::int AS n
+      FROM bookings b LEFT JOIN fs ON fs.client_id = b.client_id
+     WHERE b.space_id = ${a.spaceId} AND b.booked_by_user_id IS NOT NULL AND b.moved_from_id IS NULL AND b.via <> 'import'
+       AND NOT (b.status = 'cancelled' AND b.cancel_reason = 'operator_error')
+       AND b.created_at >= ${a.fromMs}::bigint AND b.created_at < ${a.toMs}::bigint
+       AND (${a.userIds}::text[] IS NULL OR b.booked_by_user_id = ANY(${a.userIds}::text[]))
+       AND ${scopeSql(viewer, 'booking', 'booking.read')}
+     GROUP BY 1, 2
+    UNION ALL
+    SELECT COALESCE(fs.src, ''), b.kind, 'attended', count(*)::int
+      FROM bookings b LEFT JOIN fs ON fs.client_id = b.client_id
+     WHERE b.space_id = ${a.spaceId} AND b.booked_by_user_id IS NOT NULL
+       AND b.booking_date BETWEEN ${a.from}::text AND ${a.to}::text AND NOT b.is_reserve AND b.status = 'attended'
+       AND (${a.userIds}::text[] IS NULL OR b.booked_by_user_id = ANY(${a.userIds}::text[]))
+       AND ${scopeSql(viewer, 'booking', 'booking.read')}
+     GROUP BY 1, 2`;
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +457,11 @@ export interface ReasonSqlRow {
   n: number;
 }
 
-/** Причины закрытий: итоги «не интересно / не целевой / не звонить» и потерянные сделки. */
+/**
+ * Причины за период. Группы: итоги «Перезвонить / не интересно / не целевой / не звонить» (`calls.reason_code`, пустая
+ * причина — «без причины»), списанные карточки (`cards.close_reason_code`: ручное и системное списание), потерянные
+ * сделки и неявки по виду мероприятия (D-344).
+ */
 export async function reasonCounts(viewer: Viewer, sql: Sql, a: PeriodArgs & { closingKinds: readonly string[] }): Promise<ReasonSqlRow[]> {
   return scoped(sql)<ReasonSqlRow>`
     SELECT ca.outcome_kind AS grp, ca.reason_code, count(*)::int AS n
@@ -413,6 +476,17 @@ export async function reasonCounts(viewer: Viewer, sql: Sql, a: PeriodArgs & { c
        AND ${scopeSql(viewer, 'call', 'card.read')}
      GROUP BY 1, 2
     UNION ALL
+    SELECT 'written_off', c.close_reason_code, count(*)::int
+      FROM cards c
+     WHERE c.space_id = ${a.spaceId} AND c.state = 'written_off'
+       AND c.closed_at >= ${a.fromMs}::bigint AND c.closed_at < ${a.toMs}::bigint
+       AND (${a.userIds}::text[] IS NULL OR c.owner_user_id = ANY(${a.userIds}::text[]))
+       AND (${a.sourceKey}::text IS NULL OR (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END
+                                               FROM client_sources s WHERE s.client_id = c.client_id
+                                              ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
+       AND ${scopeSql(viewer, 'card', 'card.read')}
+     GROUP BY 2
+    UNION ALL
     SELECT 'deal_lost', d.lost_reason_code, count(*)::int
       FROM deals d
      WHERE d.space_id = ${a.spaceId} AND d.status = 'lost' AND d.lost_at >= ${a.fromMs}::bigint AND d.lost_at < ${a.toMs}::bigint
@@ -421,6 +495,16 @@ export async function reasonCounts(viewer: Viewer, sql: Sql, a: PeriodArgs & { c
                                                FROM client_sources s WHERE s.client_id = d.client_id
                                               ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
        AND ${scopeSql(viewer, 'deal', 'deal.read')}
+     GROUP BY 2
+    UNION ALL
+    SELECT 'no_show', b.event_type_key, count(*)::int
+      FROM bookings b
+     WHERE b.space_id = ${a.spaceId} AND b.booking_date BETWEEN ${a.from}::text AND ${a.to}::text AND NOT b.is_reserve AND b.status = 'no_show'
+       AND (${a.userIds}::text[] IS NULL OR b.booked_by_user_id = ANY(${a.userIds}::text[]))
+       AND (${a.sourceKey}::text IS NULL OR (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END
+                                               FROM client_sources s WHERE s.client_id = b.client_id
+                                              ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
+       AND ${scopeSql(viewer, 'booking', 'booking.read')}
      GROUP BY 2`;
 }
 
@@ -432,4 +516,90 @@ export async function reasonCounts(viewer: Viewer, sql: Sql, a: PeriodArgs & { c
 export async function userNames(sql: Sql, ids: readonly string[]): Promise<{ id: string; name: string }[]> {
   if (ids.length === 0) return [];
   return sql<{ id: string; name: string }>`SELECT id, name FROM users WHERE id = ANY(${[...ids]}::text[])`;
+}
+
+/** Консультанты пространства (ресурсы записи) с именами: для фильтра списка явки. */
+export async function consultantNames(sql: Sql, spaceId: string): Promise<{ userId: string; name: string }[]> {
+  return sql<{ userId: string; name: string }>`
+    SELECT r.user_id, u.name FROM resources r JOIN users u ON u.id = r.user_id
+     WHERE r.space_id = ${spaceId} ORDER BY u.name, r.user_id`;
+}
+
+// ---------------------------------------------------------------------------
+// Явка — список
+// ---------------------------------------------------------------------------
+
+export interface AttendanceListSqlRow {
+  bookingId: string;
+  date: string;
+  startTime: string;
+  startsAt: string;
+  eventTypeKey: string;
+  clientId: string;
+  clientName: string;
+  bookedByUserId: string | null;
+  bookedByName: string | null;
+  status: string;
+  markedByUserId: string | null;
+  markedByName: string | null;
+  consultantUserId: string | null;
+  consultantName: string | null;
+  purchaseSumKzt: string | null;
+}
+
+export interface AttendanceListArgs extends PeriodArgs {
+  now: number;
+  eventType: string | null;
+  status: string | null;
+  consultant: string | null;
+  /** Курсор: (starts_at, id) последней показанной строки; null — с начала. */
+  after: { startsAt: number; id: string } | null;
+  /** Строк на странице плюс одна, чтобы узнать, есть ли следующая. */
+  limit: number;
+}
+
+/**
+ * Поимённый список записей по дате встречи (резерв и «ошибка оператора» не показываются), новые сверху.
+ * Статус «не отмечено» — дата прошла, явка не отмечена. Отметчик явки — автор последней записи истории со статусом
+ * «пришёл / не пришёл»; система (автоотметка) — без автора. Покупка — выигранная сделка той же записи.
+ */
+export async function attendanceListRows(viewer: Viewer, sql: Sql, a: AttendanceListArgs): Promise<AttendanceListSqlRow[]> {
+  return scoped(sql)<AttendanceListSqlRow>`
+    WITH l AS (
+      SELECT b.id AS booking_id, b.booking_date AS date, b.start_time, b.starts_at, b.event_type_key,
+             b.client_id, cl.name AS client_name, b.booked_by_user_id, bu.name AS booked_by_name,
+             CASE WHEN b.status = 'cancelled' THEN 'cancelled'
+                  WHEN b.status = 'attended' THEN 'attended'
+                  WHEN b.status = 'no_show' THEN 'no_show'
+                  WHEN b.starts_at < ${a.now}::bigint THEN 'unmarked'
+                  ELSE 'planned' END AS status,
+             mk.actor_id AS marked_by_user_id, mu.name AS marked_by_name,
+             r.user_id AS consultant_user_id, cu.name AS consultant_name,
+             d.amount_kzt::text AS purchase_sum_kzt
+        FROM bookings b
+        JOIN clients cl ON cl.id = b.client_id AND ${scopeSql(viewer, 'client', 'client.read')}
+        LEFT JOIN users bu ON bu.id = b.booked_by_user_id
+        LEFT JOIN resources r ON r.id = b.resource_id
+        LEFT JOIN users cu ON cu.id = r.user_id
+        LEFT JOIN deals d ON d.id = b.deal_id AND d.status = 'won' AND ${scopeSql(viewer, 'deal', 'deal.read')}
+        LEFT JOIN LATERAL (
+          SELECT h.actor_id FROM booking_history h
+           WHERE h.booking_id = b.id AND h.action = 'status' AND h.to_status IN ('attended','no_show')
+           ORDER BY h.created_at DESC, h.id DESC LIMIT 1) mk ON b.status IN ('attended','no_show')
+        LEFT JOIN users mu ON mu.id = mk.actor_id
+       WHERE b.space_id = ${a.spaceId} AND b.booking_date BETWEEN ${a.from}::text AND ${a.to}::text AND NOT b.is_reserve
+         AND b.status IN ('registered','confirmed','attended','no_show','cancelled')
+         AND NOT (b.status = 'cancelled' AND b.cancel_reason = 'operator_error')
+         AND (${a.eventType}::text IS NULL OR b.event_type_key = ${a.eventType}::text)
+         AND (${a.consultant}::text IS NULL OR r.user_id = ${a.consultant}::text)
+         AND (${a.userIds}::text[] IS NULL OR b.booked_by_user_id = ANY(${a.userIds}::text[]))
+         AND (${a.sourceKey}::text IS NULL OR (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END
+                                                 FROM client_sources s WHERE s.client_id = b.client_id
+                                                ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
+         AND (${a.after?.startsAt ?? null}::bigint IS NULL OR (b.starts_at, b.id) < (${a.after?.startsAt ?? null}::bigint, ${a.after?.id ?? null}::text))
+         AND ${scopeSql(viewer, 'booking', 'booking.read')})
+    SELECT * FROM l
+     WHERE ${a.status}::text IS NULL OR l.status = ${a.status}::text
+     ORDER BY l.starts_at DESC, l.booking_id DESC
+     LIMIT ${a.limit}`;
 }

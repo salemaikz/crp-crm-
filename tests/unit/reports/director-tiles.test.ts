@@ -12,6 +12,7 @@ const data = {
   eventLabels: { group: 'АБ', individual: 'ВГ' },
   attendance: { attended: 3, noShow: 1, rate: 75 },
   purchases: { count: 2, sumKzt: 100000, prevCount: 1, prevSumKzt: 50000 },
+  conversion: { average: 22.5, team: 20, operators: 3, minConnects: 20 },
   stock: { poolReady: 321, capacityPerDay: 80, days: 4 },
 } as unknown as DirectorData;
 
@@ -35,6 +36,14 @@ test('плитки: итоги и дозвоны отдельно, записи 
   assert.equal(t('bookGroup').label, 'АБ');
   assert.equal(t('bookIndividual').label, 'ВГ');
   assert.equal(t('pool').value, 321);
+  // средняя конверсия операторов: доля, а не счёт; перед «В пуле»
+  assert.equal(t('conversion').rate, 22.5);
+  assert.ok(ids.indexOf('conversion') < ids.indexOf('pool'));
+});
+
+test('плитка средней конверсии: нет операторов с нужным числом дозвонов — доли нет', () => {
+  const none = { ...data, conversion: { average: null, team: null, operators: 0, minConnects: 20 } } as unknown as DirectorData;
+  assert.equal(directorTiles(none).find((x) => x.id === 'conversion')?.rate, null);
 });
 
 test('eventShortLabels: первый групповой и первый индивидуальный вид, подписи short', () => {
@@ -52,7 +61,8 @@ test('локаль панели: подписи видов — шаблон с �
   const ru = JSON.parse(readFileSync('messages/ru/reports.json', 'utf8')).director.tiles;
   assert.match(ru.bookGroup.title, /\{event\}/);
   assert.match(ru.bookIndividual.title, /\{event\}/);
-  assert.ok(ru.outcomes && ru.connects && ru.pool);
+  assert.ok(ru.outcomes && ru.connects && ru.pool && ru.conversion);
+  assert.match(ru.conversion.hint, /\{teamRate\}/);
   assert.ok(!('calls' in ru) && !('bookings' in ru) && !('stock' in ru));
   assert.doesNotMatch(JSON.stringify(ru), /БР|БК|разбор/i);
 });
