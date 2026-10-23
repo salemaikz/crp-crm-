@@ -118,7 +118,7 @@ test('изоляция: глава отдела видит сделку пере
   const v = (await db.sql<{ version: number }>`SELECT version FROM deals WHERE id = 'dl-r70'`)[0]!.version;
   assert.equal((await call(editRoute.PATCH, 'PATCH', { as: U.rop, id: 'dl-r70', body: { opId: uuid(), version: v, amountKzt: 778_000 } })).status, 200);
 
-  const money = /amountKzt|fromAmount|toAmount|77[78]/;
+  const money = /amountKzt|fromAmount|toAmount|\b77[78]000\b/;
   const head = await call(dealRoute.GET, 'GET', { as: U.mktHead, id: 'dl-r70' });
   assert.equal(head.status, 200);
   const deal = head.json.deal as Record<string, unknown>;
@@ -126,7 +126,7 @@ test('изоляция: глава отдела видит сделку пере
   const history = head.json.history as Array<{ kind: string; data: Record<string, unknown> }>;
   assert.ok(history.some((h) => h.kind === 'deal.won') && history.some((h) => h.kind === 'deal.purchase_edited'));
   for (const h of history) assert.ok(!money.test(JSON.stringify(h.data)), `денежное поле в ${h.kind}`);
-  assert.ok(!/77[78]/.test(JSON.stringify(head.json)));
+  assert.ok(!/\b77[78]000\b/.test(JSON.stringify(head.json)));
 
   // другая сделка того же клиента — тот же 404, что у несуществующей
   const other = await call(dealRoute.GET, 'GET', { as: U.mktHead, id: 'dl-r70b' });

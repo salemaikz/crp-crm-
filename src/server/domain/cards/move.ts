@@ -3,7 +3,7 @@
 // ядро `calling.applyOutcome` (`agreed_exit`) → эффекты и пересчёт кэша (persistTransition). Правил состояния здесь нет.
 // Сбой на любом шаге откатывает всё, включая отметку явки.
 import { booking as coreBooking, type calling } from '@crm/core';
-import { NotFoundError, type Viewer } from '@/server/access';
+import { BadRequestError, NotFoundError, type Viewer } from '@/server/access';
 import { bookingPort } from '@/server/domain/booking';
 import { isRetryableTxError, MAX_TX_ATTEMPTS } from '@/server/domain/booking/tx';
 import { insertNote } from '@/server/domain/timeline/repo';
@@ -13,7 +13,7 @@ import { isFeatureEnabled } from '@/server/platform/flags';
 import { CardActionError } from './errors';
 import { applyCardEventLocked } from './manual';
 import { findMoveOpState, listFutureActiveBookingIds, lockCardScoped } from './repo';
-import { loadCallingContext } from './settings';
+import { hasWriteOffReasons, loadCallingContext } from './settings';
 import type { MenuResult } from './menu';
 
 export type MoveTarget = 'callback' | 'not_interested' | 'written_off';
@@ -45,6 +45,9 @@ async function reasonNeedsText(viewer: Viewer, group: MoveTarget, code: string):
  */
 export async function moveCard(viewer: Viewer, cardId: string, input: MoveInput): Promise<MenuResult> {
   if (!isFeatureEnabled('OP_BOARD') || viewer.spaceId === null) throw new NotFoundError();
+  // Точность «день» — часть CALLBACK_V2 (§8.3); ручное списание — только при группе reasons.written_off (§8.1)
+  if (input.callbackPrecision === 'day' && !isFeatureEnabled('CALLBACK_V2')) throw new BadRequestError('precision_unsupported');
+  if (input.to === 'written_off' && !(await hasWriteOffReasons(viewer.spaceId, Date.now()))) throw new BadRequestError('kind');
   const text = input.reasonText?.trim() ?? '';
   const db = await getDb();
   for (let attempt = 1; ; attempt++) {

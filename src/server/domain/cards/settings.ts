@@ -250,3 +250,8 @@ export const loadCallingContext: LoadCallingContext = async (spaceId) => {
   bySpace.set(key, parsed);
   return parsed;
 };
+
+/** Есть ли в настройках пространства группа `reasons.written_off`; нет группы — ручного списания нет (pipeline-v2 §8.1). */
+export async function hasWriteOffReasons(spaceId: string, now: number): Promise<boolean> {
+  return (await loadCallingContext(spaceId, now)).settings.reasons?.written_off !== undefined;
+}

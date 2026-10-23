@@ -13,7 +13,7 @@ import { listRecipients, loadTransferRoles, requireRecipients } from '@/server/d
 import { CardActionError } from './errors';
 import { applyCardEventLocked, runCardEvent } from './manual';
 import { lockCardScoped, userActiveInSpace } from './repo';
-import { loadCallingContext } from './settings';
+import { hasWriteOffReasons, loadCallingContext } from './settings';
 
 export interface ReopenInput {
   opId: string;
@@ -171,7 +171,8 @@ export async function archiveReasonLabels(viewer: Viewer): Promise<Record<string
 export async function closeCard(viewer: Viewer, cardId: string, input: CloseInput): Promise<MenuResult> {
   if (input.kind === 'written_off') {
     // Без флага вида нет: как прежняя схема тела (допустимы только два вида)
-    if (!isFeatureEnabled('OP_BOARD')) throw new BadRequestError('kind');
+    // Нет группы reasons.written_off — ручного списания нет (§8.1): тот же отказ
+    if (!isFeatureEnabled('OP_BOARD') || viewer.spaceId === null || !(await hasWriteOffReasons(viewer.spaceId, Date.now()))) throw new BadRequestError('kind');
   } else if (!(await reasonAllowed(viewer, input.kind, input.reasonCode))) {
     throw new BadRequestError('reason_code');
   }

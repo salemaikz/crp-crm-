@@ -3,7 +3,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestError, NotFoundError } from '../../../src/server/access';
-import { clearDnc, closeCard, reopenCard, reopenRecipients } from '../../../src/server/domain/cards';
+import { clearDnc, closeCard, moveCard, reopenCard, reopenRecipients } from '../../../src/server/domain/cards';
 import { CardActionError } from '../../../src/server/domain/cards/errors';
 import { TeamError } from '../../../src/server/domain/team/errors';
 import { getClientCard, listClients, parseListQuery } from '../../../src/server/domain/clients';
@@ -193,5 +193,21 @@ test('«Вернуть в обзвон»: интерфейс предлагае�
     const res = await reopenCard(rop, cardOf('a', 55), { opId: uuid(), version: await version(55), comment: 'Вернуть', toUserId });
     assert.equal(res.state, 'callback', toUserId);
     assert.equal((await card(55)).ownerUserId, toUserId);
+  }
+});
+
+test('№ 32 и № 33 в «Списан» без группы reasons.written_off в настройках — 400 kind, карточка не тронута', async () => {
+  process.env['FEATURE_OP_BOARD'] = '1';
+  try {
+    await setCard(db.sql, cardOf('a', 57), { state: 'retry', owner: U.opA });
+    const op = await viewerOf(U.opA);
+    const v = await version(57);
+    await assert.rejects(closeCard(op, cardOf('a', 57), { opId: uuid(), version: v, kind: 'written_off', reasonCode: 'zzz', alsoDncPhoneIds: [] }), (e: unknown) => e instanceof BadRequestError && e.detail === 'kind');
+    await setCard(db.sql, cardOf('a', 58), { state: 'agreed', owner: U.opA });
+    await assert.rejects(moveCard(op, cardOf('a', 58), { opId: uuid(), version: await version(58), to: 'written_off', reasonCode: 'zzz' }), (e: unknown) => e instanceof BadRequestError && e.detail === 'kind');
+    assert.deepEqual([(await card(57)).state, (await card(57)).version], ['retry', v]);
+    assert.equal((await card(58)).state, 'agreed');
+  } finally {
+    delete process.env['FEATURE_OP_BOARD'];
   }
 });

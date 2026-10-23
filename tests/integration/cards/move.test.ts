@@ -206,6 +206,20 @@ test('выключенный OP_BOARD: маршрута нет — 404, карт
   assert.equal((await card(s.card)).state, 'agreed');
 });
 
+test('выключенный CALLBACK_V2: точность «день» — 400 precision_unsupported, карточка не тронута; «время» проходит', async () => {
+  const s = await setup(41, 'future');
+  process.env['FEATURE_CALLBACK_V2'] = '0';
+  try {
+    const bad = await post(U.opA, s.card, cb((await card(s.card)).version, { callbackPrecision: 'day' }));
+    assert.equal(bad.status, 400);
+    assert.equal(((await bad.json()) as { detail?: string; error?: string }).error !== undefined, true);
+    assert.equal((await card(s.card)).state, 'agreed');
+    assert.equal((await post(U.opA, s.card, cb((await card(s.card)).version, { callbackPrecision: 'time' }))).status, 200);
+  } finally {
+    process.env['FEATURE_CALLBACK_V2'] = '1';
+  }
+});
+
 test('не из «Договорились» — 409 invalid_state', async () => {
   const c = cardOf('a', 42);
   await db.sql`UPDATE cards SET state = 'callback' WHERE id = ${c}`;
