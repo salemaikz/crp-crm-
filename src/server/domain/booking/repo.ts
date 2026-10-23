@@ -706,6 +706,12 @@ export async function lastNoShowAt(sql: Sql, bookingId: string): Promise<number 
   return rows[0]?.at ?? null;
 }
 
+/** Открыта ли автозадача с таким ключом (задача неявки записи: факт для № 31, pipeline-v2 §3.3). */
+export async function hasOpenTaskByKey(sql: Sql, sourceKey: string): Promise<boolean> {
+  const rows = await sql`SELECT 1 FROM tasks WHERE source_key = ${sourceKey} AND status = 'open' LIMIT 1`;
+  return rows.length > 0;
+}
+
 export async function insertHistory(
   sql: Sql,
   h: { id?: string; bookingId: string; action: string; from: string; to: string; actorId: string | null; meta: Record<string, unknown>; at: number },

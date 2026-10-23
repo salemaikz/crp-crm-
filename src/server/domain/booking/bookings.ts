@@ -33,6 +33,7 @@ import {
   insertHistory,
   insertIndividualBooking,
   lastNoShowAt,
+  hasOpenTaskByKey,
   listBookingRows,
   lockCardOfBooking,
   lockClientBookings,
@@ -576,7 +577,7 @@ async function emitCardEvent(
     if (before.status === 'no_show' && card.state === 'callback') {
       const f = await facts();
       const markedAt = (await lastNoShowAt(tx, before.id)) ?? before.updatedAt;
-      return noteCardEvent(deps, tx, viewer, card, { type: 'attendance_corrected', opId: spec.opId, bookingId: before.id, noShowMarkedAt: markedAt, facts: { hasNextFutureBooking: f.otherFuture } }, now);
+      return noteCardEvent(deps, tx, viewer, card, { type: 'attendance_corrected', opId: spec.opId, bookingId: before.id, noShowMarkedAt: markedAt, facts: { hasNextFutureBooking: f.otherFuture, hasOpenNoShowTask: await hasOpenTaskByKey(tx, `no_show:${before.id}`) } }, now);
     }
     // Клиент и прочие состояния: машина карточки не нужна, этап сделки двигаем напрямую (только вперёд)
     if (before.dealId) await deps.deals.advanceOnAttended(tx, viewer, { dealId: before.dealId, bookingId: before.id, at: now, stages: c.settingsDeals });

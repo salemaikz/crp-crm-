@@ -26,6 +26,13 @@ async function guest(event: string, n: number, over: { status?: 'registered' | '
   return ids[0]!;
 }
 
+/** Открытая задача неявки записи — её создаёт машина карточки (№ 16, 28, 33 с неявкой). */
+async function openNoShowTask(bookingId: string, clientId: string): Promise<void> {
+  await db.sql`
+    INSERT INTO tasks (id, space_id, client_id, kind, source, title, source_key, status, created_at)
+    VALUES (${uuid()}, 'sp-sales', ${clientId}, 'call', 'no_show', '', ${`no_show:${bookingId}`}, 'open', ${SEED_NOW})`;
+}
+
 before(async () => {
   db = await openBookingWorld();
   deps = makeDeps(clock, port);
@@ -101,6 +108,7 @@ test('исправление «не пришёл → пришёл» при ка�
   assert.equal(port.calls[0]?.event.type, 'no_show');
   // карточку в «Перезвон» переводит машина обзвона (C5); здесь — имитация
   await setCardState(db.sql, 'cd-a-6', 'callback');
+  await openNoShowTask(id, 'cl-a-6');
   port.reset();
   clock.now = SEED_NOW + 5 * MIN;
   const r = await markAttendance(deps, rop, { bookingId: id, opId: uuid(), version: 1, to: 'attended' });
@@ -110,6 +118,19 @@ test('исправление «не пришёл → пришёл» при ка�
   assert.ok(call.event.type === 'attendance_corrected' && call.event.noShowMarkedAt === SEED_NOW && call.event.facts.hasNextFutureBooking === false);
   assert.equal(call.result.status, 'applied');
   clock.now = SEED_NOW;
+});
+
+test('№ 31 после № 33 без неявки: задачи неявки нет — stale, карточка остаётся в перезвоне', async () => {
+  port.reset();
+  const id = await guest('ev-am', 95, { status: 'no_show' });
+  await db.sql`INSERT INTO booking_history (id, booking_id, action, from_status, to_status, actor_id, meta, created_at) VALUES (${uuid()}, ${id}, 'status', 'registered', 'no_show', ${U.rop}, '{}', ${SEED_NOW - 60_000})`;
+  await setCardState(db.sql, 'cd-a-95', 'callback');
+  const r = await markAttendance(deps, rop, { bookingId: id, opId: uuid(), version: 0, to: 'attended' });
+  assert.equal(r.status, 'attended', 'явка исправлена');
+  const res = port.calls[0]?.result;
+  assert.deepEqual([port.calls[0]?.event.type, res?.status, res?.status === 'rejected' && res.error], ['attendance_corrected', 'rejected', 'stale']);
+  const [c] = await db.sql<{ state: string }>`SELECT state FROM cards WHERE id = 'cd-a-95'`;
+  assert.equal(c?.state, 'callback');
 });
 
 test('исправление при карточке в «Договорились» — событие attended (как № 18); отказ ядра (stale) запись не откатывает', async () => {
@@ -123,6 +144,7 @@ test('исправление при карточке в «Договорилис
   const stale = await guest('ev-am', 8, { status: 'no_show' });
   await db.sql`INSERT INTO booking_history (id, booking_id, action, from_status, to_status, actor_id, meta, created_at) VALUES (${uuid()}, ${stale}, 'status', 'registered', 'no_show', ${U.rop}, '{}', ${SEED_NOW - 3_600_000})`;
   await setCardState(db.sql, 'cd-a-8', 'callback');
+  await openNoShowTask(stale, 'cl-a-8');
   await db.sql`UPDATE cards SET last_outcome_at = ${SEED_NOW - 60_000} WHERE id = 'cd-a-8'`;
   port.reset();
   const opId = uuid();
