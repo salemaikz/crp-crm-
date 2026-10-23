@@ -70,6 +70,12 @@ test('calling.callbackReason, callbackSchedule, returnDays.client', () => {
   bad((sp) => { sp.calling.returnDays.client = 3651; }, 'client');
 });
 
+test('callbackReason.required требует живую ручную причину перезвона', () => {
+  bad((sp) => { sp.calling.callbackReason = { required: true }; delete sp.reasons.callback; }, 'нужна живая ручная причина');
+  bad((sp) => { sp.calling.callbackReason = { required: true }; sp.reasons.callback = [reason('a', { archived: true }), reason('b', { manual: false })]; }, 'нужна живая ручная причина');
+  ok((sp) => { sp.calling.callbackReason = { required: false }; delete sp.reasons.callback; });
+});
+
 test('queue.sort и queue.heat', () => {
   const heat = (over: any = {}) => ({
     states: { callback: 100, new: 20 },
@@ -111,6 +117,8 @@ test('board: колонки, тона, ссылки', () => {
   bad((sp) => { sp.board = { columns: [col('x', ['new'], { drop: [{ kind: 'no_such', reason: 'lost' }] })] }; }, 'нет группы причин');
   bad((sp) => { sp.board = { columns: [col('a', ['new']), col('b', ['new', 'retry'])] }; }, 'в нескольких колонках');
   bad((sp) => { sp.board = { columns: [col('a', ['agreed'], { eventTypes: ['br'] }), col('b', ['agreed'])] }; }, 'в нескольких колонках');
+  bad((sp) => { sp.board = { columns: columns.filter((c) => c.key !== 'trash') }; }, 'нужен agreedFallback');
+  ok((sp) => { sp.board = { columns: [col('new', ['new']), col('br', ['agreed'], { eventTypes: ['br'] })] }; });
   bad((sp) => { sp.board = { columns, agreedFallback: 'ghost' }; }, 'нет колонки «ghost»');
   bad((sp) => { sp.board = { columns, agreedFallback: 'new' }; }, 'должна содержать состояние agreed');
   bad((sp) => { sp.board = { columns: [col('a', ['new']), col('a', ['retry'])] }; }, 'повтор ключа');

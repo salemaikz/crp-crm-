@@ -38,6 +38,12 @@ export function checkPipelineV2(
     else if (r.archived) issue(path, 'причина отказа в архиве');
   }
 
+  // «Перезвонить» с обязательной причиной: нужна живая ручная причина, иначе итог нельзя сохранить (400 §4.4)
+  if (sp.calling.callbackReason?.required === true) {
+    const live = (sp.reasons.callback ?? []).some((r) => r.manual !== false && !r.archived);
+    if (!live) issue(at('calling', 'callbackReason', 'required'), 'нужна живая ручная причина в группе «callback»');
+  }
+
   // доска
   const board = sp.board;
   if (board === undefined) return;
@@ -57,6 +63,11 @@ export function checkPipelineV2(
     if (cols.length > 1 && cols.some((c) => !c.typed)) {
       issue(at('board', 'columns', cols[1]!.col, 'states'), `состояние «${state}» в нескольких колонках без eventTypes`);
     }
+  }
+  // несколько колонок с agreed: карточка вне перечисленных видов попадёт только в agreedFallback
+  const agreedCols = byState.get('agreed') ?? [];
+  if (agreedCols.length > 1 && board.agreedFallback === undefined) {
+    issue(at('board', 'agreedFallback'), 'колонок с состоянием agreed несколько — нужен agreedFallback');
   }
   if (board.agreedFallback !== undefined) {
     const col = board.columns.find((c) => c.key === board.agreedFallback);
