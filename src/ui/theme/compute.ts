@@ -2,6 +2,7 @@
 // набор CSS-переменных трёх слоёв (бренд, нейтральные, состояния). Остальное считается.
 // Гарантии: текст на брендовой кнопке и бренд-текст на поверхности — не ниже AA (4.5:1).
 import {
+  AA_LARGE,
   AA_TEXT,
   BLACK,
   WHITE,
@@ -159,6 +160,16 @@ export function deriveBrandRoleDark(color: string, canvas: string, surface: stri
   return { base, onColor, hover, tint, ink, adjusted: base !== original };
 }
 
+/** Все нейтральные и тона состояний тёмной темы читаются на выбранных фоне и поверхности. */
+function darkSurfacesReadable(canvas: string, surface: string): boolean {
+  const N = NEUTRALS_DARK;
+  for (const k of ['text', 'text2', 'text3'] as const) {
+    if (contrast(N[k], canvas) < AA_TEXT || contrast(N[k], surface) < AA_TEXT) return false;
+  }
+  if (contrast(N.borderStrong, surface) < AA_LARGE || contrast(N.borderStrong, canvas) < AA_LARGE) return false;
+  return Object.values(STATES_DARK).every((s) => contrast(s.ink, canvas) >= AA_TEXT && contrast(s.ink, surface) >= AA_TEXT);
+}
+
 const px = (n: number) => `${n}px`;
 
 export function computeTheme(raw: unknown, variant: ThemeVariant = 'light'): Theme {
@@ -174,7 +185,7 @@ export function computeTheme(raw: unknown, variant: ThemeVariant = 'light'): The
   if (dark) {
     const c = settings.dark.canvas ?? NEUTRALS_DARK.canvas;
     const sf = settings.dark.surface ?? NEUTRALS_DARK.surface;
-    if (contrast(NEUTRALS_DARK.text, c) >= AA_TEXT && contrast(NEUTRALS_DARK.text3, sf) >= AA_TEXT) {
+    if (darkSurfacesReadable(c, sf)) {
       canvas = c;
       surface = sf;
     } else {

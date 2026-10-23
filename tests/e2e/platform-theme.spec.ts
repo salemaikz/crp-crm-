@@ -2,6 +2,8 @@
 // снимки обеих тем на iPhone 13 и Pixel 7 (вход, /call, доска сделок, панель директора). Только синтетика.
 // Без флага (FEATURE_THEME_DARK=0) переключателя нет и тёмная тема по системе не включается — тот же файл,
 // запущенный с FEATURE_THEME_DARK=0. БД — E2E_DATABASE_URL.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, login, makeOperator, prepareDb } from './support/calling';
 
@@ -9,8 +11,17 @@ test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 test.beforeAll(() => prepareDb());
 
 const FLAG_OFF = process.env.FEATURE_THEME_DARK === '0';
-// Фон тёмной темы пресета ЦРП (theme.dark.canvas = #0d1424) и светлой по умолчанию (#f5f6f8)
-const DARK_CANVAS = 'rgb(13, 20, 36)';
+// Фон тёмной темы берётся из theme.dark.canvas пресета клиента (не из умолчания кода) и светлой по умолчанию (#f5f6f8)
+const presetCanvas = (JSON.parse(readFileSync(join(process.cwd(), 'presets/clients/crp/preset.json'), 'utf8')) as {
+  global: { theme: { dark: { canvas: string } } };
+}).global.theme.dark.canvas;
+const toRgb = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+};
+const DARK_CANVAS = toRgb(presetCanvas);
+// Умолчание кода (NEUTRALS_DARK.canvas): пресет обязан его перекрывать
+const CODE_DARK_CANVAS = 'rgb(18, 19, 22)';
 const LIGHT_CANVAS = 'rgb(245, 246, 248)';
 
 const bg = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--canvas').trim());
@@ -41,6 +52,7 @@ test.describe('флаг включён', () => {
     await p.goto('/login');
     expect(await dataTheme(p)).toBeNull();
     expect(await canvasRgb(p)).toBe(DARK_CANVAS);
+    expect(DARK_CANVAS).not.toBe(CODE_DARK_CANVAS);
     expect(await p.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('dark');
     // поле входа тёмное, а не белое
     const inputBg = await p.getByLabel('Номер телефона').evaluate((el) => getComputedStyle(el).backgroundColor);

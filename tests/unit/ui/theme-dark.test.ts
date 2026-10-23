@@ -75,8 +75,11 @@ test('акцент #0e1726 на тёмном фоне заменяется ос�
 
 test('пресет ЦРП: theme.dark задаёт фон, поверхность и акцент; предупреждений о подмене нет', () => {
   const t = computeTheme(crpTheme, 'dark');
-  assert.equal(t.vars['--canvas'], '#0d1424');
-  assert.equal(t.vars['--surface'], '#141d31');
+  const dk = crpTheme.dark as { canvas: string; surface: string };
+  assert.equal(t.vars['--canvas'], dk.canvas);
+  assert.equal(t.vars['--surface'], dk.surface);
+  assert.notEqual(t.vars['--canvas'], NEUTRALS_DARK.canvas, 'фон берётся из пресета, а не из умолчания кода');
+  assert.notEqual(t.vars['--surface'], NEUTRALS_DARK.surface);
   assert.equal(t.vars['--accent'], '#e8edf7');
   assert.equal(t.vars['--brand'], '#e31e24');
   assert.equal(t.vars['--on-brand'], '#ffffff');
@@ -93,6 +96,21 @@ test('theme.dark: нечитаемая поверхность и мусор от
   assert.ok(t.invalidKeys.includes('dark.canvas'));
   assert.ok(computeTheme({ dark: 5 }).invalidKeys.includes('dark'));
   assert.equal(computeTheme({ defaultMode: 'sepia' }).settings.defaultMode, null);
+});
+
+test('theme.dark: фон, на котором не читается любой нейтральный или тон состояния, отбрасывается', () => {
+  // text проходит (≥ 4.5), а text3 и danger на таком фоне — ниже
+  const t = computeTheme({ dark: { canvas: '#4a5160' } }, 'dark');
+  assert.ok(t.warnings.includes('dark-surface-invalid'));
+  assert.equal(t.vars['--canvas'], NEUTRALS_DARK.canvas);
+  // читаемый пользовательский фон принимается без предупреждения
+  const ok = computeTheme({ dark: { canvas: '#0b0c0e', surface: '#16181c' } }, 'dark');
+  assert.ok(!ok.warnings.includes('dark-surface-invalid'));
+  assert.equal(ok.vars['--canvas'], '#0b0c0e');
+  for (const k of ['text', 'text-2', 'text-3', 'danger', 'warning', 'info', 'success']) {
+    assert.ok(contrast(ok.vars[`--${k}`]!, ok.vars['--canvas']!) >= AA, k);
+    assert.ok(contrast(ok.vars[`--${k}`]!, ok.vars['--surface']!) >= AA, `${k}/surface`);
+  }
 });
 
 test('deriveBrandRoleDark: светлый бренд остаётся, тёмный осветляется', () => {

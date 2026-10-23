@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { computeTheme } from '../../../src/ui/theme/compute';
 import { contrast } from '../../../src/ui/theme/color';
@@ -45,6 +45,22 @@ test('Tailwind @theme ссылается на существующие пере�
 
 test('в токенах нет значений бренда клиента: умолчание нейтральное', () => {
   assert.ok(!/#e31e24/i.test(tokensCss));
+});
+
+test('в палитрах кода нет значений темы клиентов из пресетов (theme.* и theme.dark.*)', () => {
+  const presetsTs = readFileSync(join(ROOT, 'src/ui/theme/presets.ts'), 'utf8').toLowerCase();
+  const clientsDir = join(ROOT, 'presets/clients');
+  const hexes: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) hexes.push(v.toLowerCase());
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  for (const name of readdirSync(clientsDir)) {
+    const preset = JSON.parse(readFileSync(join(clientsDir, name, 'preset.json'), 'utf8')) as { global?: { theme?: unknown } };
+    walk(preset.global?.theme);
+  }
+  assert.ok(hexes.length > 0, 'в пресете клиента есть цвета темы');
+  for (const hex of hexes) assert.ok(!presetsTs.includes(hex), `цвет клиента ${hex} в presets.ts`);
 });
 
 test('нейтральные: текст читается на поверхности и подложке (AA), рамка полей ≥ 3:1', () => {

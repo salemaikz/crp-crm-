@@ -2,7 +2,7 @@
 // Личный переключатель вида: «Светлая / Тёмная / Как в системе». Пишет cookie и сразу меняет data-theme
 // на <html>, перезагрузка не нужна. Подписи приходят готовыми из локали.
 import { Monitor, Moon, Sun } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Segmented } from '@/ui/kit';
 import { THEME_MODES, themeAttribute, themeCookieString, type ThemeMode } from './mode';
 
@@ -14,10 +14,21 @@ export type ThemeSwitchProps = {
   compact?: boolean;
 };
 
+/** Событие окна: все экземпляры переключателя на странице (колонка и «Ещё») показывают один и тот же выбор. */
+const CHANGE_EVENT = 'crm-theme-change';
+
 const ICONS = { light: Sun, dark: Moon, system: Monitor } as const;
 
 export function ThemeSwitch({ label, labels, value, compact = false }: ThemeSwitchProps) {
   const [mode, setMode] = useState<ThemeMode>(value);
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const next = THEME_MODES.find((m) => m === (e as CustomEvent<string>).detail);
+      if (next) setMode(next);
+    };
+    window.addEventListener(CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(CHANGE_EVENT, onChange);
+  }, []);
   function select(id: string) {
     const next = THEME_MODES.find((m) => m === id);
     if (!next) return;
@@ -26,6 +37,7 @@ export function ThemeSwitch({ label, labels, value, compact = false }: ThemeSwit
     const attr = themeAttribute(next);
     if (attr) document.documentElement.setAttribute('data-theme', attr);
     else document.documentElement.removeAttribute('data-theme');
+    window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: next }));
   }
   return (
     <Segmented
