@@ -4,6 +4,7 @@
 import { booking } from '@crm/core';
 import { NotFoundError, type Viewer } from '@/server/access';
 import { getDb } from '@/server/platform/db';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { requirePurchases, requireSpace } from './guards';
 import { listMyPurchases, sumMyPurchases } from './repo.mine';
 import { seesDealsOnlyAsDepartment } from './visibility';
@@ -38,6 +39,8 @@ export function monthBounds(timeZone: string, now: number): { fromMs: number; to
 
 export async function listMine(deps: DealsDeps, viewer: Viewer): Promise<MyPurchases> {
   requirePurchases();
+  // Раздел — часть доски этапа В (pipeline-v2 §9.5): без OP_BOARD API доски отвечает 404 (§8.3)
+  if (!isFeatureEnabled('OP_BOARD')) throw new NotFoundError();
   const spaceId = requireSpace(viewer);
   // Отдел передачи сделок как таковых не видит (D-300): тот же ответ, что на несуществующее
   if (seesDealsOnlyAsDepartment(viewer)) throw new NotFoundError();

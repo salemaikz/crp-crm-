@@ -28,6 +28,7 @@ async function wonDeal(n: number, a: { id: string; client: string; card: string;
 }
 
 before(async () => {
+  process.env['FEATURE_OP_BOARD'] = '1';
   db = await openDealsWorld();
   deps = makeDealsDeps(clock);
   opA = await viewerOf(U.opA);
@@ -40,7 +41,10 @@ before(async () => {
   // прошлый месяц: в списке есть, в итоге месяца нет
   await wonDeal(3, { id: 'dl-m3', client: 'cl-a-32', card: 'cd-a-32', owner: U.opA, author: U.opA, amount: 50_000, wonAt: Date.UTC(2026, 8, 10, 6, 0) });
 });
-after(() => closeDealsWorld(db));
+after(async () => {
+  delete process.env['FEATURE_OP_BOARD'];
+  await closeDealsWorld(db);
+});
 
 test('границы месяца считаются в поясе установки', () => {
   const b = monthBounds('Asia/Almaty', Date.UTC(2026, 9, 31, 20, 0)); // 01.11 01:00 по Алматы
@@ -85,5 +89,14 @@ test('флаг покупок выключен — 404 как на несуще�
     await assert.rejects(listMine(deps, opA), NotFoundError);
   } finally {
     process.env['FEATURE_PURCHASES'] = '1';
+  }
+});
+
+test('«Мои покупки» — часть доски: OP_BOARD выключен при включённом PURCHASES — 404', async () => {
+  process.env['FEATURE_OP_BOARD'] = '0';
+  try {
+    await assert.rejects(listMine(deps, opA), NotFoundError);
+  } finally {
+    process.env['FEATURE_OP_BOARD'] = '1';
   }
 });
