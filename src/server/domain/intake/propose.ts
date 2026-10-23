@@ -3,7 +3,7 @@
 // проверок исчерпан): иначе кнопка стала бы оракулом «номер есть в базе». Подробности видит только РОП.
 import { fields, names, phone as phoneCore } from '@crm/core';
 import { BadRequestError, NotFoundError, type Viewer } from '@/server/access';
-import { resolveLead } from '@/server/domain/cards';
+import { refreshCardDerived, resolveLead } from '@/server/domain/cards';
 import { loadClientsConfig, type ClientsConfig } from '@/server/domain/clients/config';
 import { getDb, newId, type Sql } from '@/server/platform/db';
 import { getActiveConfig } from '@/server/platform/config/active';
@@ -67,6 +67,7 @@ export async function createProposalClient(sql: Sql, cfg: ClientsConfig, p: NewP
   });
   await repo.addPhones(sql, clientId, [{ id: newId(), digits: p.digits, kind: p.phoneKind, ext: p.ext, isPrimary: true }], p.now);
   await repo.insertCard(sql, { id: cardId, spaceId: p.spaceId, clientId, holdReason: '', holdCode: '', now: p.now });
+  await refreshCardDerived({ kind: 'cache', label: 'intake.propose' }, sql, [cardId]);
   const ev = (kind: string, data: Record<string, unknown>) =>
     repo.insertClientEventRow(sql, { id: newId(), clientId, spaceId: p.spaceId, kind, actorId: p.actorId, now: p.now, data });
   await ev('client.created', { sourceKind: 'proposal' });

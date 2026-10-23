@@ -32,6 +32,11 @@ const marks = (bookingId: string) =>
 const bookingStatus = async (id: string) => (await db.sql<{ status: string }>`SELECT status FROM bookings WHERE id = ${id}`)[0]!.status;
 const cardState = async (id: string) => (await db.sql<{ state: string }>`SELECT state FROM cards WHERE id = ${id}`)[0]!.state;
 
+const noShowCache = async (id: string) => {
+  const [r] = await db.sql<{ at: number | null; kind: string }>`SELECT last_no_show_at AS at, last_no_show_kind AS kind FROM cards WHERE id = ${id}`;
+  return { atSet: r!.at !== null, kind: r!.kind };
+};
+
 async function setAutoNoShow(value: number | null): Promise<void> {
   resetConfigCache();
   const docs = worldConfig();
@@ -73,6 +78,7 @@ test('БР чт 29.10: пт 10:00 — задачи дежурному и РОП,
   assert.ok(r2.marked >= 1);
   assert.equal(await bookingStatus(id!), 'no_show');
   assert.equal(await cardState('cd-a-50'), 'callback');
+  assert.deepEqual(await noShowCache('cd-a-50'), { atSet: true, kind: 'group' }, 'кэш неявки пересчитан уже после смены статуса (§5.1)');
   assert.deepEqual((await marks(id!)).map((t) => t.status), ['done', 'done'], 'задачи «Отметьте явку» закрыты');
   const rebook = await db.sql<{ status: string; dueAt: number }>`SELECT status, due_at FROM tasks WHERE source_key = ${`no_show:${id!}`}`;
   assert.deepEqual(rebook.map((t) => [t.status, t.dueAt]), [['open', at('2026-11-03', '10:00')]], 'задача «перезаписать» на следующий рабочий день 10:00');
@@ -137,6 +143,7 @@ test('карточка «Клиент»: по сроку «Не пришёл» �
   await sweep();
   assert.equal(await bookingStatus(id!), 'no_show');
   assert.equal(await cardState('cd-a-54'), 'client', 'карточка не менялась');
+  assert.deepEqual(await noShowCache('cd-a-54'), { atSet: true, kind: 'group' }, 'без события карточки кэш неявки всё равно пересчитан');
   assert.deepEqual((await marks(id!)).map((t) => t.status), ['done', 'done']);
 });
 

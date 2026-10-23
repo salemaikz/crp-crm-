@@ -16,6 +16,7 @@ import {
   type NormalizeResult,
   type Prepared,
 } from './normalize';
+import { refreshCardDerived } from '@/server/domain/cards';
 import * as repo from './repo';
 import { intakeSettings } from './settings';
 import {
@@ -213,7 +214,10 @@ async function createClient(
   await repo.addPhones(sql, id, ordered.map((p, i) => ({ id: newId(), digits: p.digits, kind: p.kind, ext: p.ext, isPrimary: i === 0 })), r.now);
   if (item.contactName) await repo.addContact(sql, newId(), id, item.contactName, r.now);
   await repo.addSource(sql, { id: newId(), clientId: id, sourceKey: r.principal.sourceKey, keyId: r.principal.keyId, externalId: item.externalId, now: r.now });
-  await repo.insertCard(sql, { id: newId(), spaceId: r.principal.spaceId, clientId: id, holdReason: hold.reason, holdCode: hold.code, now: r.now });
+  const cardId = newId();
+  await repo.insertCard(sql, { id: cardId, spaceId: r.principal.spaceId, clientId: id, holdReason: hold.reason, holdCode: hold.code, now: r.now });
+  // Кэш горячести новой карточки: вес состояния «новая» и признаки клиента (§5.4), иначе свежий лид идёт после импортных
+  await refreshCardDerived({ kind: 'cache', label: 'intake.ingest' }, sql, [cardId]);
   if (pairs.length > 0) await repo.insertPairs(sql, id, pairs.map((p) => ({ ...p, rowId: newId() })), r.now);
   return {
     clientId: id,

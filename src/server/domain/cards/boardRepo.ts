@@ -143,6 +143,7 @@ async function agreedKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<Ke
            WHERE b.status IN ('registered','confirmed','attended','no_show')
            ORDER BY b.starts_at DESC, b.id LIMIT 1) bk ON TRUE
        WHERE c.space_id = ${q.spaceId} AND c.state = 'agreed'
+         AND c.hold_reason <> 'merged'
          AND ${scopeSql(viewer, 'card', 'card.read')}
          AND (${f.owner}::text IS NULL OR c.owner_user_id = ${f.owner}::text)
          AND (NOT ${f.today}::boolean OR (c.next_call_at IS NOT NULL AND c.next_call_at < ${q.bounds.tomorrowStart}::bigint))
@@ -171,7 +172,7 @@ async function simpleKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<Ke
                   ELSE 0::bigint END AS k2,
              CASE WHEN ${q.kind}::text = 'new' THEN COALESCE(c.assigned_at, ${KEY_MAX}::bigint) ELSE 0::bigint END AS k3
         FROM cards c
-       WHERE c.space_id = ${q.spaceId} AND c.state = ANY(${[...q.states]}::text[])
+       WHERE c.space_id = ${q.spaceId} AND c.state = ANY(${[...q.states]}::text[]) AND c.hold_reason <> 'merged'
          AND (${q.kind}::text <> 'new' OR (c.hold_reason = '' AND c.owner_user_id IS NOT NULL))
          AND (${q.closedFrom}::bigint IS NULL OR c.closed_at >= ${q.closedFrom}::bigint)
          AND ${scopeSql(viewer, 'card', 'card.read')}

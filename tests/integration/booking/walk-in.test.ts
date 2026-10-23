@@ -1,11 +1,14 @@
 // Гость без записи (B4, §2.6, D-241): найден / новый, повторы, счётчик проверок номера, стоп-лист, вместимость.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { calling } from '@crm/core';
 import { BadRequestError } from '../../../src/server/access';
 import type { Viewer } from '../../../src/server/access/types';
 import { BookingDomainError } from '../../../src/server/domain/booking/errors';
 import { registerWalkIn } from '../../../src/server/domain/booking/walkIn';
 import type { BookingDeps } from '../../../src/server/domain/booking/types';
+import { cardBookingPort } from '../../../src/server/domain/cards/bookingPort';
+import { loadBoardSettings } from '../../../src/server/domain/cards/boardSettings';
 import { phoneHmac } from '../../../src/server/platform/hmac';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { U, SPACE, phoneOf } from '../../isolation/harness/seed';
@@ -247,4 +250,20 @@ test('мероприятие не сегодня: РОП — walk_in_closed, д�
   await assert.rejects(registerWalkIn(deps, opA, guest('ev-w', dialA(40))), failsWith('event_not_found'));
   await assert.rejects(registerWalkIn(deps, duty, guest('ev-w', '12345')), (e: unknown) => e instanceof BadRequestError);
   await assert.rejects(registerWalkIn(deps, duty, guest('ev-w', dialA(40), { name: '  ' })), (e: unknown) => e instanceof BadRequestError);
+});
+
+test('не найден: кэш новой карточки пересчитан (явка гостя в признаках, heat = heatOf), а не значения по умолчанию', async () => {
+  const realDeps: BookingDeps = { ...deps, cards: { ...port, refreshDerived: cardBookingPort.refreshDerived } };
+  const input = guest('ev-w', '+7 709 123 45 77');
+  await registerWalkIn(realDeps, duty, input);
+  const bookingId = await attemptBooking(input.requestId);
+  const b = await bookingOf(bookingId!);
+  const [card] = await db.sql<{ heat: number; attendedGroupAt: number | null }>`SELECT heat, attended_group_at FROM cards WHERE client_id = ${b.clientId}`;
+  assert.notEqual(card!.attendedGroupAt, null, 'явка гостя на групповое учтена в кэше');
+  const w = (await loadBoardSettings(SPACE)).heat;
+  const expected = calling.heatOf(
+    { state: 'new', callbackReason: '', lpr: 'unknown', attendedGroupAt: card!.attendedGroupAt, attendedIndividualAt: null, lastNoShowAt: null, purchasesTotal: 0, nextCallAt: null, nextCallPrecision: 'time' } as never,
+    w,
+  );
+  assert.equal(card!.heat, expected);
 });

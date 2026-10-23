@@ -249,3 +249,13 @@ test('«Новые»: горячесть → мобильные раньше →
   const wide = column(await getBoard(rop, { owner: U.opA }), 'new').cards.map((c) => c.id).filter((i) => i.startsWith('nw-'));
   assert.deepEqual(wide, ['nw-land-early', 'nw-mob-early', 'nw-mob-late', 'nw-cold']);
 });
+
+test('выведенные слиянием карточки (hold_reason = merged) не попадают ни в одну колонку доски', async () => {
+  await addCard(db.sql, { id: 'mg-buy', owner: null, state: 'client', holdReason: 'merged', lastPurchaseAt: SEED_NOW, purchasesTotal: 1 }, 900);
+  await addCard(db.sql, { id: 'mg-trash', owner: null, state: 'not_interested', holdReason: 'merged', closedAt: SEED_NOW - HOUR }, 901);
+  await addCard(db.sql, { id: 'mg-agreed', owner: null, state: 'agreed', holdReason: 'merged' }, 902);
+  const b = await getBoard(rop, {});
+  const ids: string[] = [];
+  for (const col of b.columns) ids.push(...(await drain(rop, col.key, col)).map((c) => c.id));
+  assert.deepEqual(ids.filter((id) => id.startsWith('mg-')), [], 'слитые карточки на доске не видны');
+});

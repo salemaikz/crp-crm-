@@ -58,6 +58,15 @@ test('state-change пишет callback_reason и callback_touches в том же
   assert.deepEqual(bad, []);
 });
 
+test('insert-refreshed: каждый вызывающий пересчитывает кэш новой карточки (heat не 0 у свежего лида)', () => {
+  const entries = Object.entries(CARDS_WRITERS).filter(([, w]) => w.category === 'insert-refreshed');
+  assert.ok(entries.length >= 2);
+  for (const [key, w] of entries) {
+    assert.ok((w.refreshIn ?? []).length > 0, `${key}: укажите файлы вызывающих`);
+    for (const f of w.refreshIn ?? []) assert.match(readFileSync(f, 'utf8'), /refreshCardDerived\(|refreshDerived\??\.?\(/, `${f}: нет пересчёта кэша после вставки`);
+  }
+});
+
 test('детектор: новый UPDATE cards без записи и state-change без цикла ловятся', () => {
   const files = ['x/a.ts'];
   const src = [

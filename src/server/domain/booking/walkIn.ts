@@ -293,6 +293,8 @@ async function newGuest(c: Ctx): Promise<WalkInResult> {
     at: now,
   });
   if (!row) throw new BookingDomainError('request_reused');
+  // Кэш новой карточки (§5.4): вес состояния «новая» и явка гостя, уже записанная выше
+  await c.deps.cards.refreshDerived?.(tx, viewer, { spaceId: c.spaceId, clientId });
   await reviewTask(c, `walk_in_new:${clientId}`, { clientId, ownerUserId: null });
   return finish(c, { bookingId, walkIn: 'new', ambiguous: false, created: true, event: ev, clientId, dealId: null, cardCode: null });
 }

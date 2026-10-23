@@ -120,6 +120,8 @@ async function sweepOne(deps: BookingDeps, actor: SystemActor, a: { bookingId: s
       at: now,
       data: { bookingId: b.id, from: b.status, to: 'no_show', reason: 'auto' },
     });
+    // Событие карточки шло до смены статуса и читало запись ещё не «неявкой»: кэш признаков пересчитываем после (§5.1)
+    await deps.cards.refreshDerived?.(tx, actor, { spaceId: b.spaceId, clientId: b.clientId });
     return 'marked';
   });
 }

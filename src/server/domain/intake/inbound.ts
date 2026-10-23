@@ -7,6 +7,7 @@ import { newId, type Sql } from '@/server/platform/db';
 import { phoneHmac } from '@/server/platform/hmac';
 import { formatKzPhone } from '@/shared/tel';
 import { assignInbound } from '../distribution';
+import { refreshCardDerived } from '@/server/domain/cards';
 import * as repo from './repo';
 
 /** Предел новых клиентов из мессенджера в сутки (INTEGRATIONS §3.2 п. 6): защита от залива при утечке адреса вебхука. */
@@ -78,6 +79,7 @@ export async function createInboundClient(
   await repo.addPhones(tx, clientId, [{ id: newId(), digits: input.digits, kind: parsed?.kind ?? 'unknown', ext: '', isPrimary: true }], ctx.now);
   await repo.addSource(tx, { id: newId(), clientId, sourceKey: ctx.sourceKey, keyId: null, externalId: null, now: ctx.now, sourceKind: 'messenger' });
   await repo.insertCard(tx, { id: cardId, spaceId: ctx.spaceId, clientId, holdReason: '', holdCode: '', now: ctx.now });
+  await refreshCardDerived(actor, tx, [cardId]);
   await repo.insertClientEventRow(tx, { id: newId(), clientId, spaceId: ctx.spaceId, kind: 'client.created', actorId: null, now: ctx.now, data: { sourceKind: 'messenger' } });
   await repo.insertClientEventRow(tx, { id: newId(), clientId, spaceId: ctx.spaceId, kind: 'card.created', actorId: null, now: ctx.now, data: { sourceKey: ctx.sourceKey } });
 

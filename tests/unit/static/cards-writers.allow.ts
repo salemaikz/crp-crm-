@@ -1,11 +1,13 @@
 // Список всех писателей `cards` в src/server/** (pipeline-v2 §5.4). Ключ — «файл::функция» (ближайшее объявление
 // верхнего уровня перед выражением). Новый UPDATE/INSERT без записи здесь роняет cards-writers.test.ts.
-export type WriterCategory = 'persist' | 'custom-only' | 'owner-only' | 'hold-only' | 'insert-defaults' | 'state-change' | 'derived-cache';
+export type WriterCategory = 'persist' | 'custom-only' | 'owner-only' | 'hold-only' | 'insert-defaults' | 'insert-refreshed' | 'state-change' | 'derived-cache';
 
 export interface WriterEntry {
   category: WriterCategory;
   /** Почему допустимо; для state-change — как сбрасывается цикл. */
   note: string;
+  /** Для insert-refreshed: файлы вызывающих, обязанные пересчитать кэш после вставки. */
+  refreshIn?: readonly string[];
 }
 
 const D = 'src/server/domain';
@@ -26,6 +28,14 @@ export const CARDS_WRITERS: Record<string, WriterEntry> = {
   [`${D}/intake/mergeRepo.ts::retireLoserCard`]: { category: 'state-change', note: 'возврат проигравшей в пул: цикл сброшен (W1); кэш пересчитывает merge.ts в той же транзакции' },
   [`${D}/intake/mergeRepo.ts::moveLoserCard`]: { category: 'owner-only', note: 'client_id; кэш пересчитывает merge.ts в той же транзакции' },
   [`${D}/intake/mergeRepo.ts::releaseDupPairHolds`]: { category: 'hold-only', note: 'только hold_reason' },
-  [`${D}/intake/repo.ts::insertCard`]: { category: 'insert-defaults', note: 'новая карточка, значения по умолчанию' },
-  [`${D}/booking/repo.ts::insertWalkInCard`]: { category: 'insert-defaults', note: 'новая карточка, значения по умолчанию' },
+  [`${D}/intake/repo.ts::insertCard`]: {
+    category: 'insert-refreshed',
+    note: 'новая карточка: heat — вес состояния new и признаки клиента, значения по умолчанию неверны; кэш пересчитывает вызывающий в той же транзакции',
+    refreshIn: [`${D}/intake/ingest.ts`, `${D}/intake/inbound.ts`, `${D}/intake/propose.ts`],
+  },
+  [`${D}/booking/repo.ts::insertWalkInCard`]: {
+    category: 'insert-refreshed',
+    note: 'карточка гостя: кэш пересчитывает walkIn.ts после записи явки в той же транзакции',
+    refreshIn: [`${D}/booking/walkIn.ts`],
+  },
 };

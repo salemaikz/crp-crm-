@@ -524,7 +524,7 @@ P8, не растит просрочку в сводке и в задачах с
   `no_show` и обратно, при любом состоянии карточки, через порт (B1, этап В);
 - `deals/purchase.ts` — покупка и отмена покупки, через порт (B1, этап В);
 - обходные SQL-пути (§5.4) — W2, этап Б;
-- задание `calling.heat-recompute` — после смены ревизии настроек с другими весами и
+- задание `calling-heat-recompute` — после смены ревизии настроек с другими весами и
   после установки новой версии, пачками по 1000 (C5).
 
 До B1 (этап В) отметка явки у карточки не в `agreed` обновляет признаки только при
@@ -576,16 +576,17 @@ P8, не растит просрочку в сводке и в задачах с
 | `intake/mergeRepo.ts:224` | возврат в пул (`owner = NULL`, `next_call_at = NULL`) | сброс цикла, если состояние становится `new`; пересчёт | W1, W2 |
 | `intake/mergeRepo.ts:231` | `client_id` (слияние клиентов) | `refreshCardDerived`: записи и сделки теперь другого клиента | W2 |
 | `intake/mergeRepo.ts:285` | `hold_reason` | ничего | — |
-| `intake/repo.ts:360`, `booking/repo.ts:1058` (вставка) | новая карточка | ничего: значения по умолчанию верны | — |
+| `intake/repo.ts` (`insertCard`), `booking/repo.ts` (`insertWalkInCard`) (вставка) | новая карточка | `refreshCardDerived` в той же транзакции: у `new` heat = вес состояния + признаки клиента, значения по умолчанию (0) неверны; делают ingest, входящее из мессенджера, «Предложить контакт», гость без записи | C5 (Б), исправлено ревью |
 
 Статический тест `tests/unit/static/cards-writers.test.ts` (W1): находит каждый
 `UPDATE cards` и `INSERT INTO cards` в `src/server/**` и требует запись в списке
 `tests/unit/static/cards-writers.allow.ts` с категорией: `persist`, `custom-only`,
-`owner-only`, `hold-only`, `insert-defaults` или `state-change`. Для `state-change` тот же
+`owner-only`, `hold-only`, `insert-defaults`, `insert-refreshed` (вызывающие файлы обязаны
+пересчитать кэш) или `state-change`. Для `state-change` тот же
 `UPDATE` обязан писать `callback_reason` и `callback_touches` по правилу состояния (W1), а
 функция — вызывать `refreshCardDerived` (W2; до W2 запись в списке помечена «ждёт W2»).
 Новый путь без записи в списке роняет CI. После каждого импорта (`import/apply`) задание
-`calling.heat-recompute` ставится на клиентов пачки, если прямой пересчёт в транзакции
+`calling-heat-recompute` ставится на клиентов пачки, если прямой пересчёт в транзакции
 дорог (решает W2 по замеру на 20 000 строк).
 
 **Отвергли** CHECK «вне `retry`/`callback` причина пуста». После отката на 0.9.0 старый
@@ -713,7 +714,7 @@ ALTER TABLE calls ADD CONSTRAINT calls_via_check
 ```
 
 Заполнение кэша для существующих строк делает не миграция, а
-`crmctl job calling-derived-backfill` (C5, идемпотентное, тот же `refreshCardDerived`,
+`crmctl calling-derived-backfill` (C5, идемпотентное, тот же `refreshCardDerived`,
 без смены `version`). Так в SQL нет второй копии правил. До заполнения признаки пустые:
 это безопасно, теряется только горячесть. При откате на 0.9.0 итоги `board` старый отчёт
 посчитает дозвонами — это допустимо и пишется в примечание к выпуску.

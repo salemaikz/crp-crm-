@@ -125,6 +125,8 @@ export const markRestNoShow: MarkRestNoShow = async (deps, viewer, input) => {
         const other = await hasOtherFutureBooking(tx, { spaceId: b.spaceId, clientId: b.clientId, excludeId: b.id, now });
         cardCode = await noteCardEvent(deps, tx, viewer, card, { type: 'no_show', opId: newId(), bookingId: b.id, facts: { hasOtherFutureBooking: other } }, now);
       }
+      // Карточка не в «Договорились» события не получает, а agreed считал кэш до записи истории: пересчёт по клиенту (§5.1)
+      await deps.cards.refreshDerived?.(tx, viewer, { spaceId: b.spaceId, clientId: b.clientId });
       await insertHistory(tx, {
         bookingId: b.id,
         action: 'status',

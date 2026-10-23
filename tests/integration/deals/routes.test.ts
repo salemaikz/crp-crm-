@@ -106,6 +106,20 @@ test('правка: смена услуги — 409 service_type_locked; эта�
   assert.deepEqual([cancel.status, cancel.json.detail], [409, 'deal_not_won']);
 });
 
+/** Суммы 777 000 и 778 000 в любом виде: «777000», «777 000 ₸», «777,000», «777.000»; границы — не цифра и не буква (uuid, метки времени). */
+const FORMATTED_SUM = /(?<![0-9a-zA-Z])77[78][\s\u00a0\u202f,.]?000(?![0-9])/;
+/** Числа и строки под ключами с суммой (amount*, *Kzt) и форматированные суммы в любой строке или числе. */
+function moneyLeaks(node: unknown, path = ''): string[] {
+  if (node === null || node === undefined) return [];
+  if (Array.isArray(node)) return node.flatMap((v, i) => moneyLeaks(v, `${path}[${i}]`));
+  if (typeof node === 'object') {
+    return Object.entries(node as Record<string, unknown>).flatMap(([k, v]) =>
+      (/amount|kzt/i.test(k) && (typeof v === 'number' || typeof v === 'string') ? [`${path}.${k}`] : []).concat(moneyLeaks(v, `${path}.${k}`)),
+    );
+  }
+  return FORMATTED_SUM.test(String(node)) ? [path] : [];
+}
+
 test('изоляция: глава отдела видит сделку передачи без суммы и денежных полей истории; другая сделка клиента — 404', async () => {
   await db.sql`UPDATE cards SET state = 'agreed' WHERE id = 'cd-b-70'`;
   await seedDeal(db.sql, { id: 'dl-r70', client: 'cl-b-70', card: 'cd-b-70', stage: 'offer', owner: U.opB });
@@ -118,7 +132,7 @@ test('изоляция: глава отдела видит сделку пере
   const v = (await db.sql<{ version: number }>`SELECT version FROM deals WHERE id = 'dl-r70'`)[0]!.version;
   assert.equal((await call(editRoute.PATCH, 'PATCH', { as: U.rop, id: 'dl-r70', body: { opId: uuid(), version: v, amountKzt: 778_000 } })).status, 200);
 
-  const money = /amountKzt|fromAmount|toAmount|\b77[78]000\b/;
+  const money = /amountKzt|fromAmount|toAmount/;
   const head = await call(dealRoute.GET, 'GET', { as: U.mktHead, id: 'dl-r70' });
   assert.equal(head.status, 200);
   const deal = head.json.deal as Record<string, unknown>;
@@ -126,7 +140,7 @@ test('изоляция: глава отдела видит сделку пере
   const history = head.json.history as Array<{ kind: string; data: Record<string, unknown> }>;
   assert.ok(history.some((h) => h.kind === 'deal.won') && history.some((h) => h.kind === 'deal.purchase_edited'));
   for (const h of history) assert.ok(!money.test(JSON.stringify(h.data)), `денежное поле в ${h.kind}`);
-  assert.ok(!/\b77[78]000\b/.test(JSON.stringify(head.json)));
+  assert.deepEqual(moneyLeaks(head.json), [], 'сумма не утекла ни по ключу, ни в форматированном виде');
 
   // другая сделка того же клиента — тот же 404, что у несуществующей
   const other = await call(dealRoute.GET, 'GET', { as: U.mktHead, id: 'dl-r70b' });

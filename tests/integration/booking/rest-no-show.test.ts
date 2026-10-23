@@ -4,11 +4,12 @@ import assert from 'node:assert/strict';
 import type { Viewer } from '../../../src/server/access/types';
 import { markRestNoShow } from '../../../src/server/domain/booking/duty';
 import { markAttendance } from '../../../src/server/domain/booking/bookings';
+import { cardBookingPort } from '../../../src/server/domain/cards/bookingPort';
 import { BookingDomainError } from '../../../src/server/domain/booking/errors';
 import type { BookingDeps } from '../../../src/server/domain/booking/types';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { U } from '../../isolation/harness/seed';
-import { SEED_NOW, SPACE, clientsOf, closeWorld, fakeCardPort, makeDeps, openBookingWorld, seedBookings, seedEvent, uuid, viewerOf } from './helpers';
+import { SEED_NOW, SPACE, clientsOf, closeDutyWorld, fakeCardPort, makeDeps, openDutyWorld, seedBookings, seedEvent, uuid, viewerOf } from './helpers';
 
 let db: TestDb;
 let deps: BookingDeps;
@@ -25,7 +26,7 @@ const statuses = async (ids: string[]) => {
 };
 
 before(async () => {
-  db = await openBookingWorld();
+  db = await openDutyWorld();
   deps = makeDeps(clock, port);
   rop = await viewerOf(U.rop);
   duty = await viewerOf(U.duty);
@@ -36,7 +37,7 @@ before(async () => {
   await seedEvent(db.sql, { id: 'ev-other', date: '2026-10-28', time: '09:30' }); // сегодня, дежурный не назначен
   for (const ev of ['ev-am', 'ev-pm', 'ev-old']) await db.sql`INSERT INTO event_duty (event_id, user_id, created_at) VALUES (${ev}, ${U.duty}, ${SEED_NOW})`;
 });
-after(() => closeWorld(db));
+after(() => closeDutyWorld(db));
 
 async function seedMarkTasks(bookingIds: string[], clients: Array<{ client: string }>): Promise<void> {
   for (const [i, id] of bookingIds.entries()) {
@@ -121,4 +122,16 @@ test('отменённое мероприятие — event_cancelled', async ()
   await seedEvent(db.sql, { id: 'ev-x', date: '2026-10-28', time: '08:00', status: 'cancelled' });
   const ids = await seedBookings(db.sql, 'ev-x', clientsOf('a', 51, 51), { bookedBy: U.opA });
   await assert.rejects(markRestNoShow(deps, rop, { eventId: 'ev-x', opId: uuid(), bookingIds: ids }), failsWith('event_cancelled'));
+});
+
+test('карточка не в «Договорились»: «Остальные не пришли» пересчитывает кэш неявки (§5.1)', async () => {
+  const guests = clientsOf('a', 61, 61);
+  const ids = await seedBookings(db.sql, 'ev-am', guests, { bookedBy: U.opA });
+  await db.sql`UPDATE cards SET state = 'client' WHERE client_id = ${guests[0]!.client}`;
+  const withCache: BookingDeps = { ...deps, cards: { ...port, refreshDerived: cardBookingPort.refreshDerived } };
+  const r = await markRestNoShow(withCache, duty, { eventId: 'ev-am', opId: uuid(), bookingIds: ids });
+  assert.equal(r.marked, 1);
+  const [c] = await db.sql<{ at: number | null; kind: string }>`SELECT last_no_show_at AS at, last_no_show_kind AS kind FROM cards WHERE client_id = ${guests[0]!.client}`;
+  assert.notEqual(c!.at, null);
+  assert.equal(c!.kind, 'group');
 });
