@@ -62,6 +62,8 @@ export default defineConfig({
       // Импорт таблиц и профиль «Записи» (C4, C4b) за флагами; на бою выключены до приёмки
       FEATURE_IMPORT: '1',
       FEATURE_IMPORT_BOOKINGS: '1',
+      // Тёмная тема и переключатель (D-342) за флагом; FEATURE_THEME_DARK=0 проверяет прежнее поведение без флага
+      FEATURE_THEME_DARK: process.env.FEATURE_THEME_DARK || '1',
       // Web-push (P8b): флаг и одноразовые ключи; переключатель и отметку решения клиента спецификация ставит в БД
       FEATURE_PUSH: '1',
       VAPID_PUBLIC_KEY: vapid.publicKey,

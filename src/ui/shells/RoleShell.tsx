@@ -4,6 +4,7 @@ import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import type { Viewer } from '@/server/access';
 import { unreadCount } from '@/server/domain/notify';
+import { loadThemeSwitch } from '@/ui/theme/loadSwitch';
 import { ChannelModesProvider } from '@/ui/channels';
 import { loadChannelModes } from '@/ui/channels/loadModes';
 import { AppShell } from './AppShell';
@@ -23,7 +24,7 @@ type Props = {
 };
 
 export async function RoleShell({ viewer, force, bellCount, children }: Props) {
-  const [t, menu, unread, modes, outboxTtlMs, brand, banner] = await Promise.all([
+  const [t, menu, unread, modes, outboxTtlMs, brand, banner, themeSwitch] = await Promise.all([
     getTranslations('shell'),
     loadMenu(viewer, force),
     bellCount === undefined ? unreadCount(viewer) : Promise.resolve(bellCount),
@@ -32,6 +33,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
     foreignOutboxTtlMs(),
     loadBrand(),
     loadLicenseBanner(viewer),
+    loadThemeSwitch(),
   ]);
   const bannerView = banner
     ? {
@@ -58,6 +60,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
       userId={viewer.userId}
       outboxTtlMs={outboxTtlMs}
       banner={bannerView}
+      themeSwitch={themeSwitch}
     >
       <ChannelModesProvider modes={modes}>{children}</ChannelModesProvider>
     </AppShell>

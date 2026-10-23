@@ -86,7 +86,7 @@ export function AccountForms() {
             {error}
           </p>
         )}
-        {done && <p role="status" className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">{t('done')}</p>}
+        {done && <p role="status" className="rounded-lg bg-success-tint px-3 py-2 text-sm text-success">{t('done')}</p>}
         <button type="submit" className={buttonClass} disabled={busy}>
           {t('save')}
         </button>

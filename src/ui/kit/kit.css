@@ -1221,7 +1221,7 @@
     padding: 6px 6px 6px 16px;
     border-radius: var(--radius-control);
     background: var(--text);
-    color: #fff;
+    color: var(--surface);
     box-shadow: var(--shadow-float);
     pointer-events: auto;
     animation: k-sheet-in 0.18s ease-out;
@@ -1241,7 +1241,7 @@
     border: 0;
     border-radius: var(--radius-control);
     background: transparent;
-    color: #fff;
+    color: var(--surface);
     font: inherit;
     font-weight: 700;
     text-decoration: underline;
@@ -1249,10 +1249,10 @@
     cursor: pointer;
   }
   .k-toast__undo:hover {
-    background: rgb(255 255 255 / 14%);
+    background: color-mix(in srgb, var(--surface) 14%, transparent);
   }
   .k-toast__undo:focus-visible {
-    outline-color: #fff;
+    outline-color: var(--surface);
   }
 
   @media (prefers-reduced-motion: reduce) {

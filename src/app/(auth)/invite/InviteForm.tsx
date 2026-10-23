@@ -93,7 +93,7 @@ export function InviteForm() {
     <>
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold">{t('title', { name: phase.preview.name })}</h1>
-        <p className="text-neutral-600">{t('lead', { phone: phase.preview.phoneMasked })}</p>
+        <p className="text-ink-2">{t('lead', { phone: phase.preview.phoneMasked })}</p>
       </div>
       <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
         <label className="flex flex-col gap-1 text-sm font-medium">
@@ -116,7 +116,7 @@ export function InviteForm() {
             onChange={(e) => setRepeat(e.target.value)}
           />
         </label>
-        <p className="text-sm text-neutral-600">{t('rules')}</p>
+        <p className="text-sm text-ink-2">{t('rules')}</p>
         {error && (
           <p role="alert" className={errorClass}>
             {error}
