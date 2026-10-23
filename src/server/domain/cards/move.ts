@@ -45,9 +45,8 @@ async function reasonNeedsText(viewer: Viewer, group: MoveTarget, code: string):
  */
 export async function moveCard(viewer: Viewer, cardId: string, input: MoveInput): Promise<MenuResult> {
   if (!isFeatureEnabled('OP_BOARD') || viewer.spaceId === null) throw new NotFoundError();
-  // Точность «день» — часть CALLBACK_V2 (§8.3); ручное списание — только при группе reasons.written_off (§8.1)
+  // Точность «день» — часть CALLBACK_V2 (§8.3)
   if (input.callbackPrecision === 'day' && !isFeatureEnabled('CALLBACK_V2')) throw new BadRequestError('precision_unsupported');
-  if (input.to === 'written_off' && !(await hasWriteOffReasons(viewer.spaceId, Date.now()))) throw new BadRequestError('kind');
   const text = input.reasonText?.trim() ?? '';
   const db = await getDb();
   for (let attempt = 1; ; attempt++) {
@@ -57,6 +56,8 @@ export async function moveCard(viewer: Viewer, cardId: string, input: MoveInput)
         const now = Date.now();
         const row = await lockCardScoped(tx, viewer, cardId, 'card.outcome');
         if (!row || row.spaceId !== viewer.spaceId) throw new NotFoundError();
+        // Ручное списание — только при группе reasons.written_off (§8.1); после охвата, чтобы чужая карточка осталась 404
+        if (input.to === 'written_off' && !(await hasWriteOffReasons(row.spaceId, now))) throw new BadRequestError('kind');
         const snap = row.snapshot;
 
         const done = await findMoveOpState(tx, { clientId: snap.clientId, opId: input.opId });

@@ -205,6 +205,10 @@ test('№ 32 и № 33 в «Списан» без группы reasons.written_o
     await assert.rejects(closeCard(op, cardOf('a', 57), { opId: uuid(), version: v, kind: 'written_off', reasonCode: 'zzz', alsoDncPhoneIds: [] }), (e: unknown) => e instanceof BadRequestError && e.detail === 'kind');
     await setCard(db.sql, cardOf('a', 58), { state: 'agreed', owner: U.opA });
     await assert.rejects(moveCard(op, cardOf('a', 58), { opId: uuid(), version: await version(58), to: 'written_off', reasonCode: 'zzz' }), (e: unknown) => e instanceof BadRequestError && e.detail === 'kind');
+    // чужая карточка остаётся 404, а не 400 (чужое = несуществующее)
+    const other = await viewerOf(U.opB);
+    await assert.rejects(closeCard(other, cardOf('a', 57), { opId: uuid(), version: v, kind: 'written_off', reasonCode: 'zzz', alsoDncPhoneIds: [] }), NotFoundError);
+    await assert.rejects(moveCard(other, cardOf('a', 58), { opId: uuid(), version: 0, to: 'written_off', reasonCode: 'zzz' }), NotFoundError);
     assert.deepEqual([(await card(57)).state, (await card(57)).version], ['retry', v]);
     assert.equal((await card(58)).state, 'agreed');
   } finally {

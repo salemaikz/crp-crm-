@@ -171,16 +171,20 @@ export async function archiveReasonLabels(viewer: Viewer): Promise<Record<string
 export async function closeCard(viewer: Viewer, cardId: string, input: CloseInput): Promise<MenuResult> {
   if (input.kind === 'written_off') {
     // Без флага вида нет: как прежняя схема тела (допустимы только два вида)
-    // Нет группы reasons.written_off — ручного списания нет (§8.1): тот же отказ
-    if (!isFeatureEnabled('OP_BOARD') || viewer.spaceId === null || !(await hasWriteOffReasons(viewer.spaceId, Date.now()))) throw new BadRequestError('kind');
+    if (!isFeatureEnabled('OP_BOARD')) throw new BadRequestError('kind');
   } else if (!(await reasonAllowed(viewer, input.kind, input.reasonCode))) {
     throw new BadRequestError('reason_code');
   }
+  // Нет группы reasons.written_off — ручного списания нет (§8.1): тот же 400 kind, но после охвата (чужая карточка — 404)
+  const noWriteOff = input.kind === 'written_off' && (viewer.spaceId === null || !(await hasWriteOffReasons(viewer.spaceId, Date.now())));
   const result = await runCardEvent(
     viewer,
     cardId,
     'card.outcome',
-    () => ({ type: 'close_from_menu', opId: input.opId, seenVersion: input.version, kind: input.kind, reasonCode: input.reasonCode, alsoDncPhoneIds: input.alsoDncPhoneIds }),
+    () => {
+      if (noWriteOff) throw new BadRequestError('kind');
+      return { type: 'close_from_menu', opId: input.opId, seenVersion: input.version, kind: input.kind, reasonCode: input.reasonCode, alsoDncPhoneIds: input.alsoDncPhoneIds };
+    },
     { opId: input.opId },
   );
   return { version: result.card.version, state: result.card.state };
