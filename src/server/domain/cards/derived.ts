@@ -4,7 +4,7 @@
 import { calling } from '@crm/core';
 import type { Sql } from '@/server/platform/db';
 import { loadBoardSettings } from './boardSettings';
-import { selectCardIdsOfClient, selectDerivedSources, writeDerived, type DerivedSource, type DerivedWrite } from './derivedRepo';
+import { lockFreeCards, selectCardIdsOfClient, selectDerivedSources, writeDerived, type DerivedSource, type DerivedWrite } from './derivedRepo';
 import type { DerivedActor } from './types';
 
 /** Горячесть и признаки одной карточки по весам пространства. */
@@ -46,7 +46,9 @@ export interface RefreshOptions {
  */
 export async function refreshCardDerived(actor: DerivedActor, tx: Sql, cardIds: readonly string[], opts: RefreshOptions = {}): Promise<number> {
   if (cardIds.length === 0) return 0;
-  const sources = await selectDerivedSources(actor, tx, [...new Set(cardIds)]);
+  // Пачечный режим: сначала занимаем свободные карточки, потом читаем источник (иначе затрём свежую запись устаревшим)
+  const ids = [...new Set(cardIds)];
+  const sources = await selectDerivedSources(actor, tx, opts.skipLocked === true ? await lockFreeCards(actor, tx, ids) : ids);
   const weights = new Map<string, calling.HeatWeights>();
   const writes: DerivedWrite[] = [];
   for (const src of sources) {
@@ -67,7 +69,7 @@ export async function refreshCardDerived(actor: DerivedActor, tx: Sql, cardIds: 
       c.lastPurchaseAt === next.lastPurchaseAt;
     if (!same) writes.push(next);
   }
-  return writeDerived(actor, tx, writes, { skipLocked: opts.skipLocked === true });
+  return writeDerived(actor, tx, writes, { skipLocked: false });
 }
 
 /** Порт для booking и deals (B1, этап В): пересчёт клиента в пространстве после явки, неявки, покупки и их отмены. */

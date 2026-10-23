@@ -85,6 +85,16 @@ export async function selectDerivedSources(_actor: DerivedActor, tx: Sql, cardId
   return rows.map(toSource);
 }
 
+/**
+ * Занять карточки пачки, не ожидая занятых другой транзакцией (`FOR UPDATE SKIP LOCKED`); возвращает свободные id.
+ * Источник читается только после этого: иначе запись, закоммитившаяся между чтением и блокировкой, была бы затёрта.
+ */
+export async function lockFreeCards(_actor: DerivedActor, tx: Sql, cardIds: readonly string[]): Promise<string[]> {
+  if (cardIds.length === 0) return [];
+  const rows = await tx<{ id: string }>`SELECT id FROM cards WHERE id = ANY(${[...cardIds]}::text[]) ORDER BY id FOR UPDATE SKIP LOCKED`;
+  return rows.map((r) => r.id);
+}
+
 export interface DerivedWrite {
   id: string;
   attendedGroupAt: number | null;
