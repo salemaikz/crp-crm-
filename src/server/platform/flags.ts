@@ -19,6 +19,12 @@ export const FEATURES = [
   // D-295: отчёты за период, их CSV/XLSX и панель директора; настройки продаж в интерфейсе
   'REPORTS',
   'SALES_SETTINGS',
+  // Воронка v2 (docs/pipeline-v2-design.md §8.3): причины и сроки перезвона, точность «день», ввод полей на месте
+  'CALLBACK_V2',
+  // доска оператора и очередь по горячести (D-335, D-338, D-347)
+  'OP_BOARD',
+  // тёмная тема и личный переключатель (D-342)
+  'THEME_DARK',
   'WAZZUP',
   'TELEPHONY_ZADARMA',
   'TELEPHONY_BEELINE',

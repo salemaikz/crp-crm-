@@ -5,7 +5,7 @@ import { FEATURES, isFeatureEnabled } from '../../src/server/platform/flags';
 test('список флагов совпадает с CONFIG §7', () => {
   assert.deepEqual(
     [...FEATURES].sort(),
-    ['BK_WIZARD', 'BULK_TRANSFER', 'IMPORT', 'IMPORT_BOOKINGS', 'KANBAN', 'MERGE', 'PURCHASES', 'PUSH', 'REPORTS', 'REPORTS_EXPORT', 'SALES_SETTINGS', 'TELEPHONY_BEELINE', 'TELEPHONY_ZADARMA', 'WAZZUP'],
+    ['BK_WIZARD', 'BULK_TRANSFER', 'CALLBACK_V2', 'IMPORT', 'IMPORT_BOOKINGS', 'KANBAN', 'MERGE', 'OP_BOARD', 'PURCHASES', 'PUSH', 'REPORTS', 'REPORTS_EXPORT', 'SALES_SETTINGS', 'TELEPHONY_BEELINE', 'TELEPHONY_ZADARMA', 'THEME_DARK', 'WAZZUP'],
   );
 });
 
@@ -28,6 +28,23 @@ test('мусорное значение — выключено, даже вне 
   console.warn = () => {};
   try {
     assert.equal(isFeatureEnabled('MERGE', { NODE_ENV: 'development', FEATURE_MERGE: 'yes' }), false);
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test('флаги воронки v2 (pipeline-v2 §8.3): в бою без явного 1 выключены, мусор — выключен', () => {
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    for (const f of ['CALLBACK_V2', 'OP_BOARD', 'THEME_DARK'] as const) {
+      assert.equal(isFeatureEnabled(f, { NODE_ENV: 'production' }), false, f);
+      assert.equal(isFeatureEnabled(f, {}), false, f);
+      assert.equal(isFeatureEnabled(f, { NODE_ENV: 'production', [`FEATURE_${f}`]: 'on' }), false, f);
+      assert.equal(isFeatureEnabled(f, { NODE_ENV: 'development', [`FEATURE_${f}`]: 'true' }), false, f);
+      assert.equal(isFeatureEnabled(f, { NODE_ENV: 'production', [`FEATURE_${f}`]: '1' }), true, f);
+      assert.equal(isFeatureEnabled(f, { NODE_ENV: 'development', [`FEATURE_${f}`]: '0' }), false, f);
+    }
   } finally {
     console.warn = warn;
   }

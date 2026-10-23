@@ -119,7 +119,9 @@ test('база: DATABASE_URL приоритетнее POSTGRES_URL, параме
 
 test('флаги стенда включены по умолчанию, явный 0 сохраняется; интеграции выключены всегда', () => {
   const e = applied({ FEATURE_KANBAN: '0', FEATURE_WAZZUP: '1' });
-  for (const f of ['REPORTS', 'SALES_SETTINGS', 'BK_WIZARD', 'PURCHASES', 'MERGE', 'BULK_TRANSFER'] as const) assert.equal(isFeatureEnabled(f, e), true, f);
+  for (const f of ['REPORTS', 'SALES_SETTINGS', 'BK_WIZARD', 'PURCHASES', 'MERGE', 'BULK_TRANSFER', 'CALLBACK_V2', 'OP_BOARD', 'THEME_DARK'] as const) assert.equal(isFeatureEnabled(f, e), true, f);
+  // воронка v2: явный 0 на стенде сохраняется (выключить модуль для показа прежнего поведения)
+  assert.equal(isFeatureEnabled('OP_BOARD', applied({ FEATURE_OP_BOARD: '0' })), false);
   assert.equal(isFeatureEnabled('KANBAN', e), false);
   assert.equal(isFeatureEnabled('WAZZUP', e), false);
   assert.equal(isFeatureEnabled('TELEPHONY_ZADARMA', e), false);

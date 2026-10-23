@@ -120,9 +120,16 @@ FEATURE_PURCHASES=1
 FEATURE_KANBAN=1
 FEATURE_MERGE=1
 FEATURE_BULK_TRANSFER=1
+FEATURE_CALLBACK_V2=1
+FEATURE_OP_BOARD=1
+FEATURE_THEME_DARK=1
 FEATURE_WAZZUP=0
 ENVEOF
 fi
+# Флаги, появившиеся после создания demo.env (воронка v2): дописать, не трогая заданные явно
+for f in CALLBACK_V2 OP_BOARD THEME_DARK; do
+  grep -q "^FEATURE_${f}=" "$ENV_FILE" || echo "FEATURE_${f}=1" >> "$ENV_FILE"
+done
 
 set -a
 # shellcheck disable=SC1090

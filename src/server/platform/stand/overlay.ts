@@ -36,7 +36,7 @@ const SECRETS_KEY_LABEL = 'crm/vercel-stand/v1/integration-secrets';
 const HKDF_SALT = 'crm-vercel-stand';
 
 /** Модули, которые на стенде включены, если флаг не задан явно (как scripts/demo/local.sh). */
-export const STAND_FEATURES_ON = ['REPORTS', 'SALES_SETTINGS', 'BK_WIZARD', 'PURCHASES', 'KANBAN', 'MERGE', 'BULK_TRANSFER'] as const;
+export const STAND_FEATURES_ON = ['REPORTS', 'SALES_SETTINGS', 'BK_WIZARD', 'PURCHASES', 'KANBAN', 'MERGE', 'BULK_TRANSFER', 'CALLBACK_V2', 'OP_BOARD', 'THEME_DARK'] as const;
 /** Интеграции на стенде Vercel выключены всегда: стенд не принимает звонки и сообщения внешних сервисов. */
 export const STAND_FEATURES_OFF = ['WAZZUP', 'TELEPHONY_ZADARMA', 'TELEPHONY_BEELINE'] as const;
 
