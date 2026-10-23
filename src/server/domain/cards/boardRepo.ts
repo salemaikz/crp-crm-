@@ -41,6 +41,12 @@ export interface ColumnSelect {
   /** Только `closed`: нижняя граница `closed_at` (окно `recentDays`); null — без окна. */
   closedFrom: number | null;
   bounds: calling.DueBounds;
+  /**
+   * «Новые»: мобильные раньше (§2.1). Признак считается по номерам клиента строки, поэтому включается только для своих
+   * карточек оператора; охват шире (РОП, директор) сортирует по горячести и выдаче без него: на 90 000 «Новых» пространства
+   * признак стоил бы ~600 мс на страницу (нагрузочный прогон C5).
+   */
+  mobileFirst: boolean;
   cursor: KeyCursor | null;
   /** Сколько ключей вернуть (вызывающий просит limit + 1, чтобы узнать, есть ли «Ещё»). */
   limit: number;
@@ -151,8 +157,9 @@ async function simpleKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<Ke
       SELECT c.id,
              CASE ${q.kind}::text WHEN 'new' THEN -c.heat::bigint WHEN 'client' THEN -COALESCE(c.last_purchase_at, 0)
                                   ELSE -COALESCE(c.closed_at, 0) END AS k1,
-             CASE WHEN ${q.kind}::text = 'new' AND NOT EXISTS (SELECT 1 FROM client_phones p WHERE p.client_id = c.client_id AND p.is_working AND p.kind = 'mobile')
-                  THEN 1::bigint ELSE 0::bigint END AS k2,
+             CASE WHEN ${q.kind}::text = 'new' AND ${q.mobileFirst}::boolean
+                  THEN (CASE WHEN EXISTS (SELECT 1 FROM client_phones p WHERE p.client_id = c.client_id AND p.is_working AND p.kind = 'mobile') THEN 0::bigint ELSE 1::bigint END)
+                  ELSE 0::bigint END AS k2,
              CASE WHEN ${q.kind}::text = 'new' THEN COALESCE(c.assigned_at, ${KEY_MAX}::bigint) ELSE 0::bigint END AS k3
         FROM cards c
        WHERE c.space_id = ${q.spaceId} AND c.state = ANY(${[...q.states]}::text[])

@@ -261,6 +261,7 @@ async function loadColumn(viewer: Viewer, c: Ctx, info: BoardColumnInfo, cursor:
     agreed: agreedOf(c.settings, def),
     closedFrom: kind === 'closed' && def.recentDays !== undefined ? c.now - def.recentDays * DAY_MS : null,
     bounds: c.bounds,
+    mobileFirst: c.access.scope === 'own',
     cursor,
     limit: BOARD_PAGE + 1,
     filters,

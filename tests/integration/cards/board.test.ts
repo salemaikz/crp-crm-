@@ -233,3 +233,19 @@ test('«Бизнес-разбор» и «Консультация»: запис�
   assert.deepEqual(column(b, 'br').cards.map((c) => c.id), ['ag-br-1', 'ag-br-2', 'ag-cancelled', 'ag-none']);
   assert.equal(column(b, 'bk').cards[0]!.event?.type, 'bk');
 });
+
+test('«Новые»: горячесть → мобильные раньше → выдача; у охвата шире своего мобильные не различаются (цена на 300 000)', async () => {
+  const t = SEED_NOW - DAY;
+  const mk = async (id: string, seq: number, heat: number, assignedAt: number, kind: 'mobile' | 'landline') => {
+    await addCard(db.sql, { id, owner: U.opA, state: 'new', heat, assignedAt }, 1000 + seq);
+    await db.sql`UPDATE client_phones SET kind = ${kind} WHERE id = ${`ph-${id}`}`;
+  };
+  await mk('nw-land-early', 1, 220, t, 'landline');
+  await mk('nw-mob-late', 2, 220, t + 5 * HOUR, 'mobile');
+  await mk('nw-mob-early', 3, 220, t + HOUR, 'mobile');
+  await mk('nw-cold', 4, 20, t - HOUR, 'mobile');
+  const mine = column(await getBoard(opA, {}), 'new').cards.map((c) => c.id).filter((i) => i.startsWith('nw-'));
+  assert.deepEqual(mine, ['nw-mob-early', 'nw-mob-late', 'nw-land-early', 'nw-cold']);
+  const wide = column(await getBoard(rop, { owner: U.opA }), 'new').cards.map((c) => c.id).filter((i) => i.startsWith('nw-'));
+  assert.deepEqual(wide, ['nw-land-early', 'nw-mob-early', 'nw-mob-late', 'nw-cold']);
+});
