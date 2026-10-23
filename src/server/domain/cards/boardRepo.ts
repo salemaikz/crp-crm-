@@ -236,6 +236,8 @@ export interface BoardRowDb {
   bookingType: string | null;
   bookingStatus: string | null;
   bookingStartsAt: number | null;
+  bookingId: string | null;
+  bookingVersion: number | null;
 }
 
 /** Строки по id под тем же охватом; порядок — как у `ids`. */
@@ -246,10 +248,10 @@ export async function selectBoardRows(sql: Sql, viewer: Viewer, ids: readonly st
            c.callback_reason, c.callback_touches, c.lpr, c.is_target, c.attended_group_at, c.attended_individual_at,
            c.last_no_show_at, c.last_no_show_kind, c.purchases_total, c.last_purchase_at, c.closed_at, c.close_reason_code,
            c.custom AS card_custom, cl.custom AS client_custom,
-           bk.event_type_key AS booking_type, bk.status AS booking_status, bk.starts_at AS booking_starts_at
+           bk.event_type_key AS booking_type, bk.status AS booking_status, bk.starts_at AS booking_starts_at, bk.id AS booking_id, bk.version AS booking_version
       FROM cards c JOIN clients cl ON cl.id = c.client_id
       LEFT JOIN LATERAL (
-        SELECT b.event_type_key, b.status, b.starts_at
+        SELECT b.id, b.version, b.event_type_key, b.status, b.starts_at
           FROM bookings b JOIN deals d ON d.id = b.deal_id AND d.status = 'open' AND d.card_id = c.id
          WHERE c.state = 'agreed' AND b.status IN ('registered','confirmed','attended','no_show')
          ORDER BY b.starts_at DESC, b.id LIMIT 1) bk ON TRUE

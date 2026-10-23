@@ -232,6 +232,8 @@ test('«Бизнес-разбор» и «Консультация»: запис�
   // br: вид br, а также agreed без подходящей записи (запасная колонка); у «с записью» сперва по дате ↑, без записи — в конце
   assert.deepEqual(column(b, 'br').cards.map((c) => c.id), ['ag-br-1', 'ag-br-2', 'ag-cancelled', 'ag-none']);
   assert.equal(column(b, 'bk').cards[0]!.event?.type, 'bk');
+  // Запись плитки несёт id и версию записи: по ним тумблер «Был на …» и окно № 33 отмечают явку (U2)
+  assert.deepEqual(column(b, 'bk').cards[0]!.event, { type: 'bk', status: 'registered', startsAt: SEED_NOW + 5 * DAY, bookingId: 'bk-ag-bk-1', bookingVersion: 0 });
 });
 
 test('«Новые»: горячесть → мобильные раньше → выдача; у охвата шире своего мобильные не различаются (цена на 300 000)', async () => {

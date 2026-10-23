@@ -63,7 +63,7 @@ export interface BoardCardDto {
   /** Только при `deal.read` с охватом роли: у остальных ключа нет, а не нули. */
   purchases?: { total: number; lastAt: number | null };
   /** Запись открытой сделки (для «Договорились»). */
-  event: { type: string; status: string; startsAt: number } | null;
+  event: { type: string; status: string; startsAt: number; bookingId: string; bookingVersion: number } | null;
   closedAt: number | null;
   closeReasonCode: string;
   values: Record<string, fields.FieldValue>;
@@ -265,7 +265,10 @@ function toDto(viewer: Viewer, c: Ctx, r: BoardRowDb, column: string | null, x: 
       noShow: r.lastNoShowAt !== null && r.lastNoShowAt > lastAttended,
     },
     ...(c.access.purchases ? { purchases: { total: r.purchasesTotal, lastAt: r.lastPurchaseAt } } : {}),
-    event: r.bookingType !== null && r.bookingStatus !== null && r.bookingStartsAt !== null ? { type: r.bookingType, status: r.bookingStatus, startsAt: r.bookingStartsAt } : null,
+    event:
+      r.bookingType !== null && r.bookingStatus !== null && r.bookingStartsAt !== null && r.bookingId !== null && r.bookingVersion !== null
+        ? { type: r.bookingType, status: r.bookingStatus, startsAt: r.bookingStartsAt, bookingId: r.bookingId, bookingVersion: Number(r.bookingVersion) }
+        : null,
     closedAt: r.closedAt,
     closeReasonCode: r.closeReasonCode,
     values: tileValues(c.cfg, viewer, r),
