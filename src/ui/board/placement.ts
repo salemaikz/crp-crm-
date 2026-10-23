@@ -31,6 +31,3 @@ export function applyPlacements(cols: ColumnCards, placements: readonly Placemen
   }
   return out;
 }
-
-/** Сколько карточек в колонке на экране (число в шапке и вкладке): загруженные плюс «Ещё» не считаем — это нижняя граница. */
-export const countOf = (cards: readonly BoardCardDto[], hasMore: boolean): { n: number; more: boolean } => ({ n: cards.length, more: hasMore });

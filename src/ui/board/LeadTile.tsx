@@ -18,9 +18,9 @@ const BADGE_TONE: Record<BadgeId, BadgeTone> = { attendedGroup: 'success', atten
 
 /** Тон плитки → переменные темы (тёмная тема подменяет их сама). */
 function toneStyle(tone: Tone | null): CSSProperties {
-  if (!tone) return { background: 'var(--surface)', borderLeft: '4px solid var(--border-strong)' };
-  if (tone === 'neutral') return { background: 'var(--canvas)', borderLeft: '4px solid var(--border-strong)' };
-  return { background: `var(--${tone}-tint)`, borderLeft: `4px solid var(--${tone})` };
+  if (!tone) return { background: 'var(--surface)', borderLeftColor: 'var(--border-strong)' };
+  if (tone === 'neutral') return { background: 'var(--canvas)', borderLeftColor: 'var(--border-strong)' };
+  return { background: `var(--${tone}-tint)`, borderLeftColor: `var(--${tone})` };
 }
 
 /** «Открыт WhatsApp» в ленту: без ожидания и без влияния на открытие ссылки; офлайн не шлём. */
@@ -105,11 +105,10 @@ export function LeadTile(p: LeadTileProps) {
 
   return (
     <article
-      className="relative flex min-w-0 flex-col gap-2 rounded-[var(--radius-card)] border p-3 select-none"
+      className="relative flex min-w-0 flex-col gap-2 rounded-[var(--radius-card)] border border-l-4 p-3 select-none"
       style={{
-        ...toneStyle(tone),
         borderColor: 'var(--border)',
-        borderLeftColor: tone && tone !== 'neutral' ? `var(--${tone})` : 'var(--border-strong)',
+        ...toneStyle(tone),
         opacity: p.locked ? 0.65 : 1,
         boxShadow: p.highlighted ? '0 0 0 2px var(--ring)' : p.dragging ? '0 0 0 2px var(--brand)' : undefined,
         cursor: p.canMenu && !p.locked ? 'grab' : undefined,

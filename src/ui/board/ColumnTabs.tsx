@@ -1,8 +1,6 @@
 'use client';
 
 // Липкая полоса вкладок колонок на телефоне: подпись и число, прокрутка синхронизирована со свайпом (BoardScreen).
-import { cn } from '@/ui/kit';
-
 export interface TabView {
   key: string;
   title: string;
@@ -25,8 +23,7 @@ export function ColumnTabs({ label, tabs, active, onSelect }: { label: string; t
           type="button"
           role="tab"
           aria-selected={tab.key === active}
-          className={cn('k-chip shrink-0')}
-          aria-pressed={undefined}
+          className="k-chip shrink-0"
           data-active={tab.key === active ? '1' : undefined}
           style={tab.key === active ? { background: 'var(--brand)', color: 'var(--on-brand)', borderColor: 'var(--brand)' } : undefined}
           onClick={() => onSelect(tab.key)}

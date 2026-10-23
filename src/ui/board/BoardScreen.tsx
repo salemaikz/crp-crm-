@@ -201,7 +201,7 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
               <Button variant="secondary" onClick={() => void data.reload()} data-testid="board-retry">
                 {t('state.retry')}
               </Button>
-              <Button href="/call" data-testid="board-offline-call">
+              <Button href="/call" data-testid="offline-call-next">
                 {t('callNext')}
               </Button>
             </div>

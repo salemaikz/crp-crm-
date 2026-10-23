@@ -38,15 +38,20 @@ export function TrashSheet({
   const [lpr, setLpr] = useState<'' | 'yes' | 'no'>('');
   const [note, setNote] = useState('');
 
+  const list = showMore ? [...quick, ...more] : quick;
   const idOf = (c: TrashChoice) => `${c.kind === 'outcome' ? c.outcomeKind : 'written_off'}:${c.reason}`;
   const def: OutcomeButton | null = chosen?.kind === 'outcome' ? (call.outcomes.find((o) => o.kind === chosen.outcomeKind) ?? null) : null;
   // Чего не хватает для итога: ЛПР, текст «Другое» (то же правило, что у шторки «Звонить»)
   const missing = def && chosen ? missingFor(def, trashDraft(def, chosen.reason, lpr, note, false), call) : [];
-  const needsLpr = def !== null && lprNeeded(def, call);
+  // «ЛПР: да/нет» видно сразу, если его требует хоть один итог списка; выбрано списание - не нужно
+  const anyNeedsLpr = list.some((c) => {
+    const d = c.kind === 'outcome' ? call.outcomes.find((o) => o.kind === c.outcomeKind) : undefined;
+    return d !== undefined && lprNeeded(d, call);
+  });
+  const needsLpr = chosen ? def !== null && lprNeeded(def, call) : anyNeedsLpr;
   const needsNote = chosen?.needsText === true;
   const ready = chosen !== null && missing.length === 0 && (!needsNote || note.trim() !== '') && !(chosen.kind === 'write_off' && chosen.blocked);
 
-  const list = showMore ? [...quick, ...more] : quick;
   return (
     <BottomSheet
       open
