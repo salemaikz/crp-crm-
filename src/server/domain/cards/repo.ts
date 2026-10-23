@@ -132,7 +132,8 @@ export interface CallInsert {
   clientId: string;
   userId: string | null;
   ownerUserIdAtCall: string | null;
-  via: calling.CallVia;
+  via: calling.CallVia | 'board';
+  callbackPrecision: calling.CallbackPrecision;
   phoneDigits: string;
   outcomeCode: string;
   outcomeKind: calling.OutcomeKind;
@@ -156,11 +157,11 @@ export async function insertCall(tx: Sql, c: CallInsert): Promise<boolean> {
   const rows = await tx<{ id: string }>`
     INSERT INTO calls (id, space_id, card_id, client_id, user_id, owner_user_id_at_call, direction, via, phone_digits, outcome_code,
                        outcome_kind, reason_code, note, lpr, callback_at, fields_patch, applied, fact_reason, tapped_at, occurred_at,
-                       received_at, duration_sec, duration_source, config_rev)
+                       received_at, duration_sec, duration_source, config_rev, callback_precision)
     VALUES (${c.id}, ${c.spaceId}, ${c.cardId}, ${c.clientId}, ${c.userId}, ${c.ownerUserIdAtCall}, 'out', ${c.via}, ${c.phoneDigits},
             ${c.outcomeCode}, ${c.outcomeKind}, ${c.reasonCode}, ${c.note}, ${c.lpr}, ${c.callbackAt}, ${jsonParam(c.fieldsPatch)},
             ${c.applied}, ${c.factReason}, ${c.tappedAt}, ${c.occurredAt}, ${c.receivedAt}, ${c.durationSec}, ${c.durationSource},
-            ${c.configRev})
+            ${c.configRev}, ${c.callbackPrecision})
     ON CONFLICT (id) DO NOTHING
     RETURNING id`;
   return rows.length === 1;
@@ -177,6 +178,7 @@ export async function updateCardRow(tx: Sql, card: calling.CardSnapshot, beforeV
       closed_at = ${card.closedAt}, assigned_at = ${card.assignedAt}, touched_in_crm = ${card.touchedInCrm},
       calls_total = ${card.callsTotal}, connects_total = ${card.connectsTotal}, no_answer_total = ${card.noAnswerTotal},
       first_connect_at = ${card.firstConnectAt}, last_connect_at = ${card.lastConnectAt}, last_touch_at = ${card.lastTouchAt},
+      callback_reason = ${card.callbackReason}, callback_touches = ${card.callbackTouches}, next_call_precision = ${card.nextCallPrecision},
       version = ${card.version}, updated_at = ${at}
     WHERE id = ${card.id} AND version = ${beforeVersion}
     RETURNING id`;

@@ -74,7 +74,7 @@ export const applyCardEffects: ApplyCardEffects = async (tx, actor, card, effect
         console.warn(`[cards] нет получателя задачи ${e.source}`);
         continue;
       }
-      await ensureAutoTask(tx, actor, { spaceId: card.spaceId, clientId: card.clientId, source: e.source, kind: e.kind, assigneeUserId: assignee, dueAt: e.dueAt, sourceKey: e.sourceKey, at });
+      await ensureAutoTask(tx, actor, { spaceId: card.spaceId, clientId: card.clientId, source: e.source, kind: e.kind, assigneeUserId: assignee, dueAt: e.dueAt, ...(e.duePrecision !== undefined ? { duePrecision: e.duePrecision } : {}), sourceKey: e.sourceKey, at });
     } else if (e.op === 'close') {
       await closeAutoTasks(tx, actor, { spaceId: card.spaceId, clientId: card.clientId, sources: e.sources, at });
     } else if (e.op === 'close_by_key') {

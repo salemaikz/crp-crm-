@@ -3,6 +3,7 @@
 // её числа обновляются (`refresh`), прочитанная не воскрешается. Текст — числа без ПДн.
 import { randomUUID } from 'node:crypto';
 import type { SystemActor } from '@/server/access';
+import { dueBoundsAt } from '@/server/domain/calls/dueBounds';
 import { getDb } from '@/server/platform/db';
 import { notifyDeps } from './deps';
 import { countGreyUnassigned, countUnacceptedHandoffs, insertNotifications, listRecipients, overdueCallbackStats, type NewNotification } from './repo';
@@ -16,7 +17,7 @@ export async function runAlarms(_actor: SystemActor, input: RunInput, deps: Noti
   const db = await getDb();
   return db.tx(async (tx) => {
     const managers = await listRecipients(tx, { spaceId: cfg.spaceId, roles: cfg.managerRoles });
-    const overdue = await overdueCallbackStats(tx, { spaceId: cfg.spaceId, olderThan: input.now - cfg.overdueAlertMinutes * MIN });
+    const overdue = await overdueCallbackStats(tx, { spaceId: cfg.spaceId, bounds: dueBoundsAt(input.now, cfg.overdueAlertMinutes, input.calendar) });
     const handoffs = await countUnacceptedHandoffs(tx, { spaceId: cfg.spaceId, now: input.now });
     const grey = await countGreyUnassigned(tx, { spaceId: cfg.spaceId, now: input.now, createdBefore: input.now - GREY_WAIT_MIN * MIN });
 

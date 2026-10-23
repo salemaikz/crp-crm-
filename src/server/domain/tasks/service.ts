@@ -98,7 +98,7 @@ function toRow(r: TaskDbRow, b: DayBounds): TaskRow {
     source: r.source,
     title: r.title,
     dueAt: r.dueAt,
-    bucket: r.status === 'open' ? bucketOf(r.dueAt, b) : 'none',
+    bucket: r.status === 'open' ? bucketOf(r.dueAt, r.duePrecision, b) : 'none',
     assigneeUserId: r.assigneeUserId,
     assigneeName: r.assigneeName,
     createdBy: r.createdBy,

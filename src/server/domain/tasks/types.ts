@@ -25,6 +25,8 @@ export interface AutoTaskInput {
   /** Уже разрешённый получатель (`{ role: 'lead' }` разрешает cards/effects.ts по D-176). */
   assigneeUserId: string;
   dueAt: number | null;
+  /** `tasks.due_precision`: срок «в течение дня» (проекция перезвона с точностью `day`); нет — `time`. */
+  duePrecision?: 'time' | 'day';
   sourceKey: string;
   at: number;
 }

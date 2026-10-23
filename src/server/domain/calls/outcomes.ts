@@ -1,7 +1,7 @@
 // Итог звонка (docs/calls-design.md §4): идемпотентность по opId, блокировка карточки, `calling.applyOutcome`,
 // запись перехода, «Договорились — записать» одной транзакцией. Охват: чужая и несуществующая карточка — 404.
 import { calling } from '@crm/core';
-import { NotFoundError } from '@/server/access';
+import { NotFoundError, scopeOf } from '@/server/access';
 import { createBooking } from '@/server/domain/booking/bookings';
 import { findBookingByRequestId, toBookingView } from '@/server/domain/booking/repo';
 import { toCoreActor } from '@/server/domain/cards/actor';
@@ -30,12 +30,25 @@ function lprInfoFilled(i: OutcomeRequest['lprInfo']): boolean {
   return i !== null && [i.name, i.phone, i.when].some((x) => x.trim() !== '');
 }
 
-function buildEvent(req: OutcomeRequest, receivedAt: number, wasOwner: boolean, bookingId: string | null): calling.OutcomeEvent {
+/**
+ * Точность срока для ядра. Флаг выключен: `day` — 400 `precision_unsupported`, `time` — прежний итог (без нового
+ * контракта: причина не требуется и не пишется). Флаг включён: как прислал клиент; нет поля — старый контракт (§4.4).
+ */
+function precisionOf(req: OutcomeRequest, callbackV2: boolean): calling.CallbackPrecision | undefined {
+  if (!callbackV2) {
+    if (req.callbackPrecision === 'day') throw new CallsDomainError('precision_unsupported', 'callbackPrecision');
+    return undefined;
+  }
+  return req.callbackPrecision;
+}
+
+function buildEvent(req: OutcomeRequest, receivedAt: number, wasOwner: boolean, bookingId: string | null, precision: calling.CallbackPrecision | undefined): calling.OutcomeEvent {
   return {
     type: 'outcome',
     opId: req.opId,
     outcomeKey: req.outcomeKey,
-    via: req.via,
+    // Канала `board` в ядре нет: для него это обычный итог с устройства, в `calls.via` уходит `board` (persist)
+    via: req.via === 'board' ? 'ui' : req.via,
     occurredAt: req.occurredAt,
     receivedAt,
     phoneId: req.phoneId,
@@ -44,6 +57,7 @@ function buildEvent(req: OutcomeRequest, receivedAt: number, wasOwner: boolean, 
     lpr: req.lpr,
     lprInfoFilled: lprInfoFilled(req.lprInfo),
     callbackAt: req.callbackAt,
+    ...(precision !== undefined ? { callbackPrecision: precision } : {}),
     markTarget: req.markTarget,
     alsoDncPhoneIds: req.alsoDncPhoneIds,
     agreement: req.agreement ? { contactId: req.agreement.contactId, bookingId, agreedDueAt: req.agreement.agreedDueAt } : null,
@@ -80,6 +94,9 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
   // Проверки, не требующие карточки
   const def: OutcomeConfig | undefined = ctx.outcomes.find((o) => o.key === req.outcomeKey);
   if (!def) throw new CallsDomainError('outcome_unknown', 'outcomeKey');
+  const precision = precisionOf(req, ctx.callbackV2);
+  // `board` — только оператор с охватом own и включённой доской; РОП вносит за оператора через `manual_entry`
+  if (req.via === 'board' && (!ctx.opBoard || scopeOf(viewer, 'card.outcome') !== 'own')) throw new CallsDomainError('via_unsupported', 'via');
   assertFieldKeysAllowed(def, req.fields);
   if ((def.kind === 'do_not_call' || def.kind === 'bad_number') && req.phoneId === null) throw new CallsDomainError('phone_required', 'phoneId');
   const fieldsCfg = await loadFieldsConfig(viewer, def, req.fields);
@@ -145,7 +162,7 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
     const run = (bookingId: string | null) =>
       calling.applyOutcome({
         card: row.snapshot,
-        event: buildEvent(req, receivedAt, wasOwner, bookingId),
+        event: buildEvent(req, receivedAt, wasOwner, bookingId, precision),
         actor: coreActor,
         now: receivedAt,
         settings: ctx.settings,
@@ -182,6 +199,7 @@ export const submitOutcome: SubmitOutcome = async (deps, viewer, req) => {
       tappedAt: req.tappedAt,
       durationSec: req.durationSec,
       durationSource: req.durationSec !== null ? 'manual_estimate' : 'none',
+      ...(req.via === 'board' ? { via: 'board' as const } : {}),
     };
     await persistTransition(tx, viewer, { ctx, before: row, result, call: extras, at: receivedAt });
     if (result.status === 'applied' && writes.length > 0) {

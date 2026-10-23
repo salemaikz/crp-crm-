@@ -97,13 +97,15 @@ export interface QueueCountsRow {
   overdue: number;
 }
 
-/** Счётчики по тому же `mine` без `LIMIT`, `exclude` и вкладки. */
-export async function countQueue(sql: Sql, viewer: Viewer, q: { spaceId: string; userId: string; now: number; overdueBefore: number }): Promise<QueueCountsRow> {
+/** Счётчики по тому же `mine` без `LIMIT`, `exclude` и вкладки. Просрочка — одно правило ядра (§4.3), границы посчитаны вызывающим. */
+export async function countQueue(sql: Sql, viewer: Viewer, q: { spaceId: string; userId: string; now: number; bounds: calling.DueBounds }): Promise<QueueCountsRow> {
   const rows = await scoped(sql)<QueueCountsRow>`
     SELECT count(*) FILTER (WHERE c.state = 'callback')::int AS callbacks,
            count(*) FILTER (WHERE c.state = 'retry')::int AS retries,
            count(*) FILTER (WHERE c.state = 'new')::int AS new,
-           count(*) FILTER (WHERE c.state = 'callback' AND c.next_call_at < ${q.overdueBefore})::int AS overdue
+           count(*) FILTER (WHERE c.state = 'callback'
+                             AND ((c.next_call_precision = 'time' AND c.next_call_at <= ${q.bounds.timeBefore}::bigint)
+                                  OR (c.next_call_precision = 'day' AND c.next_call_at < ${q.bounds.dayBefore}::bigint)))::int AS overdue
       FROM cards c
      WHERE c.space_id = ${q.spaceId} AND (c.owner_user_id = ${q.userId} OR c.acting_user_id = ${q.userId})
        AND c.hold_reason = '' AND c.state IN ('new','retry','callback')

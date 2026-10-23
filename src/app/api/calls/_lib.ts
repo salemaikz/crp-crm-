@@ -95,6 +95,7 @@ export const OutcomeBody = z
     lpr: z.enum(['', 'yes', 'no']),
     lprInfo: LprInfo.nullable(),
     callbackAt: ms.nullable(),
+    callbackPrecision: z.enum(['time', 'day']).optional(),
     markTarget: z.boolean(),
     alsoDncPhoneIds: z.array(id).max(10),
     fields: z.record(z.string().max(100), z.unknown()).refine((o) => Object.keys(o).length <= 20, 'too_many_fields'),

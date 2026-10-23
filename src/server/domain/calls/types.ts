@@ -16,8 +16,11 @@ import type { LoadCallingContext, QueueGroup } from '@/server/domain/cards/types
 // Итог
 // ---------------------------------------------------------------------------
 
-/** Каналы итога: с устройства (`ui`, `offline`) и `manual_entry` — РОП вносит за оператора с доски «Обзвон» (D-266). `telephony` — позже. */
-export const OUTCOME_VIAS = ['ui', 'offline', 'manual_entry'] as const;
+/**
+ * Каналы итога: с устройства (`ui`, `offline`), `manual_entry` — РОП вносит за оператора с доски «Обзвон» (D-266), `board` —
+ * оператор переносит плитку без звонка (pipeline-v2 §3.2; только охват own и флаг `OP_BOARD`). `telephony` — позже.
+ */
+export const OUTCOME_VIAS = ['ui', 'offline', 'manual_entry', 'board'] as const;
 export type OutcomeVia = (typeof OUTCOME_VIAS)[number];
 
 export interface LprInfo {
@@ -56,6 +59,11 @@ export interface OutcomeRequest {
   lpr: calling.Lpr;
   lprInfo: LprInfo | null;
   callbackAt: number | null;
+  /**
+   * Точность срока. Есть — новый контракт (причина по `reasons.callback`, касание считается); `day` принимается только при
+   * `CALLBACK_V2`. Нет — старое устройство: причина необязательна, точность `time` (pipeline-v2 §4.4).
+   */
+  callbackPrecision?: calling.CallbackPrecision;
   markTarget: boolean;
   alsoDncPhoneIds: string[];
   /** Только ключи `requires.fields[]` итога; иначе 400 `field_not_allowed`. */
@@ -241,7 +249,7 @@ export type RecordDeviceStatus = (viewer: Viewer, report: DeviceReport, now: num
 // ---------------------------------------------------------------------------
 
 /** `fields` — значения `requires.fields[]` не прошли движок полей K2 (подробности — в `field`). */
-export const CALLS_DOMAIN_ERRORS = ['field_not_allowed', 'fields', 'phone_not_on_card', 'invalid_settings', 'opid_reused'] as const;
+export const CALLS_DOMAIN_ERRORS = ['field_not_allowed', 'fields', 'phone_not_on_card', 'invalid_settings', 'opid_reused', 'precision_unsupported', 'via_unsupported'] as const;
 export type CallsErrorCode = calling.RejectCode | (typeof CALLS_DOMAIN_ERRORS)[number];
 
 export interface CallsFailure {

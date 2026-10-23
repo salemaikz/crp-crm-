@@ -1,6 +1,7 @@
 // Весь SQL сводки РОП (PROCESS §10). Каждый запрос — один проход по индексам схемы v1 с группировкой по оператору,
 // без запросов на каждого сотрудника. Данные клиентов читаются через scopeSql; список сотрудников, расход лимита,
 // пропуски и статус устройств — служебные чтения пространства по id сотрудников (в ответ идут только счётчики).
+import type { calling } from '@crm/core';
 import { scopeSql, scoped } from '@/server/access/scope';
 import type { Viewer } from '@/server/access';
 import type { Sql } from '@/server/platform/db';
@@ -90,12 +91,13 @@ export async function selectSkips(sql: Sql, a: { spaceId: string; day: string; u
 }
 
 /** Просроченные перезвоны по владельцу (временный владелец считается владельцем; индекс cards_queue_idx). */
-export async function selectOverdueCallbacks(viewer: Viewer, sql: Sql, a: { spaceId: string; before: number }): Promise<{ userId: string; n: number }[]> {
+export async function selectOverdueCallbacks(viewer: Viewer, sql: Sql, a: { spaceId: string; bounds: calling.DueBounds }): Promise<{ userId: string; n: number }[]> {
   return scoped(sql)<{ userId: string; n: number }>`
     SELECT COALESCE(c.acting_user_id, c.owner_user_id) AS user_id, count(*)::int AS n
       FROM cards c
      WHERE c.space_id = ${a.spaceId} AND c.owner_user_id IS NOT NULL AND c.state = 'callback' AND c.hold_reason = ''
-       AND c.next_call_at < ${a.before}::bigint
+       AND ((c.next_call_precision = 'time' AND c.next_call_at <= ${a.bounds.timeBefore}::bigint)
+            OR (c.next_call_precision = 'day' AND c.next_call_at < ${a.bounds.dayBefore}::bigint))
        AND ${scopeSql(viewer, 'card', 'card.read')}
      GROUP BY 1`;
 }

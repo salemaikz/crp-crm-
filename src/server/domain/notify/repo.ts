@@ -1,6 +1,7 @@
 // Весь SQL уведомлений. Колокол личный: каждое чтение и изменение строк пользователя фильтруется по `user_id`,
 // который сервис берёт из Viewer (а не из запроса) — чужое не прочитать и не отметить. Сводки и тревоги читают
 // агрегаты по пространству (служебные чтения: наружу идут только числа и id получателей, без охвата).
+import type { calling } from '@crm/core';
 import type { Sql } from '@/server/platform/db';
 import type { NotificationView } from './types';
 
@@ -99,12 +100,12 @@ export async function listRecipients(sql: Sql, a: { spaceId: string; roles: read
   return rows.map((r) => r.userId);
 }
 
-/** Перезвоны со сроком до `before` (включая просроченные) по текущим владельцам (временный владелец — владелец). */
-export async function countCallbacksDue(sql: Sql, a: { spaceId: string; userIds: readonly string[]; before: number }): Promise<Map<string, number>> {
+/** Перезвоны на сегодня и просроченные (срок раньше начала завтрашних суток) по текущим владельцам (временный владелец — владелец). */
+export async function countCallbacksDue(sql: Sql, a: { spaceId: string; userIds: readonly string[]; bounds: calling.DueBounds }): Promise<Map<string, number>> {
   const rows = await sql<{ userId: string; n: number }>`
     SELECT COALESCE(c.acting_user_id, c.owner_user_id) AS user_id, count(*)::int AS n
       FROM cards c
-     WHERE c.space_id = ${a.spaceId} AND c.state = 'callback' AND c.hold_reason = '' AND c.next_call_at < ${a.before}::bigint
+     WHERE c.space_id = ${a.spaceId} AND c.state = 'callback' AND c.hold_reason = '' AND c.next_call_at < ${a.bounds.tomorrowStart}::bigint
        AND COALESCE(c.acting_user_id, c.owner_user_id) = ANY(${[...a.userIds]}::text[])
      GROUP BY 1`;
   return new Map(rows.map((r) => [r.userId, r.n]));
@@ -121,13 +122,18 @@ export async function countBookingsOnDay(sql: Sql, a: { spaceId: string; userIds
   return new Map(rows.map((r) => [r.userId, r.n]));
 }
 
-/** Просроченные перезвоны по карточкам (D-050): срок раньше `olderThan`. Сколько карточек и у скольких владельцев. */
-export async function overdueCallbackStats(sql: Sql, a: { spaceId: string; olderThan: number }): Promise<{ count: number; operators: number }> {
+/**
+ * Просроченные перезвоны по карточкам (D-050), одно правило ядра (§4.3): «время» — срок не позже `timeBefore`, «день» —
+ * раньше начала сегодняшних суток. Сколько карточек и у скольких владельцев.
+ */
+export async function overdueCallbackStats(sql: Sql, a: { spaceId: string; bounds: calling.DueBounds }): Promise<{ count: number; operators: number }> {
   const [row] = await sql<{ count: number; operators: number }>`
     SELECT count(*)::int AS count, count(DISTINCT COALESCE(c.acting_user_id, c.owner_user_id))::int AS operators
       FROM cards c
      WHERE c.space_id = ${a.spaceId} AND c.state = 'callback' AND c.hold_reason = ''
-       AND c.next_call_at <= ${a.olderThan}::bigint AND COALESCE(c.acting_user_id, c.owner_user_id) IS NOT NULL`;
+       AND ((c.next_call_precision = 'time' AND c.next_call_at <= ${a.bounds.timeBefore}::bigint)
+            OR (c.next_call_precision = 'day' AND c.next_call_at < ${a.bounds.dayBefore}::bigint))
+       AND COALESCE(c.acting_user_id, c.owner_user_id) IS NOT NULL`;
   return { count: row?.count ?? 0, operators: row?.operators ?? 0 };
 }
 

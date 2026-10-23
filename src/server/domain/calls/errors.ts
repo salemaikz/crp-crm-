@@ -17,6 +17,9 @@ export const BAD_REQUEST_CODES: ReadonlySet<CallsErrorCode> = new Set<CallsError
   'field_not_allowed',
   'phone_not_on_card',
   'fields',
+  'reason_unknown',
+  'precision_unsupported',
+  'via_unsupported',
 ]);
 
 /** Коды «не найдено»: ответ байт в байт как у несуществующего (D-017). */

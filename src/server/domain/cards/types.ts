@@ -37,7 +37,11 @@ export interface CallingContext {
   calendar: time.WorkCalendar;
   /** Справочник итогов в порядке `order` (для шторки и проверки `requires.fields`). */
   outcomes: readonly OutcomeConfig[];
-  queue: { order: readonly QueueGroup[]; mobileFirst: boolean; skipLimit: number };
+  queue: { order: readonly QueueGroup[]; mobileFirst: boolean; skipLimit: number; sort: 'groups' | 'heat' };
+  /** `CALLBACK_V2` включён: принимается точность «день» (иначе 400 `precision_unsupported`). */
+  callbackV2: boolean;
+  /** `OP_BOARD` включён: принимается канал итога `board` (оператор переносит плитку без звонка). */
+  opBoard: boolean;
   /** `tasks.overdueAlertMinutes`: перезвон «просрочен» в счётчике очереди. */
   overdueAlertMinutes: number;
 }
@@ -93,6 +97,8 @@ export interface CallExtras {
   tappedAt: number | null;
   durationSec: number | null;
   durationSource: 'none' | 'manual_estimate';
+  /** Канал, которого нет в ядре: `board` записывается вместо `ui` (ядро видит оператора за экраном). */
+  via?: 'board';
 }
 
 export interface PersistInput {

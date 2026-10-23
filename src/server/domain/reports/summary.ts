@@ -4,6 +4,7 @@ import { calling, time } from '@crm/core';
 import { scopeOf } from '@/server/access';
 import { getPool } from '@/server/domain/distribution';
 import { getDb } from '@/server/platform/db';
+import { dueBoundsAt } from '@/server/domain/calls/dueBounds';
 import { requireSpaceReports } from './access';
 import { buildOperatorRows, roomToday } from './compose';
 import { reportsDeps } from './deps';
@@ -21,7 +22,6 @@ import {
 } from './repo';
 import type { BookingDayTile, GetSummary, Summary } from './types';
 
-const MIN_MS = 60_000;
 const NO_BOOKINGS: BookingDayTile = { total: 0, confirmed: 0 };
 
 export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
@@ -34,7 +34,8 @@ export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
   const tomorrow = time.addLocalDays(day, 1);
   const from = time.fromLocalTime(day, '00:00', timeZone);
   const to = time.fromLocalTime(tomorrow, '00:00', timeZone);
-  const overdueBefore = now - cfg.overdueAlertMinutes * MIN_MS;
+  // Одно правило просрочки ядра (§4.3): границы считаются один раз
+  const bounds = dueBoundsAt(now, cfg.overdueAlertMinutes, calendar);
   const db = await getDb();
   const sql = db.sql;
 
@@ -46,7 +47,7 @@ export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
     selectCallStats(viewer, sql, { spaceId, from, to, timeZone, connectedKinds: calling.CONNECTED_KINDS }),
     selectBookingsCreated(viewer, sql, { spaceId, from, to }),
     selectSkips(sql, { spaceId, day, userIds }),
-    selectOverdueCallbacks(viewer, sql, { spaceId, before: overdueBefore }),
+    selectOverdueCallbacks(viewer, sql, { spaceId, bounds }),
     selectDeviceStatus(sql, { userIds }),
     selectBookingDays(viewer, sql, { spaceId, days: [day, tomorrow] }),
     countGreyBookings(viewer, sql, { spaceId, fromDay: day }),

@@ -11,9 +11,9 @@ export const ensureAutoTask: EnsureAutoTask = async (tx, actor, input) => {
   const id = newId();
   // title пустой: подпись строит интерфейс по source и kind (в задаче нет ни ПДн, ни строк в коде)
   const rows = await tx<{ id: string }>`
-    INSERT INTO tasks (id, space_id, client_id, deal_id, kind, source, title, due_at, assignee_user_id, status, source_key, created_by, created_at)
+    INSERT INTO tasks (id, space_id, client_id, deal_id, kind, source, title, due_at, assignee_user_id, status, source_key, created_by, created_at, due_precision)
     VALUES (${id}, ${input.spaceId}, ${input.clientId}, ${input.dealId ?? null}, ${input.kind}, ${input.source}, '', ${input.dueAt},
-            ${input.assigneeUserId}, 'open', ${input.sourceKey}, ${actorId(actor)}, ${input.at})
+            ${input.assigneeUserId}, 'open', ${input.sourceKey}, ${actorId(actor)}, ${input.at}, ${input.duePrecision ?? 'time'})
     ON CONFLICT (source_key) WHERE source_key IS NOT NULL AND status = 'open' DO NOTHING
     RETURNING id`;
   if (rows[0]) return { id: rows[0].id, created: true };

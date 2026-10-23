@@ -18,6 +18,8 @@ export type TaskDbRow = {
   source: TaskSource;
   title: string;
   dueAt: number | null;
+  /** `tasks.due_precision`: «день» — срок без времени. */
+  duePrecision: 'time' | 'day';
   assigneeUserId: string | null;
   assigneeName: string | null;
   createdBy: string | null;
@@ -36,7 +38,7 @@ export type OpenQuery = { mode: OpenMode; userId: string | null; clientId: strin
 
 export async function selectOpenTasks(sql: Sql, viewer: Viewer, q: OpenQuery): Promise<TaskDbRow[]> {
   return scoped(sql)<TaskDbRow>`
-    SELECT t.id, t.client_id, t.deal_id, t.kind, t.source, t.title, t.due_at, t.assignee_user_id, au.name AS assignee_name,
+    SELECT t.id, t.client_id, t.deal_id, t.kind, t.source, t.title, t.due_at, t.due_precision, t.assignee_user_id, au.name AS assignee_name,
            t.created_by, t.status, t.done_at,
            (SELECT cl.name FROM clients cl WHERE cl.id = t.client_id AND ${scopeSql(viewer, 'client', 'client.read', { alias: 'cl' })}) AS client_name,
            (SELECT cv.id FROM cards cv WHERE cv.client_id = t.client_id AND cv.space_id = t.space_id
@@ -60,17 +62,17 @@ export async function selectOpenTasks(sql: Sql, viewer: Viewer, q: OpenQuery): P
 
 export type BucketCounts = { overdue: number; today: number; tomorrow: number; later: number; none: number };
 
-/** Счётчики корзин с теми же условиями, что у списка (без предела строк). */
+/** Счётчики корзин с теми же условиями, что у списка (без предела строк). Просрочка — как `bucketOf`: «время» < now, «день» < todayStart. */
 export async function countOpenBuckets(
   sql: Sql,
   viewer: Viewer,
-  q: Omit<OpenQuery, 'limit'> & { now: number; tomorrowStart: number; afterTomorrowStart: number },
+  q: Omit<OpenQuery, 'limit'> & { now: number; todayStart: number; tomorrowStart: number; afterTomorrowStart: number },
 ): Promise<BucketCounts> {
   const rows = await scoped(sql)<BucketCounts>`
-    SELECT count(*) FILTER (WHERE t.due_at < ${q.now})::int AS overdue,
-           count(*) FILTER (WHERE t.due_at >= ${q.now} AND t.due_at < ${q.tomorrowStart})::int AS today,
-           count(*) FILTER (WHERE t.due_at >= GREATEST(${q.now}::bigint, ${q.tomorrowStart}::bigint) AND t.due_at < ${q.afterTomorrowStart})::int AS tomorrow,
-           count(*) FILTER (WHERE t.due_at >= GREATEST(${q.now}::bigint, ${q.afterTomorrowStart}::bigint))::int AS later,
+    SELECT count(*) FILTER (WHERE ((t.due_precision = 'time' AND t.due_at < ${q.now}) OR (t.due_precision = 'day' AND t.due_at < ${q.todayStart})))::int AS overdue,
+           count(*) FILTER (WHERE t.due_at < ${q.tomorrowStart} AND NOT ((t.due_precision = 'time' AND t.due_at < ${q.now}) OR (t.due_precision = 'day' AND t.due_at < ${q.todayStart})))::int AS today,
+           count(*) FILTER (WHERE t.due_at >= ${q.tomorrowStart} AND t.due_at < ${q.afterTomorrowStart})::int AS tomorrow,
+           count(*) FILTER (WHERE t.due_at >= ${q.afterTomorrowStart})::int AS later,
            count(*) FILTER (WHERE t.due_at IS NULL)::int AS none
       FROM tasks t
      WHERE t.status = 'open' AND t.space_id = ${viewer.spaceId}
@@ -90,7 +92,7 @@ export async function countOpenBuckets(
 /** Выполненные и отменённые мной (или по моим временным карточкам) с момента `since`, новые сверху. */
 export async function selectDoneTasks(sql: Sql, viewer: Viewer, q: { since: number; limit: number }): Promise<TaskDbRow[]> {
   return scoped(sql)<TaskDbRow>`
-    SELECT t.id, t.client_id, t.deal_id, t.kind, t.source, t.title, t.due_at, t.assignee_user_id, au.name AS assignee_name,
+    SELECT t.id, t.client_id, t.deal_id, t.kind, t.source, t.title, t.due_at, t.due_precision, t.assignee_user_id, au.name AS assignee_name,
            t.created_by, t.status, t.done_at,
            (SELECT cl.name FROM clients cl WHERE cl.id = t.client_id AND ${scopeSql(viewer, 'client', 'client.read', { alias: 'cl' })}) AS client_name,
            (SELECT cv.id FROM cards cv WHERE cv.client_id = t.client_id AND cv.space_id = t.space_id
@@ -109,7 +111,7 @@ export async function selectDoneTasks(sql: Sql, viewer: Viewer, q: { since: numb
 /** Одна задача, видимая зрителю по `task.read`. */
 export async function selectTask(sql: Sql, viewer: Viewer, id: string): Promise<TaskDbRow | null> {
   const rows = await scoped(sql)<TaskDbRow>`
-    SELECT t.id, t.client_id, t.deal_id, t.kind, t.source, t.title, t.due_at, t.assignee_user_id, au.name AS assignee_name,
+    SELECT t.id, t.client_id, t.deal_id, t.kind, t.source, t.title, t.due_at, t.due_precision, t.assignee_user_id, au.name AS assignee_name,
            t.created_by, t.status, t.done_at,
            (SELECT cl.name FROM clients cl WHERE cl.id = t.client_id AND ${scopeSql(viewer, 'client', 'client.read', { alias: 'cl' })}) AS client_name,
            (SELECT cv.id FROM cards cv WHERE cv.client_id = t.client_id AND cv.space_id = t.space_id

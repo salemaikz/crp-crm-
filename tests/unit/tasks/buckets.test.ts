@@ -11,21 +11,21 @@ test('границы суток — местные: 23:59 сегодня, 00:00 
   const now = at('2026-10-28', '11:00');
   const b = dayBounds(now, '2026-10-28', TZ);
   assert.equal(b.tomorrowStart, at('2026-10-29', '00:00'));
-  assert.equal(bucketOf(now - 1, b), 'overdue');
-  assert.equal(bucketOf(now, b), 'today');
-  assert.equal(bucketOf(at('2026-10-28', '23:59'), b), 'today');
-  assert.equal(bucketOf(at('2026-10-29', '00:00'), b), 'tomorrow');
-  assert.equal(bucketOf(at('2026-10-29', '23:59'), b), 'tomorrow');
-  assert.equal(bucketOf(at('2026-10-30', '00:00'), b), 'later');
-  assert.equal(bucketOf(null, b), 'none');
+  assert.equal(bucketOf(now - 1, 'time', b), 'overdue');
+  assert.equal(bucketOf(now, 'time', b), 'today');
+  assert.equal(bucketOf(at('2026-10-28', '23:59'), 'time', b), 'today');
+  assert.equal(bucketOf(at('2026-10-29', '00:00'), 'time', b), 'tomorrow');
+  assert.equal(bucketOf(at('2026-10-29', '23:59'), 'time', b), 'tomorrow');
+  assert.equal(bucketOf(at('2026-10-30', '00:00'), 'time', b), 'later');
+  assert.equal(bucketOf(null, 'time', b), 'none');
 });
 
 test('поздно вечером «сегодня» — только до полуночи по поясу установки, а не по UTC', () => {
   // 23:30 по Алматы = 18:30 UTC: в UTC ещё те же сутки, но местная полночь уже через 30 минут
   const now = at('2026-10-28', '23:30');
   const b = dayBounds(now, '2026-10-28', TZ);
-  assert.equal(bucketOf(at('2026-10-29', '00:10'), b), 'tomorrow');
-  assert.equal(bucketOf(at('2026-10-28', '23:45'), b), 'today');
+  assert.equal(bucketOf(at('2026-10-29', '00:10'), 'time', b), 'tomorrow');
+  assert.equal(bucketOf(at('2026-10-28', '23:45'), 'time', b), 'today');
 });
 
 test('срок на выходной или вне рабочих часов — предупреждение, в рабочее время — нет', () => {
@@ -41,4 +41,14 @@ test('срок на выходной или вне рабочих часов —
   assert.equal(dueOutsideWork(at('2026-10-31', '17:00'), cal), true);
   assert.equal(dueOutsideWork(at('2026-10-30', '19:00'), cal), true);
   assert.equal(dueOutsideWork(null, cal), false);
+});
+
+test('срок «день»: просрочен только с начала следующих суток, не по текущему часу', () => {
+  const now = at('2026-10-28', '11:00');
+  const b = dayBounds(now, '2026-10-28', TZ);
+  assert.equal(b.todayStart, at('2026-10-28', '00:00'));
+  assert.equal(bucketOf(at('2026-10-28', '09:00'), 'day', b), 'today');
+  assert.equal(bucketOf(at('2026-10-28', '00:00'), 'day', b), 'today');
+  assert.equal(bucketOf(at('2026-10-27', '23:59'), 'day', b), 'overdue');
+  assert.equal(bucketOf(at('2026-10-28', '09:00'), 'time', b), 'overdue', 'то же время по точности «время» просрочено');
 });

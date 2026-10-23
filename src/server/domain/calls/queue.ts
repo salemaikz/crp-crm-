@@ -1,14 +1,12 @@
 // Очередь «Звонить» (docs/calls-design.md §8, D-177): свои карточки (владелец или временный владелец) в порядке
 // групп `queue.order`, пропущенные сегодня — в конце. Только данные своих карточек; номера — рабочие и не из стоп-листа.
-import { fields } from '@crm/core';
+import { calling, fields } from '@crm/core';
 import { NotFoundError, type Viewer } from '@/server/access';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from '@/server/domain/clients';
 import { ConfigMissingError } from '@/server/platform/config/active';
 import { getDb } from '@/server/platform/db';
 import { countQueue, countSkipsToday, groupOfState, queueClients, queueLastNotes, queueLprs, queuePhones, selectQueue } from './repo';
 import type { GetQueue, QueueCard, QueueCounts } from './types';
-
-const MIN_MS = 60_000;
 
 /** Настройки полей; нет ревизии настроек — полей в ответе нет (fail closed, не 500 на очереди). */
 async function fieldsConfigOrNull(viewer: Viewer): Promise<ClientsConfig | null> {
@@ -40,7 +38,7 @@ export const getQueue: GetQueue = async (deps, viewer, q) => {
     exclude: q.exclude,
     limit: q.limit,
   });
-  const c = await countQueue(sql, viewer, { spaceId, userId: viewer.userId, now, overdueBefore: now - ctx.overdueAlertMinutes * MIN_MS });
+  const c = await countQueue(sql, viewer, { spaceId, userId: viewer.userId, now, bounds: calling.dueBounds(now, ctx.overdueAlertMinutes, ctx.calendar) });
   const skippedToday = await countSkipsToday(sql, viewer.userId, today);
   const counts: QueueCounts = {
     dueNow: c.callbacks + c.retries + c.new,

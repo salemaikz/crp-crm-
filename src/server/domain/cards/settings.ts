@@ -1,11 +1,12 @@
 // Настройки обзвона пространства: `calling.*`, `queue.*`, `distribution.capIncludes`, `booking.noShow/nextStep/
 // attendance`, `tasks.*`, календарь и пояс (CONFIG §6.1–6.2, §6.5, §6.6, §6.9, §6.12). Свой Zod поверх активных
 // настроек: набор уже проверен целиком, здесь берётся только нужный срез (как booking/settings.ts).
-import { time } from '@crm/core';
+import { time, type calling } from '@crm/core';
 import { z } from 'zod';
 import { CallsDomainError } from '@/server/domain/calls/errors';
 import { getActiveConfig } from '@/server/platform/config/active';
 import { getDb } from '@/server/platform/db';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { archivedAtOfOutcomes } from './repo';
 import { QUEUE_GROUPS, type CallingContext, type LoadCallingContext, type OutcomeConfig } from './types';
 
@@ -73,6 +74,83 @@ const SpaceSlice = z
   })
   .passthrough();
 
+// --- Эффективные настройки под флагами (pipeline-v2 §8.3) ---
+
+const REASON_GROUPS = ['not_interested', 'not_target', 'do_not_call', 'bad_number', 'deal_lost', 'callback', 'written_off'] as const;
+
+const ReasonItem = z
+  .object({
+    key: z.string().min(1),
+    archived: z.boolean().optional(),
+    system: z.enum(['no_show', 'attended_no_purchase', 'client_return', 'return_due', 'write_off']).optional(),
+    eventTypes: z.array(z.string()).optional(),
+    manual: z.boolean().optional(),
+  })
+  .passthrough();
+
+const V2Slice = z
+  .object({
+    calling: z
+      .object({
+        callbackReason: z.object({ required: z.boolean() }).passthrough().optional(),
+        callbackSchedule: z.object({ steps: z.array(z.string()) }).passthrough().optional(),
+      })
+      .passthrough()
+      .optional(),
+    queue: z.object({ sort: z.enum(['groups', 'heat']).optional() }).passthrough().optional(),
+    reasons: z.record(z.string(), z.array(ReasonItem)).optional(),
+  })
+  .passthrough();
+
+/** Флаги, от которых зависит приём и показ (остальные на настройки обзвона не влияют). */
+export interface CallingFlags {
+  CALLBACK_V2: boolean;
+  OP_BOARD: boolean;
+}
+
+export interface EffectiveCalling {
+  /** Принимается ли точность «день» и новые поля итога. */
+  callbackV2: boolean;
+  callbackReason?: { required: boolean };
+  callbackSchedule?: { steps: string[] };
+  /** Справочник причин для ядра; записанные данные читаются при любом флаге. Нет ключа `reasons` — undefined. */
+  reasons?: Partial<Record<calling.ReasonGroup, calling.ReasonDef[]>>;
+  queueSort: 'groups' | 'heat';
+}
+
+/**
+ * Флаг решает, что сервер принимает и показывает, а не что он читает (§8.3): при выключенном CALLBACK_V2
+ * callbackReason и callbackSchedule не действуют; при выключенном OP_BOARD очередь идёт по группам. Справочник причин
+ * (записанные данные) отдаётся всегда. Документ не прошёл разбор — прежнее поведение (набор уже проверен целиком).
+ */
+export function effectiveCallingSettings(doc: unknown, flags: CallingFlags): EffectiveCalling {
+  const p = V2Slice.safeParse(doc);
+  const d = p.success ? p.data : {};
+  let reasons: EffectiveCalling['reasons'];
+  if (d.reasons !== undefined) {
+    reasons = {};
+    for (const g of REASON_GROUPS) {
+      const list = d.reasons[g];
+      if (list === undefined) continue;
+      reasons[g] = list.map((r) => ({
+        code: r.key,
+        archived: r.archived === true,
+        manual: r.manual !== false,
+        ...(r.system !== undefined ? { system: r.system } : {}),
+        ...(r.eventTypes !== undefined ? { eventTypes: r.eventTypes } : {}),
+      }));
+    }
+  }
+  const c = d.calling;
+  return {
+    callbackV2: flags.CALLBACK_V2,
+    ...(flags.CALLBACK_V2 && c?.callbackReason ? { callbackReason: { required: c.callbackReason.required } } : {}),
+    ...(flags.CALLBACK_V2 && c?.callbackSchedule ? { callbackSchedule: { steps: c.callbackSchedule.steps } } : {}),
+    ...(reasons !== undefined ? { reasons } : {}),
+    queueSort: flags.OP_BOARD && d.queue?.sort === 'heat' ? 'heat' : 'groups',
+  };
+}
+
 export interface ParseCallingInput {
   spaceId: string;
   /** Ревизия документа пространства: calls.config_rev. */
@@ -81,6 +159,8 @@ export interface ParseCallingInput {
   space: unknown;
   /** Когда ревизия архивировала итог (по ключу); нет записи — null. Читает `loadCallingContext`. */
   archivedAt?: ReadonlyMap<string, number>;
+  /** Флаги; не заданы — выключены (прежнее поведение). */
+  flags?: CallingFlags;
 }
 
 /** Чистый разбор: документы global и пространства → настройки обзвона. Ошибка схемы → `invalid_settings`. */
@@ -113,6 +193,7 @@ export function parseCallingContext(input: ParseCallingInput): CallingContext {
       requiredFields: o.requires.fields,
     }));
   const b = s.data.booking;
+  const eff = effectiveCallingSettings(input.space, input.flags ?? { CALLBACK_V2: false, OP_BOARD: false });
   return {
     spaceId: input.spaceId,
     configRev: input.rev,
@@ -130,15 +211,21 @@ export function parseCallingContext(input: ParseCallingInput): CallingContext {
       nextStepTaskAt: b.nextStep.taskAt,
       autoNoShowWorkdays: b.attendance.autoNoShowWorkdays,
       inboundReplyMinutes: s.data.tasks.inboundReplyMinutes,
+      ...(eff.reasons !== undefined ? { reasons: eff.reasons } : {}),
+      ...(eff.callbackReason !== undefined ? { callbackReason: eff.callbackReason } : {}),
+      ...(eff.callbackSchedule !== undefined ? { callbackSchedule: eff.callbackSchedule } : {}),
     },
     calendar,
     outcomes,
-    queue: { order: s.data.queue.order, mobileFirst: s.data.queue.mobileFirst, skipLimit: s.data.queue.skipLimit },
+    queue: { order: s.data.queue.order, mobileFirst: s.data.queue.mobileFirst, skipLimit: s.data.queue.skipLimit, sort: eff.queueSort },
+    callbackV2: eff.callbackV2,
+    opBoard: input.flags?.OP_BOARD ?? false,
     overdueAlertMinutes: s.data.tasks.overdueAlertMinutes,
   };
 }
 
 // Разобранные настройки живут, пока жив объект активных настроек (кэш процесса меняет его при новой ревизии).
+// Флаги берутся из окружения процесса и в ключ входят: переключение в тесте не отдаёт устаревший разбор.
 const cache = new WeakMap<object, Map<string, CallingContext>>();
 
 export const loadCallingContext: LoadCallingContext = async (spaceId) => {
@@ -148,7 +235,9 @@ export const loadCallingContext: LoadCallingContext = async (spaceId) => {
     bySpace = new Map();
     cache.set(cfg, bySpace);
   }
-  const hit = bySpace.get(spaceId);
+  const flags: CallingFlags = { CALLBACK_V2: isFeatureEnabled('CALLBACK_V2'), OP_BOARD: isFeatureEnabled('OP_BOARD') };
+  const key = `${spaceId}|${flags.CALLBACK_V2 ? 1 : 0}${flags.OP_BOARD ? 1 : 0}`;
+  const hit = bySpace.get(key);
   if (hit) return hit;
   const space = Object.values(cfg.spaces).find((x) => x.spaceId === spaceId);
   if (!space) throw new CallsDomainError('invalid_settings');
@@ -157,7 +246,7 @@ export const loadCallingContext: LoadCallingContext = async (spaceId) => {
     .filter((o) => o.archived === true)
     .map((o) => o.key);
   const archivedAt = archivedKeys.length > 0 ? await archivedAtOfOutcomes((await getDb()).sql, spaceId, archivedKeys) : new Map<string, number>();
-  const parsed = parseCallingContext({ spaceId, rev: space.rev, global: cfg.global.doc, space: space.doc, archivedAt });
-  bySpace.set(spaceId, parsed);
+  const parsed = parseCallingContext({ spaceId, rev: space.rev, global: cfg.global.doc, space: space.doc, archivedAt, flags });
+  bySpace.set(key, parsed);
   return parsed;
 };
