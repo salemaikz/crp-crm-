@@ -3,7 +3,7 @@
 // был честным, при такой сортировке колонка догружается до SORT_LIMIT карточек (useBoardData.fill); если их больше,
 // остальные скрыты и показывается подсказка «уточните поиск» (load-pipeline-v2, C5).
 import { isWorkingRole } from './columns';
-import { BOARD_FILTERS, type BoardCardDto, type BoardFilter, type BoardSort, type ColumnRole } from './types';
+import { BOARD_FILTERS, NO_EXTRA, type BoardCardDto, type BoardExtra, type BoardFilter, type BoardSort, type ColumnRole } from './types';
 
 /** Предел колонки при сортировке на устройстве (§9.4, второй вариант). */
 export const SORT_LIMIT = 200;
@@ -30,17 +30,19 @@ export function availableFilters(canPurchases: boolean): BoardFilter[] {
 }
 
 /** Запрос доски: `q` и `filter` — то, что понимает `GET /api/cards/board` (parseBoardQuery). */
-export function boardQuery(q: string, filters: readonly BoardFilter[]): string {
+export function boardQuery(q: string, filters: readonly BoardFilter[], extra: BoardExtra = NO_EXTRA): string {
   const sp = new URLSearchParams();
   const text = q.trim();
   if (text !== '') sp.set('q', text);
   if (filters.length > 0) sp.set('filter', filters.join(','));
+  if (extra.owner !== '') sp.set('owner', extra.owner);
+  if (extra.callbackReason !== '') sp.set('callbackReason', extra.callbackReason);
   return sp.toString();
 }
 
 /** Запрос «Ещё» по колонке: фильтры плюс ключ колонки и курсор (поиск колонки не сужает: он даёт отдельный список). */
-export function columnQuery(column: string, cursor: string, filters: readonly BoardFilter[]): string {
-  const sp = new URLSearchParams(boardQuery('', filters));
+export function columnQuery(column: string, cursor: string, filters: readonly BoardFilter[], extra: BoardExtra = NO_EXTRA): string {
+  const sp = new URLSearchParams(boardQuery('', filters, extra));
   sp.set('column', column);
   sp.set('cursor', cursor);
   return sp.toString();

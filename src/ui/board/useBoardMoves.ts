@@ -75,8 +75,8 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
 
   const online = runtime.online;
   const targetsOf = useCallback(
-    (card: BoardCardDto) => moveTargets(card, config.columns, config.canMove, config.scope, { agreedExit: config.agreedExit.enabled, online }),
-    [config.columns, config.canMove, config.scope, config.agreedExit.enabled, online],
+    (card: BoardCardDto) => moveTargets(card, config.columns, config.canMove, config.scope, { agreedExit: config.agreedExit.enabled, online, managerMove: config.manager !== undefined }),
+    [config.columns, config.canMove, config.scope, config.agreedExit.enabled, config.manager, online],
   );
 
   // ---- общее: итог в очередь устройства --------------------------------------------------------------------------
@@ -166,13 +166,56 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
 
   const patchMoveDraft = useCallback((patch: Partial<SheetDraft>) => setMoveSheet((s) => (s ? { ...s, pending: { ...s.pending, draft: { ...s.pending.draft, ...patch } } } : s)), []);
 
+  /**
+   * Доска РОП: итог вносится за оператора, онлайн, без очереди и без «Отменить» (`manual_entry`, `seenVersion` — версия
+   * плитки). Устаревшая версия или чужая карточка: доска перечитывается (§3.2, D-266).
+   */
+  const submitManual = useCallback(
+    async (s: MoveSheetState, def: OutcomeButton, fieldValues: Record<string, string>) => {
+      const r = runtime.rtRef.current;
+      if (!r || runtime.lockedRef.current) return;
+      if (!navigator.onLine) return void toast.show({ message: t('toast.needNetwork'), tone: 'info' });
+      const request = {
+        ...buildMoveRequest({ card: s.card, def, draft: s.pending.draft, intent: null, opId: s.pending.call.opId, now: Date.now(), online: true, fieldValues, callbackV2: call.callbackV2 }),
+        via: 'manual_entry' as const,
+        seenVersion: s.card.version,
+      };
+      let res: Awaited<ReturnType<typeof r.api.postOutcome>>;
+      try {
+        res = await r.api.postOutcome(request);
+      } catch {
+        return void toast.show({ message: t('toast.needNetwork'), tone: 'info' });
+      }
+      if (res.status === 200) {
+        setMoveSheet(null);
+        toast.show({ message: t('toast.movedManual', { name: s.card.name }), tone: 'success' });
+      } else if (res.status === 423) {
+        toast.show({ message: t('toast.readOnly'), tone: 'danger' });
+        return;
+      } else if (res.status === 404) {
+        setMoveSheet(null);
+        data.drop(s.card.id);
+        toast.show({ message: t('toast.unavailable'), tone: 'danger' });
+      } else if (res.status === 409) {
+        setMoveSheet(null);
+        toast.show({ message: t('toast.changed'), tone: 'danger' });
+      } else {
+        toast.show({ message: t('toast.failed'), tone: 'danger' });
+        return;
+      }
+      void data.reload();
+    },
+    [runtime, call.callbackV2, toast, t, data],
+  );
+
   const submitMove = useCallback(
     async (def: OutcomeButton, fieldValues: Record<string, string>) => {
       const s = moveSheet;
       if (!s) return;
+      if (config.manager !== undefined) return submitManual(s, def, fieldValues);
       if (await enqueueOutcome(s.card, def, s.pending.draft, s.intent, s.pending.call.opId, fieldValues)) setMoveSheet(null);
     },
-    [moveSheet, enqueueOutcome],
+    [moveSheet, enqueueOutcome, config.manager, submitManual],
   );
 
   // ---- № 33: выход из «Договорились» ------------------------------------------------------------------------------

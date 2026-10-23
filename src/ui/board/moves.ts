@@ -15,6 +15,8 @@ export interface MoveContext {
   /** Воронка v2 включена: окно № 33 доступно. */
   agreedExit?: boolean;
   online?: boolean;
+  /** Доска РОП: перенос в «Перезвон» вносится итогом `manual_entry` онлайн (§3.2). */
+  managerMove?: boolean;
 }
 
 export interface MoveTarget {
@@ -42,6 +44,9 @@ export function moveTargets(card: BoardCardDto, columns: readonly BoardColumnCon
     if (!isWorkingRole(from.role)) return { column: col.key, available: false, action: null, blocked: 'later' };
     // Итог с доски (`via = board`) принимает сервер только при охвате own; РОП вносит итог за оператора в карточке клиента
     // (manual_entry онлайн, §3.2), поэтому «Перезвон» ему погашен, а в «Мусор» остаётся ручное списание № 32.
+    if (col.role === 'callback' && scope === 'wide' && ctx.managerMove === true) {
+      return ctx.online === false ? { column: col.key, available: false, action: null, blocked: 'offline' } : { column: col.key, available: true, action: 'callback', blocked: null };
+    }
     if (col.role === 'callback') return scope === 'wide' ? { column: col.key, available: false, action: null, blocked: 'manual' } : { column: col.key, available: true, action: 'callback', blocked: null };
     if (col.role === 'trash') return { column: col.key, available: true, action: 'trash', blocked: null };
     return { column: col.key, available: false, action: null, blocked: 'later' };

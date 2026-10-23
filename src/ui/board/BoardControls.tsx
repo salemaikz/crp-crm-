@@ -3,9 +3,9 @@
 // Над доской: поиск по своим клиентам, сортировка и чипы-фильтры (pipeline-v2 §9.4), «Звонить подряд» в шапке.
 import { Phone, Search } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { Button, Chip, ChipGroup, Input, Segmented } from '@/ui/kit';
+import { Button, Chip, ChipGroup, Input, Segmented, Select } from '@/ui/kit';
 import { availableFilters } from './order';
-import { BOARD_SORTS, type BoardFilter, type BoardSort } from './types';
+import { BOARD_SORTS, type BoardExtra, type BoardFilter, type BoardSort } from './types';
 
 export function BoardControls({
   q,
@@ -16,6 +16,10 @@ export function BoardControls({
   onToggleFilter,
   canPurchases,
   attendLabels,
+  manager,
+  extra,
+  onExtra,
+  reasonLabels,
 }: {
   q: string;
   onQ: (q: string) => void;
@@ -25,6 +29,11 @@ export function BoardControls({
   onToggleFilter: (f: BoardFilter) => void;
   canPurchases: boolean;
   attendLabels: { attendedGroup: string; attendedIndividual: string };
+  /** Доска пространства (РОП, директор): фильтры «сотрудник» и «причина перезвона»; у оператора не передаётся. */
+  manager?: { owners: { userId: string; name: string }[] } | undefined;
+  extra?: BoardExtra;
+  onExtra?: (e: BoardExtra) => void;
+  reasonLabels?: Record<string, string>;
 }) {
   const t = useTranslations('board');
   return (
@@ -43,12 +52,34 @@ export function BoardControls({
             data-testid="board-search"
           />
         </div>
-        <Button href="/call" variant="secondary" data-testid="board-call-next">
-          <Phone aria-hidden="true" />
-          <span className="hidden sm:inline">{t('callNext')}</span>
-          <span className="sm:hidden">{t('callNextShort')}</span>
-        </Button>
+        {!manager && (
+          <Button href="/call" variant="secondary" data-testid="board-call-next">
+            <Phone aria-hidden="true" />
+            <span className="hidden sm:inline">{t('callNext')}</span>
+            <span className="sm:hidden">{t('callNextShort')}</span>
+          </Button>
+        )}
       </div>
+      {manager && extra && onExtra && (
+        <div className="flex flex-col gap-2 md:flex-row" data-testid="board-manager-filters">
+          <Select aria-label={t('manager.owner')} value={extra.owner} onChange={(e) => onExtra({ ...extra, owner: e.target.value })} data-testid="filter-owner">
+            <option value="">{t('manager.allOwners')}</option>
+            {manager.owners.map((o) => (
+              <option key={o.userId} value={o.userId}>
+                {o.name}
+              </option>
+            ))}
+          </Select>
+          <Select aria-label={t('manager.reason')} value={extra.callbackReason} onChange={(e) => onExtra({ ...extra, callbackReason: e.target.value })} data-testid="filter-reason">
+            <option value="">{t('manager.allReasons')}</option>
+            {Object.entries(reasonLabels ?? {}).map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <Segmented
           label={t('sort.label')}

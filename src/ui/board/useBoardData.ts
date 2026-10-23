@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { boardQuery, columnQuery } from './order';
 import { applyPlacements, type ColumnCards, type Placement } from './placement';
-import type { BoardCardDto, BoardColumnPage, BoardDto, BoardFilter } from './types';
+import { NO_EXTRA, type BoardCardDto, type BoardColumnPage, type BoardDto, type BoardExtra, type BoardFilter } from './types';
 
 export type Phase = 'loading' | 'ready' | 'offline' | 'error' | 'unavailable' | 'login';
 
@@ -18,18 +18,18 @@ interface ColState {
 
 const JSON_INIT = { cache: 'no-store' as const, credentials: 'same-origin' as const, headers: { Accept: 'application/json' } };
 
-export function useBoardData(q: string, filters: readonly BoardFilter[], enabled: boolean, fetchFn: typeof fetch = fetch) {
+export function useBoardData(q: string, filters: readonly BoardFilter[], enabled: boolean, fetchFn: typeof fetch = fetch, extra: BoardExtra = NO_EXTRA) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [board, setBoard] = useState<BoardDto | null>(null);
   const [cols, setCols] = useState<Record<string, ColState>>({});
   const [placements, setPlacements] = useState<Placement[]>([]);
   const token = useRef(0);
   const colsRef = useRef<Record<string, ColState>>({});
-  const qRef = useRef({ q, filters });
+  const qRef = useRef({ q, filters, extra });
   // Защищённый запрос экрана (общий телефон): держим в ref, чтобы колбэки не пересоздавались
   const fetchRef = useRef(fetchFn);
   useEffect(() => {
-    qRef.current = { q, filters };
+    qRef.current = { q, filters, extra };
     fetchRef.current = fetchFn;
   });
   useEffect(() => {
@@ -38,9 +38,9 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
 
   const load = useCallback(async () => {
     const my = ++token.current;
-    const { q: text, filters: fl } = qRef.current;
+    const { q: text, filters: fl, extra: ex } = qRef.current;
     try {
-      const res = await fetchRef.current(`/api/cards/board?${boardQuery(text, fl)}`, JSON_INIT);
+      const res = await fetchRef.current(`/api/cards/board?${boardQuery(text, fl, ex)}`, JSON_INIT);
       if (my !== token.current) return;
       if (res.status === 401) return setPhase('login');
       if (res.status === 404) return setPhase('unavailable');
@@ -58,7 +58,7 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
   }, []);
 
   // Поиск набирается: запрос уходит с небольшой задержкой; фильтры меняются реже, но идут тем же путём
-  const key = `${q}|${filters.join(',')}`;
+  const key = `${q}|${filters.join(',')}|${extra.owner}|${extra.callbackReason}`;
   useEffect(() => {
     if (!enabled) return;
     const h = setTimeout(() => void load(), q.trim() === '' ? 0 : 250);
@@ -73,7 +73,7 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
     setCols((c) => ({ ...c, [column]: { ...cur, loadingMore: true } }));
     const my = token.current;
     try {
-      const res = await fetchRef.current(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters)}`, JSON_INIT);
+      const res = await fetchRef.current(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters, qRef.current.extra)}`, JSON_INIT);
       if (!res.ok || my !== token.current) throw new Error(String(res.status));
       const page = (await res.json()) as BoardColumnPage;
       setCols((c) => {
@@ -97,7 +97,7 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
     while (cur && cur.next && cur.cards.length < limit && my === token.current) {
       let page: BoardColumnPage;
       try {
-        const res = await fetchRef.current(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters)}`, JSON_INIT);
+        const res = await fetchRef.current(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters, qRef.current.extra)}`, JSON_INIT);
         if (!res.ok || my !== token.current) return;
         page = (await res.json()) as BoardColumnPage;
       } catch {

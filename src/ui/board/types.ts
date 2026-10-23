@@ -66,7 +66,19 @@ export interface BoardConfig {
   eventBehaviors: Record<string, 'group' | 'individual'>;
   /** Окно № 33 (выход из «Договорились»): системные причины и срок после неявки из настроек. */
   agreedExit: AgreedExitConfig;
+  /**
+   * Доска РОП и директора (охват пространства): список сотрудников для фильтра и перенос РОП итогом `manual_entry` онлайн.
+   * У доски оператора ключа нет.
+   */
+  manager?: { owners: { userId: string; name: string }[] };
 }
+
+/** Дополнительные фильтры доски пространства: сотрудник-владелец и причина перезвона (пусто — без фильтра). */
+export interface BoardExtra {
+  owner: string;
+  callbackReason: string;
+}
+export const NO_EXTRA: BoardExtra = { owner: '', callbackReason: '' };
 
 export interface AgreedExitConfig {
   /** Выход доступен: воронка v2 включена (`CALLBACK_V2`). */

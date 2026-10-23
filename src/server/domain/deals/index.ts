@@ -12,7 +12,7 @@ export { cancelPurchase, editPurchase, registerPurchase, type EditPurchaseReques
 export { loseDeal, moveDealStage } from './stage';
 export { listMine, monthBounds, type MyPurchase, type MyPurchases } from './mine';
 export { getDealPage, getPurchaseForm, toDealView } from './read';
-export { getCallingBoard, getCallingColumn, getClosedDeals, getDealsBoard, getDealsColumn } from './board';
+export { getCallingBoard, getCallingWorkers, getCallingColumn, getClosedDeals, getDealsBoard, getDealsColumn } from './board';
 export { boardDeps, overrideBoardDepsForTests, parseBoardPipelines, type BoardDeps } from './boardDeps';
 export { missingFor } from './boardRules';
 export * from './boardTypes';

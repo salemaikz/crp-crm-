@@ -7,7 +7,7 @@ import { WifiOff } from 'lucide-react';
 import Link from 'next/link';
 import { useFormatter, useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatKzPhone } from '@/shared/tel';
 import { OutcomeSheet } from '@/ui/call/OutcomeSheet';
 import { Alert, Button, EmptyState, Page, ToastProvider } from '@/ui/kit';
@@ -31,12 +31,12 @@ import { useAttendance } from './useAttendance';
 import { useMonthPurchases } from './useMonthPurchases';
 import { useMouseDrag } from './useMouseDrag';
 import { useTouchDrag } from './useTouchDrag';
-import type { BoardCardDto, BoardColumnConfig, BoardConfig, BoardFilter, BoardSort } from './types';
+import { NO_EXTRA, type BoardCardDto, type BoardColumnConfig, type BoardConfig, type BoardExtra, type BoardFilter, type BoardSort } from './types';
 
-export function BoardScreen({ config, userId }: { config: BoardConfig; userId: string }) {
+export function BoardScreen({ config, userId, header }: { config: BoardConfig; userId: string; header?: ReactNode }) {
   return (
     <ToastProvider>
-      <BoardScreenInner config={config} userId={userId} />
+      <BoardScreenInner config={config} userId={userId} header={header} />
     </ToastProvider>
   );
 }
@@ -44,13 +44,14 @@ export function BoardScreen({ config, userId }: { config: BoardConfig; userId: s
 const noop = () => undefined;
 const noopAsync = async () => ({ ok: false as const, code: 'handled' as const });
 
-function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: string }) {
+function BoardScreenInner({ config, userId, header }: { config: BoardConfig; userId: string; header?: ReactNode }) {
   const t = useTranslations('board');
   const f = useFormatter();
   const router = useRouter();
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<BoardSort>('heat');
   const [filters, setFilters] = useState<BoardFilter[]>([]);
+  const [extra, setExtra] = useState<BoardExtra>(NO_EXTRA);
   const [now, setNow] = useState(() => Date.now());
   const [drawerFor, setDrawerFor] = useState<BoardCardDto | null>(null);
   const [activeTab, setActiveTab] = useState(config.columns[0]?.key ?? '');
@@ -65,7 +66,7 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
     },
     onPing: () => reloadRef.current(),
   });
-  const data = useBoardData(q, filters, !runtime.locked, runtime.safeFetch);
+  const data = useBoardData(q, filters, !runtime.locked, runtime.safeFetch, extra);
   useEffect(() => {
     reloadRef.current = () => void data.reload();
     dropOpsRef.current = data.unplaceOps;
@@ -189,13 +190,14 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
   );
   const money = (n: number) => f.number(n, { style: 'currency', currency: 'KZT', maximumFractionDigits: 0 });
   const tabs = config.columns.map((c) => ({ key: c.key, title: titleOf(c), count: sorted[c.key]?.length ?? 0, more: data.cols[c.key]?.next != null }));
-  const emptyBoard = data.phase === 'ready' && tabs.every((x) => x.count === 0) && !q && filters.length === 0;
+  const emptyBoard = data.phase === 'ready' && tabs.every((x) => x.count === 0) && !q && filters.length === 0 && extra.owner === '' && extra.callbackReason === '';
 
   const callSheetCard = moves.callSheet?.card;
 
   return (
     <Page width="full" data-testid="board-screen">
       <h1 className="sr-only">{t('title')}</h1>
+      {header}
       <BoardControls
         q={q}
         onQ={setQ}
@@ -205,6 +207,10 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
         onToggleFilter={(f) => setFilters((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]))}
         canPurchases={config.canPurchases}
         attendLabels={config.attendLabels}
+        manager={config.manager}
+        extra={extra}
+        onExtra={setExtra}
+        reasonLabels={config.reasonLabels}
       />
 
       {runtime.rejected.map((r) => (

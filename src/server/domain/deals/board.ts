@@ -287,6 +287,13 @@ async function toCallingTiles(viewer: Viewer, rows: readonly CallingRow[]): Prom
   }));
 }
 
+/** Сотрудники с карточками в обзвоне (фильтр «сотрудник» общей доски РОП и директора); охват зрителя — в SQL. */
+export async function getCallingWorkers(viewer: Viewer): Promise<{ userId: string; name: string }[]> {
+  const spaceId = spaceOf(viewer);
+  assertSpaceScope(viewer);
+  return selectCallingWorkers(viewer, (await getDb()).sql, { spaceId });
+}
+
 /** Вид «Обзвон» для РОП: карточки с владельцем по состояниям `new`, `retry`, `callback`, `agreed` и счётчик закрытых. */
 export async function getCallingBoard(viewer: Viewer, q: { worker?: string | null } = {}): Promise<CallingBoard> {
   const spaceId = spaceOf(viewer);

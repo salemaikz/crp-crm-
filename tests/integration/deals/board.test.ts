@@ -2,7 +2,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ForbiddenError, NotFoundError } from '../../../src/server/access';
-import { getCallingBoard, getCallingColumn, getClosedDeals, getDealsBoard, getDealsColumn, overrideBoardDepsForTests } from '../../../src/server/domain/deals';
+import { getCallingBoard, getCallingColumn, getCallingWorkers, getClosedDeals, getDealsBoard, getDealsColumn, overrideBoardDepsForTests } from '../../../src/server/domain/deals';
 import type { DealPipelineInfo } from '../../../src/server/domain/deals/types';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { SEED_NOW, SPACE, U, closeWorld, openWorld, viewerOf } from '../reports/helpers';
@@ -215,6 +215,14 @@ test('вид «Обзвон»: карточки с владельцем по с�
 
   await assert.rejects(async () => getCallingBoard(await viewerOf(U.opA)), ForbiddenError);
   assert.equal((await getCallingBoard(await viewerOf(U.director))).can.move, false);
+});
+
+test('список сотрудников для фильтра общей доски: РОП и директор видят, оператору 403 (линия M1)', async () => {
+  const workers = await getCallingWorkers(await viewerOf(U.rop));
+  assert.ok(workers.some((w) => w.userId === U.opA) && workers.some((w) => w.userId === U.opB));
+  assert.ok(workers.every((w) => typeof w.name === 'string'));
+  assert.deepEqual(await getCallingWorkers(await viewerOf(U.director)), workers);
+  await assert.rejects(async () => getCallingWorkers(await viewerOf(U.opA)), ForbiddenError);
 });
 
 test('на удержании (hold_reason) и без владельца карточек в «Обзвоне» нет', async () => {
