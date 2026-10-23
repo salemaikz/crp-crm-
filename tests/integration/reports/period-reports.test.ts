@@ -270,10 +270,12 @@ test('причины: доля внутри группы; факт без при
   assert.deepEqual(
     r.rows.map((x) => [x.group, x.reasonCode, x.count, x.share]),
     [
+      ['callback', '', 1, 100], // c2: «Перезвонить» старого контракта, без причины
       ['not_interested', 'busy', 2, 66.7], // c6, c12; c14 — только факт
       ['not_interested', 'later', 1, 33.3],
       ['not_target', 'ip', 1, 100],
       ['deal_lost', 'price', 1, 100],
+      ['no_show', 'consult', 1, 100], // bk2: неявка на консультацию
     ],
   );
 });

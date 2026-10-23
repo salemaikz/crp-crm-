@@ -164,8 +164,13 @@
       "purchaseSum": "Сумма",
       "skips": "Пропуски",
       "workedHours": "Часов",
-      "callsPerHour": "Звонков в час"
-    }
+      "callsPerHour": "Звонков в час",
+      "bookedPerConnect": "Запись / дозвон",
+      "attendedPerBooked": "Явка / запись",
+      "purchasedPerAttended": "Покупка / явка"
+    },
+    "average": "Средняя по операторам",
+    "averageHint": "«Итого» — по команде в целом. Средняя — среднее по операторам, у которых за период не меньше {min} дозвонов (в расчёте: {count})."
   },
   "funnel": {
     "caption": "Воронка за период",
@@ -185,6 +190,14 @@
       "booked": "Записано",
       "attended": "Пришли",
       "purchased": "Покупки"
+    },
+    "kindSteps": {
+      "booked": "Запись: {event}",
+      "attended": "Явка: {event}"
+    },
+    "kindFallback": {
+      "group": "групповое",
+      "individual": "индивидуальное"
     }
   },
   "revenue": {
@@ -224,6 +237,40 @@
       "cancelled": "Отменено",
       "rate": "Явка",
       "purchases": "Покупки"
+    },
+    "view": {
+      "label": "Вид",
+      "summary": "Сводка",
+      "list": "Список"
+    },
+    "list": {
+      "caption": "Явка по записям",
+      "more": "Показать ещё",
+      "none": "—",
+      "filters": {
+        "eventType": "Вид мероприятия",
+        "status": "Статус",
+        "consultant": "Консультант",
+        "all": "Все"
+      },
+      "cols": {
+        "date": "Дата",
+        "time": "Время",
+        "eventType": "Вид",
+        "client": "Клиент",
+        "bookedBy": "Кто записал",
+        "status": "Статус",
+        "markedBy": "Кто отметил явку",
+        "consultant": "Консультант",
+        "purchase": "Покупка"
+      },
+      "status": {
+        "attended": "Пришёл",
+        "no_show": "Не пришёл",
+        "unmarked": "Не отмечено",
+        "planned": "Запланирована",
+        "cancelled": "Отменена"
+      }
     }
   },
   "reasons": {
@@ -231,16 +278,24 @@
     "empty": "Причин за период нет",
     "noReason": "Причина не указана",
     "groups": {
+      "callback": "Перезвонить",
+      "written_off": "Списано",
       "not_interested": "Не интересно",
       "not_target": "Не целевой",
       "do_not_call": "Не звонить",
-      "deal_lost": "Сделка потеряна"
+      "deal_lost": "Сделка потеряна",
+      "no_show": "Не пришли"
     },
     "cols": {
       "group": "Группа",
       "reason": "Причина",
       "count": "Число",
       "share": "Доля в группе"
+    },
+    "withoutReason": "Без причины",
+    "system": {
+      "no_answer_limit": "Лимит недозвонов исчерпан",
+      "no_working_phone": "Нет рабочего номера"
     }
   },
   "export": {
@@ -302,7 +357,11 @@
       "users": "сотрудники",
       "source": "источник",
       "group": "группировка",
-      "by": "разрез"
+      "by": "разрез",
+      "view": "вид",
+      "eventType": "вид мероприятия",
+      "status": "статус",
+      "consultant": "консультант"
     }
   },
   "director": {
@@ -314,15 +373,21 @@
     "prevWeek": "Прошлая неделя: {value}",
     "more": "Подробнее",
     "tiles": {
-      "calls": {
-        "title": "Итоги и дозвоны",
-        "value": "{outcomes} / {connects}",
-        "hint": "итогов / дозвонов"
+      "outcomes": {
+        "title": "Итоги",
+        "hint": "за неделю"
       },
-      "bookings": {
-        "title": "Записи",
-        "value": "{groups} / {consults}",
-        "hint": "на группу / на консультацию"
+      "connects": {
+        "title": "Дозвоны",
+        "hint": "разговор состоялся"
+      },
+      "bookGroup": {
+        "title": "Записи на {event}",
+        "hint": "за неделю"
+      },
+      "bookIndividual": {
+        "title": "Записи на {event}",
+        "hint": "за неделю"
       },
       "attendance": {
         "title": "Явка",
@@ -331,15 +396,21 @@
       },
       "purchases": {
         "title": "Покупки",
-        "value": "{count}",
         "hint": "на сумму {sum}"
       },
-      "stock": {
-        "title": "Запас пула",
-        "value": "{days} дн.",
-        "hint": "готово в пуле: {ready}, выдача в день: {capacity}",
-        "none": "нет выдачи"
+      "conversion": {
+        "title": "Средняя конверсия операторов",
+        "hint": "запись / дозвон, по команде {teamRate}; учтены операторы от {min} дозвонов"
+      },
+      "pool": {
+        "title": "В пуле",
+        "hint": "готово к раздаче"
       }
+    },
+    "delta": {
+      "up": "на {value} больше",
+      "down": "на {value} меньше",
+      "same": "без изменений"
     },
     "funnel": {
       "title": "Воронка недели"

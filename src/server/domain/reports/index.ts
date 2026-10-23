@@ -6,7 +6,7 @@ export { buildOperatorRows, callsPerHour, isBelowTarget, operatorStatus, roomTod
 export * from './types';
 
 // Отчёты за период (R3a)
-export { getDefaultPeriod, getReport } from './get';
+export { ATTENDANCE_EXPORT_MAX_ROWS, getAttendanceListAll, getDefaultPeriod, getReport } from './get';
 export { canSpaceReports, periodReportsEnabled } from './access';
 export { parseReportQuery } from './query';
 export { getReportMeta, type ReportLabels, type ReportMeta } from './meta';

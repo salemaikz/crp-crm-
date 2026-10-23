@@ -7,6 +7,7 @@ import { DEFAULT_LOCALE } from '@/i18n/config';
 import { ForbiddenError, NotFoundError, route } from '@/server/access';
 import {
   FILTER_KEYS,
+  getAttendanceListAll,
   REPORT_KEYS,
   exportTranslator,
   getDefaultPeriod,
@@ -48,7 +49,8 @@ export const GET = route({ perm: 'report.export' }, async ({ req, params, viewer
 
     const { period } = await getDefaultPeriod(viewer);
     const query = parseReportQuery(key as ReportKey, sp, period);
-    const report = await getReport(viewer, query);
+    // список явки уходит целиком (страницы собираются подряд); остальные отчёты — одним запросом
+    const report = query.key === 'attendance' && query.view === 'list' ? await getAttendanceListAll(viewer, query) : await getReport(viewer, query);
     const meta = await getReportMeta(viewer);
     const t = exportTranslator(reportsT(), meta.labels);
     const table = toExportTable(query.key, report, t);

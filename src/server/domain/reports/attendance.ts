@@ -1,7 +1,7 @@
 // Записи и явка за период (PROCESS 10): по типу события, консультанту или автору записи; по дате встречи, без резерва.
-import { rate } from './definitions';
-import type { AttendancePurchaseRow, AttendanceSqlRow } from './periodRepo';
-import type { AttendanceReport, AttendanceRow, ResolvedPeriod } from './reportTypes';
+import { rate, toKzt } from './definitions';
+import type { AttendanceListSqlRow, AttendancePurchaseRow, AttendanceSqlRow } from './periodRepo';
+import { ATTENDANCE_LIST_STATUSES, type AttendanceListReport, type AttendanceListStatus, type AttendanceReport, type AttendanceRow, type ResolvedPeriod } from './reportTypes';
 
 type Totals = Omit<AttendanceRow, 'key' | 'name'>;
 
@@ -51,4 +51,49 @@ export function buildAttendanceReport(i: {
     purchases: allDeals.size,
   });
   return { period: i.period, by: i.by, rows, total };
+}
+
+// ---------------------------------------------------------------------------
+// Явка — список (D-344)
+// ---------------------------------------------------------------------------
+
+const CURSOR_RE = /^(\d{1,15})\.([A-Za-z0-9_-]{1,64})$/;
+
+/** Курсор страницы: `<starts_at>.<id>` последней показанной записи. */
+export function encodeListCursor(startsAt: number | string, id: string): string {
+  return `${startsAt}.${id}`;
+}
+
+/** Разбор курсора; чужая форма — null (вызывающий отвечает 400). */
+export function decodeListCursor(raw: string): { startsAt: number; id: string } | null {
+  const m = CURSOR_RE.exec(raw);
+  return m ? { startsAt: Number(m[1]), id: m[2] as string } : null;
+}
+
+const STATUS_SET: ReadonlySet<string> = new Set(ATTENDANCE_LIST_STATUSES);
+
+/** Страница списка из строк репозитория (запрошено `limit + 1`, лишняя строка — признак следующей страницы). */
+export function buildAttendanceList(i: { period: ResolvedPeriod; rows: readonly AttendanceListSqlRow[]; limit: number }): AttendanceListReport {
+  const page = i.rows.slice(0, i.limit);
+  const last = page[page.length - 1];
+  return {
+    period: i.period,
+    rows: page.map((r) => ({
+      bookingId: r.bookingId,
+      date: r.date,
+      startTime: r.startTime,
+      eventTypeKey: r.eventTypeKey,
+      clientId: r.clientId,
+      clientName: r.clientName,
+      bookedByUserId: r.bookedByUserId,
+      bookedByName: r.bookedByName,
+      status: (STATUS_SET.has(r.status) ? r.status : 'planned') as AttendanceListStatus,
+      markedByUserId: r.markedByUserId,
+      markedByName: r.markedByName,
+      consultantUserId: r.consultantUserId,
+      consultantName: r.consultantName,
+      purchaseSumKzt: r.purchaseSumKzt === null ? null : toKzt(r.purchaseSumKzt),
+    })),
+    next: i.rows.length > i.limit && last ? encodeListCursor(last.startsAt, last.bookingId) : null,
+  };
 }

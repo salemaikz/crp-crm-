@@ -5,7 +5,9 @@ import type { Viewer } from '@/server/access';
 import { getActiveConfig } from '@/server/platform/config/active';
 import { getDb } from '@/server/platform/db';
 import { requireSpaceReports } from './access';
+import { eventShortLabels, type EventTypeDoc } from './director';
 import { reportsDeps } from './deps';
+import { consultantNames } from './periodRepo';
 import { selectStaff } from './repo';
 
 export interface ReportLabels {
@@ -14,6 +16,8 @@ export interface ReportLabels {
   eventTypes: Record<string, string>;
   /** Группа справочника причин → ключ → подпись. */
   reasons: Record<string, Record<string, string>>;
+  /** Короткие подписи видов записи: `group` и `individual` (первый вид каждого поведения); нет вида — нет ключа. */
+  eventKinds: Record<string, string>;
 }
 
 export interface ReportMeta {
@@ -22,6 +26,8 @@ export interface ReportMeta {
   labels: ReportLabels;
   /** Участники раздачи: для фильтра по сотрудникам. */
   staff: { userId: string; name: string }[];
+  /** Консультанты для фильтра списка явки. */
+  consultants: { userId: string; name: string }[];
 }
 
 type Labeled = { key: string; label: { ru?: string } };
@@ -40,7 +46,13 @@ export async function getReportMeta(viewer: Viewer): Promise<ReportMeta> {
   for (const [group, list] of Object.entries(space?.reasons ?? {})) reasons[group] = labelsOf(list as readonly Labeled[]);
   // Источники из настроек плюс виды (`source_kind`) — запасной ключ, когда `source_key` пуст
   const sources = labelsOf(active.global.doc.sources as readonly Labeled[]);
-  const staff = await selectStaff((await getDb()).sql, { spaceId, roles: cfg.distribution.participantRoles, today });
+  const sql = (await getDb()).sql;
+  const staff = await selectStaff(sql, { spaceId, roles: cfg.distribution.participantRoles, today });
+  const consultants = await consultantNames(sql, spaceId);
+  const short = eventShortLabels((space?.booking.eventTypes ?? []) as readonly EventTypeDoc[]);
+  const eventKinds: Record<string, string> = {};
+  if (short.group !== '') eventKinds.group = short.group;
+  if (short.individual !== '') eventKinds.individual = short.individual;
   return {
     today,
     timeZone,
@@ -49,7 +61,9 @@ export async function getReportMeta(viewer: Viewer): Promise<ReportMeta> {
       serviceTypes: labelsOf((space?.serviceTypes ?? []) as readonly Labeled[]),
       eventTypes: labelsOf((space?.booking.eventTypes ?? []) as readonly Labeled[]),
       reasons,
+      eventKinds,
     },
     staff: staff.map((s) => ({ userId: s.userId, name: s.name })),
+    consultants,
   };
 }

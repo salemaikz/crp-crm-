@@ -49,6 +49,10 @@ export default page<Props, ReactNode>({ perm: 'report.view' }, async ({ viewer, 
     group: 'total',
     funnelBy: 'operator',
     attendanceBy: 'event_type',
+    attendanceView: 'summary',
+    listEventType: '',
+    listStatus: '',
+    listConsultant: '',
   };
   try {
     const q = parseReportQuery(key, params, period);
@@ -60,7 +64,11 @@ export default page<Props, ReactNode>({ perm: 'report.view' }, async ({ viewer, 
       source: q.filters.sourceKey ?? '',
       group: q.key === 'operators' ? q.grouping : 'total',
       funnelBy: q.key === 'funnel' ? q.by : 'operator',
-      attendanceBy: q.key === 'attendance' ? q.by : 'event_type',
+      attendanceBy: q.key === 'attendance' && q.view !== 'list' ? q.by : 'event_type',
+      attendanceView: q.key === 'attendance' && q.view === 'list' ? 'list' : 'summary',
+      listEventType: q.key === 'attendance' && q.view === 'list' ? (q.list.eventType ?? '') : '',
+      listStatus: q.key === 'attendance' && q.view === 'list' ? (q.list.status ?? '') : '',
+      listConsultant: q.key === 'attendance' && q.view === 'list' ? (q.list.consultant ?? '') : '',
     };
     const data: ReportData = await getReport(viewer, q);
     initial = { data, error: null };

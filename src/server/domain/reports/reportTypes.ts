@@ -52,6 +52,10 @@ export interface OperatorMetrics {
   attended: number;
   noShow: number;
   attendanceRate: Rate;
+  /** Конверсии цепочки (D-344): записи / дозвоны, явка (пришли) / записи, покупки / явка. Нулевой знаменатель — null. */
+  bookedPerConnect: Rate;
+  attendedPerBooked: Rate;
+  purchasedPerAttended: Rate;
   /** Покупки по записям автора: выигранные сделки, где автор первой записи сделки — этот сотрудник (D-261). */
   purchases: number;
   purchaseSumKzt: number;
@@ -70,12 +74,31 @@ export interface OperatorPeriodRow extends OperatorMetrics {
   belowTarget: boolean;
 }
 
+/** Три конверсии цепочки без остальных счётчиков. */
+export interface OperatorConversions {
+  bookedPerConnect: Rate;
+  attendedPerBooked: Rate;
+  purchasedPerAttended: Rate;
+}
+
+/**
+ * Средняя по операторам (D-343): среднее арифметическое конверсий операторов, у которых за период не меньше
+ * `minConnects` дозвонов. Это не конверсия команды (отношение сумм): она — в `totals`. Операторов нет — все null.
+ */
+export interface OperatorsAverage extends OperatorConversions {
+  /** Сколько операторов вошло в среднюю. */
+  operators: number;
+  minConnects: number;
+}
+
 export interface OperatorsReport {
   period: ResolvedPeriod;
   grouping: Grouping;
   callsPerHourTarget: number | null;
   rows: OperatorPeriodRow[];
+  /** Итого по команде: счётчики и конверсии отношением сумм. */
   totals: OperatorMetrics;
+  average: OperatorsAverage;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +109,13 @@ export const FUNNEL_STEPS = ['issued', 'connected', 'lpr', 'booked', 'attended',
 export type FunnelStep = (typeof FUNNEL_STEPS)[number];
 export type FunnelCounts = Record<FunnelStep, number>;
 
+/** Вид записи для разбивки шагов «запись» и «явка» (D-344); подписи берёт интерфейс из booking.eventTypes. */
+export const FUNNEL_KINDS = ['group', 'individual'] as const;
+export type FunnelKind = (typeof FUNNEL_KINDS)[number];
+export type FunnelKindCounts = Record<FunnelKind, { booked: number; attended: number }>;
+/** Конверсии по видам: запись к ЛПР, явка к записи того же вида. */
+export type FunnelKindRates = Record<FunnelKind, { booked: Rate; attended: Rate }>;
+
 export interface FunnelRow {
   /** userId (by=operator) или ключ источника (by=source: source_key, иначе source_kind). */
   key: string;
@@ -94,6 +124,9 @@ export interface FunnelRow {
   counts: FunnelCounts;
   /** Конверсия шага к предыдущему; у `issued` — null. */
   rates: Record<FunnelStep, Rate>;
+  /** Те же шаги «запись» и «явка» по видам; сумма видов = `counts.booked` / `counts.attended`. */
+  kinds: FunnelKindCounts;
+  kindRates: FunnelKindRates;
 }
 
 export interface FunnelReport {
@@ -152,13 +185,54 @@ export interface AttendanceReport {
   total: Omit<AttendanceRow, 'key' | 'name'>;
 }
 
+export const ATTENDANCE_LIST_STATUSES = ['attended', 'no_show', 'unmarked', 'planned', 'cancelled'] as const;
+/** «Не отмечено» — дата прошла, явка не отмечена; «planned» — запись ещё впереди. */
+export type AttendanceListStatus = (typeof ATTENDANCE_LIST_STATUSES)[number];
+
+export const ATTENDANCE_LIST_PAGE = 50;
+
+/** Строка поимённого списка явки (D-344). Содержит название клиента — оператору вид закрыт (403). */
+export interface AttendanceListRow {
+  bookingId: string;
+  /** Местная дата и время встречи. */
+  date: string;
+  startTime: string;
+  eventTypeKey: string;
+  clientId: string;
+  clientName: string;
+  bookedByUserId: string | null;
+  bookedByName: string | null;
+  status: AttendanceListStatus;
+  /** Кто отметил явку: null — не отмечена или отмечена системой. */
+  markedByUserId: string | null;
+  markedByName: string | null;
+  consultantUserId: string | null;
+  consultantName: string | null;
+  /** Выигранная сделка той же записи: сумма в тенге; null — покупки нет. */
+  purchaseSumKzt: number | null;
+}
+
+export interface AttendanceListReport {
+  period: ResolvedPeriod;
+  rows: AttendanceListRow[];
+  /** Курсор следующей страницы; null — конец списка. */
+  next: string | null;
+}
+
 // ---------------------------------------------------------------------------
-// Причины отказов
+// Причины
 // ---------------------------------------------------------------------------
 
+export const REASON_GROUPS = ['callback', 'written_off', 'not_interested', 'not_target', 'do_not_call', 'deal_lost', 'no_show'] as const;
+export type ReasonGroup = (typeof REASON_GROUPS)[number];
+
 export interface ReasonRow {
-  /** Группа справочника причин: outcome_kind итога или 'deal_lost'. */
-  group: 'not_interested' | 'not_target' | 'do_not_call' | 'deal_lost';
+  /**
+   * Группа: `outcome_kind` итога (callback, not_interested, not_target, do_not_call), written_off (списанные карточки:
+   * ручное и системное), deal_lost или no_show (неявки; код — вид мероприятия, `event_type_key`).
+   */
+  group: ReasonGroup;
+  /** Пустая строка — «без причины» (старый контракт «Перезвонить»). */
   reasonCode: string;
   count: number;
   /** Доля внутри группы. */
@@ -185,8 +259,21 @@ export type ReportQuery =
   | { key: 'operators'; period: PeriodInput; filters: ReportFilters; grouping: Grouping }
   | { key: 'funnel'; period: PeriodInput; filters: ReportFilters; by: 'operator' | 'source' }
   | { key: 'revenue'; period: PeriodInput; filters: ReportFilters }
-  | { key: 'attendance'; period: PeriodInput; filters: ReportFilters; by: 'event_type' | 'consultant' | 'author' }
+  | { key: 'attendance'; period: PeriodInput; filters: ReportFilters; by: 'event_type' | 'consultant' | 'author'; view?: 'summary' }
+  | { key: 'attendance'; view: 'list'; period: PeriodInput; filters: ReportFilters; list: AttendanceListFilters }
   | { key: 'reasons'; period: PeriodInput; filters: ReportFilters };
+
+/** Фильтры и страница списка явки (кроме общих: период, сотрудник — автор записи, источник). */
+export interface AttendanceListFilters {
+  eventType: string | null;
+  status: AttendanceListStatus | null;
+  /** Консультант (userId). */
+  consultant: string | null;
+  /** Курсор предыдущей страницы; null — первая. */
+  cursor: string | null;
+  /** Размер страницы; выгрузка берёт большие страницы. */
+  limit: number;
+}
 
 export type ReportOf<K extends ReportKey> = K extends 'operators'
   ? OperatorsReport
@@ -201,8 +288,11 @@ export type ReportOf<K extends ReportKey> = K extends 'operators'
 /** Разбор периода: 400 `period_invalid` (формат, from > to, длина > MAX_PERIOD_DAYS, будущее дальше завтра). */
 export type ResolvePeriod = (input: PeriodInput, timeZone: string) => ResolvedPeriod;
 
+/** Результат по запросу: список явки — отдельная форма, остальное — по ключу отчёта. */
+export type ReportResult<Q extends ReportQuery> = Q extends { key: 'attendance'; view: 'list' } ? AttendanceListReport : ReportOf<Q['key']>;
+
 /** Один вход для страницы, API и выгрузки. Нет охвата пространства у `report.view` — ForbiddenError (раздел). */
-export type GetReport = <Q extends ReportQuery>(viewer: Viewer, q: Q) => Promise<ReportOf<Q['key']>>;
+export type GetReport = <Q extends ReportQuery>(viewer: Viewer, q: Q) => Promise<ReportResult<Q>>;
 
 // ---------------------------------------------------------------------------
 // Панель директора (R4)
@@ -214,9 +304,13 @@ export interface DirectorDashboard {
   week: ResolvedPeriod;
   /** Прошлая неделя целиком — для сравнения числами, без графика. */
   prevWeek: ResolvedPeriod;
-  calls: { outcomes: number; connects: number; prevOutcomes: number };
+  calls: { outcomes: number; connects: number; prevOutcomes: number; prevConnects: number };
+  /** Короткие подписи видов записи из настроек: первый групповой и первый индивидуальный; пусто — вида нет. */
+  eventLabels: { group: string; individual: string };
   bookings: { groups: number; consults: number };
   attendance: { attended: number; noShow: number; rate: Rate };
+  /** «Средняя конверсия операторов» (D-343): среднее «записи / дозвоны» по операторам с ≥ `minConnects` дозвонов за неделю. */
+  conversion: { average: Rate; team: Rate; operators: number; minConnects: number };
   purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number };
   funnel: FunnelRow;
   revenue: RevenueRow[];
@@ -245,7 +339,7 @@ export interface ExportTable {
 }
 
 /** Отчёт → таблица выгрузки. `t` — переводчик подписей (ключи и значения настроек), без Next в домене. */
-export type ToExportTable = <K extends ReportKey>(key: K, report: ReportOf<K>, t: (key: string, values?: Record<string, string | number>) => string) => ExportTable;
+export type ToExportTable = <K extends ReportKey>(key: K, report: ReportOf<K> | AttendanceListReport, t: (key: string, values?: Record<string, string | number>) => string) => ExportTable;
 
 /** Запись журнала выгрузок (audit_log `export.*`, PROCESS 8.6): без значений фильтров и ПДн. */
 export interface ExportLogInput {

@@ -7,7 +7,7 @@ import { selectExportJournal } from './exportRepo';
 import { REPORT_KEYS, type ExportJournalRow, type ExportLogInput, type GetExportJournal, type WriteExportLog } from './reportTypes';
 
 /** Имена параметров фильтра и группировки, которые попадают в журнал (значения — никогда). */
-export const FILTER_KEYS = ['users', 'source', 'group', 'by'] as const;
+export const FILTER_KEYS = ['users', 'source', 'group', 'by', 'view', 'eventType', 'status', 'consultant'] as const;
 const FILTER_SET: ReadonlySet<string> = new Set(FILTER_KEYS);
 const FORMATS: ReadonlySet<string> = new Set(['csv', 'xlsx', 'zip']);
 const KINDS: ReadonlySet<string> = new Set(['report', 'full', 'guests']);

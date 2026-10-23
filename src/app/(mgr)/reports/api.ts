@@ -10,13 +10,21 @@ export function queryString(q: ReportQueryState): URLSearchParams {
   if (q.source !== '') sp.set('source', q.source);
   if (q.key === 'operators') sp.set('group', q.group);
   if (q.key === 'funnel') sp.set('by', q.funnelBy);
-  if (q.key === 'attendance') sp.set('by', q.attendanceBy);
+  if (q.key === 'attendance' && q.attendanceView === 'list') {
+    sp.set('view', 'list');
+    if (q.listEventType !== '') sp.set('eventType', q.listEventType);
+    if (q.listStatus !== '') sp.set('status', q.listStatus);
+    if (q.listConsultant !== '') sp.set('consultant', q.listConsultant);
+  } else if (q.key === 'attendance') sp.set('by', q.attendanceBy);
   return sp;
 }
 
-export async function loadReport(q: ReportQueryState): Promise<{ ok: true; data: ReportData } | { ok: false; key: LoadFailure }> {
+/** `cursor` — следующая страница списка явки. */
+export async function loadReport(q: ReportQueryState, cursor?: string): Promise<{ ok: true; data: ReportData } | { ok: false; key: LoadFailure }> {
   try {
-    const res = await fetch(`/api/reports/${q.key}?${queryString(q).toString()}`, { cache: 'no-store' });
+    const sp = queryString(q);
+    if (cursor) sp.set('cursor', cursor);
+    const res = await fetch(`/api/reports/${q.key}?${sp.toString()}`, { cache: 'no-store' });
     if (res.status === 401) {
       window.location.replace('/login?next=/reports');
       return { ok: false, key: 'unauthorized' };

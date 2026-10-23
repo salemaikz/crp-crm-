@@ -17,14 +17,17 @@ const labels = {
   serviceTypes: { audit: 'Аудит' },
   eventTypes: { seminar: 'Семинар' },
   reasons: { not_interested: { expensive: 'Дорого' } },
+  eventKinds: { group: 'Семинар' },
 };
 const t = exportTranslator(tr, labels);
 const period: ResolvedPeriod = { from: '2026-10-12', to: '2026-10-14', fromMs: 0, toMs: 1, timeZone: 'Asia/Almaty', days: 3 };
 
 const metrics = {
   issued: 5, outcomes: 20, connects: 8, lpr: 2, groups: 1, consults: 1, attended: 1, noShow: 0, attendanceRate: 100,
+  bookedPerConnect: 25, attendedPerBooked: 50, purchasedPerAttended: 100,
   purchases: 1, purchaseSumKzt: 150_000, skips: 0, workedHours: 2, callsPerHour: 10,
 };
+const average = { operators: 1, minConnects: 20, bookedPerConnect: 20, attendedPerBooked: 40, purchasedPerAttended: 80 };
 
 test('операторы: колонки по локали, корзина при группировке, «ниже нормы», итог', () => {
   const r: OperatorsReport = {
@@ -33,6 +36,7 @@ test('операторы: колонки по локали, корзина пр�
     callsPerHourTarget: 12,
     rows: [{ ...metrics, userId: 'u1', name: '=Оператор', bucket: '2026-10-12', belowTarget: true }],
     totals: metrics,
+    average,
   };
   const x = toExportTable('operators', r, t);
   assert.deepEqual(x.columns.slice(0, 3).map((c) => [c.key, c.label, c.type]), [
@@ -53,10 +57,17 @@ test('операторы: колонки по локали, корзина пр�
 test('воронка, выручка, явка, причины: подписи из настроек и запасные подписи', () => {
   const rates = { issued: null, connected: 50, lpr: 25, booked: 10, attended: null, purchased: null };
   const counts = { issued: 10, connected: 5, lpr: 2, booked: 1, attended: 0, purchased: 0 };
-  const f: FunnelReport = { period, by: 'source', rows: [{ key: 'new_base', name: null, counts, rates }, { key: '', name: null, counts, rates }], total: { key: '', name: null, counts, rates } };
+  const kinds = { group: { booked: 1, attended: 0 }, individual: { booked: 0, attended: 0 } };
+  const kindRates = { group: { booked: 50, attended: 0 }, individual: { booked: 0, attended: null } };
+  const f: FunnelReport = {
+    period,
+    by: 'source',
+    rows: [{ key: 'new_base', name: null, counts, rates, kinds, kindRates }, { key: '', name: null, counts, rates, kinds, kindRates }],
+    total: { key: '', name: null, counts, rates, kinds, kindRates },
+  };
   const ft = toExportTable('funnel', f, t);
   assert.deepEqual(ft.rows.map((r) => r[0]), ['Новая база', 'Источник не указан', 'Итого']);
-  assert.equal(ft.columns.length, 1 + 6 + 5);
+  assert.equal(ft.columns.length, 1 + 6 + 5 + 8);
   assert.equal(ft.columns[3]?.label, 'Дозвонов, %');
 
   const rv: RevenueReport = {
@@ -94,6 +105,7 @@ test('опасные строки в выгрузке CSV обезврежены
     callsPerHourTarget: null,
     rows: ['=SUM(A1)', '+7 709 100 00 01', '-5', '@x'].map((name, i) => ({ ...metrics, userId: `u${i}`, name, bucket: 'total', belowTarget: false })),
     totals: metrics,
+    average,
   };
   const x = toExportTable('operators', r, t);
   const csv = toExcelCsv([x.columns.map((c) => c.label), ...x.rows]);
@@ -160,6 +172,7 @@ test('CSV для русского Excel: доли с запятой (12.5, 33.3)
     callsPerHourTarget: null,
     rows: [{ ...metrics, userId: 'u1', name: 'Иван', bucket: 'total', belowTarget: false, attendanceRate: 12.5, callsPerHour: 33.3, purchaseSumKzt: 1_500_000 }],
     totals: metrics,
+    average,
   };
   const x = toExportTable('operators', r, t);
   const csv = toExcelCsv([x.columns.map((c) => c.label), ...x.rows]);

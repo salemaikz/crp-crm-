@@ -20,7 +20,7 @@ test('параметры: период, сотрудники (без повто�
   const f = parseReportQuery('funnel', { by: 'source' }, def);
   assert.equal(f.key === 'funnel' && f.by, 'source');
   const a = parseReportQuery('attendance', { by: 'consultant' }, def);
-  assert.equal(a.key === 'attendance' && a.by, 'consultant');
+  assert.equal(a.key === 'attendance' && a.view !== 'list' && a.by, 'consultant');
 });
 
 test('лишние ключи и неверные значения — ошибка', () => {

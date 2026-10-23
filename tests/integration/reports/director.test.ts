@@ -27,6 +27,18 @@ after(async () => {
   await closeWorld(db);
 });
 
+test('итог с канала board увеличивает итоги, но не дозвоны', async () => {
+  const v = await viewerOf(U.director);
+  const before = await getDirectorDashboard(v);
+  await seedCall(db.sql, { id: 'd4', cardId: 'cd-a-5', clientId: 'cl-a-5', userId: U.opA, at: SEED_NOW - 30 * MIN, kind: 'agreed', via: 'board' });
+  const after = await getDirectorDashboard(v);
+  assert.equal(after.calls.outcomes, before.calls.outcomes + 1);
+  assert.equal(after.calls.connects, before.calls.connects);
+  assert.equal(typeof after.calls.prevConnects, 'number');
+  assert.deepEqual(Object.keys(after.eventLabels).sort(), ['group', 'individual']);
+  await db.sql`DELETE FROM calls WHERE id = 'd4'`;
+});
+
 test('stockDays: один знак, нулевая ёмкость — null', () => {
   assert.equal(stockDays(20, 80), 0.3);
   assert.equal(stockDays(100, 40), 2.5);

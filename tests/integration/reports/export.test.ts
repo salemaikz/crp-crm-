@@ -74,7 +74,7 @@ test('CSV: файл для Excel, заголовки ответа, строка 
   assert.equal(last.actorId, U.rop);
   assert.equal(last.spaceId, SPACE);
   assert.deepEqual(Object.keys(last.meta).sort(), ['filterKeys', 'format', 'kind', 'periodDays', 'reportKey', 'rows']);
-  assert.deepEqual(last.meta, { kind: 'report', reportKey: 'operators', format: 'csv', rows: 2, filterKeys: ['group', 'users'], periodDays: 3 });
+  assert.deepEqual(last.meta, { kind: 'report', reportKey: 'operators', format: 'csv', rows: 3, filterKeys: ['group', 'users'], periodDays: 3 });
   // значения фильтров (id сотрудников) и цифры номеров в журнал не попадают
   assert.ok(!JSON.stringify(last.meta).includes(U.opA));
   assert.ok(!/\d{5,}/.test(JSON.stringify(last.meta)));

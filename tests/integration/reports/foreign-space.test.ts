@@ -22,6 +22,7 @@ async function snapshot(userId: string) {
     await getReport(v, { key: 'attendance', period: PERIOD, filters: F, by: 'event_type' }),
     await getReport(v, { key: 'attendance', period: PERIOD, filters: F, by: 'consultant' }),
     await getReport(v, { key: 'reasons', period: PERIOD, filters: F }),
+    await getReport(v, { key: 'attendance', view: 'list', period: PERIOD, filters: F, list: { eventType: null, status: null, consultant: null, cursor: null, limit: 50 } }),
   ];
   return JSON.stringify({ reports, director: await getDirectorDashboard(v), summary: await getSummary(v) });
 }
