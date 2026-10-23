@@ -448,6 +448,16 @@ interface StatusSpec extends BookingActionBase {
   reason: 'client' | 'operator_error' | null;
   /** Из каких статусов действие вообще возможно (автомат шире: «передумал» — не через этот API, D-133). */
   allowedFrom?: readonly booking.BookingStatus[];
+  /** `suppress` — событие карточки не вызывается (явка внутри № 33: карточку ведёт вызывающий). */
+  cardEvent?: 'emit' | 'suppress';
+  /** Порт явки: версию не сверяем; тот же статус — пустая операция, другой конечный — `attendance_changed`. */
+  portMode?: boolean;
+}
+
+export interface StatusOutcome {
+  view: BookingView;
+  before: BookingRow;
+  changed: boolean;
 }
 
 /**
@@ -455,11 +465,16 @@ interface StatusSpec extends BookingActionBase {
  * `opId` → версия → автомат статусов → UPDATE → событие карточки (§7.1) → история и лента.
  */
 async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec, outer?: Sql): Promise<BookingView> {
+  // `outer` — гость без записи отмечает уже существующую запись внутри своей транзакции (walkIn.ts)
+  return (await changeStatusTx(deps, viewer, spec, outer ? { tx: outer } : {})).view;
+}
+
+/** Тело `changeStatus`; для порта явки (`attendancePort.ts`) возвращает ещё прежнюю строку и признак изменения. */
+export async function changeStatusTx(deps: BookingDeps, viewer: Viewer, spec: StatusSpec, txOpts: { tx?: Sql }): Promise<StatusOutcome> {
   if (spec.perm === 'booking.create') requireRole(viewer, 'booking.create', 'object');
   requireSpace(viewer);
   const now = deps.now();
-  // `outer` — гость без записи отмечает уже существующую запись внутри своей транзакции (walkIn.ts)
-  return inBookingTx(outer ? { tx: outer } : {}, async (tx) => {
+  return inBookingTx(txOpts, async (tx): Promise<StatusOutcome> => {
     const probe = await findBooking(viewer, tx, { id: spec.bookingId, perm: spec.perm, lock: false });
     if (!probe) throw bookingNotFound();
     const settings = await deps.settings(probe.spaceId, now);
@@ -474,9 +489,12 @@ async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec,
     const seenOn = await findHistoryBookingId(tx, spec.opId);
     if (seenOn !== null) {
       if (seenOn !== b.id) throw new BookingDomainError('request_reused');
-      return toBookingView(b);
+      return { view: toBookingView(b), before: b, changed: false };
     }
-    if (b.version !== spec.version) throw new ConflictError();
+    if (spec.portMode) {
+      if (b.status === spec.to) return { view: toBookingView(b), before: b, changed: false };
+      if (b.status === 'attended' || b.status === 'no_show') throw new BookingDomainError('attendance_changed');
+    } else if (b.version !== spec.version) throw new ConflictError();
     if (spec.allowedFrom && !spec.allowedFrom.includes(b.status)) throw new BookingDomainError('invalid_transition');
 
     const check = booking.checkTransition(b.status, spec.to, {
@@ -497,7 +515,11 @@ async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec,
     if (!updated) await throwNotFoundOrConflict(viewer, tx, 'booking', b.id);
     const row = updated as BookingRow;
 
-    const cardCode = await emitCardEvent(deps, tx, viewer, { card, before: b, after: row, spec, settingsDeals: settings.deals, now });
+    const cardCode = spec.cardEvent === 'suppress' ? null : await emitCardEvent(deps, tx, viewer, { card, before: b, after: row, spec, settingsDeals: settings.deals, now });
+    // Кэш признаков и горячести (pipeline-v2 §5.1): при любой смене явки и при любом состоянии карточки, без версии карточки
+    if (spec.to === 'attended' || spec.to === 'no_show' || b.status === 'attended' || b.status === 'no_show') {
+      await deps.cards.refreshDerived?.(tx, viewer, { spaceId: b.spaceId, clientId: b.clientId });
+    }
 
     await insertHistory(tx, {
       id: spec.opId,
@@ -528,7 +550,7 @@ async function changeStatus(deps: BookingDeps, viewer: Viewer, spec: StatusSpec,
       await closeAutoTaskByKey(tx, viewer, { sourceKey: greyTaskKey(b.id), at: now });
       if (b.resourceId) await promoteReserve(tx, viewer, { spaceId: b.spaceId, resourceId: b.resourceId, date: b.bookingDate, startTime: b.startTime, durationMin: b.durationMin, at: now });
     }
-    return toBookingView(row);
+    return { view: toBookingView(row), before: b, changed: true };
   });
 }
 

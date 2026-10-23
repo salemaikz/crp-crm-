@@ -10,6 +10,8 @@ const DEAL_TABLES = ['deals', 'client_events', 'cards', 'tasks', 'handoffs', 'no
 const DEAL = { name: 'id', entity: 'deal' } as const;
 
 const entries: ManifestEntry[] = [
+  // «Мои покупки»: отбор по заслуге (автор первой записи сделки); имя клиента — только при охвате его карточки
+  { kind: 'route', path: '/api/deals/mine', method: 'GET', perm: 'deal.read', target: 'section', mutation: false },
   { kind: 'route', path: '/api/deals/[id]', method: 'GET', perm: 'deal.read', target: 'object', idParam: DEAL, mutation: false },
   // Карточка — в теле: раздел; чужая карточка — 404 от сервиса тем же телом
   {

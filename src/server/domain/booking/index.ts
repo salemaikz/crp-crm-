@@ -4,6 +4,7 @@ export { BookingDomainError, httpFailure, isBookingDomainError, fromCore, BOOKIN
 export { cancelBooking, createBooking, getBooking, listBookings, markAttendance, moveBooking, setConfirmation } from './bookings';
 export { getDutyCandidates, getDutyEvent, listDutyEvents, listEventsBoard, markRestNoShow, type EventBoardItem, type EventsBoard } from './duty';
 export { registerWalkIn } from './walkIn';
+export { bookingPort, setAttendanceInTx } from './attendancePort';
 export { clearException, createConsultant, getConsultant, getSchedule, listConsultantCandidates, listConsultants, setException, setSchedule, updateConsultant } from './consultants';
 export { loadBookingOpsSettings } from './opsSettings';
 export { attendanceSweepJob, greyAssignJob, greyAssignSchedule } from './jobs';

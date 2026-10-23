@@ -10,6 +10,7 @@ export { loadDealsSettings, parseDealsSettings } from './settings';
 export { stageFieldLabelsFor } from './fieldLabels';
 export { cancelPurchase, editPurchase, registerPurchase, type EditPurchaseRequest } from './purchase';
 export { loseDeal, moveDealStage } from './stage';
+export { listMine, monthBounds, type MyPurchase, type MyPurchases } from './mine';
 export { getDealPage, getPurchaseForm, toDealView } from './read';
 export { getCallingBoard, getCallingColumn, getClosedDeals, getDealsBoard, getDealsColumn } from './board';
 export { boardDeps, overrideBoardDepsForTests, parseBoardPipelines, type BoardDeps } from './boardDeps';

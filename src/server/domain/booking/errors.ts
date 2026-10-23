@@ -13,6 +13,8 @@ export const BOOKING_HTTP_STATUS: Readonly<Record<BookingDomainErrorCode, number
   event_has_bookings: 409,
   capacity_below_taken: 409,
   card_port_unavailable: 503,
+  attendance_forbidden: 403,
+  attendance_changed: 409,
   // B4/B5 (docs/deals-handoffs-design.md §6): отказы состояния — 409, плохой ввод расписания — 400
   slot_taken: 409,
   consultant_exists: 409,
@@ -65,7 +67,7 @@ export function httpFailure(e: BookingDomainError): HttpFailure {
   if (NOT_FOUND_CODES.has(e.code)) return { kind: 'not_found' };
   if (BAD_REQUEST_CODES.has(e.code)) return { kind: 'bad_request', detail: e.code };
   if (e.code === 'card_port_unavailable') return { kind: 'response', status: 503, body: { error: 'internal', detail: e.code } };
-  const body: { error: string; detail: string; alternatives?: EventOption[] | SuggestedConsultant[] } = { error: 'conflict', detail: e.code };
+  const body: { error: string; detail: string; alternatives?: EventOption[] | SuggestedConsultant[] } = { error: e.status === 403 ? 'forbidden' : 'conflict', detail: e.code };
   if (e.code === 'event_full' && e.alternatives) body.alternatives = e.alternatives;
   if (e.code === 'slot_taken' && e.suggestions) body.alternatives = e.suggestions;
   return { kind: 'response', status: e.status, body };

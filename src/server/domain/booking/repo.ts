@@ -1184,3 +1184,9 @@ export async function listStaffWithoutResource(sql: Sql, spaceId: string): Promi
        AND NOT EXISTS (SELECT 1 FROM resources r WHERE r.space_id = ${spaceId} AND r.user_id = u.id)
      ORDER BY u.name, u.id`;
 }
+
+/** Сделка открыта и принадлежит карточке (проверка порта явки № 33: запись из открытой сделки этой карточки). */
+export async function isOpenDealOfCard(sql: Sql, a: { dealId: string; cardId: string }): Promise<boolean> {
+  const rows = await sql<{ id: string }>`SELECT id FROM deals WHERE id = ${a.dealId} AND card_id = ${a.cardId} AND status = 'open'`;
+  return rows.length > 0;
+}

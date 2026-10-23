@@ -182,6 +182,9 @@ export const BOOKING_DOMAIN_ERRORS = [
   'event_has_bookings',
   'capacity_below_taken',
   'card_port_unavailable',
+  // B1 (pipeline-v2 §4.1, № 33): порт явки внутри чужой транзакции
+  'attendance_forbidden',
+  'attendance_changed',
 ] as const;
 export type BookingDomainErrorCode = core.BookingErrorCode | (typeof BOOKING_DOMAIN_ERRORS)[number] | ConsultDomainErrorCode;
 
@@ -324,6 +327,24 @@ export interface BookingActionBase {
 }
 
 export type ConfirmInput = BookingActionBase & { to: 'confirmed' | 'registered' };
+/** Порт явки для № 33 (C6): явка внутри чужой транзакции, без события карточки (pipeline-v2 §4.1). */
+export interface AttendanceInTxInput {
+  bookingId: string;
+  to: 'attended' | 'no_show';
+  opId: string;
+  /** Если задана, запись обязана принадлежать этой карточке (иначе 404). */
+  cardId?: string;
+}
+export interface AttendanceInTxResult {
+  changed: boolean;
+  status: core.BookingStatus;
+  eventKind: 'group' | 'individual';
+  startedAt: number;
+}
+export interface BookingPort {
+  setAttendanceInTx(tx: Sql, viewer: Viewer, input: AttendanceInTxInput): Promise<AttendanceInTxResult>;
+}
+
 export type AttendanceInput = BookingActionBase & { to: 'attended' | 'no_show' };
 export type CancelInput = BookingActionBase & { reason: 'client' | 'operator_error' };
 export interface MoveInput {

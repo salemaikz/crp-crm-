@@ -210,6 +210,8 @@ export const registerPurchase: RegisterPurchase = async (deps, viewer, input) =>
       now,
     );
     if (result.status === 'rejected') rejectOf(result);
+    // Кэш признаков (pipeline-v2 §5.1): число и дата покупок, горячесть; в той же транзакции, версию карточки не трогает
+    await deps.cards.refreshDerived?.(tx, viewer, { spaceId: card.spaceId, clientId: card.clientId });
 
     if (card.ownerUserId && card.ownerUserId !== viewer.userId) {
       await insertDealNotification(tx, { userId: card.ownerUserId, kind: 'deal_won', dealId: res.dealId, dedupeKey: `deal_won:${res.dealId}:${input.requestId}`, at: now });
@@ -285,6 +287,7 @@ export const editPurchase = (async (deps: DealsDeps, viewer: Viewer, input: Edit
     const written = await insertDealFeedWithId(tx, { id: input.opId, clientId: deal.clientId, spaceId, dealId: deal.id, kind: 'deal.purchase_edited', actorId: viewer.userId, at: now, data: change });
     if (!written) throw new DealDomainError('request_reused');
     await writeAudit(tx, { actorId: viewer.userId, action: 'deal.purchase_edit', entity: 'deal', entityId: deal.id, spaceId, meta: change, createdAt: now });
+    if (toWonAt !== deal.wonAt) await deps.cards.refreshDerived?.(tx, viewer, { spaceId, clientId: deal.clientId });
     const row = await lockDealById(tx, deal.id);
     if (!row) throw new NotFoundError();
     return toDealView(row, pipelineOf(settings, row.pipelineKey), now);
@@ -337,6 +340,8 @@ export const cancelPurchase: CancelPurchase = async (deps, viewer, input) => {
       const result = await deps.cards.applyBookingEvent(tx, viewer, card, { type: 'purchase_cancelled', opId: input.opId, dealId: deal.id, comment, facts: { hasOtherOpenDeal } }, now);
       if (result.status === 'rejected') rejectOf(result);
     }
+    // Кэш признаков пересчитывается при любом состоянии карточки (у «Клиента» с другой покупкой счётчик тоже меняется)
+    await deps.cards.refreshDerived?.(tx, viewer, { spaceId, clientId: deal.clientId });
     const row = await lockDealById(tx, deal.id);
     if (!row) throw new NotFoundError();
     return toDealView(row, pipelineOf(settings, row.pipelineKey), now);
