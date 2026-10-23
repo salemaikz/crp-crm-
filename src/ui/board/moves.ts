@@ -1,0 +1,163 @@
+// Куда можно перенести плитку и каким запросом (pipeline-v2 §3.1–§3.2, этап Б). Клиент только подсвечивает цели;
+// решение принимает сервер по ядру. До этапа В переносятся только плитки рабочих колонок («Новые», «Перезвон»):
+// в «Перезвон» итогом очереди устройства, в «Мусор» — итогом по причине или ручным списанием № 32.
+import { isWorkingRole } from './columns';
+import { buildRequest } from '@/ui/call/validate';
+import { EMPTY_DRAFT, type CallConfig, type OutcomeButton, type OutcomeKind, type OutcomeRequest, type PendingCall, type SheetDraft } from '@/ui/call/types';
+import type { BoardCardDto, BoardColumnConfig, BoardConfig, BoardReason } from './types';
+
+export type MoveAction = 'callback' | 'trash';
+export type MoveBlocked = 'same' | 'later' | 'viewer';
+
+export interface MoveTarget {
+  column: string;
+  available: boolean;
+  action: MoveAction | null;
+  blocked: MoveBlocked | null;
+}
+
+/** Виды итога окна «Перезвон»: «Перезвонить» и «Не берёт» (§3.4). */
+export const CALLBACK_KINDS: readonly OutcomeKind[] = ['callback', 'no_answer'];
+
+/** Цели переноса плитки. Пусто, если переносить нельзя вовсе (директор, нет права, плитка не из рабочих колонок). */
+export function moveTargets(card: BoardCardDto, columns: readonly BoardColumnConfig[], canMove: boolean): MoveTarget[] {
+  const from = columns.find((c) => c.key === card.column);
+  return columns.map((col): MoveTarget => {
+    if (!canMove) return { column: col.key, available: false, action: null, blocked: 'viewer' };
+    if (!from || col.key === from.key) return { column: col.key, available: false, action: null, blocked: 'same' };
+    // Откуда: только «Новые» и «Перезвон»; плитки остальных колонок до этапа В открываются через карточку клиента
+    if (!isWorkingRole(from.role)) return { column: col.key, available: false, action: null, blocked: 'later' };
+    if (col.role === 'callback') return { column: col.key, available: true, action: 'callback', blocked: null };
+    if (col.role === 'trash') return { column: col.key, available: true, action: 'trash', blocked: null };
+    return { column: col.key, available: false, action: null, blocked: 'later' };
+  });
+}
+
+/** Есть ли у плитки хоть одна доступная цель (показывать ли «⋯ → Перенести в…»). */
+export const canMoveAnywhere = (targets: readonly MoveTarget[]): boolean => targets.some((t) => t.available);
+
+// ---------- «Мусор» ----------
+
+export type TrashChoice =
+  | { kind: 'outcome'; outcomeKind: OutcomeKind; reason: string; label: string; needsText: boolean }
+  | { kind: 'write_off'; reason: string; label: string; needsText: false; blocked: 'call_first' | null };
+
+/** Оператору «Не отвечает» (№ 32) доступно только после недозвона (`attempts ≥ 1`); РОП — всегда. */
+export function writeOffBlocked(card: BoardCardDto, scope: BoardConfig['scope']): 'call_first' | null {
+  return scope === 'wide' || card.attempts >= 1 ? null : 'call_first';
+}
+
+const OUTCOME_TRASH: readonly OutcomeKind[] = ['not_interested', 'not_target'];
+
+function outcomeChoice(call: CallConfig, kind: string, reason: string): TrashChoice | null {
+  const def = call.outcomes.find((o) => o.kind === kind);
+  if (!def || !(OUTCOME_TRASH as readonly string[]).includes(kind)) return null;
+  const r = def.reasons.find((x) => x.key === reason);
+  return { kind: 'outcome', outcomeKind: def.kind, reason, label: r?.label ?? reason, needsText: r?.needsText ?? false };
+}
+
+/** Быстрые причины колонки «Мусор» (`drop`) в порядке пресета; неизвестные пары пропускаются. */
+export function quickTrash(column: BoardColumnConfig, call: CallConfig, writeOff: readonly BoardReason[], card: BoardCardDto, scope: BoardConfig['scope']): TrashChoice[] {
+  const out: TrashChoice[] = [];
+  for (const d of column.drop) {
+    if (d.kind === 'written_off') {
+      const label = writeOff.find((r) => r.key === d.reason)?.label ?? d.label;
+      out.push({ kind: 'write_off', reason: d.reason, label, needsText: false, blocked: writeOffBlocked(card, scope) });
+    } else {
+      const c = outcomeChoice(call, d.kind, d.reason);
+      if (c) out.push(c);
+    }
+  }
+  return out;
+}
+
+/** «Другие причины…»: все ручные причины видов «Не интересует» и «Не целевой» и списания, кроме быстрых. */
+export function moreTrash(column: BoardColumnConfig, call: CallConfig, writeOff: readonly BoardReason[], card: BoardCardDto, scope: BoardConfig['scope']): TrashChoice[] {
+  if (!column.dropMore) return [];
+  const quick = new Set(quickTrash(column, call, writeOff, card, scope).map((c) => `${c.kind === 'outcome' ? c.outcomeKind : 'written_off'}:${c.reason}`));
+  const out: TrashChoice[] = [];
+  for (const kind of OUTCOME_TRASH) {
+    const def = call.outcomes.find((o) => o.kind === kind);
+    for (const r of def?.reasons ?? []) if (!quick.has(`${kind}:${r.key}`)) out.push({ kind: 'outcome', outcomeKind: kind, reason: r.key, label: r.label, needsText: r.needsText });
+  }
+  for (const r of writeOff) if (!quick.has(`written_off:${r.key}`)) out.push({ kind: 'write_off', reason: r.key, label: r.label, needsText: false, blocked: writeOffBlocked(card, scope) });
+  return out;
+}
+
+// ---------- Запрос итога ----------
+
+/** Канал итога (§3.2): было намерение звонка этой карточки — звонок (`ui`/`offline`), иначе перенос без звонка (`board`). */
+export function viaFor(hasCallIntent: boolean, online: boolean): OutcomeRequest['via'] {
+  if (!hasCallIntent) return 'board';
+  return online ? 'ui' : 'offline';
+}
+
+export interface MoveRequestInput {
+  card: BoardCardDto;
+  def: OutcomeButton;
+  draft: SheetDraft;
+  /** Намерение звонка этой карточки на устройстве (нажатие «Позвонить» на плитке или на экране «Звонить»). */
+  intent: Pick<PendingCall, 'opId' | 'tappedAt'> | null;
+  opId: string;
+  now: number;
+  online: boolean;
+  fieldValues?: Record<string, string>;
+  callbackV2: boolean;
+}
+
+/** Итог переноса: тот же запрос, что у шторки «Звонить», с каналом по §3.2. */
+export function buildMoveRequest(i: MoveRequestInput): OutcomeRequest {
+  const base = buildRequest({
+    opId: i.intent?.opId ?? i.opId,
+    cardId: i.card.id,
+    def: i.def,
+    draft: i.draft,
+    tappedAt: i.intent?.tappedAt ?? null,
+    now: i.now,
+    online: i.online,
+    ...(i.fieldValues ? { fieldValues: i.fieldValues } : {}),
+    callbackV2: i.callbackV2,
+  });
+  return { ...base, via: viaFor(i.intent !== null, i.online) };
+}
+
+/** Черновик для переноса в «Мусор»: вид и причина выбраны, остальное по умолчанию. */
+export function trashDraft(def: OutcomeButton, reason: string, lpr: '' | 'yes' | 'no', note: string, target: boolean): SheetDraft {
+  return { ...EMPTY_DRAFT, outcomeKey: def.key, reasonCode: reason, lpr, note, target };
+}
+
+/** Плитка заблокирована, пока по ней есть итог в очереди устройства или отложенный перенос (§3.2). */
+export function lockedIds(outboxCardIds: readonly string[], deferredCardIds: readonly string[]): Set<string> {
+  return new Set([...outboxCardIds, ...deferredCardIds]);
+}
+
+// ---------- Раскладка «в уме» ----------
+
+export interface PlacementPlan {
+  column: string;
+  patch: Partial<BoardCardDto>;
+}
+
+/**
+ * Куда плитка переедет на экране сразу после подтверждения итога (до ответа сервера). `null` — плитка остаётся на месте
+ * и обновится после отправки (например, «Номер не работает»). Окончательную колонку определяет сервер: после отправки
+ * доска перечитывается.
+ */
+export function planFor(card: BoardCardDto, def: Pick<OutcomeButton, 'kind'>, draft: Pick<SheetDraft, 'reasonCode' | 'callbackAt' | 'callbackPrecision'>, columns: readonly BoardColumnConfig[], now: number): PlacementPlan | null {
+  const callbackCol = columns.find((c) => c.role === 'callback');
+  const trashCol = columns.find((c) => c.role === 'trash');
+  switch (def.kind) {
+    case 'callback':
+      return callbackCol
+        ? { column: callbackCol.key, patch: { state: 'callback', callbackReason: draft.reasonCode, callbackTouches: card.callbackTouches + 1, nextCallAt: draft.callbackAt, nextCallPrecision: draft.callbackPrecision ?? 'time', fire: null } }
+        : null;
+    case 'no_answer':
+      return callbackCol ? { column: callbackCol.key, patch: { state: 'retry', attempts: card.attempts + 1, fire: null } } : null;
+    case 'not_interested':
+    case 'not_target':
+    case 'do_not_call':
+      return trashCol ? { column: trashCol.key, patch: { state: def.kind, closedAt: now, closeReasonCode: draft.reasonCode, nextCallAt: null, fire: null } } : null;
+    default:
+      return null;
+  }
+}

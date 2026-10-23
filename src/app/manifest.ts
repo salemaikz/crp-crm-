@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { getActiveConfigOrNull } from '@/server/platform/config/active';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { computeTheme } from '@/ui/theme';
 
 // Манифест для установки на главный экран: название из локали, цвета из темы установки (theme.*), иконки — /icon.
@@ -15,7 +16,8 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     name: t('name'),
     short_name: t('name'),
     description: t('tagline'),
-    start_url: '/call',
+    // При OP_BOARD приложение открывается на доске (pipeline-v2 §9.1), иначе на экране «Звонить»
+    start_url: isFeatureEnabled('OP_BOARD') ? '/board' : '/call',
     scope: '/',
     display: 'standalone',
     orientation: 'portrait',

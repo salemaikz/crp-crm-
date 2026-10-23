@@ -1,5 +1,5 @@
 /* Service worker CRM: только оболочка приложения (ARCHITECTURE §7).
- * Что кэшируется: статика сборки (/_next/static, шрифты, иконки) и HTML экрана «Звонить» на случай запуска без сети.
+ * Что кэшируется: статика сборки (/_next/static, шрифты, иконки) и HTML экранов «Звонить» и «Доска» на случай запуска без сети.
  * Что не кэшируется никогда: любые ответы /api/** и данные карточек — их этот файл не трогает (запрос идёт в сеть),
  * поэтому ПДн на телефоне не копятся. Кэш очищается при выходе (страница сама вызывает caches.delete и ждёт; команда
  * {type:'clear'} — запасной путь), а HTML оболочки ещё и при заходе на /login и при POST /api/auth/*: следующий сотрудник
@@ -7,10 +7,12 @@
  * <meta name="crm-shell" content="stale">: страница не отправляет итоги, пока не получит себя заново с сервера.
  * Выход не завершён (кэш-метка crm-logout-pending, её ставит страница): оболочка /call не отдаётся из кэша и не
  * кэшируется; в самой оболочке скрипт в <head> по флагу в localStorage прячет страницу (D-063).
- * v3: оболочки v2 (без этого скрипта) удаляются при активации. */
-const VERSION = 'crm-shell-v3';
+ * v3: оболочки v2 (без этого скрипта) удаляются при активации.
+ * v4: к оболочке /call добавлена оболочка /board (доска оператора, pipeline-v2 §9.1); правила очистки и метка stale те же.
+ * Данные доски (/api/cards/board) не кэшируются: запросы /api/ идут мимо кэша, ПДн на телефоне не копятся. */
+const VERSION = 'crm-shell-v4';
 const LOGOUT_BLOCK = 'crm-logout-pending';
-const SHELL_PATH = '/call';
+const SHELL_PATHS = ['/call', '/board'];
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -34,7 +36,7 @@ self.addEventListener('message', (event) => {
 
 // HTML оболочки (но не статика сборки) удаляется: смена сотрудника на устройстве
 function dropShellHtml() {
-  return caches.open(VERSION).then((cache) => cache.delete(SHELL_PATH));
+  return caches.open(VERSION).then((cache) => Promise.all(SHELL_PATHS.map((p) => cache.delete(p))));
 }
 
 // Кэшированная оболочка с меткой «из кэша» (страница по ней понимает, что сессия не проверена)
@@ -82,20 +84,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Переход на экран «Звонить»: сеть, а без сети — последняя оболочка
-  if (req.mode === 'navigate' && url.pathname === SHELL_PATH) {
+  // Переход на экран «Звонить» или «Доска»: сеть, а без сети — последняя оболочка этого экрана
+  if (req.mode === 'navigate' && SHELL_PATHS.includes(url.pathname)) {
+    const shellPath = url.pathname;
     event.respondWith(
       (async () => {
         const cache = await caches.open(VERSION);
         try {
           const res = await fetch(req);
           // Кэшируем только успешную страницу без перенаправления (на вход не уводит) и не во время выхода
-          if (res.ok && !res.redirected && !(await caches.has(LOGOUT_BLOCK))) cache.put(SHELL_PATH, res.clone());
+          if (res.ok && !res.redirected && !(await caches.has(LOGOUT_BLOCK))) cache.put(shellPath, res.clone());
           return res;
         } catch (e) {
           // Выход не завершён: оболочку прежнего сотрудника из кэша не отдаём
           if (await caches.has(LOGOUT_BLOCK)) throw e;
-          const hit = await cache.match(SHELL_PATH);
+          const hit = await cache.match(shellPath);
           if (hit) return markStale(hit);
           throw e;
         }
