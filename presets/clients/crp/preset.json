@@ -1,7 +1,7 @@
 {
   "meta": {
     "key": "crp",
-    "version": "2026.10.1",
+    "version": "2026.10.2",
     "schemaVersion": 1,
     "extends": [
       "base",
@@ -512,7 +512,13 @@
       "density": "normal",
       "logo": "crp-logo.svg",
       "brandMark": "logo",
-      "statusStyle": "color_text_icon"
+      "statusStyle": "color_text_icon",
+      "defaultMode": "system",
+      "dark": {
+        "canvas": "#0d1424",
+        "surface": "#141d31",
+        "accentColor": "#e8edf7"
+      }
     },
     "fields": [
       {
@@ -845,7 +851,20 @@
               "Полный отказ"
             ]
           }
-        ]
+        ],
+        "callbackReason": {
+          "required": true
+        },
+        "callbackSchedule": {
+          "steps": [
+            "+3d",
+            "+7d",
+            "+14d"
+          ]
+        },
+        "returnDays": {
+          "client": 90
+        }
       },
       "reasons": {
         "bad_number": [
@@ -870,7 +889,7 @@
           {
             "key": "no_need",
             "label": {
-              "ru": "Нет потребности"
+              "ru": "Не нужны услуги"
             },
             "needsText": false,
             "softness": "soft"
@@ -920,7 +939,7 @@
           {
             "key": "company_closed",
             "label": {
-              "ru": "Компания закрылась"
+              "ru": "Закрыл компанию"
             },
             "needsText": false,
             "softness": "hard"
@@ -1063,7 +1082,8 @@
               "ru": "Не пришёл, на связь не выходит"
             },
             "needsText": false,
-            "softness": "soft"
+            "softness": "soft",
+            "system": "write_off"
           },
           {
             "key": "chose_other",
@@ -1089,7 +1109,151 @@
             "needsText": true,
             "softness": "soft"
           }
+        ],
+        "callback": [
+          {
+            "key": "think",
+            "label": {
+              "ru": "Подумает"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "not_now",
+            "label": {
+              "ru": "Пока не нужно"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "no_time",
+            "label": {
+              "ru": "Нет времени, перезвонить"
+            },
+            "needsText": false,
+            "softness": "soft"
+          },
+          {
+            "key": "no_show_br",
+            "label": {
+              "ru": "Не пришёл на бизнес-разбор"
+            },
+            "needsText": false,
+            "softness": "soft",
+            "system": "no_show",
+            "eventTypes": [
+              "br"
+            ]
+          },
+          {
+            "key": "no_show_bk",
+            "label": {
+              "ru": "Не пришёл на консультацию"
+            },
+            "needsText": false,
+            "softness": "soft",
+            "system": "no_show",
+            "eventTypes": [
+              "bk"
+            ]
+          },
+          {
+            "key": "attended_no_buy",
+            "label": {
+              "ru": "Пришёл, не купил — дожать"
+            },
+            "needsText": false,
+            "softness": "soft",
+            "system": "attended_no_purchase"
+          },
+          {
+            "key": "wont_come_br",
+            "label": {
+              "ru": "Не придёт на бизнес-разбор"
+            },
+            "needsText": false,
+            "softness": "soft",
+            "eventTypes": [
+              "br"
+            ]
+          },
+          {
+            "key": "repeat_sale",
+            "label": {
+              "ru": "Повторная продажа"
+            },
+            "needsText": false,
+            "softness": "soft",
+            "system": "client_return",
+            "manual": false
+          },
+          {
+            "key": "returned",
+            "label": {
+              "ru": "Вернулся через 90 дней"
+            },
+            "needsText": false,
+            "softness": "soft",
+            "system": "return_due",
+            "manual": false
+          },
+          {
+            "key": "other",
+            "label": {
+              "ru": "Другое (текст)"
+            },
+            "needsText": true,
+            "softness": "soft"
+          }
+        ],
+        "written_off": [
+          {
+            "key": "unreachable",
+            "label": {
+              "ru": "Не отвечает"
+            },
+            "needsText": false,
+            "softness": "hard"
+          },
+          {
+            "key": "other",
+            "label": {
+              "ru": "Другое (текст)"
+            },
+            "needsText": true,
+            "softness": "hard"
+          }
         ]
+      },
+      "queue": {
+        "sort": "heat",
+        "heat": {
+          "states": {
+            "callback": 100,
+            "new": 20,
+            "retry": 0
+          },
+          "reasons": {
+            "attended_no_buy": 500,
+            "no_show_bk": 450,
+            "no_show_br": 400,
+            "wont_come_br": 400,
+            "repeat_sale": 350,
+            "think": 200,
+            "no_time": 150,
+            "returned": 150,
+            "not_now": 50
+          },
+          "flags": {
+            "attendedGroup": 200,
+            "attendedIndividual": 300,
+            "noShow": 100,
+            "purchased": 250,
+            "lprYes": 50
+          }
+        }
       },
       "distribution": {
         "mode": "auto_even",
@@ -1123,6 +1287,29 @@
         }
       ],
       "serviceTypes": [
+        {
+          "key": "celina",
+          "label": {
+            "ru": "Целина"
+          },
+          "routeToTeam": null,
+          "variants": [
+            {
+              "key": "online",
+              "label": {
+                "ru": "Онлайн"
+              },
+              "amountKzt": 100000
+            },
+            {
+              "key": "offline",
+              "label": {
+                "ru": "Офлайн"
+              },
+              "amountKzt": 200000
+            }
+          ]
+        },
         {
           "key": "master_group",
           "label": {
@@ -1269,7 +1456,16 @@
             "format": "offline",
             "capacity": 30
           }
-        ]
+        ],
+        "confirmCall": {
+          "eventTypes": [
+            "br"
+          ],
+          "weekdays": [
+            4
+          ],
+          "declineReason": "wont_come_br"
+        }
       },
       "reminders": {
         "templates": [
@@ -1447,6 +1643,101 @@
             "ownerBy": "column",
             "outcomePriority": [],
             "snapshotDate": null
+          }
+        ]
+      },
+      "board": {
+        "columns": [
+          {
+            "key": "new",
+            "label": {
+              "ru": "Новые"
+            },
+            "states": [
+              "new"
+            ]
+          },
+          {
+            "key": "callback",
+            "label": {
+              "ru": "Перезвон"
+            },
+            "states": [
+              "retry",
+              "callback"
+            ]
+          },
+          {
+            "key": "br",
+            "label": {
+              "ru": "Бизнес-разбор"
+            },
+            "states": [
+              "agreed"
+            ],
+            "eventTypes": [
+              "br"
+            ]
+          },
+          {
+            "key": "bk",
+            "label": {
+              "ru": "Консультация"
+            },
+            "states": [
+              "agreed"
+            ],
+            "eventTypes": [
+              "bk"
+            ]
+          },
+          {
+            "key": "purchase",
+            "label": {
+              "ru": "Покупка"
+            },
+            "states": [
+              "client"
+            ]
+          },
+          {
+            "key": "trash",
+            "label": {
+              "ru": "Мусор"
+            },
+            "states": [
+              "not_interested",
+              "not_target",
+              "do_not_call",
+              "written_off"
+            ],
+            "recentDays": 30,
+            "drop": [
+              {
+                "kind": "not_target",
+                "reason": "company_closed"
+              },
+              {
+                "kind": "not_interested",
+                "reason": "no_need"
+              },
+              {
+                "kind": "written_off",
+                "reason": "unreachable"
+              }
+            ],
+            "dropMore": true
+          }
+        ],
+        "agreedFallback": "br",
+        "tones": [
+          {
+            "when": "attendedIndividual",
+            "tone": "warning"
+          },
+          {
+            "when": "attendedGroup",
+            "tone": "success"
           }
         ]
       }

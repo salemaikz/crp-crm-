@@ -101,11 +101,13 @@ test('снимок ЦРП: итоги, причины, повторы', () => {
   assert.equal(s.calling.undoSeconds, 5);
   assert.deepEqual(s.calling.callbackPresets, ['+2h', 'nextWorkday@10:00', 'nextEvent:br@10:00']);
   assert.deepEqual(s.calling.retry, { steps: ['+2h', 'nextWorkday@10:00'], maxAttempts: 3 });
-  assert.deepEqual(s.calling.returnDays, { not_interested: 90, deal_lost_soft: 90 });
+  // client: 90 — возврат после покупки (воронка v2, D-341)
+  assert.deepEqual(s.calling.returnDays, { not_interested: 90, deal_lost_soft: 90, client: 90 });
   const agreed = byKey(s.calling.outcomes, 'agreed');
   assert.deepEqual(agreed.requires, { lpr: true, reason: false, callbackAt: false, contact: true, fields: ['niche'], agreement: true });
   assert.ok(byKey(s.calling.outcomes, 'bad_number').importAliases.includes('Недоступен'));
-  assert.deepEqual(Object.keys(s.reasons).sort(), ['bad_number', 'deal_lost', 'do_not_call', 'not_interested', 'not_target']);
+  // callback и written_off — воронка v2 (D-337, D-336); подробно — tests/unit/presets/crp-pipeline-v2.test.ts
+  assert.deepEqual(Object.keys(s.reasons).sort(), ['bad_number', 'callback', 'deal_lost', 'do_not_call', 'not_interested', 'not_target', 'written_off']);
   assert.equal(s.reasons.not_interested.length, 6);
   assert.ok(byKey(s.reasons.deal_lost, 'refund'));
   assert.equal(byKey(s.reasons.not_interested, 'other').needsText, true);
@@ -228,6 +230,9 @@ test('снимок ЦРП: тема бренда и поля', () => {
     logo: 'crp-logo.svg',
     brandMark: 'logo',
     statusStyle: 'color_text_icon',
+    // тёмная тема и выбор по умолчанию — воронка v2 (D-342, ВП-12)
+    defaultMode: 'system',
+    dark: { canvas: '#0d1424', surface: '#141d31', accentColor: '#e8edf7' },
   });
   assert.deepEqual(g.security, { sessionDays: 30, inviteTtlHours: 72, loginAttempts: { perPhone: 5, perIp: 20, windowMin: 15 }, phoneProbesPerDay: 20 });
   assert.equal(g.team.fallbackOwnerRole, 'rop');
