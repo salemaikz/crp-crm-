@@ -298,7 +298,8 @@ export async function writePreview(sql: Sql, ctx: ImportContext, actor: ImportAc
         const newOwner = card.ownerUserId === null && card.holdReason === '' && pr.ownerUserId ? pr.ownerUserId : null;
         const base = newOwner ? { ...card, ownerUserId: newOwner, assignedAt: now } : card;
         const plan = planImportedCard({
-          card: { ...base, phones: [] },
+          // Поля цикла перезвона сервер пока не читает из БД (линия C2): импорт цикл не трогает.
+          card: { ...base, phones: [], callbackReason: '', callbackTouches: 0, nextCallPrecision: 'time' },
           row,
           held: base.ownerUserId === null,
           workingPhones: working.length,

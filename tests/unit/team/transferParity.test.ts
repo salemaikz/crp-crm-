@@ -35,7 +35,7 @@ const card = (state: calling.CardSnapshot['state']): calling.CardSnapshot => ({
   id: 'cd-1', clientId: 'cl-1', ownerUserId: 'u-a', actingUserId: 'u-t', actingUntilDay: '2026-10-30', state, holdReason: '',
   attempts: 1, nextCallAt: NOW + 3_600_000, returnAt: null, lpr: '', isTarget: '', lastOutcomeCode: '', lastOutcomeKind: '', lastOutcomeAt: null,
   closeReasonCode: '', closedAt: null, assignedAt: null, touchedInCrm: true, callsTotal: 2, connectsTotal: 1, noAnswerTotal: 1,
-  firstConnectAt: null, lastConnectAt: null, lastTouchAt: null, version: 7, phones: [],
+  firstConnectAt: null, lastConnectAt: null, lastTouchAt: null, version: 7, phones: [], callbackReason: '', callbackTouches: 0, nextCallPrecision: 'time',
 });
 
 for (const state of ['retry', 'callback', 'agreed', 'new'] as const) {

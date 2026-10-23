@@ -104,7 +104,25 @@ export type Target = '' | 'yes' | 'no';
 export type HoldReason = '' | 'dup_pair' | 'import_conflict' | 'no_working_phone' | 'rule';
 export type FactReason = '' | 'owner_changed' | 'stale';
 export type CallVia = 'ui' | 'offline' | 'import' | 'telephony' | 'manual_entry';
-export type ReasonGroup = 'not_interested' | 'not_target' | 'do_not_call' | 'bad_number' | 'deal_lost';
+export type ReasonGroup = 'not_interested' | 'not_target' | 'do_not_call' | 'bad_number' | 'deal_lost' | 'callback' | 'written_off';
+
+/** Точность срока перезвона: `time` — точное время, `day` — «в течение дня» (pipeline-v2 §4.2). */
+export type CallbackPrecision = 'time' | 'day';
+
+/** Какую причину система ставит сама (pipeline-v2 §4.1). */
+export type ReasonSystem = 'no_show' | 'attended_no_purchase' | 'client_return' | 'return_due' | 'write_off';
+
+/** Причина из `reasons.<группа>[]` в срезе, нужном ядру. */
+export interface ReasonDef {
+  code: string;
+  /** Архивные принимаются (офлайн-итоги не теряются), но оператору не предлагаются. */
+  archived: boolean;
+  /** `false` — причину ставит только система; от человека — `reason_unknown`. */
+  manual: boolean;
+  system?: ReasonSystem;
+  /** Для `system: 'no_show'` — ключи видов записи. */
+  eventTypes?: string[];
+}
 
 // ---------- Карточка ----------
 
@@ -152,6 +170,12 @@ export interface CardSnapshot {
   lastConnectAt: Ms | null;
   lastTouchAt: Ms | null;
   version: number;
+  /** Причина текущего перезвона (ключ `reasons.callback`), '' — нет. */
+  callbackReason: string;
+  /** Касания цикла перезвона; сбрасывается вне `retry`/`callback`. */
+  callbackTouches: number;
+  /** Точность `nextCallAt`. */
+  nextCallPrecision: CallbackPrecision;
   /** Порядок задаёт репозиторий: основной, затем мобильные, затем по времени добавления. */
   phones: PhoneSnapshot[];
 }
@@ -202,6 +226,8 @@ export interface OutcomeDef {
     agreement: boolean;
     // `requires.fields[]` (ниша и т. п.) проверяет движок полей K2 в C5, не машина состояний.
   };
+  /** Группа причин итога (`outcomes[].reasonGroup`); нет — по виду итога. */
+  reasonGroup?: string | null;
   archived: boolean;
   /** Время ревизии настроек, архивировавшей итог; архивный принимается ещё `offlineWindowHours` (PROCESS 12.31). */
   archivedAt: Ms | null;
@@ -245,6 +271,12 @@ export interface CallingSettings {
   autoNoShowWorkdays: number | null;
   /** `tasks.inboundReplyMinutes`. */
   inboundReplyMinutes: number;
+  /** `reasons.*`; нет ключа — проверка принадлежности группе не выполняется (настройки до воронки v2). */
+  reasons?: Partial<Record<ReasonGroup, ReasonDef[]>>;
+  /** `calling.callbackReason`. */
+  callbackReason?: { required: boolean };
+  /** `calling.callbackSchedule.steps` (`+Nd`, `+Nd@HH:MM`). */
+  callbackSchedule?: { steps: string[] };
 }
 
 // ---------- События (вход) ----------
@@ -275,6 +307,11 @@ export interface OutcomeEvent {
   /** Заполнено хотя бы одно поле ЛПР: имя, прямой номер, «когда звонить». */
   lprInfoFilled: boolean;
   callbackAt: Ms | null;
+  /**
+   * Точность срока. Есть — новый контракт (воронка v2): причина по `reasons.callback`, касание считается.
+   * Нет — старое устройство: причина необязательна и не пишется, точность `time` (§4.4).
+   */
+  callbackPrecision?: CallbackPrecision;
   /** Чип «Целевой: да». */
   markTarget: boolean;
   /** Номера, отмеченные «тоже не звонить» (только `do_not_call`). */
@@ -363,6 +400,8 @@ export interface DncClearEvent extends ManualBase {
 export interface NoShowEvent extends EventBase {
   type: 'no_show';
   bookingId: string;
+  /** Ключ вида записи (для причины `no_show_<вид>`); нет — причина пустая. */
+  eventType?: string;
   facts: { hasOtherFutureBooking: boolean };
 }
 
@@ -372,6 +411,8 @@ export interface AttendanceSweepEvent extends EventBase {
   bookingId: string;
   /** Дежурный (групповое) или консультант (консультация). */
   markerUserId: UserId;
+  /** Ключ вида записи (для причины неявки). */
+  eventType?: string;
   facts: { workdaysElapsed: number; hasOtherFutureBooking: boolean };
 }
 
@@ -479,7 +520,11 @@ export interface AttendanceCorrectedEvent extends EventBase {
   bookingId: string;
   /** Когда была отметка «Не пришёл» (ручная или автонеявка). */
   noShowMarkedAt: Ms;
-  facts: { hasNextFutureBooking: boolean };
+  /**
+   * Есть открытая задача `no_show:<bookingId>` этой записи (pipeline-v2 §3.3, № 31). `false` — `stale`;
+   * нет ключа — проверка не выполняется (сервер до воронки v2).
+   */
+  facts: { hasNextFutureBooking: boolean; hasOpenNoShowTask?: boolean };
 }
 
 export type CardEvent =
@@ -553,6 +598,8 @@ export type TaskEffect =
       dueAt: Ms | null;
       /** `tasks.source_key`: автозадача не задваивается. */
       sourceKey: string;
+      /** `tasks.due_precision`; пишется только для `day`, иначе поля нет. */
+      duePrecision?: CallbackPrecision;
     }
   /** Закрыть открытые задачи клиента в пространстве: по источникам или все. */
   | { op: 'close'; sources: TaskSource[] | 'all' }
@@ -674,6 +721,8 @@ export interface CallRecord {
   reasonCode: string;
   lpr: Lpr;
   callbackAt: Ms | null;
+  /** `calls.callback_precision`. */
+  callbackPrecision: CallbackPrecision;
   phoneId: string | null;
   via: CallVia;
   applied: 'applied' | 'fact_only';
@@ -697,6 +746,7 @@ export type RejectCode =
   | 'outcome_unknown'
   | 'outcome_archived'
   | 'reason_required'
+  | 'reason_unknown'
   | 'lpr_required'
   | 'lpr_info_required'
   | 'callback_at_required'

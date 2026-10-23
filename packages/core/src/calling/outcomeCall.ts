@@ -2,6 +2,7 @@
 
 import type {
   AppliedResult,
+  CallingSettings,
   CallRecord,
   CardSnapshot,
   Effects,
@@ -10,6 +11,7 @@ import type {
   OutcomeDef,
   OutcomeEvent,
   PhoneSnapshot,
+  ReasonDef,
   TaskEffect,
   TimelineEffect,
   TransitionInput,
@@ -35,22 +37,58 @@ import {
   ownerRecipient,
   planDnc,
   reject,
+  writeOffEffects,
 } from './transitionKit.js';
 import { planNoAnswer } from './retry.js';
 
 type Fields = Partial<CardSnapshot>;
 
+/** Группа причин итога: из справочника итога, иначе по виду (для видов, у которых группа совпадает с ним). */
+function reasonGroupOf(def: OutcomeDef): string | null {
+  if (def.kind === 'callback') return 'callback';
+  if (def.reasonGroup !== undefined) return def.reasonGroup;
+  const same: readonly string[] = ['not_interested', 'not_target', 'do_not_call', 'bad_number'];
+  return same.includes(def.kind) ? def.kind : null;
+}
+
+/** Причина должна быть в группе (архивная допустима) и не быть системной (`manual: false`). */
+function reasonKnown(group: string | null, code: string, settings: CallingSettings): boolean {
+  if (group === null || settings.reasons === undefined) return true;
+  const list = (settings.reasons as Record<string, ReasonDef[] | undefined>)[group];
+  if (list === undefined) return true;
+  const r = list.find((x) => x.code === code);
+  return r !== undefined && r.manual !== false;
+}
+
+/** Причина, которую запишет итог `callback`: старый контракт (нет точности) её не пишет. */
+function callbackReasonOf(e: OutcomeEvent): string {
+  return e.callbackPrecision === undefined ? '' : e.reasonCode;
+}
+
 /** Проверки полей итога (шаг 7 порядка проверок). */
 function validateFields(e: OutcomeEvent, def: OutcomeDef, card: CardSnapshot, t: number, tolMin: number, input: TransitionInput) {
   const { settings } = input;
   const kind = def.kind;
-  if (def.requires.reason && e.reasonCode.trim() === '') return reject('reason_required', 'reasonCode');
+  const v2Callback = kind === 'callback' && e.callbackPrecision !== undefined;
+  const group = reasonGroupOf(def);
+  if (v2Callback) {
+    // Новый контракт: обязательность задаёт `calling.callbackReason`, а не `requires.reason` итога.
+    if (settings.callbackReason?.required === true && e.reasonCode.trim() === '') return reject('reason_required', 'reasonCode');
+    if (e.reasonCode !== '' && !reasonKnown(group, e.reasonCode, settings)) return reject('reason_unknown', 'reasonCode');
+  } else if (kind !== 'callback' || def.requires.reason) {
+    if (def.requires.reason && e.reasonCode.trim() === '') return reject('reason_required', 'reasonCode');
+    if (kind !== 'callback' && e.reasonCode !== '' && !reasonKnown(group, e.reasonCode, settings)) return reject('reason_unknown', 'reasonCode');
+  }
   const lprNeeded = def.requires.lpr || (settings.lprRequiredOnContact && (LPR_ON_CONTACT_KINDS as readonly string[]).includes(kind));
   if (lprNeeded && e.lpr === '') return reject('lpr_required', 'lpr');
   if (e.lpr === 'no' && settings.lprNoRequiresInfo && !e.lprInfoFilled && !e.hasNote) return reject('lpr_info_required', 'lprInfo');
   if (kind === 'callback' || def.requires.callbackAt) {
     if (e.callbackAt === null) return reject('callback_at_required', 'callbackAt');
-    if (kind === 'callback' && e.callbackAt < t - tolMin * MINUTE_MS) return reject('callback_in_past', 'callbackAt');
+    if (kind === 'callback') {
+      // Точность «день»: сравниваются сутки, сегодняшний срок допустим.
+      const past = e.callbackPrecision === 'day' ? input.calendar.localDay(e.callbackAt) < input.calendar.localDay(t) : e.callbackAt < t - tolMin * MINUTE_MS;
+      if (past) return reject('callback_in_past', 'callbackAt');
+    }
   }
   if (kind === 'agreed' || def.requires.agreement) {
     const a = e.agreement;
@@ -91,9 +129,10 @@ function callRecord(
     id: e.opId,
     outcomeCode: e.outcomeKey,
     outcomeKind: def.kind,
-    reasonCode: e.reasonCode,
+    reasonCode: def.kind === 'callback' ? callbackReasonOf(e) : e.reasonCode,
     lpr: e.lpr,
     callbackAt: e.callbackAt,
+    callbackPrecision: e.callbackPrecision ?? 'time',
     phoneId: e.phoneId,
     via: e.via,
     applied: status,
@@ -143,7 +182,9 @@ function applyKind(e: OutcomeEvent, def: OutcomeDef, card: CardSnapshot, t: numb
       const plan = planNoAnswer(card.attempts, t, settings.retry, calendar);
       if (plan.kind === 'write_off') {
         const f = { ...base, state: 'written_off' as const, attempts: plan.attempts, ...closed('no_answer_limit') };
+        const wo = writeOffEffects('no_answer_limit', settings);
         effects.tasks.push(...leaveTasks(card.state, 'written_off'));
+        effects.deals.push(...wo.deals);
         return { fields: f, effects, warnings, extraTimeline };
       }
       const f = { ...base, state: 'retry' as const, attempts: plan.attempts, nextCallAt: plan.nextCallAt };
@@ -162,13 +203,25 @@ function applyKind(e: OutcomeEvent, def: OutcomeDef, card: CardSnapshot, t: numb
         return { fields: { ...base, state: 'retry', nextCallAt: t, phones: withPrimary }, effects, warnings, extraTimeline };
       }
       effects.tasks.push(...leaveTasks(card.state, 'written_off'));
+      effects.deals.push(...writeOffEffects('no_working_phone', settings).deals);
       return { fields: { ...base, state: 'written_off', ...closed('no_working_phone'), phones: withPrimary }, effects, warnings, extraTimeline };
     }
     case 'callback': {
       const at = e.callbackAt as number;
       if (!calendar.isInCallWindow(at)) warnings.push('callback_outside_work_hours');
-      effects.tasks.push(...leaveTasks(card.state, 'callback'), callbackTask(card, e.opId, at));
-      return { fields: { ...base, state: 'callback', attempts: 0, nextCallAt: at }, effects, warnings, extraTimeline };
+      const precision = e.callbackPrecision ?? 'time';
+      effects.tasks.push(...leaveTasks(card.state, 'callback'), callbackTask(card, e.opId, at, precision));
+      // Повторный «Перезвонить» из `callback` — тоже касание: цикл не сбрасывается (недозвон между ними не в счёт).
+      const fields: Fields = {
+        ...base,
+        state: 'callback',
+        attempts: 0,
+        nextCallAt: at,
+        nextCallPrecision: precision,
+        callbackReason: callbackReasonOf(e),
+        callbackTouches: card.callbackTouches + 1,
+      };
+      return { fields, effects, warnings, extraTimeline };
     }
     case 'agreed': {
       effects.tasks.push(...leaveTasks(card.state, 'agreed'));

@@ -3,9 +3,11 @@
 
 import type {
   AppliedResult,
+  CallbackPrecision,
   BookingEffect,
   CardSnapshot,
   CardState,
+  CallingSettings,
   DealEffect,
   Effects,
   Ms,
@@ -66,6 +68,14 @@ function sameValue(a: unknown, b: unknown): boolean {
  */
 export function commit(before: CardSnapshot, patch: Partial<CardSnapshot>): CardSnapshot {
   const next: CardSnapshot = { ...before, ...patch, version: before.version };
+  // Срок поменяли, а точность не указали — это срок «по времени» (недозвон, неявка, отмена записи).
+  if ('nextCallAt' in patch && !('nextCallPrecision' in patch)) next.nextCallPrecision = 'time';
+  // Сброс цикла перезвона: вне `retry` и `callback` причины и касаний нет (pipeline-v2 §3.3).
+  if (next.state !== 'retry' && next.state !== 'callback') {
+    next.callbackReason = '';
+    next.callbackTouches = 0;
+    next.nextCallPrecision = 'time';
+  }
   const keys = Object.keys(next) as (keyof CardSnapshot)[];
   const changed = keys.some((k) => !sameValue(before[k], next[k]));
   return changed ? { ...next, version: before.version + 1 } : before;
@@ -78,8 +88,16 @@ export function ownerRecipient(card: CardSnapshot): Recipient {
   return card.ownerUserId !== null ? { user: card.ownerUserId } : { role: 'lead' };
 }
 
-export function callbackTask(card: CardSnapshot, opId: string, dueAt: Ms): TaskEffect {
-  return { op: 'create', source: 'callback', kind: 'call', assignee: ownerRecipient(card), dueAt, sourceKey: `callback:${opId}` };
+export function callbackTask(card: CardSnapshot, opId: string, dueAt: Ms, precision: CallbackPrecision = 'time'): TaskEffect {
+  return {
+    op: 'create',
+    source: 'callback',
+    kind: 'call',
+    assignee: ownerRecipient(card),
+    dueAt,
+    sourceKey: `callback:${opId}`,
+    ...(precision === 'day' ? { duePrecision: 'day' as const } : {}),
+  };
 }
 
 export const closeCallbackTasks = (): TaskEffect => ({ op: 'close', sources: [...CALLBACK_TASK_SOURCES] });
@@ -110,6 +128,17 @@ export function closeEffects(kind: CloseKind | 'written_off', reasonCode: string
   if (kind !== 'written_off') deals.push({ op: 'lose_open', reasonGroup: kind, reasonCode });
   if (kind === 'not_target' || kind === 'do_not_call') bookings.push({ op: 'cancel_future', reason: kind });
   return { tasks: [closeAllTasks()], deals, bookings };
+}
+
+/**
+ * Списание карточки (№ 5, № 7, № 32, № 33): закрыть задачи и проиграть открытые сделки с системной причиной
+ * `deal_lost` (`system: 'write_off'`), иначе с `other`. Раньше сделки при списании оставались открытыми.
+ */
+export function writeOffEffects(reasonCode: string, settings: Pick<CallingSettings, 'reasons'>): Pick<Effects, 'tasks' | 'deals' | 'bookings'> {
+  const closing = closeEffects('written_off', reasonCode);
+  const sys = settings.reasons?.deal_lost?.find((r) => r.system === 'write_off' && !r.archived);
+  closing.deals.push({ op: 'lose_open', reasonGroup: 'deal_lost', reasonCode: sys?.code ?? 'other' });
+  return closing;
 }
 
 export interface DncPlan {

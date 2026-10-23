@@ -37,7 +37,7 @@ function poolCard(): calling.CardSnapshot {
     id: 'cd-1', clientId: 'cl-1', ownerUserId: null, actingUserId: null, actingUntilDay: '', state: 'new', holdReason: '',
     attempts: 0, nextCallAt: null, returnAt: null, lpr: '', isTarget: '', lastOutcomeCode: '', lastOutcomeKind: '', lastOutcomeAt: null,
     closeReasonCode: '', closedAt: null, assignedAt: null, touchedInCrm: false, callsTotal: 0, connectsTotal: 0, noAnswerTotal: 0,
-    firstConnectAt: null, lastConnectAt: null, lastTouchAt: null, version: 4, phones: [],
+    firstConnectAt: null, lastConnectAt: null, lastTouchAt: null, version: 4, phones: [], callbackReason: '', callbackTouches: 0, nextCallPrecision: 'time',
   };
 }
 

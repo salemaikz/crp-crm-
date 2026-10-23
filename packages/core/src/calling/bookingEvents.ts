@@ -35,8 +35,16 @@ import {
 } from './transitionKit.js';
 import { resolveStepAt } from './retry.js';
 
+/** Причина неявки: системная `no_show` с видом записи в `eventTypes`; нет такой — пустая строка. */
+function noShowReason(input: TransitionInput, eventType: string | undefined): string {
+  if (eventType === undefined) return '';
+  const list = input.settings.reasons?.callback ?? [];
+  const live = list.filter((r) => r.system === 'no_show' && r.eventTypes?.includes(eventType) === true);
+  return (live.find((r) => !r.archived) ?? live[0])?.code ?? '';
+}
+
 /** Неявка: `callback` на шаг `noShowCallbackAt`, задача «перезаписать», значок сделки, уведомление (№ 16, 28). */
-function noShowToCallback(input: TransitionInput, card: CardSnapshot, bookingId: string, actorId: string | null): AppliedResult {
+function noShowToCallback(input: TransitionInput, card: CardSnapshot, bookingId: string, actorId: string | null, eventType?: string): AppliedResult {
   const { now, settings, calendar } = input;
   const at = resolveStepAt(settings.noShowCallbackAt, now, calendar);
   const effects = emptyEffects();
@@ -44,14 +52,15 @@ function noShowToCallback(input: TransitionInput, card: CardSnapshot, bookingId:
   effects.deals.push({ op: 'set_needs_rebook', bookingId, value: true });
   effects.notifications.push({ kind: 'no_show', to: ownerRecipient(card), dedupeKey: null });
   effects.timeline.push(tlState(now, actorId, card.state, 'callback', 'no_show'));
-  return applied(commit(card, { state: 'callback', nextCallAt: at, touchedInCrm: true }), effects);
+  // Касания не меняются: неявка — не звонок оператора.
+  return applied(commit(card, { state: 'callback', nextCallAt: at, callbackReason: noShowReason(input, eventType), touchedInCrm: true }), effects);
 }
 
 /** № 16. */
 export function applyNoShow(input: TransitionInput, card: CardSnapshot, e: NoShowEvent): TransitionResult {
   if (card.state !== 'agreed') return reject('invalid_transition');
   if (e.facts.hasOtherFutureBooking) return applied(card);
-  return noShowToCallback(input, card, e.bookingId, input.actor.userId);
+  return noShowToCallback(input, card, e.bookingId, input.actor.userId, e.eventType);
 }
 
 /** № 28 (только система): ночная проверка неотмеченной явки. */
@@ -79,7 +88,7 @@ export function applyAttendanceSweep(input: TransitionInput, card: CardSnapshot,
     effects.tasks.push(...close);
     return applied(card, effects);
   }
-  const r = noShowToCallback(input, card, e.bookingId, null);
+  const r = noShowToCallback(input, card, e.bookingId, null, e.eventType);
   r.effects.tasks.unshift(...close);
   return r;
 }
@@ -276,6 +285,7 @@ export function applyImportAgreed(input: TransitionInput, card: CardSnapshot, e:
     reasonCode: '',
     lpr: '',
     callbackAt: null,
+    callbackPrecision: 'time',
     phoneId: null,
     via: 'import',
     applied: 'applied',
@@ -292,6 +302,8 @@ export function applyImportAgreed(input: TransitionInput, card: CardSnapshot, e:
 export function applyAttendanceCorrected(input: TransitionInput, card: CardSnapshot, e: AttendanceCorrectedEvent): TransitionResult {
   if (card.state !== 'callback') return reject('invalid_transition');
   if (card.lastOutcomeAt !== null && card.lastOutcomeAt > e.noShowMarkedAt) return reject('stale');
+  // Исправлять есть что, только пока открыта задача неявки этой записи (после № 16, 28, 33 с неявкой).
+  if (e.facts.hasOpenNoShowTask === false) return reject('stale');
   const effects = emptyEffects();
   effects.tasks.push(...leaveTasks('callback', 'agreed'));
   if (!e.facts.hasNextFutureBooking) effects.tasks.push(nextStepTask(input, card, e.bookingId));
