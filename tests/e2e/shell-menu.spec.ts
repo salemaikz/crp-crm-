@@ -29,15 +29,24 @@ async function walk(page: Page, mobile: boolean, expected: string[]): Promise<vo
   }
 }
 
+// Доска оператора (U1) за флагом OP_BOARD: при флаге в меню есть /board и нет /clients, без флага — как раньше
+const BOARD = process.env.FEATURE_OP_BOARD === '1';
+
 test('оператор (телефон): все пункты меню открываются, «Мой день»/«Карточки» нет', async ({ page }) => {
   const op = await makeOperator(1);
   await login(page, op);
   await page.goto('/call');
   const hrefs = await menuHrefs(page, true);
   expect(hrefs).not.toContain('/my-day');
+  if (BOARD) {
+    expect(hrefs, 'при OP_BOARD «Клиентов» нет: их заменяет поиск над доской').not.toContain('/clients');
+    expect(hrefs[0], 'Доска первая').toBe('/board');
+  } else {
+    expect(hrefs, 'без OP_BOARD доски нет').not.toContain('/board');
+  }
   await page.keyboard.press('Escape');
   await page.goto('/call');
-  await walk(page, true, ['/call', '/clients', '/tasks']);
+  await walk(page, true, BOARD ? ['/board', '/call', '/tasks'] : ['/call', '/clients', '/tasks']);
 });
 
 test('консультант (телефон): пункты меню открываются', async ({ page }) => {

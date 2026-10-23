@@ -7,7 +7,7 @@ export type ShellKind = 'operator' | 'manager' | 'consultant' | 'duty';
 
 /** Идентификатор пункта: он же ключ подписи `shell.nav.<id>` и иконки. */
 export type MenuId =
-  | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive'
+  | 'board' | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive'
   | 'summary' | 'director' | 'exports' | 'distribution' | 'kanban' | 'reports' | 'settings' | 'import' | 'handoffs' | 'team' | 'transfer'
   | 'consultations' | 'duty' | 'integrations';
 
@@ -18,7 +18,7 @@ export type MenuGroup = 'work' | 'analytics' | 'manage';
 export const MENU_GROUPS: readonly MenuGroup[] = ['work', 'analytics', 'manage'];
 
 export const MENU_GROUP: Record<MenuId, MenuGroup> = {
-  call: 'work', clients: 'work', tasks: 'work', bookings: 'work', archive: 'work', summary: 'work', director: 'work',
+  board: 'work', call: 'work', clients: 'work', tasks: 'work', bookings: 'work', archive: 'work', summary: 'work', director: 'work',
   distribution: 'work', handoffs: 'work', kanban: 'work', consultations: 'work', duty: 'work',
   reports: 'analytics', exports: 'analytics',
   settings: 'manage', import: 'manage', transfer: 'manage', team: 'manage', integrations: 'manage',
@@ -50,12 +50,14 @@ type ShellSpec = {
 
 // Порядок — порядок в меню. Остальные пункты на телефоне уходят в «Ещё».
 const SHELLS: Record<ShellKind, ShellSpec> = {
-  // Оператор: телефон, «Звонить / Клиенты / Задачи / Ещё»
+  // Оператор: телефон, «Звонить / Клиенты / Задачи / Ещё»; при OP_BOARD — «Доска / Звонить / Задачи / Ещё», а «Клиенты»
+  // скрыты: их заменяет поиск над доской (pipeline-v2 §9.1)
   operator: {
     bottomSlots: 3,
     items: [
+      { id: 'board', href: '/board', keys: ['queue'], perm: 'card.outcome', feature: 'OP_BOARD' },
       { id: 'call', href: '/call', keys: ['queue'], perm: 'card.read' },
-      { id: 'clients', href: '/clients', perm: 'client.read' },
+      { id: 'clients', href: '/clients', perm: 'client.read', unlessFeature: 'OP_BOARD' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'bookings', href: '/bookings', keys: ['bookings'], perm: 'booking.read' },
       { id: 'archive', href: '/archive', keys: ['archive'], perm: 'client.read' },

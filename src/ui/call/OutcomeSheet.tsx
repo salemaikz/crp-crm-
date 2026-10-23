@@ -12,7 +12,7 @@ import { CallbackPicker } from './CallbackPicker';
 import { resolvePreset } from './callback';
 import { missingFor, oneTap, type Missing } from './validate';
 import type { PendingState } from './pending';
-import type { CallConfig, OutcomeButton, SheetDraft } from './types';
+import type { CallConfig, OutcomeButton, OutcomeKind, SheetDraft } from './types';
 import { fromInputValue, toInputValue } from './zoned';
 
 export interface SheetPhone {
@@ -39,9 +39,11 @@ type Props = {
   onLater: (def: OutcomeButton, fieldValues: Record<string, string>) => void;
   submitBooking: NonNullable<BookingWizardProps['submit']>;
   onBooked: NonNullable<BookingWizardProps['onDone']>;
+  /** Доска оператора (перенос плитки в «Перезвон»): показываются только эти виды итога, остальные скрыты. */
+  lockedKinds?: readonly OutcomeKind[];
 };
 
-export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSubmit, hasContact, touches, booking, onBookingOpen, onBookingBack, onLater, submitBooking, onBooked }: Props) {
+export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSubmit, hasContact, touches, booking, onBookingOpen, onBookingBack, onLater, submitBooking, onBooked, lockedKinds }: Props) {
   const t = useTranslations('call');
   const f = useFormatter();
   const d = pending.draft;
@@ -49,7 +51,9 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [presetIdx, setPresetIdx] = useState<number | 'custom' | null>(d.callbackAt !== null ? 'custom' : null);
 
-  const selected = config.outcomes.find((o) => o.key === d.outcomeKey) ?? null;
+  // Доска: только разрешённые виды итога; без ограничения (экран «Звонить») — все
+  const outcomes = lockedKinds ? config.outcomes.filter((o) => lockedKinds.includes(o.kind)) : config.outcomes;
+  const selected = outcomes.find((o) => o.key === d.outcomeKey) ?? null;
   const missing: Missing[] = selected ? missingFor(selected, d, config, fieldValues, hasContact) : [];
 
   const choose = (def: OutcomeButton) => {
@@ -138,7 +142,7 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
           )}
 
           <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2" role="group" aria-label={t('sheet.outcomes')}>
-            {config.outcomes.map((o) => (
+            {outcomes.map((o) => (
               <button
                 key={o.key}
                 type="button"

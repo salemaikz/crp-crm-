@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { BadRequestError, NotFoundError, type Viewer } from '@/server/access';
 import type { Scope } from '@crm/core/access';
 import { dueBoundsAt } from '@/server/domain/calls/dueBounds';
+import { queueLprs, queuePhones } from '@/server/domain/calls/repo';
+import { maskKzPhone } from '@/shared/tel';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from '@/server/domain/clients';
 import { ConfigMissingError } from '@/server/platform/config/active';
 import { isFeatureEnabled } from '@/server/platform/flags';
@@ -50,6 +52,13 @@ export interface BoardCardDto {
   attempts: number;
   lpr: string;
   isTarget: string;
+  /** Имя ЛПР (первый контакт с признаком «принимает решения»); пусто — контакта нет. */
+  lprName: string;
+  /**
+   * Основной рабочий номер не из стоп-листа. Закрытый вид — для плитки; цифры (`digits`) уходят только при охвате `own`
+   * (оператору на его карточках, как в очереди «Звонить»): РОП и директор на плитках цифр не получают.
+   */
+  phone: { id: string; masked: string; digits?: string } | null;
   flags: { attendedGroup: boolean; attendedIndividual: boolean; noShow: boolean };
   /** Только при `deal.read` с охватом роли: у остальных ключа нет, а не нули. */
   purchases?: { total: number; lastAt: number | null };
@@ -213,7 +222,24 @@ function tileValues(cfg: ClientsConfig | null, viewer: Viewer, r: BoardRowDb): R
   return out;
 }
 
-function toDto(viewer: Viewer, c: Ctx, r: BoardRowDb, column: string | null): BoardCardDto {
+/** Номер и ЛПР для плиток страницы: один запрос на страницу, клиенты уже отобраны под охватом. */
+interface Extras {
+  phones: Map<string, { id: string; digits: string }>;
+  lprs: Map<string, string>;
+}
+
+async function loadExtras(rows: readonly BoardRowDb[]): Promise<Extras> {
+  const db = await getDb();
+  const clientIds = [...new Set(rows.map((r) => r.clientId))];
+  const [phoneRows, lprRows] = await Promise.all([queuePhones(db.sql, clientIds), queueLprs(db.sql, clientIds)]);
+  const phones = new Map<string, { id: string; digits: string }>();
+  // Номера приходят в порядке «основной, мобильный, старший»: первый на клиента и есть номер плитки
+  for (const p of phoneRows) if (!phones.has(p.clientId)) phones.set(p.clientId, { id: p.id, digits: p.digits });
+  return { phones, lprs: new Map(lprRows.map((l) => [l.clientId, l.name])) };
+}
+
+function toDto(viewer: Viewer, c: Ctx, r: BoardRowDb, column: string | null, x: Extras): BoardCardDto {
+  const ph = x.phones.get(r.clientId);
   const lastAttended = Math.max(r.attendedGroupAt ?? -Infinity, r.attendedIndividualAt ?? -Infinity);
   const working = r.state === 'retry' || r.state === 'callback';
   return {
@@ -231,6 +257,8 @@ function toDto(viewer: Viewer, c: Ctx, r: BoardRowDb, column: string | null): Bo
     attempts: r.attempts,
     lpr: r.lpr,
     isTarget: r.isTarget,
+    lprName: x.lprs.get(r.clientId) ?? '',
+    phone: ph ? { id: ph.id, masked: maskKzPhone(ph.digits), ...(c.access.scope === 'own' ? { digits: ph.digits } : {}) } : null,
     flags: {
       attendedGroup: r.attendedGroupAt !== null,
       attendedIndividual: r.attendedIndividualAt !== null,
@@ -270,9 +298,10 @@ async function loadColumn(viewer: Viewer, c: Ctx, info: BoardColumnInfo, cursor:
   const page = keys.slice(0, BOARD_PAGE);
   const last = page[page.length - 1];
   const rows = await selectBoardRows(db.sql, viewer, page.map((k) => k.id));
+  const x = await loadExtras(rows);
   return {
     key: info.key,
-    cards: rows.map((r) => toDto(viewer, c, r, info.key)),
+    cards: rows.map((r) => toDto(viewer, c, r, info.key, x)),
     next: keys.length > BOARD_PAGE && last ? encodeCursor({ part: last.part, k1: last.k1, k2: last.k2, k3: last.k3, id: last.id }) : null,
   };
 }
@@ -285,7 +314,8 @@ async function search(viewer: Viewer, c: Ctx, q: string): Promise<{ matches: Boa
   const db = await getDb();
   const ids = await selectSearchIds(db.sql, viewer, { spaceId: c.access.spaceId, p1, p2: parsed.patterns[1] ?? p1, limit: BOARD_SEARCH_LIMIT });
   const rows = await selectBoardRows(db.sql, viewer, ids);
-  return { matches: rows.map((r) => toDto(viewer, c, r, columnForSearch(c, r))), short: false };
+  const x = await loadExtras(rows);
+  return { matches: rows.map((r) => toDto(viewer, c, r, columnForSearch(c, r), x)), short: false };
 }
 
 /** Доска: первая страница каждой колонки, поиск при непустом `q`. */

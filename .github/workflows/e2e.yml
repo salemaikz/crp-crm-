@@ -59,6 +59,13 @@ jobs:
         run: npx playwright install --with-deps chromium webkit
       - name: E2E
         run: npm run test:e2e
+      # Доска оператора и новый «Перезвон» за флагами (на стенде включены, в бою выключены): основной прогон выше идёт
+      # с выключенными флагами и держит прежнее поведение, этот — сценарии доски с включёнными
+      - name: E2E с OP_BOARD и CALLBACK_V2
+        run: npx playwright test calling-board calling-callback shell-menu
+        env:
+          FEATURE_OP_BOARD: '1'
+          FEATURE_CALLBACK_V2: '1'
       - name: Отчёт Playwright
         if: failure()
         uses: actions/upload-artifact@v4

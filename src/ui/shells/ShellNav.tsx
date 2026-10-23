@@ -15,7 +15,7 @@ import { MENU_GROUPS, currentHref, type MenuGroup, type MenuId } from './menu';
 export type NavEntry = { id: MenuId; href: string; label: string; group: MenuGroup };
 
 const ICONS: Record<MenuId, LucideIcon> = {
-  call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive,
+  board: Kanban, call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive,
   summary: LayoutDashboard, director: Gauge, exports: FileDown, distribution: Shuffle, kanban: Kanban, reports: ChartColumn,
   settings: Settings, import: Upload, handoffs: ArrowRightLeft, team: UserCog, transfer: Forward,
   consultations: Headset, duty: UserCheck, integrations: PlugZap,
