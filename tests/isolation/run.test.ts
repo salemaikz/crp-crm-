@@ -16,6 +16,7 @@ process.env.FEATURE_SALES_SETTINGS ??= '1';
 process.env['FEATURE_BK_WIZARD'] ??= '1';
 process.env['FEATURE_PURCHASES'] ??= '1';
 process.env['FEATURE_PUSH'] ??= '1';
+process.env['FEATURE_OP_BOARD'] ??= '1';
 
 const { defineIsolationRun } = await import('./runner/main');
 await defineIsolationRun();

@@ -1,6 +1,7 @@
 // Запись результата перехода карточки (docs/calls-design.md §4.4): строка calls, карточка по версии, флаги
 // номеров и эффекты. Общая для итога звонка и порта записи (booking, D-133).
 import type { calling } from '@crm/core';
+import { refreshCardDerived } from './derived';
 import { applyCardEffects } from './effects';
 import { insertCall, updateCardRow, updatePhoneFlags } from './repo';
 import type { CallExtras, EffectCard, PersistTransition } from './types';
@@ -69,6 +70,8 @@ export const persistTransition: PersistTransition = async (tx, actor, input) => 
     priorActingUserId: snap.actingUserId,
   };
   await applyCardEffects(tx, actor, card, enrichCallEvents(result, input.call), at, ctx);
+  // Кэш признаков и горячести (pipeline-v2 §5.1): после любой записи, в той же транзакции, без смены version
+  await refreshCardDerived(actor, tx, [snap.id]);
 };
 
 /** В событие `call` ленты — код итога, номер разговора и длительность (ядро отдаёт только вид и состояния). */

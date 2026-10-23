@@ -238,6 +238,11 @@ export interface CardPortOptions {
 
 export interface CardPort {
   applyBookingEvent(tx: Sql, actor: BookingActor, card: LockedCard, event: BookingCardEvent, now: number, opts?: CardPortOptions): Promise<calling.TransitionResult>;
+  /**
+   * Пересчёт кэша признаков и горячести карточек клиента в пространстве (pipeline-v2 §5.1): после явки, неявки, покупки и
+   * их отмены, при любом состоянии карточки. Версию и `updated_at` не меняет. Вызывает B1 (этап В); реализация — calling.
+   */
+  refreshDerived?(tx: Sql, actor: BookingActor, a: { spaceId: string; clientId: string }): Promise<number>;
 }
 
 /**

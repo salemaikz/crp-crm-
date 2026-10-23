@@ -18,9 +18,9 @@ export class CardActionError extends Error {
     this.version = version;
   }
 
-  /** version_conflict → 409 card_changed; invalid_transition → 409 invalid_state; обязательные поля и неактивный получатель → 400. */
+  /** version_conflict → 409 card_changed; invalid_transition → 409 invalid_state; № 32 без недозвона → 409; обязательные поля и неактивный получатель → 400. */
   get status(): 400 | 409 {
-    return this.code === 'version_conflict' || this.code === 'invalid_transition' ? 409 : this.code === 'stale' ? 409 : 400;
+    return this.code === 'version_conflict' || this.code === 'invalid_transition' || this.code === 'write_off_needs_no_answer' ? 409 : this.code === 'stale' ? 409 : 400;
   }
 
   get body(): { error: string; field?: string; version?: number } {

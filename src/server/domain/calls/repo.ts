@@ -58,6 +58,10 @@ export interface QueueSelect {
   group: QueueGroup | 'all';
   exclude: readonly string[];
   limit: number;
+  /** `heat` — порядок колонки «Перезвон» доски (pipeline-v2 §6.3); действует только при OP_BOARD (решает контекст). */
+  sort?: 'groups' | 'heat';
+  /** Границы просрочки: нужны порядку `heat` (огонёк — срок раньше начала завтрашних суток). */
+  bounds?: calling.DueBounds;
 }
 
 /** Группа очереди по состоянию (`returns` до C6c пуста: возврат делает карточку `callback`). */
@@ -65,10 +69,12 @@ export const groupOfState = (state: string): QueueGroup => (state === 'callback'
 
 /** Отобранные карточки очереди по порядку групп (D-177). */
 export async function selectQueue(sql: Sql, viewer: Viewer, q: QueueSelect): Promise<QueueCardRow[]> {
+  const heatMode = q.sort === 'heat' && q.bounds !== undefined;
+  const tomorrow = q.bounds?.tomorrowStart ?? 0;
   const groupState = q.group === 'all' ? null : q.group === 'callbacks' ? 'callback' : q.group === 'retries' ? 'retry' : q.group === 'new' ? 'new' : '-';
   return scoped(sql)<QueueCardRow>`
     WITH mine AS (
-      SELECT c.id, c.client_id, c.state, c.version, c.attempts, c.callback_touches, c.next_call_at, c.assigned_at, c.created_at,
+      SELECT c.id, c.client_id, c.state, c.version, c.attempts, c.callback_touches, c.next_call_at, c.assigned_at, c.created_at, c.heat,
              c.last_outcome_code, c.last_outcome_at, c.lpr, c.is_target, c.custom
         FROM cards c
        WHERE c.space_id = ${q.spaceId} AND (c.owner_user_id = ${q.userId} OR c.acting_user_id = ${q.userId})
@@ -84,7 +90,11 @@ export async function selectQueue(sql: Sql, viewer: Viewer, q: QueueSelect): Pro
               WHERE p.client_id = m.client_id AND p.is_working AND p.kind = 'mobile')) AS has_mobile
       FROM mine m LEFT JOIN skipped s ON s.card_id = m.id
      ORDER BY (s.at IS NOT NULL), s.at,
-              array_position(${[...q.order]}::text[], CASE m.state WHEN 'callback' THEN 'callbacks' WHEN 'retry' THEN 'retries' ELSE 'new' END),
+              -- порядок «по группам» (прежний) или «по горячести» (§6.3): огонёк → heat ↓ → срок ↑ → дальше как у «Новых»
+              CASE WHEN ${heatMode} THEN 0
+                   ELSE array_position(${[...q.order]}::text[], CASE m.state WHEN 'callback' THEN 'callbacks' WHEN 'retry' THEN 'retries' ELSE 'new' END) END,
+              CASE WHEN ${heatMode} THEN (m.next_call_at IS NOT NULL AND m.next_call_at < ${tomorrow}::bigint) END DESC NULLS LAST,
+              CASE WHEN ${heatMode} THEN m.heat END DESC NULLS LAST,
               m.next_call_at NULLS LAST,
               (CASE WHEN ${q.mobileFirst} THEN (m.state = 'new' AND EXISTS (SELECT 1 FROM client_phones p
                   WHERE p.client_id = m.client_id AND p.is_working AND p.kind = 'mobile')) ELSE FALSE END) DESC,

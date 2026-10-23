@@ -26,6 +26,7 @@ export const getQueue: GetQueue = async (deps, viewer, q) => {
   const today = ctx.calendar.localDay(now);
   const db = await getDb();
   const sql = db.sql;
+  const bounds = calling.dueBounds(now, ctx.overdueAlertMinutes, ctx.calendar);
 
   const rows = await selectQueue(sql, viewer, {
     spaceId,
@@ -37,8 +38,10 @@ export const getQueue: GetQueue = async (deps, viewer, q) => {
     group: q.group,
     exclude: q.exclude,
     limit: q.limit,
+    sort: ctx.queue.sort,
+    bounds,
   });
-  const c = await countQueue(sql, viewer, { spaceId, userId: viewer.userId, now, bounds: calling.dueBounds(now, ctx.overdueAlertMinutes, ctx.calendar) });
+  const c = await countQueue(sql, viewer, { spaceId, userId: viewer.userId, now, bounds });
   const skippedToday = await countSkipsToday(sql, viewer.userId, today);
   const counts: QueueCounts = {
     dueNow: c.callbacks + c.retries + c.new,

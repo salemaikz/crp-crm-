@@ -8,6 +8,7 @@ import { insertNote } from '@/server/domain/timeline/repo';
 import { writeAudit } from '@/server/platform/audit';
 import { getActiveConfig } from '@/server/platform/config/active';
 import { getDb, newId, type Sql } from '@/server/platform/db';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { listRecipients, loadTransferRoles, requireRecipients } from '@/server/domain/team/recipients';
 import { CardActionError } from './errors';
 import { applyCardEventLocked, runCardEvent } from './manual';
@@ -117,7 +118,7 @@ export async function clearDnc(viewer: Viewer, cardId: string, input: ClearDncIn
 export interface CloseInput {
   opId: string;
   version: number;
-  kind: 'not_target' | 'do_not_call';
+  kind: 'not_target' | 'do_not_call' | 'written_off';
   reasonCode: string;
   alsoDncPhoneIds: string[];
 }
@@ -138,13 +139,13 @@ async function reasonList(viewer: Viewer, kind: calling.OutcomeKind): Promise<Re
 }
 
 /** Нет справочника причин для вида — принимается любая непустая (ядру причина нужна всегда); есть — только из него. */
-async function reasonAllowed(viewer: Viewer, kind: CloseInput['kind'], code: string): Promise<boolean> {
+async function reasonAllowed(viewer: Viewer, kind: 'not_target' | 'do_not_call', code: string): Promise<boolean> {
   const list = await reasonList(viewer, kind);
   return list.length === 0 ? code.trim() !== '' : list.some((r) => r.key === code);
 }
 
 /** Причины для диалогов закрытия из меню карточки. */
-export async function closeReasonOptions(viewer: Viewer): Promise<Record<CloseInput['kind'], ReasonOption[]>> {
+export async function closeReasonOptions(viewer: Viewer): Promise<Record<'not_target' | 'do_not_call', ReasonOption[]>> {
   const [notTarget, dnc] = await Promise.all([reasonList(viewer, 'not_target'), reasonList(viewer, 'do_not_call')]);
   return { not_target: notTarget, do_not_call: dnc };
 }
@@ -162,9 +163,18 @@ export async function archiveReasonLabels(viewer: Viewer): Promise<Record<string
   return out;
 }
 
-/** № 11, 12 из меню: «Не целевой» и «Полный отказ» без звонка; причина обязательна и берётся из справочника. */
+/**
+ * № 11, 12 из меню: «Не целевой» и «Полный отказ» без звонка; причина обязательна и берётся из справочника.
+ * № 32 «Не отвечает» (`written_off`, за `OP_BOARD`): причину из `reasons.written_off` и правило «оператору — после
+ * недозвона» проверяет ядро (409 `write_off_needs_no_answer`), открытые сделки проигрываются эффектом `writeOffEffects`.
+ */
 export async function closeCard(viewer: Viewer, cardId: string, input: CloseInput): Promise<MenuResult> {
-  if (!(await reasonAllowed(viewer, input.kind, input.reasonCode))) throw new BadRequestError('reason_code');
+  if (input.kind === 'written_off') {
+    // Без флага вида нет: как прежняя схема тела (допустимы только два вида)
+    if (!isFeatureEnabled('OP_BOARD')) throw new BadRequestError('kind');
+  } else if (!(await reasonAllowed(viewer, input.kind, input.reasonCode))) {
+    throw new BadRequestError('reason_code');
+  }
   const result = await runCardEvent(
     viewer,
     cardId,

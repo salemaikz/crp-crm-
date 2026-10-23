@@ -1,6 +1,6 @@
 // Список всех писателей `cards` в src/server/** (pipeline-v2 §5.4). Ключ — «файл::функция» (ближайшее объявление
 // верхнего уровня перед выражением). Новый UPDATE/INSERT без записи здесь роняет cards-writers.test.ts.
-export type WriterCategory = 'persist' | 'custom-only' | 'owner-only' | 'hold-only' | 'insert-defaults' | 'state-change';
+export type WriterCategory = 'persist' | 'custom-only' | 'owner-only' | 'hold-only' | 'insert-defaults' | 'state-change' | 'derived-cache';
 
 export interface WriterEntry {
   category: WriterCategory;
@@ -12,6 +12,7 @@ const D = 'src/server/domain';
 
 export const CARDS_WRITERS: Record<string, WriterEntry> = {
   [`${D}/cards/repo.ts::updateCardRow`]: { category: 'persist', note: 'все переходы ядра; цикл — в commit ядра; ждёт W2 (refreshCardDerived)' },
+  [`${D}/cards/derivedRepo.ts::writeDerived`]: { category: 'derived-cache', note: 'кэш признаков и heat (§5.1): без version и updated_at, состояние не меняет' },
   [`${D}/cards/repo.ts::writeCardCustom`]: { category: 'custom-only', note: 'только custom' },
   [`${D}/cards/repo.ts::writeCardCustomBumped`]: { category: 'custom-only', note: 'только custom и версия' },
   [`${D}/distribution/repo.ts::writeAssignBatch`]: { category: 'owner-only', note: 'раздача из пула, только new: цикл уже сброшен' },

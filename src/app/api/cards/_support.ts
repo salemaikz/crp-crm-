@@ -11,7 +11,7 @@ const comment = z.string().trim().min(1).max(500);
 export const ReopenBody = z.object({ opId, version, comment, toUserId: z.string().min(1).max(100).optional() }).strict();
 export const DncClearBody = z.object({ opId, version, comment }).strict();
 export const CloseBody = z
-  .object({ opId, version, kind: z.enum(['not_target', 'do_not_call']), reasonCode: z.string().min(1).max(100), alsoDncPhoneIds: z.array(z.string().min(1).max(100)).max(20) })
+  .object({ opId, version, kind: z.enum(['not_target', 'do_not_call', 'written_off']), reasonCode: z.string().min(1).max(100), alsoDncPhoneIds: z.array(z.string().min(1).max(100)).max(20) })
   .strict();
 
 export async function readBody<T>(req: Request, schema: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
@@ -26,4 +26,10 @@ export async function respondCard<T>(run: () => Promise<T>): Promise<Response> {
     if (!isCardActionError(e)) throw e;
     return Response.json(e.body, { status: e.status, headers: { 'Cache-Control': 'no-store' } });
   }
+}
+
+/** Параметры доски из строки запроса: `q`, `filter` (список через запятую или повтор), `owner`, `callbackReason`. */
+export function parseBoardQuery(sp: URLSearchParams): { q: string | null; filter: string[]; owner: string | null; callbackReason: string | null } {
+  const filter = sp.getAll('filter').flatMap((v) => v.split(',')).map((v) => v.trim()).filter((v) => v !== '');
+  return { q: sp.get('q'), filter, owner: sp.get('owner'), callbackReason: sp.get('callbackReason') };
 }

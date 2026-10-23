@@ -12,6 +12,8 @@ const ALLOWED: Record<string, readonly string[]> = {
   'src/server/domain/notify/repo.ts': ['countCallbacksDue', 'overdueCallbackStats'],
   'src/server/domain/calls/repo.ts': ['selectQueue', 'countQueue'],
   'src/server/domain/reports/repo.ts': ['selectOverdueCallbacks'],
+  // доска: «огонёк» = срок раньше начала завтрашних суток (§6.2), а не просрочка
+  'src/server/domain/cards/boardRepo.ts': ['callbackKeys', 'agreedKeys', 'simpleKeys'],
   'src/server/domain/distribution/repo.ts': ['loadParticipantLoad'],
 };
 /** Функции, считающие именно просрочку: обязаны брать обе границы ядра. */

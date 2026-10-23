@@ -47,6 +47,24 @@ export default defineManifest('cards', [
     idParam: { name: 'id', entity: 'card' },
     sampleBody: { opId: OP_ID, version: 0, kind: 'not_target', reasonCode: 'other', alsoDncPhoneIds: [] },
     mutation: true,
-    touches: ['cards', 'tasks', 'stop_list', 'client_events', 'bookings'],
+    touches: ['cards', 'tasks', 'stop_list', 'client_events', 'bookings', 'deals'],
+  },
+  // C5: сервер доски. Колонки, «Ещё» и поиск — только свои карточки (scopeSql в каждом SELECT); отдел передачи и
+  // консультант получают 404 (доски для них нет). Мутаций нет.
+  {
+    kind: 'route',
+    path: '/api/cards/board',
+    method: 'GET',
+    perm: 'card.read',
+    target: 'section',
+    mutation: false,
+  },
+  {
+    kind: 'route',
+    path: '/api/cards/board/column',
+    method: 'GET',
+    perm: 'card.read',
+    target: 'section',
+    mutation: false,
   },
 ]);

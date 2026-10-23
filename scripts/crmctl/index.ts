@@ -48,6 +48,8 @@ export const rawCommands: Record<string, (argv: string[]) => Promise<number>> = 
   seed: async (argv) => (await import('./seed')).runSeedCommand(argv),
   job: async (argv) => (await import('./job')).runJob(argv),
   secrets: async (argv) => (await import('./secretsRotate')).runSecrets(argv),
+  // Первичное заполнение кэша признаков и горячести карточек после миграции воронки v2 (идемпотентно)
+  'calling-derived-backfill': async (argv) => (await import('./calling-derived-backfill')).runDerivedBackfill(argv),
   // Сброс правила часов лицензии (D-314): единственный выход из блокировки «часы позади» после спешивших часов
   'license-clock': async (argv) => (await import('./license-clock')).runLicenseClock(argv),
 };
@@ -70,6 +72,7 @@ export const USAGE = `crmctl — сопровождение установки C
   license …       лицензия: install <файл> | status
   license-clock … часы лицензии: status | reset --yes (после починки спешивших часов)
   job …           фоновые задачи: list | run <имя> [--space <ключ>] [--slot <ключ>]
+  calling-derived-backfill [--space <ключ>]  заполнить кэш признаков и горячести карточек (после миграции)
   secrets rotate  перешифровать секреты интеграций текущим ключом [--check — только проверка]
 
 Пакет — каталог или .tar.zst; подпись — <архив>.manifest.sig рядом (D-315). Переменные: CRM_ETC_DIR, CRM_LIB_DIR, CRM_CLI_DIR, CRM_BACKUP_CMD.`;

@@ -5,6 +5,7 @@ import { calling } from '@crm/core';
 import type { BookingActor, CardPort } from '@/server/domain/booking/types';
 import { systemActorFor } from '@/server/access/domainActor';
 import { toCoreActor } from './actor';
+import { refreshClientDerived } from './derived';
 import { persistTransition } from './persist';
 import { loadSnapshot } from './repo';
 import { loadCallingContext } from './settings';
@@ -26,6 +27,7 @@ export const createCardBookingPort: CreateCardBookingPort = (load: LoadCallingCo
     if (result.status === 'applied' || result.status === 'fact_only') await persistTransition(tx, actor, { ctx, before: row, result, at: now });
     return result;
   },
+  refreshDerived: (tx, actor, a) => refreshClientDerived(actor, tx, a),
 });
 
 /** Порт с настройками из активной ревизии: его подключает booking/deps.ts. */

@@ -2,7 +2,7 @@
 // (distributeJob, части invariants и purge — по §9 дизайна).
 import type { ActiveConfig } from '@crm/core/config';
 import type { JobDefinition, JobInstance, QueueSpec } from '@/server/platform/jobs';
-import { countOwnerlessWorkingCards } from '@/server/domain/cards';
+import { countOwnerlessWorkingCards, heatRecomputeJob } from '@/server/domain/cards';
 import { attendanceSweepJob, countAgreedWithoutStep, greyAssignJob } from '@/server/domain/booking';
 import { purgeDeviceStatus } from '@/server/domain/calls';
 import { absenceJob, distributeJob } from '@/server/domain/distribution';
@@ -49,7 +49,7 @@ export const purgeParts: PurgePart[] = [
 ];
 
 export function jobDefinitions(): JobDefinition[] {
-  return [eventsEnsureJob, distributeJob, absenceJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob, greyAssignJob, attendanceSweepJob];
+  return [eventsEnsureJob, distributeJob, absenceJob, makeInvariantsJob(invariantParts), makePurgeJob(purgeParts), licenseJob, configIntegrityJob, digestJob, alarmsJob, greyAssignJob, attendanceSweepJob, heatRecomputeJob];
 }
 
 /** Очереди: вебхуки — обработчики по pluginId (O6, применители — O7a), push — P8b (наполнение и отправка, D-328). */
