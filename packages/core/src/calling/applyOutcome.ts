@@ -17,6 +17,7 @@ import {
   applyPurchase,
   applyPurchaseCancelled,
 } from './bookingEvents.js';
+import { applyAgreedExit } from './agreedExit.js';
 import {
   applyAbsence,
   applyAssign,
@@ -75,6 +76,7 @@ function dispatch(input: TransitionInput, card: CardSnapshot): TransitionResult 
     case 'agreed_sweep': return applyAgreedSweep(input, card, e);
     case 'import_agreed': return applyImportAgreed(input, card, e);
     case 'attendance_corrected': return applyAttendanceCorrected(input, card, e);
+    case 'agreed_exit': return applyAgreedExit(input, card, e);
     case 'enter':
     case 'outcome':
       return reject('invalid_transition');

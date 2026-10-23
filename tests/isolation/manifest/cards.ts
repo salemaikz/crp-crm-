@@ -49,6 +49,19 @@ export default defineManifest('cards', [
     mutation: true,
     touches: ['cards', 'tasks', 'stop_list', 'client_events', 'bookings', 'deals'],
   },
+  // C6: № 33, выход из «Договорились» с явкой в одной транзакции. Чужая карточка и чужая запись — 404 тем же телом;
+  // директор — 423; без права явки — 403 attendance_forbidden.
+  {
+    kind: 'route',
+    path: '/api/cards/[id]/move',
+    method: 'POST',
+    perm: 'card.outcome',
+    target: 'object',
+    idParam: { name: 'id', entity: 'card' },
+    sampleBody: { opId: OP_ID, version: 0, to: 'written_off', reasonCode: 'other' },
+    mutation: true,
+    touches: ['cards', 'tasks', 'client_events', 'bookings', 'booking_history', 'deals', 'notes'],
+  },
   // C5: сервер доски. Колонки, «Ещё» и поиск — только свои карточки (scopeSql в каждом SELECT); отдел передачи и
   // консультант получают 404 (доски для них нет). Мутаций нет.
   {

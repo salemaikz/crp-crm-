@@ -366,3 +366,25 @@ export async function userActiveInSpace(tx: Sql, a: { spaceId: string; userId: s
      WHERE u.id = ${a.userId} AND u.status = 'active'`;
   return rows.length > 0;
 }
+
+// ---------------------------------------------------------------------------
+// № 33: выход из «Договорились»
+// ---------------------------------------------------------------------------
+
+/** Состояние, в которое карточку уже перевёл № 33 с этим `opId` (идемпотентность); null — такого действия не было. */
+export async function findMoveOpState(tx: Sql, a: { clientId: string; opId: string }): Promise<string | null> {
+  const rows = await tx<{ toState: string | null }>`
+    SELECT data->>'toState' AS to_state FROM client_events
+     WHERE client_id = ${a.clientId} AND kind = 'card.state' AND ref_type = 'card_move' AND ref_id = ${a.opId}
+     LIMIT 1`;
+  return rows[0] ? (rows[0].toState ?? '') : null;
+}
+
+/** Будущие активные записи клиента (для «нужна перезапись» при выходе без явки). Карточка заблокирована вызывающим. */
+export async function listFutureActiveBookingIds(tx: Sql, a: { spaceId: string; clientId: string; after: number; statuses: readonly string[] }): Promise<string[]> {
+  const rows = await tx<{ id: string }>`
+    SELECT b.id FROM bookings b
+     WHERE b.space_id = ${a.spaceId} AND b.client_id = ${a.clientId} AND b.status = ANY(${[...a.statuses]}) AND b.starts_at > ${a.after}
+     ORDER BY b.id`;
+  return rows.map((r) => r.id);
+}

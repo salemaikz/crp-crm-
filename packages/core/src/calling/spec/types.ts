@@ -530,6 +530,23 @@ export interface AttendanceCorrectedEvent extends EventBase {
   facts: { hasNextFutureBooking: boolean; hasOpenNoShowTask?: boolean };
 }
 
+/**
+ * № 33: выход из «Договорились» без звонка (pipeline-v2 §3.3). Явку по записи открытой сделки сервер уже отметил
+ * в той же транзакции через порт записи, без события карточки; ядро получает только факт.
+ */
+export interface AgreedExitEvent extends ManualBase {
+  type: 'agreed_exit';
+  to: 'callback' | 'not_interested' | 'written_off';
+  reasonCode: string;
+  /** Только для `callback`. */
+  callbackAt: Ms | null;
+  callbackPrecision?: CallbackPrecision;
+  /** Явка, отмеченная этим же действием; `changed: false` — запись уже была в этом статусе. */
+  attendance: { bookingId: string; to: 'attended' | 'no_show'; eventKind: 'group' | 'individual'; changed: boolean } | null;
+  /** Будущие активные записи клиента (для «нужна перезапись» при отмене без явки). */
+  facts: { futureBookingIds: string[] };
+}
+
 export type CardEvent =
   | OutcomeEvent
   | EnterEvent
@@ -554,7 +571,8 @@ export type CardEvent =
   | InboundReactivateEvent
   | AgreedSweepEvent
   | ImportAgreedEvent
-  | AttendanceCorrectedEvent;
+  | AttendanceCorrectedEvent
+  | AgreedExitEvent;
 
 export interface TransitionInput {
   /** null только для `enter`. */
@@ -627,7 +645,7 @@ export type DealEffect =
   | { op: 'reassign_open'; to: UserId };
 
 export type BookingEffect =
-  | { op: 'cancel_future'; reason: 'not_target' | 'do_not_call' }
+  | { op: 'cancel_future'; reason: 'not_target' | 'do_not_call' | 'client' }
   | { op: 'reassign_future'; to: UserId };
 
 export type StopListEffect =
@@ -682,14 +700,15 @@ export type StateCause =
   | 'purchase_cancelled'
   | 'deal_lost'
   | 'inbound_reactivate'
-  | 'attendance_corrected';
+  | 'attendance_corrected'
+  | 'agreed_exit';
 
 /** Событие ленты `client_events`: только коды, id и числа, без ПДн (D-020). */
 export interface TimelineEffect {
   kind: TimelineKind;
   at: Ms;
   actorId: UserId | null;
-  ref: { type: 'call'; id: string } | null;
+  ref: { type: 'call' | 'card_move'; id: string } | null;
   data: Record<string, string | number | boolean | null>;
 }
 

@@ -14,6 +14,19 @@ export const CloseBody = z
   .object({ opId, version, kind: z.enum(['not_target', 'do_not_call', 'written_off']), reasonCode: z.string().min(1).max(100), alsoDncPhoneIds: z.array(z.string().min(1).max(100)).max(20) })
   .strict();
 
+export const MoveBody = z
+  .object({
+    opId,
+    version,
+    to: z.enum(['callback', 'not_interested', 'written_off']),
+    reasonCode: z.string().max(100),
+    reasonText: z.string().trim().max(500).optional(),
+    callbackAt: z.number().int().positive().optional(),
+    callbackPrecision: z.enum(['time', 'day']).optional(),
+    attendance: z.object({ bookingId: z.string().min(1).max(100), to: z.enum(['attended', 'no_show']) }).strict().optional(),
+  })
+  .strict();
+
 export async function readBody<T>(req: Request, schema: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
   return parseBody(schema, await readJson(req));
 }
