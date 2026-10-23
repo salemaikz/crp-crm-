@@ -28,6 +28,10 @@ export function applyMerge(input: TransitionInput, card: CardSnapshot, e: MergeE
     holdReason: s.holdReason,
     attempts: s.attempts,
     nextCallAt: s.nextCallAt,
+    // Срок, причина и касания перезвона едут вместе с donor-ом: иначе «день» станет «по времени» (§4.3).
+    nextCallPrecision: s.nextCallPrecision,
+    callbackReason: s.callbackReason,
+    callbackTouches: s.callbackTouches,
     returnAt: s.returnAt,
     lpr: s.lpr,
     isTarget: s.isTarget,

@@ -39,8 +39,8 @@ import { resolveStepAt } from './retry.js';
 function noShowReason(input: TransitionInput, eventType: string | undefined): string {
   if (eventType === undefined) return '';
   const list = input.settings.reasons?.callback ?? [];
-  const live = list.filter((r) => r.system === 'no_show' && r.eventTypes?.includes(eventType) === true);
-  return (live.find((r) => !r.archived) ?? live[0])?.code ?? '';
+  // Архивная причина системе больше не предлагается: нет живой — пустая строка.
+  return list.find((r) => r.system === 'no_show' && !r.archived && r.eventTypes?.includes(eventType) === true)?.code ?? '';
 }
 
 /** Неявка: `callback` на шаг `noShowCallbackAt`, задача «перезаписать», значок сделки, уведомление (№ 16, 28). */

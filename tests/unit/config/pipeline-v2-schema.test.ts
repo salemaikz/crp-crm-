@@ -17,7 +17,7 @@ function check(edit: (sp: any, g: any) => void = () => {}) {
   const sp = set.spaces.sales;
   sp.booking.eventTypes = [evt('br'), evt('bk')];
   sp.reasons.callback = [reason('think'), reason('other', { needsText: true })];
-  sp.reasons.deal_lost = [reason('lost')];
+  sp.reasons.deal_lost = [reason('lost'), reason('other')];
   sp.reasons.not_interested = [reason('lost')];
   edit(sp, set.global);
   const r = validateConfigSet(set);
@@ -50,7 +50,9 @@ test('system write_off только в deal_lost; written_off требует с�
   ok((sp) => { sp.reasons.deal_lost = [reason('wo', { system: 'write_off' })]; sp.reasons.written_off = [reason('unreachable')]; });
   ok((sp) => { sp.reasons.deal_lost = [reason('other')]; sp.reasons.written_off = [reason('unreachable')]; });
   bad((sp) => { sp.reasons.callback.push(reason('x', { system: 'write_off' })); }, 'только в группе deal_lost');
-  bad((sp) => { sp.reasons.written_off = [reason('unreachable')]; }, 'нужна причина с system');
+  bad((sp) => { sp.reasons.deal_lost = [reason('lost')]; sp.reasons.written_off = [reason('unreachable')]; }, 'нужна причина с system');
+  // № 5 и № 7 проигрывают сделки и без группы written_off: причина нужна всегда, когда задана deal_lost
+  bad((sp) => { sp.reasons.deal_lost = [reason('expensive'), reason('chose_other')]; }, 'нужна причина с system');
 });
 
 test('calling.callbackReason, callbackSchedule, returnDays.client', () => {

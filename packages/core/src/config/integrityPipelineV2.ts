@@ -21,10 +21,10 @@ export function checkPipelineV2(
       if (r.system === 'write_off' && group !== 'deal_lost') issue(at('reasons', group, i, 'system'), 'system «write_off» допустим только в группе deal_lost');
     });
   }
-  if (sp.reasons.written_off !== undefined) {
-    const lost = sp.reasons.deal_lost ?? [];
-    if (!lost.some((r) => r.system === 'write_off' || r.key === 'other')) {
-      issue(at('reasons', 'deal_lost'), 'при reasons.written_off в deal_lost нужна причина с system «write_off» или ключ «other»');
+  // Списание (№ 5, № 7, № 32, № 33) проигрывает открытые сделки: в справочнике нужна причина для системы.
+  if (sp.reasons.deal_lost !== undefined) {
+    if (!sp.reasons.deal_lost.some((r) => r.system === 'write_off' || r.key === 'other')) {
+      issue(at('reasons', 'deal_lost'), 'в deal_lost нужна причина с system «write_off» или ключ «other»');
     }
   }
 
