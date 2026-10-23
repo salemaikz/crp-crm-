@@ -222,7 +222,8 @@ export async function moveCardRefs(tx: Sql, a: { fromCardId: string; toCardId: s
 export async function retireLoserCard(tx: Sql, a: { cardId: string; now: number }): Promise<void> {
   await tx`
     UPDATE cards SET owner_user_id = NULL, acting_user_id = NULL, acting_until_day = '', next_call_at = NULL,
-                     hold_reason = 'merged', version = version + 1, updated_at = ${a.now}
+                     hold_reason = 'merged', callback_reason = '', callback_touches = 0,
+                     version = version + 1, updated_at = ${a.now}
      WHERE id = ${a.cardId}`;
 }
 

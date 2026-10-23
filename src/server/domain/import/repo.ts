@@ -604,7 +604,11 @@ export async function updateCardFromImport(sql: Sql, cardId: string, version: nu
            last_outcome_kind = ${u.lastOutcomeKind}, last_outcome_at = ${u.lastOutcomeAt}, close_reason_code = ${u.closeReasonCode},
            closed_at = ${u.closedAt}, calls_total = ${u.callsTotal}, connects_total = ${u.connectsTotal},
            no_answer_total = ${u.noAnswerTotal}, first_connect_at = ${u.firstConnectAt}, last_connect_at = ${u.lastConnectAt},
-           last_touch_at = ${u.lastTouchAt}, version = version + 1, updated_at = ${now}
+           last_touch_at = ${u.lastTouchAt},
+           -- цикл перезвона живёт только в retry/callback: при смене состояния из таблицы сбрасываем (pipeline-v2 §5.4)
+           callback_reason = CASE WHEN ${u.state} IN ('retry', 'callback') THEN callback_reason ELSE '' END,
+           callback_touches = CASE WHEN ${u.state} IN ('retry', 'callback') THEN callback_touches ELSE 0 END,
+           version = version + 1, updated_at = ${now}
      WHERE id = ${cardId} AND version = ${version} AND touched_in_crm = FALSE
     RETURNING id`;
   return r.length > 0;
