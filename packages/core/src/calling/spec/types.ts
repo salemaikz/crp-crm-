@@ -369,10 +369,13 @@ export interface ReleaseEvent extends EventBase {
   seenVersion: number | null;
 }
 
-/** № 11, № 12 из меню карточки, без звонка (PROCESS 3.2, последний абзац). */
+/**
+ * № 11, № 12 из меню карточки, без звонка (PROCESS 3.2, последний абзац); № 32 — ручное списание
+ * (`written_off`, только из `new`/`retry`/`callback`, причина из `reasons.written_off`).
+ */
 export interface CloseFromMenuEvent extends ManualBase {
   type: 'close_from_menu';
-  kind: 'not_target' | 'do_not_call';
+  kind: 'not_target' | 'do_not_call' | 'written_off';
   reasonCode: string;
   alsoDncPhoneIds: string[];
 }
@@ -760,7 +763,9 @@ export type RejectCode =
   | 'user_inactive'
   | 'too_early'
   | 'stale'
-  | 'touched_in_crm';
+  | 'touched_in_crm'
+  /** № 32: оператор списывает карточку, у которой не было недозвона. */
+  | 'write_off_needs_no_answer';
 
 // ---------- Результат ----------
 

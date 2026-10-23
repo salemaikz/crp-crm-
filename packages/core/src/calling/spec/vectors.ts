@@ -473,6 +473,11 @@ export const SETTINGS_V2: CallingSettings = withSettings({
       { code: 'old_think', archived: true, manual: true },
       { code: 'repeat_sale', archived: false, manual: false, system: 'client_return' },
       { code: 'no_show_group', archived: false, manual: false, system: 'no_show', eventTypes: ['group'] },
+      { code: 'returned', archived: false, manual: false, system: 'return_due' },
+    ],
+    written_off: [
+      { code: 'unreachable', archived: false, manual: true },
+      { code: 'auto_limit', archived: false, manual: false },
     ],
     not_interested: [{ code: 'too_expensive', archived: false, manual: true }],
     deal_lost: [
@@ -1589,6 +1594,152 @@ export const VECTORS: TransitionVector[] = [
       at('2027-01-20 12:00'),
     ),
     expected: reject('invalid_transition'),
+  },
+
+  {
+    id: 'r13e',
+    refs: ['3.5 №13', '3.3'],
+    title: 'Возврат «Не интересует» пишет системную причину возврата, касания с нуля',
+    input: inp(
+      NI,
+      { type: 'return_due', opId: 'op-r13e', runId: 'run-0121-1200', facts: { ownerActive: true, capRemaining: 10 } },
+      SYS,
+      at('2027-01-21 12:00'),
+      SETTINGS_V2,
+    ),
+    expected: ok(
+      {
+        ...NI,
+        state: 'callback',
+        nextCallAt: at('2027-01-21 12:00'),
+        returnAt: null,
+        closeReasonCode: '',
+        closedAt: null,
+        assignedAt: at('2027-01-21 12:00'),
+        callbackReason: 'returned',
+        callbackTouches: 0,
+        version: 3,
+      },
+      fx({
+        tasks: [callbackTask('op-r13e', A, at('2027-01-21 12:00'))],
+        assignLog: [{ kind: 'return', fromUserId: null, toUserId: A, countsToCap: true }],
+        notifications: [{ kind: 'card_returned', to: { user: A }, dedupeKey: 'return:run-0121-1200:u-op-a' }],
+        timeline: [tlState(at('2027-01-21 12:00'), null, 'not_interested', 'callback', 'return_due')],
+      }),
+    ),
+  },
+
+  // ===== № 32. Ручное списание =====
+  {
+    id: 'r32a',
+    refs: ['3.5 №32', '3.3'],
+    title: 'Оператор списывает карточку без единого недозвона — отказ «сначала позвоните»',
+    input: inp(
+      NEW_A,
+      { type: 'close_from_menu', opId: 'op-r32a', seenVersion: 1, kind: 'written_off', reasonCode: 'unreachable', alsoDncPhoneIds: [] },
+      OP_A,
+      at('2026-10-28 11:00'),
+      SETTINGS_V2,
+    ),
+    expected: reject('write_off_needs_no_answer'),
+  },
+  {
+    id: 'r32b',
+    refs: ['3.5 №32', '3.3'],
+    title: 'Оператор списывает после недозвона: «Списан», открытая сделка проиграна с системной причиной, срок снят',
+    input: inp(
+      R1,
+      { type: 'close_from_menu', opId: 'op-r32b', seenVersion: 2, kind: 'written_off', reasonCode: 'unreachable', alsoDncPhoneIds: [] },
+      OP_A,
+      at('2026-10-28 11:00'),
+      SETTINGS_V2,
+    ),
+    expected: ok(
+      { ...R1, state: 'written_off', nextCallAt: null, closeReasonCode: 'unreachable', closedAt: at('2026-10-28 11:00'), version: 3 },
+      fx({
+        tasks: [closeAllTasks],
+        deals: [{ op: 'lose_open', reasonGroup: 'deal_lost', reasonCode: 'no_show_unreachable' }],
+        timeline: [tlState(at('2026-10-28 11:00'), A, 'retry', 'written_off', 'menu_close')],
+      }),
+    ),
+  },
+  {
+    id: 'r32c',
+    refs: ['3.5 №32'],
+    title: 'РОП списывает «Новую» без недозвонов: можно всегда; без системной причины сделка проигрывается с «other»',
+    input: inp(
+      NEW_A,
+      { type: 'close_from_menu', opId: 'op-r32c', seenVersion: 1, kind: 'written_off', reasonCode: 'unreachable', alsoDncPhoneIds: [] },
+      LEAD,
+      at('2026-10-28 11:00'),
+    ),
+    expected: ok(
+      { ...NEW_A, state: 'written_off', closeReasonCode: 'unreachable', closedAt: at('2026-10-28 11:00'), version: 2 },
+      fx({
+        tasks: [closeAllTasks],
+        deals: [{ op: 'lose_open', reasonGroup: 'deal_lost', reasonCode: 'other' }],
+        timeline: [tlState(at('2026-10-28 11:00'), 'u-lead', 'new', 'written_off', 'menu_close')],
+      }),
+    ),
+  },
+  {
+    id: 'r32d',
+    refs: ['3.5 №32', '3.3'],
+    title: 'РОП списывает «Перезвон» с открытой сделкой (после неявки): сделка проиграна, касания и причина сброшены',
+    input: inp(
+      { ...NS, state: 'callback', attempts: 0, callbackReason: 'no_show_group', callbackTouches: 0 },
+      { type: 'close_from_menu', opId: 'op-r32d', seenVersion: 6, kind: 'written_off', reasonCode: 'unreachable', alsoDncPhoneIds: [] },
+      LEAD,
+      at('2026-11-06 12:00'),
+      SETTINGS_V2,
+    ),
+    expected: ok(
+      { ...NS, state: 'written_off', nextCallAt: null, callbackReason: '', callbackTouches: 0, closeReasonCode: 'unreachable', closedAt: at('2026-11-06 12:00'), version: 7 },
+      fx({
+        tasks: [closeAllTasks],
+        deals: [{ op: 'lose_open', reasonGroup: 'deal_lost', reasonCode: 'no_show_unreachable' }],
+        timeline: [tlState(at('2026-11-06 12:00'), 'u-lead', 'callback', 'written_off', 'menu_close')],
+      }),
+    ),
+  },
+  {
+    id: 'r32e',
+    refs: ['3.5 №32'],
+    title: 'Списание: причина не из группы written_off или системная — reason_unknown; пустая — reason_required',
+    input: inp(
+      R1,
+      { type: 'close_from_menu', opId: 'op-r32e', seenVersion: 2, kind: 'written_off', reasonCode: 'auto_limit', alsoDncPhoneIds: [] },
+      LEAD,
+      at('2026-10-28 11:00'),
+      SETTINGS_V2,
+    ),
+    expected: reject('reason_unknown', 'reasonCode'),
+  },
+  {
+    id: 'r32f',
+    refs: ['3.5 №32'],
+    title: 'Списание закрытой или «Договорились» карточки — недопустимый переход',
+    input: inp(
+      AG,
+      { type: 'close_from_menu', opId: 'op-r32f', seenVersion: 5, kind: 'written_off', reasonCode: 'unreachable', alsoDncPhoneIds: [] },
+      LEAD,
+      at('2026-10-30 12:00'),
+      SETTINGS_V2,
+    ),
+    expected: reject('invalid_transition'),
+  },
+  {
+    id: 'r32g',
+    refs: ['3.5 №32', 'D-017'],
+    title: 'Оператор списывает чужую карточку — «чужое = несуществующее»',
+    input: inp(
+      R1,
+      { type: 'close_from_menu', opId: 'op-r32g', seenVersion: 2, kind: 'written_off', reasonCode: 'unreachable', alsoDncPhoneIds: [] },
+      OP_B,
+      at('2026-10-28 11:00'),
+      SETTINGS_V2,
+    ),
+    expected: reject('not_found'),
   },
 
   // ===== № 14. Вернуть в обзвон =====

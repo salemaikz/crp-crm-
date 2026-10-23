@@ -6,7 +6,9 @@ import type {
   AbsenceEvent,
   AppliedResult,
   AssignEvent,
+  CallingSettings,
   CardSnapshot,
+  CardState,
   CloseFromMenuEvent,
   DncClearEvent,
   EnterEvent,
@@ -31,6 +33,7 @@ import {
   planDnc,
   reject,
   tlState,
+  writeOffEffects,
 } from './transitionKit.js';
 
 /** № 1. */
@@ -116,9 +119,43 @@ export function applyRelease(input: TransitionInput, card: CardSnapshot, e: Rele
   return releaseToPool(input, card);
 }
 
-/** № 11, 12 из меню карточки: как итог того же вида, но без звонка и счётчиков. */
+/** Рабочие состояния, из которых возможно ручное списание (№ 32). */
+const WRITE_OFF_FROM: readonly CardState[] = ['new', 'retry', 'callback'];
+
+/** Причина должна быть в группе `reasons.written_off` и ручной; нет группы в настройках — не проверяется. */
+function writeOffReasonKnown(code: string, settings: CallingSettings): boolean {
+  const list = settings.reasons?.written_off;
+  if (list === undefined) return true;
+  const r = list.find((x) => x.code === code);
+  return r !== undefined && r.manual !== false;
+}
+
+/** № 32. РОП списывает всегда; оператор (охват не `space`) — только после недозвона (`attempts ≥ 1`). */
+function applyManualWriteOff(input: TransitionInput, card: CardSnapshot, e: CloseFromMenuEvent): TransitionResult {
+  const { now, actor, settings } = input;
+  if (!WRITE_OFF_FROM.includes(card.state)) return reject('invalid_transition');
+  if (e.reasonCode.trim() === '') return reject('reason_required', 'reasonCode');
+  if (!writeOffReasonKnown(e.reasonCode, settings)) return reject('reason_unknown', 'reasonCode');
+  if (actor.scope === 'own') {
+    // Чужое = несуществующее: оператор списывает только свою карточку (владелец или временный владелец).
+    const isOwner = actor.userId !== null && (card.ownerUserId === actor.userId || card.actingUserId === actor.userId);
+    if (!isOwner) return reject('not_found');
+  }
+  if (actor.scope !== 'space' && card.attempts < 1) return reject('write_off_needs_no_answer');
+  const closing = writeOffEffects(e.reasonCode, settings);
+  const effects = emptyEffects();
+  effects.tasks.push(...closing.tasks);
+  effects.deals.push(...closing.deals);
+  effects.bookings.push(...closing.bookings);
+  effects.timeline.push(tlState(now, actor.userId, card.state, 'written_off', 'menu_close'));
+  const next = commit(card, { state: 'written_off', closeReasonCode: e.reasonCode, closedAt: now, nextCallAt: null, returnAt: null, touchedInCrm: true });
+  return applied(next, effects);
+}
+
+/** № 11, 12 из меню карточки: как итог того же вида, но без звонка и счётчиков. № 32 — ручное списание. */
 export function applyCloseFromMenu(input: TransitionInput, card: CardSnapshot, e: CloseFromMenuEvent): TransitionResult {
   if (e.seenVersion !== card.version) return reject('version_conflict');
+  if (e.kind === 'written_off') return applyManualWriteOff(input, card, e);
   if (!OUTCOME_ALLOWED_FROM[e.kind].includes(card.state)) return reject('invalid_transition');
   if (e.reasonCode.trim() === '') return reject('reason_required', 'reasonCode');
   const { now, actor } = input;
@@ -159,7 +196,10 @@ export function applyReturnDue(input: TransitionInput, card: CardSnapshot, e: Re
   effects.assignLog.push({ kind: 'return', fromUserId: null, toUserId: owner, countsToCap: input.settings.capIncludes.includes('return') });
   effects.notifications.push({ kind: 'card_returned', to: ownerRecipient(card), dedupeKey: `return:${e.runId}:${owner ?? ''}` });
   effects.timeline.push(tlState(now, null, card.state, 'callback', 'return_due'));
-  return applied(commit(card, { ...cleared, state: 'callback', attempts: 0, nextCallAt: now, assignedAt: now }), effects);
+  // Причина возврата — системная (`system: 'return_due'`); нет такой в справочнике — пусто. Цикл касаний с нуля.
+  const reason = input.settings.reasons?.callback?.find((r) => r.system === 'return_due' && !r.archived)?.code ?? '';
+  const next = commit(card, { ...cleared, state: 'callback', attempts: 0, nextCallAt: now, assignedAt: now, callbackReason: reason, callbackTouches: 0 });
+  return applied(next, effects);
 }
 
 /** № 14. */
