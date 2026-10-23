@@ -25,6 +25,19 @@ export function checkPipelineV2(
     }
   }
 
+  // обзвон подтверждения явки (D-349): виды мероприятий и ручная живая причина перезвона
+  const cc = sp.booking.confirmCall;
+  if (cc !== undefined) {
+    cc.eventTypes.forEach((e, j) => ref(at('booking', 'confirmCall', 'eventTypes', j), e, eventTypes, 'типа мероприятия'));
+    const group = sp.reasons.callback;
+    const r = group?.find((x) => x.key === cc.declineReason);
+    const path = at('booking', 'confirmCall', 'declineReason');
+    if (group === undefined) issue(path, 'нет группы причин «callback»');
+    else if (!r) issue(path, `нет причины «${cc.declineReason}» в группе «callback»`);
+    else if (r.manual === false) issue(path, 'причина отказа должна быть ручной (manual ≠ false)');
+    else if (r.archived) issue(path, 'причина отказа в архиве');
+  }
+
   // доска
   const board = sp.board;
   if (board === undefined) return;

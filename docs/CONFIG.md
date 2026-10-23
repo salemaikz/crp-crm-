@@ -307,6 +307,7 @@ Zod + `superRefine` проверяют документ целиком:
 | `pipelines[]` | `{key, kind: sales, label, createDealOn: agreed\|client_created\|manual, stages[]}` | «Продажи»: Новая → КП → Счёт → Оплачено / Проиграно, `createDealOn: manual` | «Продажи ЦРП»: Записан → Пришёл → Переговоры/КП → Покупка (won) / Проигран (lost), `createDealOn: agreed` | CLI |
 | `pipelines[].stages[]` | `{key, label, kind: open\|won\|lost, order, requires{fields[], booking, attendance, nextTask, amount, serviceType, reason}, staleDays, auto: on_agreed\|on_attended\|null}` | — | PROCESS 4.2; `staleDays` 14 / 7 / 14 | CLI |
 | `serviceTypes[]` | `{key, label, routeToTeam, archived}` | «Услуга» | Мастер-группа, Консультация, SMM → `marketing`, Реклама → `marketing`, Автоматизация, Обучение, Другое | CLI |
+| `serviceTypes[].variants[]` | `{key, label, amountKzt: int 1–10¹², archived}`, необязательный (D-348): вариант с фиксированной ценой; покупка подставляет цену, сумму можно поправить (скидка) | нет ключа — сумму вводит сотрудник | «Целина»: `online`, `offline`. В пресете — синтетические цены с пометкой в `presets/clients/crp/PENDING.md`; настоящие задаются в настройках установки, не в репозитории | CLI |
 | `deals.purchaseFutureLimitHours` | int | 36 | 36 | CLI |
 | `teams[]` | `{key, label}` | пусто | `marketing` «Маркетинг» | CLI; руководителя назначает Администратор |
 | `handoff.acceptSlaWorkdays` | int | 1 | 1 | РОП |
@@ -332,6 +333,7 @@ Zod + `superRefine` проверяют документ целиком:
 | `booking.attendance.autoNoShowWorkdays` | int 1–10 или `null` (выкл) | 2 | 2 (PLAN В-11) | РОП |
 | `booking.attendance.sweepAt` | `HH:MM`, необязательно | 10:00 | час прогона `attendance-sweep` по рабочим дням (D-243). `[дозаполни: ключ в ConfigV1 и пресет base добавляет поток platform отдельным PR; до него документ с ключом не проходит схему, прогон идёт в 10:00]` | РОП |
 | `booking.nextStep.taskAt` | шаг | `nextWorkday@10:00` | то же (задача «Записать на следующий шаг», D-049) | РОП |
+| `booking.confirmCall` | `{eventTypes[] (≥ 1), weekdays: 1–7[] (≥ 1), declineReason}`, необязательный (D-349): в эти дни записанные на ближайшее мероприятие видов стоят у оператора наверху с пометкой «подтвердить явку»; ответ «не придёт» — перезвон с причиной `declineReason` (ручная живая причина `reasons.callback`) | нет ключа — обзвона подтверждения нет | `br`, четверг, `wont_come_br` | РОП |
 | `reminders.days` | `('today'\|'tomorrow')[]` | оба | оба | РОП |
 | `reminders.templates[]` | `{key, eventTypeKey, text}` с подстановками только из белого списка `{name} {date} {time} {place}` | общий текст | текст PROCESS 5.4 | РОП |
 
@@ -482,6 +484,7 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `INGEST_ACCEPTING` | `1` — приём ingest/v1 включён; `0` — выключен целиком, ответ 423 (рубильник на время разбора проблем источника) | нет | нет |
 | `FEATURE_BK_WIZARD`, `FEATURE_PURCHASES`, `FEATURE_KANBAN`, `FEATURE_REPORTS_EXPORT`, `FEATURE_PUSH`, `FEATURE_MERGE`, `FEATURE_BULK_TRANSFER`, `FEATURE_IMPORT`, `FEATURE_IMPORT_BOOKINGS` (профиль «Записи», только вместе с `FEATURE_IMPORT`, D-324) | флаги модулей пилота — аварийные выключатели (D-047, D-062; таблица — PLAN §7.3) | нет | нет |
 | `FEATURE_REPORTS`, `FEATURE_SALES_SETTINGS` | отчёты за период с их CSV/XLSX и панелью директора; экран настроек продаж (D-295). Выключен — 404 и пункт меню скрыт. Полная выгрузка и журнал выгрузок флагом не закрываются (D-055): их выключатель — право `data.export_all` в ролях | нет | нет |
+| `FEATURE_CALLBACK_V2`, `FEATURE_OP_BOARD`, `FEATURE_THEME_DARK` | воронка v2 (`docs/pipeline-v2-design.md` §8.3): причины и сроки перезвона, точность «день», ввод полей на месте; доска оператора и очередь по горячести; тёмная тема и переключатель. Выключен — прежнее поведение, уже записанные данные читаются. На стенде и в демо включены, в бою — после приёмки | нет | нет |
 | `FEATURE_WAZZUP`, `FEATURE_TELEPHONY_ZADARMA`, `FEATURE_TELEPHONY_BEELINE` | флаги интеграций (D-025 crp-kz) | нет | нет |
 | `TELEMETRY` | `off` по умолчанию | нет | нет |
 | `DB_POOL_MAX`, `DB_PREPARE` | размер пула postgres.js (по умолчанию 10); `DB_PREPARE=0` — без именованных подготовленных запросов, для пулера в режиме транзакций (PgBouncer) | нет | нет |

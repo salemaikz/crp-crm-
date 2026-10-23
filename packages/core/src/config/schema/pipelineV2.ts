@@ -1,9 +1,9 @@
-// Ключи настроек воронки v2 (docs/pipeline-v2-design.md §8.1). Все необязательны: нет ключа — прежнее
+// Ключи настроек воронки v2 (docs/pipeline-v2-design.md §8.1, §15.1). Все необязательны: нет ключа — прежнее
 // поведение. Вносятся в схему v1 до заморозки 0.9.0 (D-346): после первого выпуска форма не меняется.
 // Ссылочные проверки — integrityPipelineV2.ts.
 import { z } from 'zod';
 import { CARD_STATES } from '../../calling/spec/types.js';
-import { HexColor, Key, keyedList, I18n, uniqueArray } from './primitives.js';
+import { Archived, HexColor, IsoWeekday, Key, keyedList, I18n, uniqueArray } from './primitives.js';
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 const obj = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -73,4 +73,28 @@ export const ThemeDark = obj({
 export const themeExtra = {
   defaultMode: z.enum(['system', 'light', 'dark']).optional(),
   dark: ThemeDark.optional(),
+};
+
+/** Верхняя граница суммы, как у покупки (`AMOUNT_MAX_KZT` сервера). */
+const AMOUNT_MAX_KZT = 1_000_000_000_000;
+
+/**
+ * Вариант услуги с фиксированной ценой (D-348, ВП-1): покупка подставляет цену варианта, сумму можно поправить
+ * (скидка). Нет вариантов — сумму вводит сотрудник, как раньше.
+ */
+const ServiceVariant = obj({ key: Key, label: I18n, amountKzt: int(1, AMOUNT_MAX_KZT), archived: Archived });
+export const serviceTypeExtra = {
+  variants: keyedList(ServiceVariant).optional(),
+};
+
+/**
+ * Обзвон подтверждения явки (D-349, ВП-2): в дни `weekdays` записанные на ближайшее мероприятие видов `eventTypes`
+ * стоят у оператора наверху; ответ «не придёт» — перезвон с причиной `declineReason` из `reasons.callback`.
+ */
+export const bookingExtra = {
+  confirmCall: obj({
+    eventTypes: uniqueArray(Key, { min: 1 }),
+    weekdays: uniqueArray(IsoWeekday, { min: 1 }),
+    declineReason: Key,
+  }).optional(),
 };

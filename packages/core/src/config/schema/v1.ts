@@ -20,7 +20,7 @@ import {
   TimeZone,
   uniqueArray,
 } from './primitives.js';
-import { callingExtra, queueExtra, reasonExtra, themeExtra, Board } from './pipelineV2.js';
+import { bookingExtra, callingExtra, queueExtra, reasonExtra, serviceTypeExtra, themeExtra, Board } from './pipelineV2.js';
 import { RoleSchema } from '../../access/roles';
 import { CAP_KINDS, FIELD_TYPES, GLOBAL_FIELD_OBJECTS, LOCALES, QUEUE_BUCKETS, SOURCE_KINDS, SPACE_FIELD_OBJECTS } from './constants.js';
 
@@ -234,7 +234,7 @@ const Pipeline = obj({
   archived: Archived,
 });
 
-const ServiceType = obj({ key: Key, label: I18n, routeToTeam: Key.nullable(), archived: Archived });
+const ServiceType = obj({ key: Key, label: I18n, routeToTeam: Key.nullable(), archived: Archived, ...serviceTypeExtra });
 const Team = obj({ key: Key, label: I18n, archived: Archived });
 
 const EventType = obj({
@@ -272,6 +272,7 @@ const Booking = obj({
   attendance: obj({ autoNoShowWorkdays: int(1, 10).nullable() }),
   nextStep: obj({ taskAt: stepOf('plus', 'nextWorkday') }),
   seedSeries: keyedList(SeedSeries),
+  ...bookingExtra,
 });
 
 const Reminders = obj({
