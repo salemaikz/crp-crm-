@@ -276,6 +276,13 @@ Zod + `superRefine` проверяют документ целиком:
 | `queue.order` | перестановка `callbacks, retries, returns, new` | как слева | как слева | CLI |
 | `queue.mobileFirst` | bool | `true` | `true` | РОП |
 | `queue.skipLimit` | int 0–50 | 10 | 10 | РОП |
+| `calling.returnDays.client` | int 1–3650 или `null`, необязательный | нет ключа = `null` (не возвращать) | — | РОП |
+| `calling.callbackReason` | `{required: bool}`, необязательный | причины у перезвона нет | — | РОП |
+| `calling.callbackSchedule` | `{steps: ('+Nd'\|'+Nd@HH:MM')[]}`, 1–10 шагов, N 1–365; необязательный | подсказки срока нет | — | РОП |
+| `queue.sort` | `groups\|heat`, необязательный | `groups` | — | РОП |
+| `queue.heat` | `{states: {состояние: int 0–10000}, reasons: {причина: int 0–10000} ≤ 50 ключей, flags: {attendedGroup, attendedIndividual, noShow, purchased, lprYes: int 0–10000}}`, необязательный | все веса 0 | — | РОП |
+| `board` | `{columns[] {key, label, states[], eventTypes?, recentDays?, drop?, dropMore?}, agreedFallback?, tones?[]}`, необязательный; ссылки на виды мероприятий и причины проверяются набором | колонки = состояния | — | CLI |
+| `Reason.system?`, `Reason.eventTypes?`, `Reason.manual?` | у причин любой группы (в т. ч. `reasons.callback`, `reasons.written_off`); `write_off` — только в `deal_lost` | обычная ручная причина | — | CLI |
 
 ### 6.7. Раздача и приём (пространство)
 
@@ -429,6 +436,8 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `theme.logo` | ключ ассета (`.svg`/`.png`/`.webp`) из каталога `assets/` любого слоя; `config apply` копирует ассеты слоёв в том `crm_assets` (`CRM_ASSETS_DIR`), app отдаёт только этот файл по `GET /api/brand/logo` — имя из настроек, не из запроса (D-061, D-333) | `logo.svg` (нейтральный значок) | логотип ЦРП без перерисовки | CLI (загрузка файла в UI — после 1.11, через architect) |
 | `theme.brandMark` | `name\|logo`, необязательный; нет ключа = `name` | `name` — в шапке текст `org.productName` | `logo` — в шапке и на входе логотип `theme.logo` вместо текста, `alt` = `org.productName`; файла нет или не загрузился — текст (D-333, `docs/logo-design.md`) | CLI |
 | `theme.statusStyle` | `color\|color_text_icon` | `color_text_icon` | `color_text_icon` (красный бренда не путается с «Не целевой») | CLI |
+| `theme.defaultMode` | `system\|light\|dark`, необязательный | нет ключа = как задаёт код (воронка v2 §8.1) | — | CLI |
+| `theme.dark` | `{canvas?, surface?, brandColor?, accentColor?}` hex, необязательный | нейтральная тёмная палитра кода | — | CLI |
 
 ### 6.15. Пространства (`global.spaces`)
 

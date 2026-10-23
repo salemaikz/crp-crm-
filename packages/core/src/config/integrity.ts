@@ -7,6 +7,7 @@ import type { GlobalConfigV1, SpaceConfigV1 } from './schema/v1.js';
 import { REMINDER_PLACEHOLDERS } from './schema/constants.js';
 import { validateRoles } from '../access/roleValidator';
 import { parseStep } from './steps.js';
+import { checkPipelineV2 } from './integrityPipelineV2.js';
 
 type SetInput = { global: GlobalConfigV1; spaces: Record<string, SpaceConfigV1> };
 type P = (string | number)[];
@@ -82,6 +83,8 @@ export function checkConfigSet(set: SetInput, ctx: z.RefinementCtx): void {
       const st = parseStep(s);
       if (st?.kind === 'nextEvent') ref(at('calling', 'callbackPresets', i), st.eventTypeKey, eventTypes, 'типа мероприятия');
     });
+
+    checkPipelineV2(sp, at, issue, ref);
 
     // роли в настройках процесса
     sp.distribution.participantRoles.forEach((r, i) => ref(at('distribution', 'participantRoles', i), r, roles, 'роли'));

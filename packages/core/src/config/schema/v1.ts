@@ -20,6 +20,7 @@ import {
   TimeZone,
   uniqueArray,
 } from './primitives.js';
+import { callingExtra, queueExtra, reasonExtra, themeExtra, Board } from './pipelineV2.js';
 import { RoleSchema } from '../../access/roles';
 import { CAP_KINDS, FIELD_TYPES, GLOBAL_FIELD_OBJECTS, LOCALES, QUEUE_BUCKETS, SOURCE_KINDS, SPACE_FIELD_OBJECTS } from './constants.js';
 
@@ -88,6 +89,7 @@ const Theme = obj({
   /** Что стоит в шапке и на входе: название или логотип (D-333). Нет ключа — `name`; `logo` без файла работает как `name`. */
   brandMark: z.enum(['name', 'logo']).optional(),
   statusStyle: z.enum(['color', 'color_text_icon']),
+  ...themeExtra,
 });
 
 const Space = obj({ key: Key, label: I18n, enabled: z.boolean(), default: z.boolean() });
@@ -163,7 +165,7 @@ const Outcome = obj({
   archived: Archived,
 });
 
-const Reason = obj({ key: Key, label: I18n, needsText: z.boolean(), softness: z.enum(['soft', 'hard']), archived: Archived });
+const Reason = obj({ key: Key, label: I18n, needsText: z.boolean(), softness: z.enum(['soft', 'hard']), archived: Archived, ...reasonExtra });
 
 const Calling = obj({
   outcomes: keyedList(Outcome, { min: 1 }),
@@ -174,13 +176,15 @@ const Calling = obj({
   callbackPastToleranceMin: int(0, 60),
   callbackPresets: uniqueArray(stepOf('plus', 'nextWorkday', 'nextEvent')),
   retry: obj({ steps: z.array(stepOf('plus', 'nextWorkday')), maxAttempts: int(1, 10) }),
-  returnDays: obj({ not_interested: int(1, 3650).nullable(), deal_lost_soft: int(1, 3650).nullable() }),
+  returnDays: obj({ not_interested: int(1, 3650).nullable(), deal_lost_soft: int(1, 3650).nullable(), client: int(1, 3650).nullable().optional() }),
+  ...callingExtra,
 });
 
 const Queue = obj({
   order: uniqueArray(z.enum(QUEUE_BUCKETS), { length: QUEUE_BUCKETS.length }),
   mobileFirst: z.boolean(),
   skipLimit: int(0, 50),
+  ...queueExtra,
 });
 
 const Distribution = obj({
@@ -353,6 +357,8 @@ export const SpaceConfigV1 = obj({
   }),
   alerts: obj({ intakeStaleHours: int(1, 720).nullable(), stockMinDays: z.number().min(0).max(60).nullable() }),
   timeline: obj({ crossSpace: z.enum(['none', 'summary', 'full']) }),
+  /** Доска оператора (pipeline-v2 §2.2); нет ключа — колонки = состояния. */
+  board: Board.optional(),
   import: obj({ profiles: keyedList(ImportProfile), maxFileMb: int(1, 50), maxRows: int(1, 100_000), rowsRetentionDays: int(1, 90) }),
 });
 export type SpaceConfigV1 = z.infer<typeof SpaceConfigV1>;
