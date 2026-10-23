@@ -211,6 +211,40 @@ test('незавершённый звонок A: «Позвонить» у B п�
   await expect(tileOf(page, op.names[1]!).getByTestId('tile-call')).toBeEnabled();
 });
 
+test('перенос при висящем звонке: итог один, баннер и блокировка «Позвонить» снимаются', async ({ page }) => {
+  const op = await makeOperator(2);
+  await openBoard(page, op);
+  await tileOf(page, op.names[0]!).getByTestId('tile-call').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('call-pending-banner')).toBeVisible();
+  // «⋯ → Перенести в… → Мусор → Не интересует» на той же плитке тратит намерение звонка
+  await tileOf(page, op.names[0]!).getByTestId('tile-menu').click();
+  await page.getByTestId('move-to-trash').click();
+  await page.getByTestId('trash-reason-not_interested-no_need').click();
+  if (await page.getByTestId('trash-lpr-yes').count()) await page.getByTestId('trash-lpr-yes').click();
+  await page.getByTestId('trash-confirm').click();
+  await expect(page.getByTestId('trash-sheet')).toBeHidden();
+  await expect(page.getByTestId('call-pending-banner')).toHaveCount(0);
+  await expect(tileOf(page, op.names[1]!).getByTestId('tile-call')).toBeEnabled();
+  await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 30_000 }).toBe(1);
+  expect((await callsOf(op.id))[0]!.via).toBe('ui');
+});
+
+test('«Отменить» итога звонка с плитки возвращает шторку: «Позвонить» на другой плитке погашено', async ({ page }) => {
+  const op = await makeOperator(2);
+  await openBoard(page, op);
+  await tileOf(page, op.names[0]!).getByTestId('tile-call').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('outcome-no_answer').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeHidden();
+  await page.getByRole('button', { name: 'Отменить' }).click();
+  await expect(page.getByTestId('outcome-sheet')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('call-pending-banner')).toBeVisible();
+  await expect(tileOf(page, op.names[1]!).getByTestId('tile-call')).toBeDisabled();
+});
+
 test('без сети /board открывает оболочку с «Нет сети», «Звонить подряд» на месте', async ({ page, context }) => {
   const op = await makeOperator(1);
   await openBoard(page, op);

@@ -19,9 +19,11 @@ type Props = {
   clientId: string;
   /** Новое значение после сохранения или после 409 (чужое значение показывается сразу). */
   onValue: (key: string, value: unknown) => void;
+  /** Защищённый запрос (доска на общем телефоне); по умолчанию обычный fetch. */
+  fetchFn?: typeof fetch;
 };
 
-export function CardFieldRow({ field, value, cardId, clientId, onValue }: Props) {
+export function CardFieldRow({ field, value, cardId, clientId, onValue, fetchFn }: Props) {
   const t = useTranslations('call');
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -41,7 +43,7 @@ export function CardFieldRow({ field, value, cardId, clientId, onValue }: Props)
     if (busy) return;
     setBusy(true);
     const next = payloadOf(draft);
-    const r = await saveField({ object: field.object, key: field.key, cardId, clientId }, value, next);
+    const r = await saveField({ object: field.object, key: field.key, cardId, clientId }, value, next, fetchFn);
     setBusy(false);
     if (r.ok) {
       onValue(field.key, next);

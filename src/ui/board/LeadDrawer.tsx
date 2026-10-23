@@ -9,7 +9,7 @@ import { Button, BottomSheet } from '@/ui/kit';
 import { drawerRows, type DrawerRow } from './drawerFields';
 import type { BoardCardDto } from './types';
 
-export function LeadDrawer({ card, inlineEdit, columnTitle, onClose }: { card: BoardCardDto; inlineEdit: boolean; columnTitle: string; onClose: () => void }) {
+export function LeadDrawer({ card, inlineEdit, columnTitle, fetchFn, onClose }: { card: BoardCardDto; inlineEdit: boolean; columnTitle: string; fetchFn: typeof fetch; onClose: () => void }) {
   const t = useTranslations('board');
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
   const [rows, setRows] = useState<DrawerRow[]>([]);
@@ -19,7 +19,7 @@ export function LeadDrawer({ card, inlineEdit, columnTitle, onClose }: { card: B
     const ctl = new AbortController();
     void (async () => {
       try {
-        const res = await fetch(`/api/clients/${encodeURIComponent(card.clientId)}`, { cache: 'no-store', credentials: 'same-origin', signal: ctl.signal });
+        const res = await fetchFn(`/api/clients/${encodeURIComponent(card.clientId)}`, { cache: 'no-store', credentials: 'same-origin', signal: ctl.signal });
         if (!res.ok) return setPhase('error');
         setRows(drawerRows(await res.json(), inlineEdit));
         setPhase('ready');
@@ -28,7 +28,7 @@ export function LeadDrawer({ card, inlineEdit, columnTitle, onClose }: { card: B
       }
     })();
     return () => ctl.abort();
-  }, [card.clientId, inlineEdit]);
+  }, [card.clientId, inlineEdit, fetchFn]);
 
   return (
     <BottomSheet
@@ -59,6 +59,7 @@ export function LeadDrawer({ card, inlineEdit, columnTitle, onClose }: { card: B
           <dl className="text-sm" data-testid="drawer-fields">
             {rows.map(({ field, value }) => (
               <CardFieldRow
+                fetchFn={fetchFn}
                 key={`${field.object}-${field.key}`}
                 field={field}
                 value={Object.hasOwn(saved, `${field.object}-${field.key}`) ? saved[`${field.object}-${field.key}`] : value}

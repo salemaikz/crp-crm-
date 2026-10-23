@@ -58,7 +58,7 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
     },
     onPing: () => reloadRef.current(),
   });
-  const data = useBoardData(q, filters, !runtime.locked);
+  const data = useBoardData(q, filters, !runtime.locked, runtime.safeFetch);
   useEffect(() => {
     reloadRef.current = () => void data.reload();
     dropOpsRef.current = data.unplaceOps;
@@ -350,7 +350,7 @@ function BoardScreenInner({ config, userId }: { config: BoardConfig; userId: str
         />
       )}
 
-      {drawerFor && <LeadDrawer card={drawerFor} inlineEdit={config.call.callbackV2} columnTitle={drawerFor.column ? titleOfKey(drawerFor.column) : ''} onClose={() => setDrawerFor(null)} />}
+      {drawerFor && <LeadDrawer card={drawerFor} inlineEdit={config.call.callbackV2} columnTitle={drawerFor.column ? titleOfKey(drawerFor.column) : ''} fetchFn={runtime.safeFetch} onClose={() => setDrawerFor(null)} />}
     </Page>
   );
 }

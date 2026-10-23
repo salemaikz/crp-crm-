@@ -3,6 +3,7 @@
 // в «Перезвон» итогом очереди устройства, в «Мусор» — итогом по причине или ручным списанием № 32.
 import { isWorkingRole } from './columns';
 import { buildRequest } from '@/ui/call/validate';
+import type { PendingState } from '@/ui/call/pending';
 import { EMPTY_DRAFT, type CallConfig, type OutcomeButton, type OutcomeKind, type OutcomeRequest, type PendingCall, type SheetDraft } from '@/ui/call/types';
 import type { BoardCardDto, BoardColumnConfig, BoardConfig, BoardReason } from './types';
 
@@ -63,7 +64,10 @@ export function quickTrash(column: BoardColumnConfig, call: CallConfig, writeOff
   const out: TrashChoice[] = [];
   for (const d of column.drop) {
     if (d.kind === 'written_off') {
-      const label = writeOff.find((r) => r.key === d.reason)?.label ?? d.label;
+      const r = writeOff.find((x) => x.key === d.reason);
+      // Причина с текстом: в теле /close пока нет комментария, поэтому на доске её не предлагаем (списание — в карточке клиента)
+      if (r?.needsText) continue;
+      const label = r?.label ?? d.label;
       out.push({ kind: 'write_off', reason: d.reason, label, needsText: false, blocked: writeOffBlocked(card, scope) });
     } else if (scope !== 'wide') {
       // Итогом из «Мусора» переносит только оператор со своими карточками (см. moveTargets)
@@ -83,7 +87,7 @@ export function moreTrash(column: BoardColumnConfig, call: CallConfig, writeOff:
     const def = call.outcomes.find((o) => o.kind === kind);
     for (const r of def?.reasons ?? []) if (!quick.has(`${kind}:${r.key}`)) out.push({ kind: 'outcome', outcomeKind: kind, reason: r.key, label: r.label, needsText: r.needsText });
   }
-  for (const r of writeOff) if (!quick.has(`written_off:${r.key}`)) out.push({ kind: 'write_off', reason: r.key, label: r.label, needsText: false, blocked: writeOffBlocked(card, scope) });
+  for (const r of writeOff) if (!r.needsText && !quick.has(`written_off:${r.key}`)) out.push({ kind: 'write_off', reason: r.key, label: r.label, needsText: false, blocked: writeOffBlocked(card, scope) });
   return out;
 }
 
@@ -134,6 +138,20 @@ export function trashDraft(def: OutcomeButton, reason: string, lpr: '' | 'yes' |
  * намерение затёрло бы прежнее, и тот звонок не попал бы на сервер. Своя плитка остаётся рабочей (повторный набор).
  */
 export const callBlockedBy = (pendingCardId: string | null, cardId: string): boolean => pendingCardId !== null && pendingCardId !== cardId;
+
+/** Шторка звонка остаётся, если итог ушёл по другой карточке; итог по карточке шторки «тратит» её намерение. */
+export const keepsCallSheet = (sheetCardId: string | null, spentCardId: string): boolean => sheetCardId !== null && sheetCardId !== spentCardId;
+
+/** «Отменить» итога, потратившего намерение звонка: шторка возвращается открытой, как на экране «Звонить». */
+export function restoredCallSheet<C>(card: C, intent: PendingState): { card: C; pending: PendingState; intent: PendingState } {
+  return { card, pending: { ...intent, draft: { ...intent.draft, open: true } }, intent };
+}
+
+/** Код ошибки ответа сервера (`{ error }`, см. CardActionError.body); `null`, если тела нет. */
+export function errorCodeOf(body: unknown): string | null {
+  const e = (body as { error?: unknown } | null)?.error;
+  return typeof e === 'string' ? e : null;
+}
 
 /** Плитка заблокирована, пока по ней есть итог в очереди устройства или отложенный перенос (§3.2). */
 export function lockedIds(outboxCardIds: readonly string[], deferredCardIds: readonly string[]): Set<string> {

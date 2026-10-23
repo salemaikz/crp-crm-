@@ -13,7 +13,7 @@ import { hasFreeText } from '@/ui/call/freeText';
 import { clearPending, readPending, writePending, type PendingState } from '@/ui/call/pending';
 import { EMPTY_DRAFT, type OutcomeButton, type PendingCall, type SheetDraft } from '@/ui/call/types';
 import { useToast } from '@/ui/kit';
-import { buildMoveRequest, callBlockedBy, lockedIds, moveTargets, planFor, quickTrash, moreTrash, trashDraft, type TrashChoice } from './moves';
+import { buildMoveRequest, callBlockedBy, errorCodeOf, keepsCallSheet, restoredCallSheet, lockedIds, moveTargets, planFor, quickTrash, moreTrash, trashDraft, type TrashChoice } from './moves';
 import type { useBoardData } from './useBoardData';
 import type { useBoardRuntime } from './useBoardRuntime';
 import type { TrashPick } from './TrashSheet';
@@ -93,14 +93,22 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
       const plan = planFor(card, def, draft, config.columns, now);
       if (plan) data.place({ cardId: card.id, column: plan.column, patch: plan.patch, opId: request.opId });
       // Намерение звонка «потрачено» этим итогом; отмена вернёт его на место
-      if (intent) runtime.clearIntent();
+      if (intent) {
+        runtime.clearIntent();
+        // Шторка и баннер этой карточки гасим: тот же opId не должен уйти вторым итогом
+        setCallSheet((s) => (s && !keepsCallSheet(s.card.id, card.id) ? null : s));
+        setOrphanPendingId((id) => (id === card.id ? null : id));
+      }
       const undo = async () => {
         if (!(await r.outbox.cancel(request.opId))) {
           toast.show({ message: t('toast.alreadySent'), tone: 'info' });
           return;
         }
         data.unplaceCard(card.id);
-        if (intent) writePending(window.localStorage, userId, intent);
+        if (intent) {
+          writePending(window.localStorage, userId, intent);
+          setCallSheet(restoredCallSheet(card, intent));
+        }
         toast.show({ message: t('toast.undone'), tone: 'neutral' });
       };
       toast.show({ message: t('toast.moved', { name: card.name }), tone: 'success', ...(config.undoMs > 0 ? { undo: { label: t('toast.undo'), onUndo: () => void undo() }, durationMs: config.undoMs } : {}) });
@@ -206,8 +214,8 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
             toast.show({ message: t('toast.readOnly'), tone: 'danger' });
           } else if (res.status === 409) {
             data.unplaceOps([opId]);
-            const body = (await res.json().catch(() => null)) as { code?: string } | null;
-            toast.show({ message: body?.code === 'write_off_needs_no_answer' ? t('trash.callFirst') : t('toast.changed'), tone: 'danger' });
+            const body = (await res.json().catch(() => null)) as unknown;
+            toast.show({ message: errorCodeOf(body) === 'write_off_needs_no_answer' ? t('trash.callFirst') : t('toast.changed'), tone: 'danger' });
           } else {
             data.unplaceOps([opId]);
             toast.show({ message: t('toast.failed'), tone: 'danger' });

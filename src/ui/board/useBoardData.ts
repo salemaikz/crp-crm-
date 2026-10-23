@@ -18,7 +18,7 @@ interface ColState {
 
 const JSON_INIT = { cache: 'no-store' as const, credentials: 'same-origin' as const, headers: { Accept: 'application/json' } };
 
-export function useBoardData(q: string, filters: readonly BoardFilter[], enabled: boolean) {
+export function useBoardData(q: string, filters: readonly BoardFilter[], enabled: boolean, fetchFn: typeof fetch = fetch) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [board, setBoard] = useState<BoardDto | null>(null);
   const [cols, setCols] = useState<Record<string, ColState>>({});
@@ -26,8 +26,11 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
   const token = useRef(0);
   const colsRef = useRef<Record<string, ColState>>({});
   const qRef = useRef({ q, filters });
+  // Защищённый запрос экрана (общий телефон): держим в ref, чтобы колбэки не пересоздавались
+  const fetchRef = useRef(fetchFn);
   useEffect(() => {
     qRef.current = { q, filters };
+    fetchRef.current = fetchFn;
   });
   useEffect(() => {
     colsRef.current = cols;
@@ -37,7 +40,7 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
     const my = ++token.current;
     const { q: text, filters: fl } = qRef.current;
     try {
-      const res = await fetch(`/api/cards/board?${boardQuery(text, fl)}`, JSON_INIT);
+      const res = await fetchRef.current(`/api/cards/board?${boardQuery(text, fl)}`, JSON_INIT);
       if (my !== token.current) return;
       if (res.status === 401) return setPhase('login');
       if (res.status === 404) return setPhase('unavailable');
@@ -70,7 +73,7 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
     setCols((c) => ({ ...c, [column]: { ...cur, loadingMore: true } }));
     const my = token.current;
     try {
-      const res = await fetch(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters)}`, JSON_INIT);
+      const res = await fetchRef.current(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters)}`, JSON_INIT);
       if (!res.ok || my !== token.current) throw new Error(String(res.status));
       const page = (await res.json()) as BoardColumnPage;
       setCols((c) => {
@@ -94,7 +97,7 @@ export function useBoardData(q: string, filters: readonly BoardFilter[], enabled
     while (cur && cur.next && cur.cards.length < limit && my === token.current) {
       let page: BoardColumnPage;
       try {
-        const res = await fetch(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters)}`, JSON_INIT);
+        const res = await fetchRef.current(`/api/cards/board/column?${columnQuery(column, cur.next, qRef.current.filters)}`, JSON_INIT);
         if (!res.ok || my !== token.current) return;
         page = (await res.json()) as BoardColumnPage;
       } catch {

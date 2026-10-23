@@ -1,7 +1,7 @@
 // Куда можно перенести плитку, какой канал у итога, блокировка плиток из очереди устройства (pipeline-v2 §3).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMoveRequest, callBlockedBy, canMoveAnywhere, lockedIds, moreTrash, moveTargets, planFor, quickTrash, viaFor, writeOffBlocked } from '@/ui/board/moves';
+import { buildMoveRequest, callBlockedBy, canMoveAnywhere, errorCodeOf, keepsCallSheet, lockedIds, moreTrash, restoredCallSheet, moveTargets, planFor, quickTrash, viaFor, writeOffBlocked } from '@/ui/board/moves';
 import { EMPTY_DRAFT } from '@/ui/call/types';
 import { CALL, COLUMNS, CONFIG, OUTCOMES, card } from './fixtures';
 
@@ -90,7 +90,8 @@ test('«Мусор»: быстрые причины в порядке пресе
 test('«Другие причины…»: остальные ручные причины видов, без дублей быстрых; без dropMore — пусто', () => {
   const more = moreTrash(trash, CALL, CONFIG.writeOffReasons, card(), 'own');
   const ids = more.map((c) => `${c.kind === 'outcome' ? c.outcomeKind : 'written_off'}:${c.reason}`);
-  assert.deepEqual(ids, ['not_interested:later', 'not_interested:other', 'written_off:other']);
+  // «Другое (текст)» при списании не предлагается: в теле /close нет комментария
+  assert.deepEqual(ids, ['not_interested:later', 'not_interested:other']);
   assert.deepEqual(moreTrash({ ...trash, dropMore: false }, CALL, CONFIG.writeOffReasons, card(), 'own'), []);
 });
 
@@ -145,4 +146,36 @@ test('«Позвонить» на другой плитке погашено, п
   assert.equal(callBlockedBy(null, 'b'), false);
   assert.equal(callBlockedBy('a', 'a'), false);
   assert.equal(callBlockedBy('a', 'b'), true);
+});
+
+// ---------- Намерение звонка и итог с плитки ----------
+
+test('итог по карточке шторки звонка гасит шторку, по другой карточке — оставляет', () => {
+  assert.equal(keepsCallSheet('a', 'a'), false);
+  assert.equal(keepsCallSheet('a', 'b'), true);
+  assert.equal(keepsCallSheet(null, 'a'), false);
+});
+
+test('«Отменить» итога возвращает шторку открытой с тем же намерением (opId не меняется)', () => {
+  const intent = { call: { opId: 'op-1', cardId: 'a', clientId: 'c', tappedAt: 5, title: 'T', phoneId: null, phoneMasked: '', phones: [] }, draft: { ...EMPTY_DRAFT, open: false } };
+  const r = restoredCallSheet({ id: 'a' }, intent);
+  assert.equal(r.pending.draft.open, true);
+  assert.equal(r.pending.call.opId, 'op-1');
+  assert.equal(r.intent, intent);
+  // после отмены звонок снова блокирует «Позвонить» на других плитках
+  assert.equal(callBlockedBy('a', 'b'), true);
+});
+
+test('код ошибки ответа читается из поля error', () => {
+  assert.equal(errorCodeOf({ error: 'write_off_needs_no_answer' }), 'write_off_needs_no_answer');
+  assert.equal(errorCodeOf({ code: 'write_off_needs_no_answer' }), null);
+  assert.equal(errorCodeOf(null), null);
+});
+
+test('причины списания с текстом не предлагаются на доске: в /close нет комментария', () => {
+  const col = { ...trash, drop: [...trash.drop, { kind: 'written_off', reason: 'other', label: 'Другое' }], dropMore: true };
+  const c = card({ column: 'new', attempts: 1 });
+  const all = [...quickTrash(col, CALL, CONFIG.writeOffReasons, c, 'own'), ...moreTrash(col, CALL, CONFIG.writeOffReasons, c, 'own')];
+  assert.ok(all.every((x) => !(x.kind === 'write_off' && x.reason === 'other')));
+  assert.ok(all.some((x) => x.kind === 'write_off' && x.reason === 'unreachable'));
 });
