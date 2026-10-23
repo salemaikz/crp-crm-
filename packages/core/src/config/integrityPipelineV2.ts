@@ -3,6 +3,9 @@ import type { SpaceConfigV1 } from './schema/v1.js';
 
 type P = (string | number)[];
 
+/** Группы причин, которыми карточка закрывается (быстрые причины колонки «Мусор»). */
+const CLOSE_KINDS: ReadonlySet<string> = new Set(['not_target', 'not_interested', 'written_off']);
+
 export function checkPipelineV2(
   sp: SpaceConfigV1,
   at: (...p: P) => P,
@@ -44,18 +47,32 @@ export function checkPipelineV2(
     if (!live) issue(at('calling', 'callbackReason', 'required'), 'нужна живая ручная причина в группе «callback»');
   }
 
+  // веса горячести: ключи — причины перезвона
+  const heatReasons = sp.queue.heat?.reasons;
+  if (heatReasons !== undefined) {
+    const keys = new Set((sp.reasons.callback ?? []).map((r) => r.key));
+    for (const k of Object.keys(heatReasons)) ref(at('queue', 'heat', 'reasons', k), k, keys, 'причины группы «callback»');
+  }
+
   // доска
   const board = sp.board;
   if (board === undefined) return;
+  const seenTypes = new Map<string, number>();
   const byState = new Map<string, { col: number; typed: boolean }[]>();
   board.columns.forEach((c, i) => {
     const typed = (c.eventTypes ?? []).length > 0;
     (c.eventTypes ?? []).forEach((e, j) => ref(at('board', 'columns', i, 'eventTypes', j), e, eventTypes, 'типа мероприятия'));
+    if (typed) {
+      const sig = [...(c.eventTypes ?? [])].sort().join(',');
+      if (seenTypes.has(sig)) issue(at('board', 'columns', i, 'eventTypes'), `те же виды мероприятий, что у колонки №${seenTypes.get(sig)! + 1}`);
+      else seenTypes.set(sig, i);
+    }
     if (typed && !c.states.includes('agreed')) issue(at('board', 'columns', i, 'eventTypes'), 'eventTypes — только у колонки с состоянием agreed');
     for (const s of c.states) byState.set(s, [...(byState.get(s) ?? []), { col: i, typed }]);
     (c.drop ?? []).forEach((d, j) => {
       const group = sp.reasons[d.kind];
-      if (group === undefined) issue(at('board', 'columns', i, 'drop', j, 'kind'), `нет группы причин «${d.kind}»`);
+      if (!CLOSE_KINDS.has(d.kind)) issue(at('board', 'columns', i, 'drop', j, 'kind'), `«${d.kind}» не закрывает карточку`);
+      else if (group === undefined) issue(at('board', 'columns', i, 'drop', j, 'kind'), `нет группы причин «${d.kind}»`);
       else if (!group.some((r) => r.key === d.reason)) issue(at('board', 'columns', i, 'drop', j, 'reason'), `нет причины «${d.reason}» в группе «${d.kind}»`);
     });
   });

@@ -18,6 +18,7 @@ function check(edit: (sp: any, g: any) => void = () => {}) {
   sp.booking.eventTypes = [evt('br'), evt('bk')];
   sp.reasons.callback = [reason('think'), reason('other', { needsText: true })];
   sp.reasons.deal_lost = [reason('lost')];
+  sp.reasons.not_interested = [reason('lost')];
   edit(sp, set.global);
   const r = validateConfigSet(set);
   return r.ok ? [] : r.issues.map((i) => `${i.path}: ${i.message}`);
@@ -92,7 +93,8 @@ test('queue.sort и queue.heat', () => {
   bad((sp) => { sp.queue.heat = heat({ flags: { attendedGroup: 1, attendedIndividual: 2, noShow: 3, purchased: 4, lprYes: 10001 } }); }, 'lprYes');
   bad((sp) => { sp.queue.heat = heat({ flags: { attendedGroup: 1 } }); }, 'flags');
   const many = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`reason_${i}`, 1]));
-  ok((sp) => { sp.queue.heat = heat({ reasons: many(50) }); });
+  ok((sp) => { sp.reasons.callback.push(...Object.keys(many(50)).map((k) => reason(k))); sp.queue.heat = heat({ reasons: many(50) }); });
+  bad((sp) => { sp.queue.heat = heat({ reasons: { thnk: 5 } }); }, 'причины группы «callback» «thnk»');
   bad((sp) => { sp.queue.heat = heat({ reasons: many(51) }); }, 'не больше 50');
   bad((sp) => { sp.queue.heat = heat({ extra: 1 }); }, 'extra');
 });
@@ -104,7 +106,7 @@ test('board: колонки, тона, ссылки', () => {
     col('new', ['new']),
     col('br', ['agreed'], { eventTypes: ['br'] }),
     col('bk', ['agreed'], { eventTypes: ['bk'] }),
-    col('trash', ['not_interested', 'written_off'], { recentDays: 30, drop: [{ kind: 'deal_lost', reason: 'lost' }], dropMore: true }),
+    col('trash', ['not_interested', 'written_off'], { recentDays: 30, drop: [{ kind: 'not_interested', reason: 'lost' }], dropMore: true }),
   ];
   ok((sp) => { sp.board = { columns, agreedFallback: 'br', tones: [{ when: 'attendedGroup', tone: 'success' }] }; });
   bad((sp) => { sp.board = { columns, tones: [{ when: 'attendedGroup', tone: 'purple' }] }; }, 'tone');
@@ -113,8 +115,11 @@ test('board: колонки, тона, ссылки', () => {
   bad((sp) => { sp.board = { columns: [col('x', ['bogus'])] }; }, 'states');
   bad((sp) => { sp.board = { columns: [col('x', ['agreed'], { eventTypes: ['nope'] })] }; }, 'типа мероприятия «nope»');
   bad((sp) => { sp.board = { columns: [col('x', ['new'], { eventTypes: ['br'] })] }; }, 'только у колонки с состоянием agreed');
-  bad((sp) => { sp.board = { columns: [col('x', ['new'], { drop: [{ kind: 'deal_lost', reason: 'ghost' }] })] }; }, 'нет причины «ghost»');
-  bad((sp) => { sp.board = { columns: [col('x', ['new'], { drop: [{ kind: 'no_such', reason: 'lost' }] })] }; }, 'нет группы причин');
+  bad((sp) => { sp.board = { columns: [col('x', ['new'], { drop: [{ kind: 'not_interested', reason: 'ghost' }] })] }; }, 'нет причины «ghost»');
+  bad((sp) => { sp.board = { columns: [col('x', ['new'], { drop: [{ kind: 'deal_lost', reason: 'lost' }] })] }; }, 'не закрывает карточку');
+  bad((sp) => { sp.board = { columns: [col('x', ['new'], { drop: [{ kind: 'callback', reason: 'think' }] })] }; }, 'не закрывает карточку');
+  bad((sp) => { sp.board = { columns: [col('a', ['agreed'], { eventTypes: ['br'] }), col('b', ['agreed'], { eventTypes: ['br'] })], agreedFallback: 'a' }; }, 'те же виды мероприятий');
+  bad((sp) => { sp.board = { columns: [col('x', ['new'], { drop: [{ kind: 'written_off', reason: 'lost' }] })] }; }, 'нет группы причин');
   bad((sp) => { sp.board = { columns: [col('a', ['new']), col('b', ['new', 'retry'])] }; }, 'в нескольких колонках');
   bad((sp) => { sp.board = { columns: [col('a', ['agreed'], { eventTypes: ['br'] }), col('b', ['agreed'])] }; }, 'в нескольких колонках');
   bad((sp) => { sp.board = { columns: columns.filter((c) => c.key !== 'trash') }; }, 'нужен agreedFallback');
