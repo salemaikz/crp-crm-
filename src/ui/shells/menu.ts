@@ -36,6 +36,8 @@ type CatalogItem = {
   wideCards?: boolean;
   /** Флаг модуля (FEATURE_<NAME>): выключен — пункт скрыт. */
   feature?: string;
+  /** Второй обязательный флаг: страница доски РОП до влития A8 отвечает 404 без KANBAN, пункт на 404 не ведёт. */
+  alsoFeature?: string;
   /** Обратный флаг: пункт виден, только пока модуль выключен (запасной вход в раздел, D-295). */
   unlessFeature?: string;
   /** Только администратор установки (раздел сам проверяет это же право). */
@@ -74,8 +76,8 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
     items: [
       { id: 'summary', href: '/summary', keys: ['summary'], perm: 'report.view', spaceReports: true },
       { id: 'director', href: '/director', keys: ['dashboard'], perm: 'report.view', spaceReports: true, feature: 'REPORTS' },
-      // Доска обзвона РОП (К5): не зависит от KANBAN; только охват карточек «пространство» и шире
-      { id: 'board', href: '/deals/calling', perm: 'card.read', wideCards: true, feature: 'OP_BOARD' },
+      // Доска обзвона РОП (К5): пока A8 не влита, страница требует и KANBAN; только охват карточек «пространство» и шире
+      { id: 'board', href: '/deals/calling', perm: 'card.read', wideCards: true, feature: 'OP_BOARD', alsoFeature: 'KANBAN' },
       { id: 'handoffs', href: '/handoffs', keys: ['handoffs'], perm: 'handoff.read', feature: 'PURCHASES' },
       { id: 'distribution', href: '/distribution', keys: ['distribution', 'pool'], perm: 'pool.read' },
       { id: 'clients', href: '/clients', perm: 'client.read' },
@@ -167,6 +169,7 @@ export function buildMenu(input: MenuInput): BuiltMenu {
       (!it.spaceReports || input.spaceReports) && (!it.wideCards || input.wideCards === true);
     if (!byRole && !adminPass) continue;
     if (it.feature && !input.features?.has(it.feature)) continue;
+    if (it.alsoFeature && !input.features?.has(it.alsoFeature)) continue;
     if (it.unlessFeature && input.features?.has(it.unlessFeature)) continue;
     if (seen.has(it.href)) continue;
     seen.add(it.href);

@@ -1,6 +1,7 @@
 // Данные страницы «Как работать»: подписи колонок, мероприятий, причин и тонов берутся из настроек установки,
 // в локали остаются только шаблоны. Чистые функции без БД и Next: страница передаёт срез настроек.
 import { roleOfStates } from '@/ui/board/columns';
+import { shellKindOf } from '@/ui/shells/menu';
 import type { ColumnRole } from '@/ui/board/types';
 
 type L = { ru: string };
@@ -107,11 +108,10 @@ export function buildHelpData(board: HelpBoard, doc: HelpDoc, stateLabel: (state
 
 export type HelpKind = 'operator' | 'manager' | 'consultant';
 
-/** Какую справку показать: по ключам меню роли (те же, что выбирают оболочку). */
+/** Какую справку показать: по ключам меню роли; вид выбирает та же функция, что и оболочку. */
 export function helpKindOf(menu: readonly string[]): HelpKind {
-  if (menu.includes('queue')) return 'operator';
-  if (menu.includes('consultations')) return 'consultant';
-  return 'manager';
+  const shell = shellKindOf(menu);
+  return shell === 'duty' ? 'manager' : shell;
 }
 
 export type HelpSectionId = 'board' | 'move' | 'trash' | 'callback' | 'attend' | 'purchases' | 'duty' | 'consultations' | 'tasks' | 'reports';

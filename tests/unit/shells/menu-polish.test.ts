@@ -74,10 +74,11 @@ test('crp/rop: «Доска» в группе «Работа» сразу пос
   assert.ok(!list.includes('/board'), 'менеджерская оболочка ведёт не на /board');
 });
 
-test('«Доска» менеджерской оболочки — без KANBAN тоже, но не при охвате ниже пространства', () => {
+test('«Доска» менеджерской оболочки — только при OP_BOARD и KANBAN (без KANBAN страница 404 до A8) и не при охвате ниже пространства', () => {
   const rop = rolesOf('clients/crp').find((r) => r.key === 'rop')!;
   const noKanban = BASE.filter((f) => f !== 'KANBAN');
-  assert.ok(hrefs(menuOf(rop, [...noKanban, 'OP_BOARD'])).includes('/deals/calling'), 'К5: доска не зависит от KANBAN');
+  assert.ok(!hrefs(menuOf(rop, [...noKanban, 'OP_BOARD'])).includes('/deals/calling'), 'без KANBAN страница отвечает 404 — пункта нет');
+  assert.ok(hrefs(menuOf(rop, [...BASE, 'OP_BOARD'])).includes('/deals/calling'));
   const viewer = testViewer({ userId: 'u-own', role: rop });
   const m = buildMenu({
     shell: 'manager',

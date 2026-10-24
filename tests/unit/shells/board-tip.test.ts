@@ -28,3 +28,9 @@ test('оболочка даёт подсказку только оператор
   assert.match(msgs.tip.board.hold ?? '', /^Удерживайте плитку/);
   assert.ok(!/['"`>][^'"`<>\n]*(Удерживайте|Понятно)/.test(read('src/ui/shells/BoardTip.tsx').replace(/\/\/.*$/gm, '')), 'в компоненте нет захардкоженных строк');
 });
+
+test('ноутбук (md+): отступ-спейсер скрыт, плашка в правом нижнем углу, а не у сетки колонок слева', () => {
+  const src = read('src/ui/shells/BoardTip.tsx');
+  assert.match(src, /data-testid="board-tip-spacer" className="md:hidden"/);
+  assert.match(src, /md:right-\[var\(--gutter\)\] md:left-auto/);
+});

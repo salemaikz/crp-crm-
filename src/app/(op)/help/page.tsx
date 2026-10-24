@@ -8,7 +8,7 @@ import { can, page, scopeOf, type PageContext } from '@/server/access';
 import { roleMenuOf } from '@/ui/shells/loadMenu';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import { Badge, Card, Page, PageHeader, Section, type BadgeTone } from '@/ui/kit';
-import { helpKindOf, sectionsFor } from './helpData';
+import { helpKindOf, sectionsFor, type HelpSectionId } from './helpData';
 import { itemsFor, type HelpExt } from './helpItems';
 import { loadHelp } from './loadHelp';
 
@@ -40,11 +40,13 @@ export default page<Record<string, never>, React.ReactNode>({ perm: 'authenticat
     owner: tb('manager.owner'),
     badge: (event) => tb('badge.attendedGroup', { event }),
     toneWord: (tone) => ((TONES as readonly string[]).includes(tone) ? t(`tone.${tone}` as 'tone.success') : ''),
-    nav: { purchases: tn('purchases'), duty: tn('duty'), consultations: tn('consultations'), tasks: tn('tasks') },
+    nav: { call: tn('call'), purchases: tn('purchases'), duty: tn('duty'), consultations: tn('consultations'), tasks: tn('tasks') },
     group: { work: tg('work'), analytics: tg('analytics') },
     attended: ts('attended'),
     noShow: ts('no_show'),
   };
+  const titleOf = (id: HelpSectionId) =>
+    t(`sections.${id}.${id === 'purchases' && kind === 'manager' ? 'titleManager' : 'title'}` as 'sections.board.title');
   const flags = { callbackV2: isFeatureEnabled('CALLBACK_V2'), canOutcome: can(viewer, 'card.outcome') && !viewer.readOnly };
   return (
     <Page width="list">
@@ -52,12 +54,12 @@ export default page<Record<string, never>, React.ReactNode>({ perm: 'authenticat
       <nav aria-label={t('toc')} className="flex flex-wrap gap-2">
         {ids.map((id) => (
           <a key={id} href={`#${id}`} className="k-chip">
-            {t(`sections.${id}.title` as 'sections.board.title')}
+            {titleOf(id)}
           </a>
         ))}
       </nav>
       {ids.map((id) => (
-        <Section key={id} id={id} title={t(`sections.${id}.title` as 'sections.board.title')} className="scroll-mt-4">
+        <Section key={id} id={id} title={titleOf(id)} className="scroll-mt-4">
           <Card padding="md">
             <ul className="flex flex-col gap-3">
               {itemsFor(id, kind, data, ext, flags).map((item, i) => (
@@ -76,7 +78,7 @@ export default page<Record<string, never>, React.ReactNode>({ perm: 'authenticat
           </Card>
         </Section>
       ))}
-      <p style={{ color: 'var(--text-2)' }}>{t('support')}</p>
+      <p style={{ color: 'var(--text-2)' }}>{t(kind === 'manager' ? 'supportManager' : 'support')}</p>
     </Page>
   );
 });

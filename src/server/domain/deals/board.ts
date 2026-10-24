@@ -74,12 +74,6 @@ function spaceOf(viewer: Viewer): string {
   return viewer.spaceId;
 }
 
-/** Пространство для списка сотрудников доски обзвона РОП (К5): достаточно OP_BOARD, KANBAN не нужен. */
-function callingSpaceOf(viewer: Viewer): string {
-  if (!isFeatureEnabled('OP_BOARD') || viewer.spaceId === null) return spaceOf(viewer);
-  return viewer.spaceId;
-}
-
 function pickPipeline(pipelines: readonly DealPipelineInfo[], key: string | null): DealPipelineInfo {
   const p = key === null ? pipelines[0] : pipelines.find((x) => x.key === key);
   if (!p) throw new NotFoundError();
@@ -295,7 +289,7 @@ async function toCallingTiles(viewer: Viewer, rows: readonly CallingRow[]): Prom
 
 /** Сотрудники с карточками в обзвоне (фильтр «сотрудник» общей доски РОП и директора); охват зрителя — в SQL. */
 export async function getCallingWorkers(viewer: Viewer): Promise<{ userId: string; name: string }[]> {
-  const spaceId = callingSpaceOf(viewer);
+  const spaceId = spaceOf(viewer);
   assertSpaceScope(viewer);
   return selectCallingWorkers(viewer, (await getDb()).sql, { spaceId });
 }

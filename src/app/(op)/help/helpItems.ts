@@ -13,7 +13,7 @@ export type HelpExt = {
   badge: (event: string) => string;
   /** Подпись цвета по имени тона; нет слова для тона — пустая строка. */
   toneWord: (tone: string) => string;
-  nav: { purchases: string; duty: string; consultations: string; tasks: string };
+  nav: { call: string; purchases: string; duty: string; consultations: string; tasks: string };
   group: { work: string; analytics: string };
   attended: string;
   noShow: string;
@@ -26,6 +26,9 @@ export type HelpFlags = {
   /** Право вносить итог (`card.outcome`): директору (только чтение) про итог в карточке не пишем. */
   canOutcome: boolean;
 };
+
+/** Разделитель причин: подпись причины сама может содержать запятую («Нет времени, перезвонить»). */
+export const joinReasons = (labels: readonly string[]): string => labels.join(' · ');
 
 export function itemsFor(id: HelpSectionId, kind: HelpKind, data: HelpData, ext: HelpExt, flags: HelpFlags): HelpItem[] {
   const manager = kind === 'manager';
@@ -45,7 +48,7 @@ export function itemsFor(id: HelpSectionId, kind: HelpKind, data: HelpData, ext:
         if (ref && word) items.push({ key: 'tone', tone: ref.tone, params: { tone: word, event: ref.event, badge: ext.badge(ref.event) } });
       }
       items.push({ key: 'sort', params: { sort: ext.sortHeat } });
-      if (!manager) items.push({ key: 'callNext', params: { callNext: ext.callNext } });
+      if (!manager) items.push({ key: 'callNext', params: { call: ext.nav.call, callNext: ext.callNext } });
       return items;
     }
     case 'move':
@@ -55,19 +58,19 @@ export function itemsFor(id: HelpSectionId, kind: HelpKind, data: HelpData, ext:
     case 'trash': {
       const items: HelpItem[] = [
         data.trashReasons.length > 0
-          ? { key: 'what', params: { trash, reasons: data.trashReasons.join(', '), more: ext.moreReasons } }
+          ? { key: 'what', params: { trash, reasons: joinReasons(data.trashReasons), more: ext.moreReasons } }
           : { key: 'whatNoReasons', params: { trash } },
         { key: 'closed', params: { trash } },
       ];
       // причины со сроком возврата: число дней — из настроек; для остальных вернуть может только руководитель
-      for (const r of data.trashReturns) items.push({ key: 'returns', params: { reasons: r.reasons.join(', '), days: String(r.days) } });
+      for (const r of data.trashReturns) items.push({ key: 'returns', params: { reasons: joinReasons(r.reasons), days: String(r.days) } });
       if (data.trashHasManualReturn) items.push({ key: manager ? 'staysManager' : 'stays', params: { trash } });
       return items;
     }
     case 'callback': {
       const items: HelpItem[] = [{ key: 'what', params: { callback } }];
       if (flags.callbackV2 && data.callbackReasons.length > 0) {
-        items.push({ key: 'reasons', params: { reasons: data.callbackReasons.join(', ') } }, { key: 'term', params: {} });
+        items.push({ key: 'reasons', params: { reasons: joinReasons(data.callbackReasons) } }, { key: 'term', params: {} });
       }
       return items;
     }

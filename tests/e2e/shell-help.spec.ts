@@ -145,7 +145,7 @@ test('подсказка первого входа на доске: показ, 
   await expect(tip).toBeHidden();
   expect(await page.evaluate((k) => window.localStorage.getItem(k), `crm.tip.board.v1:${op.id}`)).toBe('1');
   await page.reload();
-  await expect(page.getByTestId('board'), 'доска на месте').toBeVisible().catch(() => undefined);
+  await expect(page.getByTestId('board-screen'), 'доска на месте').toBeVisible();
   await expect(tip).toHaveCount(0);
 });
 
@@ -184,7 +184,20 @@ test('подсказка принимает касания целиком: ка�
   expect(geo.lastBottom, 'последняя плитка не под подсказкой').toBeLessThanOrEqual(geo.tipTop);
 });
 
-test('К5: при OP_BOARD доска обзвона РОП открывается (200); с FEATURE_KANBAN=0 — тоже', async ({ page }) => {
+test('подсказка на ноутбуке 1440: спейсер не добавляет вертикальной прокрутки документа, плашка в правом нижнем углу', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const op = await makeOperator(4, { role: OPERATOR_ROLE });
+  await login(page, op);
+  await page.goto('/board');
+  const tip = page.getByTestId('board-tip');
+  await expect(tip).toBeVisible();
+  await expect(page.getByTestId('board-tip-spacer')).toBeHidden();
+  const box = (await tip.boundingBox())!;
+  expect(box.x + box.width, 'у правого края окна').toBeGreaterThan(1440 - 40);
+  expect(box.width).toBeLessThanOrEqual(384);
+});
+
+test('К5: на флагах стенда доска обзвона РОП открывается (200)', async ({ page }) => {
   const rop = await staff(ROP_ROLE);
   await login(page, rop);
   const res = await page.goto('/deals/calling');

@@ -47,7 +47,7 @@ const ext: HelpExt = {
   owner: 'Сотрудник',
   badge: (e) => `Был: ${e}`,
   toneWord: (t) => ({ success: 'Зелёная', warning: 'Жёлтая' })[t] ?? '',
-  nav: { purchases: 'Мои покупки', duty: 'Явка', consultations: 'Консультации', tasks: 'Задачи' },
+  nav: { call: 'Звонить', purchases: 'Мои покупки', duty: 'Явка', consultations: 'Консультации', tasks: 'Задачи' },
   group: { work: 'Работа', analytics: 'Аналитика' },
   attended: 'Пришёл',
   noShow: 'Не пришёл',
@@ -144,4 +144,27 @@ test('справка по правам: без card.outcome нет «вноси�
   assert.deepEqual(sectionsFor('manager', { wideCards: false, canReports: false, canTasks: true }), ['tasks']);
   assert.deepEqual(sectionsFor('manager', { wideCards: false, canReports: false, canTasks: false }), []);
   assert.ok(!sectionsFor('manager', { wideCards: true, canReports: false, canTasks: true }).includes('reports'));
+});
+
+test('причины склеиваются « · »: подпись с запятой не читается как две причины', () => {
+  const comma = buildHelpData(board, { ...doc, reasons: { ...doc.reasons, callback: [{ key: 'a', label: { ru: 'Подумает' } }, { key: 'b', label: { ru: 'Нет времени, перезвонить' } }] } }, (s) => s);
+  const items = itemsFor('callback', 'operator', comma, ext, { callbackV2: true, canOutcome: true });
+  assert.equal(items[1]!.params.reasons, 'Подумает · Нет времени, перезвонить');
+});
+
+test('«Звонить подряд»: оператору — пункт меню «Звонить» и кнопка над доской на ноутбуке; руководителю строки нет', () => {
+  const op = itemsFor('board', 'operator', data, ext, { callbackV2: false, canOutcome: true }).find((i) => i.key === 'callNext')!;
+  assert.deepEqual(op.params, { call: 'Звонить', callNext: 'Подряд' });
+  const msgs = JSON.parse(readFileSync(join(ROOT, 'messages/ru/help.json'), 'utf8')) as { sections: { board: { items: Record<string, string> } } };
+  assert.match(msgs.sections.board.items.callNext!, /«\{call\}» в меню.*«\{callNext\}»/);
+  assert.ok(!itemsFor('board', 'manager', data, ext, { callbackV2: false, canOutcome: true }).some((i) => i.key === 'callNext'));
+});
+
+test('справка руководителя: свой заголовок раздела покупок и свой текст поддержки; вид справки считает shellKindOf', () => {
+  const msgs = JSON.parse(readFileSync(join(ROOT, 'messages/ru/help.json'), 'utf8')) as { support: string; supportManager: string; sections: { purchases: { title: string; titleManager: string } } };
+  assert.notEqual(msgs.sections.purchases.titleManager, msgs.sections.purchases.title);
+  assert.ok(!/руководител/.test(msgs.supportManager), 'руководитель сам читает справку');
+  const page = readFileSync(join(ROOT, 'src/app/(op)/help/page.tsx'), 'utf8');
+  assert.match(page, /kind === 'manager' \? 'supportManager' : 'support'/);
+  assert.match(readFileSync(join(ROOT, 'src/app/(op)/help/helpData.ts'), 'utf8'), /shellKindOf\(menu\)/);
 });
