@@ -6,6 +6,7 @@ import { getActiveConfig } from '@/server/platform/config/active';
 import { getDb } from '@/server/platform/db';
 import { requireSpaceReports } from './access';
 import { eventShortLabels, type EventTypeDoc } from './director';
+import { eventTypeShorts } from './eventLabels';
 import { reportsDeps } from './deps';
 import { consultantNames } from './periodRepo';
 import { selectStaff } from './repo';
@@ -14,6 +15,8 @@ export interface ReportLabels {
   sources: Record<string, string>;
   serviceTypes: Record<string, string>;
   eventTypes: Record<string, string>;
+  /** Короткие подписи видов мероприятий (`short`): узкие колонки; полная подпись — в `title`. */
+  eventTypeShorts?: Record<string, string>;
   /** Группа справочника причин → ключ → подпись. */
   reasons: Record<string, Record<string, string>>;
   /** Короткие подписи видов записи: `group` и `individual` (первый вид каждого поведения); нет вида — нет ключа. */
@@ -60,6 +63,7 @@ export async function getReportMeta(viewer: Viewer): Promise<ReportMeta> {
       sources,
       serviceTypes: labelsOf((space?.serviceTypes ?? []) as readonly Labeled[]),
       eventTypes: labelsOf((space?.booking.eventTypes ?? []) as readonly Labeled[]),
+      eventTypeShorts: eventTypeShorts((space?.booking.eventTypes ?? []) as readonly EventTypeDoc[]),
       reasons,
       eventKinds,
     },

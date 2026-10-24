@@ -63,6 +63,12 @@ test.beforeAll(async () => {
               VALUES (${randomUUID()}, ${spaceId}, 'individual', 'bk', ${clientId}, ${cardId}, ${bookingDay}, '11:00', ${startsAt - i * 60_000}, 60, ${status}, 'ui',
                       ${operator.id}, ${operator.id}, ${now}, ${now})`;
   }
+  // итоги с причинами у отдельного оператора: «Причины» — обе колонки блока («Мусор» и «Перезвон») непустые
+  const reasonOp = await makeStaff('operator', `Оператор Причины ${tag}`, true);
+  for (const [kind, reason] of [['not_interested', 'expensive'], ['not_interested', 'no_need'], ['callback', 'think'], ['callback', 'not_now'], ['callback', 'think']] as const) {
+    await sql`INSERT INTO calls (id, space_id, card_id, client_id, user_id, via, phone_digits, outcome_code, outcome_kind, reason_code, lpr, applied, occurred_at, received_at, config_rev)
+              VALUES (${randomUUID()}, ${spaceId}, ${cardId}, ${clientId}, ${reasonOp.id}, 'ui', '', ${kind}, ${kind}, ${reason}, '', 'applied', ${now - 5000}, ${now}, 1)`;
+  }
   for (const [i, kind] of (['no_answer', 'callback'] as const).entries()) {
     await sql`INSERT INTO calls (id, space_id, card_id, client_id, user_id, via, phone_digits, outcome_code, outcome_kind, lpr, applied, occurred_at, received_at, config_rev)
               VALUES (${randomUUID()}, ${spaceId}, ${cardId}, ${clientId}, ${operator.id}, 'ui', '', ${kind}, ${kind}, '', 'applied', ${now - (i + 1) * 1000}, ${now}, 1)`;
@@ -139,4 +145,36 @@ test('«Явка — список»: клиент — ссылка, чипы-с�
   await expect(page.getByTestId('attendance-chip-unmarked')).toHaveAttribute('aria-pressed', 'true');
   await expect(page).toHaveURL(/status=unmarked/);
   await expect(page.getByRole('columnheader', { name: 'Мероприятие' })).toBeVisible();
+});
+
+// Дефект 9 (круг 3): две таблицы «Причин» с одинаковыми колонками; в «Явка — список» дата одной строкой, вид — короткой подписью
+test('«Причины»: таблицы блоков с одинаковой шириной колонок', async ({ page }) => {
+  await login(page, rop);
+  await page.goto('/reports?r=reasons');
+  const tables = page.locator('[data-testid^="reasons-block-"] table');
+  await expect(tables.first()).toBeVisible();
+  expect(await tables.count()).toBeGreaterThanOrEqual(2);
+  const widths = await tables.evaluateAll((list) =>
+    list.map((t) => ({ layout: getComputedStyle(t).tableLayout, cols: [...t.querySelectorAll('thead th')].map((th) => th.getBoundingClientRect().width), width: t.getBoundingClientRect().width })),
+  );
+  for (const w of widths) expect(w.layout).toBe('fixed');
+  const first = widths[0]!;
+  for (const w of widths.slice(1)) {
+    expect(w.cols.length).toBe(first.cols.length);
+    expect(Math.abs(w.width - first.width)).toBeLessThanOrEqual(1);
+    w.cols.forEach((c, i) => expect(Math.abs(c - first.cols[i]!), `колонка ${i}`).toBeLessThanOrEqual(1));
+  }
+});
+
+test('«Явка — список»: дата и время одной строкой, вид мероприятия — короткая подпись с полной в title', async ({ page }) => {
+  await login(page, rop);
+  await page.goto(`/reports?r=attendance&view=list&from=${bookingDay}&to=${bookingDay}&users=${operator.id}`);
+  const date = page.getByTestId('attendance-date').first();
+  await expect(date).toBeVisible();
+  expect(await date.evaluate((el) => el.getClientRects().length)).toBe(1);
+  const cell = date.locator('xpath=ancestor::td');
+  expect(await cell.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('nowrap');
+  const type = page.getByTestId('attendance-event-type').first();
+  await expect(type).toHaveText('БК');
+  await expect(type).toHaveAttribute('title', 'Бизнес-консультация');
 });
