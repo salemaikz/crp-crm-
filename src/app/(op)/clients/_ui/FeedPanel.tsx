@@ -7,15 +7,13 @@ import { Button, Card, Chip, ChipGroup, EmptyState, useToast } from '@/ui/kit';
 import { FeedMessages } from '@/ui/messenger/FeedMessages';
 import { foldMessages } from '@/ui/messenger/fold';
 import { useFeedControl } from './ClientsProviders';
+import { isFoldedEvent } from './feedLabels';
 import { formatDateTime } from './format';
 import { send } from './requests';
 import { useFeedDescribe } from './useFeedDescribe';
 import type { FeedItemView, FeedLabels } from './types';
 
 const GROUPS = ['calls', 'messages', 'bookings', 'deals', 'tasks', 'notes', 'system'] as const;
-
-/** Системное событие, которое сворачивается в одну строку; смена состояния карточки (колонки) остаётся в ленте. */
-const isFolded = (i: FeedItemView): boolean => i.group === 'system' && i.kind !== 'card.state';
 
 type Props = {
   clientId: string;
@@ -93,6 +91,8 @@ export function FeedPanel({ clientId, canPin = false, initialItems, initialNext,
   }
 
   // Системные события свёрнуты в одну строку, пока не выбрана группа «Система» или не раскрыты
+  const hasBoard = Object.keys(labels.columns).length > 0;
+  const isFolded = (i: FeedItemView): boolean => isFoldedEvent(i, hasBoard);
   const system = items.filter(isFolded);
   const collapse = group !== 'system' && group !== 'edits' && !showSystem && system.length > 0;
   const visible = collapse ? items.filter((i) => !isFolded(i)) : items;

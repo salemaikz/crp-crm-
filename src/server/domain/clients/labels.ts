@@ -4,6 +4,7 @@ import type { Viewer } from '@/server/access';
 import { calling } from '@crm/core';
 import { parseBoardSettings } from '@/server/domain/cards/boardSettings';
 import { getActiveConfig } from '@/server/platform/config/active';
+import { isFeatureEnabled } from '@/server/platform/flags';
 
 type Label = { ru: string; kk?: string };
 
@@ -79,6 +80,8 @@ export async function loadFeedCatalog(viewer: Viewer): Promise<FeedCatalog> {
   }
   for (const e of doc.booking?.eventTypes ?? []) out.events[e.key] = label(e.short ?? e.label, e.key).ru;
   for (const p of doc.pipelines ?? []) for (const st of p.stages ?? []) out.stages[st.key] ??= label(st.label, st.key).ru;
+  // Без OP_BOARD доски у пользователя нет: подписи колонок не отдаём, лента остаётся прежней
+  if (!isFeatureEnabled('OP_BOARD')) return out;
   const board = parseBoardSettings(doc);
   for (const state of calling.CARD_STATES) {
     const key = calling.columnOf({ state, holdReason: '', ownerUserId: 'x', attempts: 0, closedAt: null }, null, board.spec);

@@ -237,3 +237,9 @@ export function makeContext(
     dayLabel: text.dayLabel,
   };
 }
+
+/**
+ * Системное событие, которое сворачивается в одну строку. Смена состояния карточки остаётся в ленте
+ * только когда есть подписи колонок доски (OP_BOARD включён и пресет доски задан).
+ */
+export const isFoldedEvent = (i: FeedItemView, hasBoard: boolean): boolean => i.group === 'system' && (i.kind !== 'card.state' || !hasBoard);

@@ -14,6 +14,7 @@ before(async () => {
 });
 after(() => closeClientsWorld(db));
 
+const HIDDEN_NOTE = 'Синтетическая закрытая заметка чужой карточки';
 const NOTE = 'Синтетическая заметка звонка: директор подумает до понедельника';
 
 async function addCall(opts: { id: string; i: number; who?: 'a' | 'b'; note?: string; reason?: string; callbackAt?: number | null; precision?: 'time' | 'day'; voided?: boolean; via?: string }) {
@@ -73,6 +74,22 @@ test('РОП видит заметку звонка своего простра�
   assert.equal(callItem(await getClientFeed(cons, FX.bkInWindow.client, { cursor: null, groups: 'calls' }), 'cf-4')?.call?.note, NOTE);
   // Клиент без отношения: ни ленты, ни заметки
   await assert.rejects(getClientFeed(cons, clientOf('a', 70), { cursor: null, groups: 'calls' }), { code: 'not_found' });
+});
+
+test('консультант с отношением к клиенту, но без card.read по карточке звонка: лента видна, заметки нет (call = null)', async () => {
+  // Звонок записан на чужую карточку (оператор B), хотя клиент в окне записи консультанта: отношение даёт ленту, но не карточку звонка
+  const client = FX.bkInWindow.client;
+  await db.sql`INSERT INTO calls (id, space_id, card_id, client_id, user_id, via, phone_digits, outcome_code, outcome_kind, reason_code, note,
+                                  callback_at, callback_precision, applied, occurred_at, received_at, duration_sec, config_rev)
+               VALUES ('cf-5', ${SPACE}, ${cardOf('b', 3)}, ${client}, ${U.opB}, 'ui', ${phoneOf('b', 3)}, 'callback', 'callback',
+                       '', ${HIDDEN_NOTE}, NULL, 'time', 'applied', ${SEED_NOW}, ${SEED_NOW}, 10, 1)`;
+  await db.sql`INSERT INTO client_events (id, client_id, space_id, kind, actor_id, at, ref_type, ref_id, data)
+               VALUES ('ev-cf-5', ${client}, ${SPACE}, 'call', ${U.opB}, ${SEED_NOW}, 'call', 'cf-5', ${db.json({ outcome: 'callback', outcomeKind: 'callback' }) as never})`;
+  const page = await getClientFeed(await viewerOf(U.consultant), client, { cursor: null, groups: 'calls' });
+  const it = callItem(page, 'cf-5');
+  assert.ok(it, 'событие в видимой ленте');
+  assert.equal(it.call, null);
+  assert.ok(!JSON.stringify(page).includes(HIDDEN_NOTE));
 });
 
 test('подписи ленты из настроек: итоги, причины итога по его группе, виды записи и этапы', async () => {

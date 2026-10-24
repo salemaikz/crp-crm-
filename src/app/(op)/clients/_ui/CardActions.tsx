@@ -40,6 +40,11 @@ export async function CardActions({ card, viewer }: Props) {
           )}
         </div>
       )}
+      {can.transfer && (
+        <div>
+          <TransferButton cardId={head.id} version={head.version} ownerUserId={head.ownerUserId} />
+        </div>
+      )}
       {menu && (
         <CardMenu
           cardId={head.id}
@@ -49,11 +54,6 @@ export async function CardActions({ card, viewer }: Props) {
           reasons={reasons}
           recipients={recipients}
         />
-      )}
-      {can.transfer && (
-        <div>
-          <TransferButton cardId={head.id} version={head.version} ownerUserId={head.ownerUserId} />
-        </div>
       )}
     </div>
   );

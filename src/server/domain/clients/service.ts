@@ -43,6 +43,8 @@ export function sameSystemValue(a: unknown, b: unknown): boolean {
 // ---------- Карточка ----------
 
 /** № 14: из каких состояний карточка возвращается в обзвон. */
+/** Состояния, из которых форма покупки открывается; повторяет PURCHASE_STATES в deals (там константа не экспортируется — зона deals). */
+const PURCHASE_FROM: readonly string[] = ['agreed', 'callback', 'client'];
 const REOPEN_FROM: readonly string[] = ['not_target', 'written_off', 'not_interested'];
 
 /** № 11, 12 из меню: «Не целевой» или «Полный отказ» допустимы из этих состояний (таблица ядра). */
@@ -94,8 +96,8 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
       unblock: head ? head.canUnblock && head.state === 'do_not_call' : false,
       // B9a: право передачи по карточке (охват в SQL, «только чтение» уже понижено)
       transfer: head ? head.canTransfer : false,
-      // C7: открытая сделка в охвате `deal.purchase`, раздел покупок включён, «только чтение» — нет
-      purchase: head ? head.canPurchase && isFeatureEnabled('PURCHASES') && !viewer.readOnly : false,
+      // C7: открытая сделка в охвате `deal.purchase`, состояние допускает покупку, раздел покупок включён, «только чтение» — нет
+      purchase: head ? head.canPurchase && PURCHASE_FROM.includes(head.state) && isFeatureEnabled('PURCHASES') && !viewer.readOnly : false,
     },
     card: head
       ? toCardHead(

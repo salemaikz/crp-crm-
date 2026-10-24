@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { ChevronDown } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useRef, useState } from 'react';
 import { Alert, Button, Checkbox, Field, Modal, Select, Textarea, buttonClass, useToast } from '@/ui/kit';
@@ -28,6 +29,7 @@ type Props = {
  */
 export function CardMenu({ cardId, version, can, phones, reasons, recipients }: Props) {
   const t = useTranslations('clients');
+  const [otherOpen, setOtherOpen] = useState(false);
   const router = useRouter();
   const toast = useToast();
   const [mode, setMode] = useState<Mode | null>(null);
@@ -101,8 +103,14 @@ export function CardMenu({ cardId, version, can, phones, reasons, recipients }: 
       </div>
       {can.closeFromMenu && (
         // Закрытие карточки — редкое и необратимое: «Другие действия», тихо, без красной кнопки на виду
-        <details className="group" data-testid="other-actions">
-          <summary className={buttonClass({ variant: 'quiet', flush: true, className: 'cursor-pointer list-none' })}>{t('menu.other')}</summary>
+        <details className="group" data-testid="other-actions" onToggle={(e) => setOtherOpen(e.currentTarget.open)}>
+          <summary
+            aria-expanded={otherOpen}
+            className={buttonClass({ variant: 'quiet', flush: true, className: 'cursor-pointer list-none' })}
+          >
+            {t('menu.other')}
+            <ChevronDown aria-hidden="true" className="transition-transform group-open:rotate-180" />
+          </summary>
           <div className="mt-1 flex flex-wrap gap-2">
             <Button variant="quiet" onClick={() => open('not_target')}>
               {t('menu.notTarget')}
