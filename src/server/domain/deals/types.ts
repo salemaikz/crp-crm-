@@ -161,6 +161,8 @@ export interface PurchaseInput {
   /** Открытая сделка клиента; null — новая сделка сразу на этапе «Покупка» (PROCESS 4.1 п. 2, 4.3). */
   dealId: string | null;
   serviceTypeKey: string;
+  /** Ключ живого варианта типа услуги (D-357); нет — сделка без варианта (`''`). Сумму вариант не проверяет (скидка). */
+  variantKey?: string | undefined;
   /** Целое ≥ 0, ≤ 1e12. */
   amountKzt: number;
   /** Местная дата покупки; день = 12:00 местного времени; null — сейчас. */
@@ -183,6 +185,8 @@ export interface EditPurchaseInput {
   version: number;
   amountKzt?: number;
   wonDay?: string;
+  /** Вариант услуги сделки (D-357); проверяется по типу услуги самой сделки. */
+  variantKey?: string | undefined;
 }
 
 export type EditPurchase = (deps: DealsDeps, viewer: Viewer, input: EditPurchaseInput) => Promise<DealView>;

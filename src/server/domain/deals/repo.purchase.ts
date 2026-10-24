@@ -130,9 +130,9 @@ export async function lastWonFromStage(tx: Sql, dealId: string): Promise<{ found
 // ---------------------------------------------------------------------------
 
 /** Открытая сделка → выиграна. Только из `open`: 0 строк — false. */
-export async function markDealWon(tx: Sql, a: { id: string; stageKey: string; serviceTypeKey: string; amountKzt: number; wonAt: number; at: number }): Promise<boolean> {
+export async function markDealWon(tx: Sql, a: { id: string; stageKey: string; serviceTypeKey: string; variantKey: string; amountKzt: number; wonAt: number; at: number }): Promise<boolean> {
   const rows = await tx<{ id: string }>`
-    UPDATE deals d SET status = 'won', stage_key = ${a.stageKey}, service_type_key = ${a.serviceTypeKey}, amount_kzt = ${a.amountKzt},
+    UPDATE deals d SET status = 'won', stage_key = ${a.stageKey}, service_type_key = ${a.serviceTypeKey}, service_variant_key = ${a.variantKey}, amount_kzt = ${a.amountKzt},
                        won_at = ${a.wonAt}, stage_changed_at = ${a.at}, version = d.version + 1, updated_at = ${a.at}
      WHERE d.id = ${a.id} AND d.status = 'open'
     RETURNING d.id`;
@@ -142,13 +142,13 @@ export async function markDealWon(tx: Sql, a: { id: string; stageKey: string; se
 /** Новая сделка сразу выигранной (`request_id` = ключ покупки). Ключ занят — null. */
 export async function insertWonDeal(
   tx: Sql,
-  d: { spaceId: string; pipelineKey: string; stageKey: string; clientId: string; cardId: string; ownerUserId: string | null; serviceTypeKey: string; amountKzt: number; wonAt: number; requestId: string; createdBy: string | null; at: number },
+  d: { spaceId: string; pipelineKey: string; stageKey: string; clientId: string; cardId: string; ownerUserId: string | null; serviceTypeKey: string; variantKey: string; amountKzt: number; wonAt: number; requestId: string; createdBy: string | null; at: number },
 ): Promise<string | null> {
   const id = newId();
   const rows = await tx<{ id: string }>`
-    INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, service_type_key, amount_kzt, won_at,
+    INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, service_type_key, service_variant_key, amount_kzt, won_at,
                        stage_changed_at, request_id, version, created_by, created_at, updated_at)
-    VALUES (${id}, ${d.spaceId}, ${d.pipelineKey}, ${d.stageKey}, 'won', ${d.clientId}, ${d.cardId}, ${d.ownerUserId}, ${d.serviceTypeKey},
+    VALUES (${id}, ${d.spaceId}, ${d.pipelineKey}, ${d.stageKey}, 'won', ${d.clientId}, ${d.cardId}, ${d.ownerUserId}, ${d.serviceTypeKey}, ${d.variantKey},
             ${d.amountKzt}, ${d.wonAt}, ${d.at}, ${d.requestId}, 0, ${d.createdBy}, ${d.at}, ${d.at})
     ON CONFLICT (request_id) WHERE request_id IS NOT NULL DO NOTHING
     RETURNING id`;
@@ -156,9 +156,9 @@ export async function insertWonDeal(
 }
 
 /** Правка суммы и даты выигранной сделки по версии и охвату `deal.move_back`. */
-export async function updatePurchaseScoped(viewer: Viewer, tx: Sql, a: { id: string; version: number; amountKzt: number; wonAt: number; at: number }): Promise<boolean> {
+export async function updatePurchaseScoped(viewer: Viewer, tx: Sql, a: { id: string; version: number; amountKzt: number; wonAt: number; variantKey?: string; at: number }): Promise<boolean> {
   const rows = await scoped(tx)<{ id: string }>`
-    UPDATE deals d SET amount_kzt = ${a.amountKzt}, won_at = ${a.wonAt}, version = d.version + 1, updated_at = ${a.at}
+    UPDATE deals d SET amount_kzt = ${a.amountKzt}, service_variant_key = COALESCE(${a.variantKey ?? null}::text, d.service_variant_key), won_at = ${a.wonAt}, version = d.version + 1, updated_at = ${a.at}
      WHERE d.id = ${a.id} AND d.version = ${a.version} AND d.status = 'won' AND ${scopeSql(viewer, 'deal', 'deal.move_back')}
     RETURNING d.id`;
   return rows.length > 0;
@@ -177,7 +177,7 @@ export async function markWonDealLost(tx: Sql, a: { id: string; stageKey: string
 /** Выигранная → снова открыта на прежнем этапе (покупка была ошибкой ввода): сумма 0, тип пуст, даты покупки нет. */
 export async function reopenWonDeal(tx: Sql, a: { id: string; stageKey: string; at: number }): Promise<boolean> {
   const rows = await tx<{ id: string }>`
-    UPDATE deals d SET status = 'open', stage_key = ${a.stageKey}, won_at = NULL, service_type_key = '', amount_kzt = 0,
+    UPDATE deals d SET status = 'open', stage_key = ${a.stageKey}, won_at = NULL, service_type_key = '', service_variant_key = '', amount_kzt = 0,
                        stage_changed_at = ${a.at}, version = d.version + 1, updated_at = ${a.at}
      WHERE d.id = ${a.id} AND d.status = 'won'
     RETURNING d.id`;

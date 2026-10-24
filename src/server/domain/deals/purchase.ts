@@ -8,6 +8,7 @@ import type { LockedCard } from '@/server/domain/booking/types';
 import { cancelHandoffOfDeal, createHandoffForDeal } from '@/server/domain/handoffs/create';
 import { findHandoffIdOfDeal } from '@/server/domain/handoffs/repo';
 import { writeAudit } from '@/server/platform/audit';
+import { getActiveConfig } from '@/server/platform/config/active';
 import type { Sql } from '@/server/platform/db';
 import { CardRejectedError, DealDomainError } from './errors';
 import { requirePurchases, requireSpace } from './guards';
@@ -54,11 +55,30 @@ export interface WriteWinInput {
   pipeline: DealPipelineInfo;
   wonStageKey: string;
   serviceTypeKey: string;
+  /** Вариант услуги (D-357); нет — ''. */
+  variantKey?: string | undefined;
   amountKzt: number;
   wonAt: number;
   requestId: string;
   at: number;
   settings: DealsSettings;
+}
+
+/**
+ * Ключи живых (не архивных) вариантов типа услуги: `serviceTypes[].variants` пространства. Вариантов нет или тип неизвестен —
+ * пустой список. Читается из активных настроек: разбор сделок (`settings.ts`) вариантов не несёт.
+ */
+async function liveVariantKeys(spaceId: string, serviceTypeKey: string): Promise<string[]> {
+  const cfg = await getActiveConfig();
+  const space = Object.values(cfg.spaces).find((s) => s.spaceId === spaceId);
+  const types = (space?.doc as { serviceTypes?: Array<{ key: string; archived?: boolean; variants?: Array<{ key: string; archived?: boolean }> }> } | undefined)?.serviceTypes ?? [];
+  const type = types.find((t) => t.key === serviceTypeKey && t.archived !== true);
+  return (type?.variants ?? []).filter((v) => v.archived !== true).map((v) => v.key);
+}
+
+/** Вариант, которого нет среди живых вариантов типа услуги, — 400 `variant_unknown`. */
+async function assertVariant(spaceId: string, serviceTypeKey: string, variantKey: string): Promise<void> {
+  if (!(await liveVariantKeys(spaceId, serviceTypeKey)).includes(variantKey)) throw new BadRequestError('variant_unknown');
 }
 
 /**
@@ -69,7 +89,7 @@ export async function writeWin(tx: Sql, actor: Actor, w: WriteWinInput): Promise
   const me = actorIdOf(actor);
   let dealId: string;
   if (w.deal) {
-    if (!(await markDealWon(tx, { id: w.deal.id, stageKey: w.wonStageKey, serviceTypeKey: w.serviceTypeKey, amountKzt: w.amountKzt, wonAt: w.wonAt, at: w.at }))) {
+    if (!(await markDealWon(tx, { id: w.deal.id, stageKey: w.wonStageKey, serviceTypeKey: w.serviceTypeKey, variantKey: w.variantKey ?? '', amountKzt: w.amountKzt, wonAt: w.wonAt, at: w.at }))) {
       throw new DealDomainError('deal_closed');
     }
     dealId = w.deal.id;
@@ -82,6 +102,7 @@ export async function writeWin(tx: Sql, actor: Actor, w: WriteWinInput): Promise
       cardId: w.card.id,
       ownerUserId: w.card.ownerUserId,
       serviceTypeKey: w.serviceTypeKey,
+      variantKey: w.variantKey ?? '',
       amountKzt: w.amountKzt,
       wonAt: w.wonAt,
       requestId: w.requestId,
@@ -99,7 +120,16 @@ export async function writeWin(tx: Sql, actor: Actor, w: WriteWinInput): Promise
     kind: 'deal.won',
     actorId: me,
     at: w.at,
-    data: { dealId, fromStage: w.deal?.stageKey ?? null, toStage: w.wonStageKey, serviceTypeKey: w.serviceTypeKey, amountKzt: w.amountKzt, wonAt: w.wonAt },
+    data: {
+      dealId,
+      fromStage: w.deal?.stageKey ?? null,
+      toStage: w.wonStageKey,
+      serviceTypeKey: w.serviceTypeKey,
+      // Ключа нет у покупки без варианта: старые события выглядят так же
+      ...(w.variantKey ? { variantKey: w.variantKey } : {}),
+      amountKzt: w.amountKzt,
+      wonAt: w.wonAt,
+    },
   });
   if (!written) throw new DealDomainError('request_reused');
 
@@ -172,6 +202,7 @@ export const registerPurchase: RegisterPurchase = async (deps, viewer, input) =>
 
     const service = settings.serviceTypes.find((t) => t.key === input.serviceTypeKey);
     if (!service) throw new DealDomainError('service_type_unknown');
+    if (input.variantKey !== undefined) await assertVariant(spaceId, service.key, input.variantKey);
     if (!checkAmount(input.amountKzt)) throw new DealDomainError('amount_invalid');
     const wonAt = purchaseMoment(input.wonDay, settings.timeZone, now, settings.purchaseFutureLimitHours);
     if (wonAt === null) throw new DealDomainError('won_at_invalid');
@@ -194,6 +225,7 @@ export const registerPurchase: RegisterPurchase = async (deps, viewer, input) =>
       pipeline,
       wonStageKey: won.key,
       serviceTypeKey: service.key,
+      variantKey: input.variantKey,
       amountKzt: input.amountKzt,
       wonAt,
       requestId: input.requestId,
@@ -222,7 +254,7 @@ export const registerPurchase: RegisterPurchase = async (deps, viewer, input) =>
       entity: 'deal',
       entityId: res.dealId,
       spaceId,
-      meta: { dealId: res.dealId, serviceTypeKey: service.key, amountKzt: input.amountKzt, newDeal: res.newDeal },
+      meta: { dealId: res.dealId, serviceTypeKey: service.key, ...(input.variantKey ? { variantKey: input.variantKey } : {}), amountKzt: input.amountKzt, newDeal: res.newDeal },
       createdAt: now,
     });
     const row = await lockDealById(tx, res.dealId);
@@ -262,7 +294,7 @@ export type EditPurchaseRequest = EditPurchaseInput & { serviceTypeKey?: string 
 export const editPurchase = (async (deps: DealsDeps, viewer: Viewer, input: EditPurchaseRequest): Promise<DealView> => {
   requirePurchases();
   const spaceId = requireSpace(viewer);
-  if (input.amountKzt === undefined && input.wonDay === undefined && input.serviceTypeKey === undefined) throw new BadRequestError('empty_patch');
+  if (input.amountKzt === undefined && input.wonDay === undefined && input.serviceTypeKey === undefined && input.variantKey === undefined) throw new BadRequestError('empty_patch');
   if (input.amountKzt !== undefined && !checkAmount(input.amountKzt)) throw new DealDomainError('amount_invalid');
   const now = deps.now();
   const settings = await deps.settings(spaceId, now);
@@ -275,6 +307,7 @@ export const editPurchase = (async (deps: DealsDeps, viewer: Viewer, input: Edit
     if (deal.status !== 'won' || deal.wonAt === null) throw new DealDomainError('deal_not_won');
     // Тип услуги меняет маршрут передачи: только отмена «ошибкой» и новая покупка (D-249)
     if (input.serviceTypeKey !== undefined && input.serviceTypeKey !== deal.serviceTypeKey) throw new DealDomainError('service_type_locked');
+    if (input.variantKey !== undefined) await assertVariant(spaceId, deal.serviceTypeKey, input.variantKey);
     const toAmount = input.amountKzt ?? deal.amountKzt;
     let toWonAt = deal.wonAt;
     if (input.wonDay !== undefined) {
@@ -282,8 +315,8 @@ export const editPurchase = (async (deps: DealsDeps, viewer: Viewer, input: Edit
       if (m === null) throw new DealDomainError('won_at_invalid');
       toWonAt = m;
     }
-    if (!(await updatePurchaseScoped(viewer, tx, { id: deal.id, version: input.version, amountKzt: toAmount, wonAt: toWonAt, at: now }))) throw new ConflictError();
-    const change = { dealId: deal.id, fromAmount: deal.amountKzt, toAmount, fromWonAt: deal.wonAt, toWonAt };
+    if (!(await updatePurchaseScoped(viewer, tx, { id: deal.id, version: input.version, amountKzt: toAmount, wonAt: toWonAt, ...(input.variantKey !== undefined ? { variantKey: input.variantKey } : {}), at: now }))) throw new ConflictError();
+    const change = { dealId: deal.id, fromAmount: deal.amountKzt, toAmount, fromWonAt: deal.wonAt, toWonAt, ...(input.variantKey !== undefined ? { variantKey: input.variantKey } : {}) };
     const written = await insertDealFeedWithId(tx, { id: input.opId, clientId: deal.clientId, spaceId, dealId: deal.id, kind: 'deal.purchase_edited', actorId: viewer.userId, at: now, data: change });
     if (!written) throw new DealDomainError('request_reused');
     await writeAudit(tx, { actorId: viewer.userId, action: 'deal.purchase_edit', entity: 'deal', entityId: deal.id, spaceId, meta: change, createdAt: now });

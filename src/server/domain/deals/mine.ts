@@ -14,6 +14,10 @@ export interface MyPurchase {
   dealId: string;
   wonAt: number;
   serviceTypeKey: string | null;
+  /** Тот же ключ типа услуги под именем DTO круга 3 (R3-К1); null — типа нет. */
+  serviceType: string | null;
+  /** Ключ варианта услуги (D-357); null — покупка без варианта. Подпись берёт устройство из настроек. */
+  variant: string | null;
   amountKzt: number | null;
   /** Только при охвате карточки; иначе null и `clientTransferred`. */
   clientId: string | null;
@@ -70,6 +74,8 @@ export async function listMine(deps: DealsDeps, viewer: Viewer, opts: { cursor?:
       dealId: r.dealId,
       wonAt: Number(r.wonAt),
       serviceTypeKey: r.serviceTypeKey,
+      serviceType: r.serviceTypeKey === null || r.serviceTypeKey === '' ? null : r.serviceTypeKey,
+      variant: r.serviceVariantKey === null || r.serviceVariantKey === '' ? null : r.serviceVariantKey,
       amountKzt: r.amountKzt === null ? null : Number(r.amountKzt),
       clientId: r.clientId,
       clientName: r.clientName,

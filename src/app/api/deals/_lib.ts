@@ -43,11 +43,13 @@ const key = z.string().min(1).max(64);
 const opId = z.string().uuid();
 const version = z.number().int().min(0);
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** Ключ варианта услуги (D-357): тот же формат, что CHECK колонки `deals.service_variant_key`. */
+const variantKey = z.string().regex(/^[a-z0-9_]{1,64}$/);
 
 export const PurchaseBody = z
-  .object({ requestId: opId, cardId: id, dealId: id.nullable(), serviceTypeKey: key, amountKzt: z.unknown(), wonDay: day.nullable().default(null) })
+  .object({ requestId: opId, cardId: id, dealId: id.nullable(), serviceTypeKey: key, variantKey: variantKey.optional(), amountKzt: z.unknown(), wonDay: day.nullable().default(null) })
   .strict();
-export const EditPurchaseBody = z.object({ opId, version, amountKzt: z.unknown().optional(), wonDay: day.optional(), serviceTypeKey: key.optional() }).strict();
+export const EditPurchaseBody = z.object({ opId, version, amountKzt: z.unknown().optional(), wonDay: day.optional(), serviceTypeKey: key.optional(), variantKey: variantKey.optional() }).strict();
 export const CancelPurchaseBody = z.object({ opId, version, mode: z.enum(['refund', 'error']), comment: z.string().trim().min(1).max(500) }).strict();
 export const StageBody = z
   .object({

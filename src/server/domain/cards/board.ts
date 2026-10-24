@@ -67,9 +67,11 @@ export interface BoardCardDto {
   flags: { attendedGroup: boolean; attendedIndividual: boolean; noShow: boolean };
   /**
    * Только при `deal.read` с охватом роли: у остальных ключа нет, а не нули. `lastAmountKzt` — сумма последней покупки
-   * (для строки колонки «Покупка»), целые тенге; null — суммы нет.
+   * (для строки колонки «Покупка»), целые тенге; null — суммы нет. `lastServiceType` и `lastVariant` — ключи услуги и варианта той же
+   * сделки (D-357; подписи берёт устройство из настроек), null — не заданы. Сервер присылает оба ключа всегда; в типе они необязательны, чтобы
+   * прежние фикстуры плитки не ломались (круг 3, R3-К1).
    */
-  purchases?: { total: number; lastAt: number | null; lastAmountKzt: number | null };
+  purchases?: { total: number; lastAt: number | null; lastAmountKzt: number | null; lastServiceType?: string | null; lastVariant?: string | null };
   /**
    * Обзвон «подтвердить явку» (D-355): только у карточек обзвона в день обзвона и при флагах `OP_BOARD` и `CALLBACK_V2`.
    * `tries` — недозвоны сегодня; `confirmedBy` — имя подтвердившего, только при охвате шире своих (как `ownerName`).
@@ -327,7 +329,7 @@ function toDto(viewer: Viewer, c: Ctx, r: BoardRowDb, column: string | null, x: 
           },
         }
       : {}),
-    ...(c.access.purchases ? { purchases: { total: r.purchasesTotal, lastAt: r.lastPurchaseAmount !== null ? (r.lastPurchaseWonAt === null ? null : Number(r.lastPurchaseWonAt)) : r.lastPurchaseAt, lastAmountKzt: r.lastPurchaseAmount === null ? null : Number(r.lastPurchaseAmount) } } : {}),
+    ...(c.access.purchases ? { purchases: { total: r.purchasesTotal, lastAt: r.lastPurchaseAmount !== null ? (r.lastPurchaseWonAt === null ? null : Number(r.lastPurchaseWonAt)) : r.lastPurchaseAt, lastAmountKzt: r.lastPurchaseAmount === null ? null : Number(r.lastPurchaseAmount), lastServiceType: r.lastPurchaseServiceType ? r.lastPurchaseServiceType : null, lastVariant: r.lastPurchaseVariant ? r.lastPurchaseVariant : null } } : {}),
     event:
       r.bookingType !== null && r.bookingStatus !== null && r.bookingStartsAt !== null && r.bookingId !== null && r.bookingVersion !== null
         ? { type: r.bookingType, status: r.bookingStatus, startsAt: r.bookingStartsAt, bookingId: r.bookingId, bookingVersion: Number(r.bookingVersion) }

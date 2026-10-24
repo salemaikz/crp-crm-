@@ -9,6 +9,8 @@ export interface MineRow {
   dealId: string;
   wonAt: number;
   serviceTypeKey: string | null;
+  /** Вариант услуги (D-357); '' — без варианта. */
+  serviceVariantKey: string | null;
   amountKzt: string | null;
   clientId: string | null;
   clientName: string | null;
@@ -22,7 +24,7 @@ export async function listMyPurchases(viewer: Viewer, sql: Sql, a: { spaceId: st
       SELECT DISTINCT ON (b.deal_id) b.deal_id, b.booked_by_user_id
         FROM bookings b WHERE b.space_id = ${a.spaceId} AND b.deal_id IS NOT NULL
        ORDER BY b.deal_id, b.created_at, b.id)
-    SELECT d.id AS deal_id, d.won_at, d.service_type_key, d.amount_kzt::text AS amount_kzt,
+    SELECT d.id AS deal_id, d.won_at, d.service_type_key, d.service_variant_key, d.amount_kzt::text AS amount_kzt,
            CASE WHEN vis.ok THEN d.client_id END AS client_id,
            CASE WHEN vis.ok THEN cl.name END AS client_name,
            vis.ok AS client_visible

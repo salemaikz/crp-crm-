@@ -284,6 +284,9 @@ export interface BoardRowDb {
   lastPurchaseAmount: number | null;
   /** Дата той же сделки, что и сумма (не кэш `last_purchase_at`): сумма и дата не разойдутся. */
   lastPurchaseWonAt: number | null;
+  /** Ключи типа услуги и варианта той же сделки (D-357); '' — не заданы. */
+  lastPurchaseServiceType: string | null;
+  lastPurchaseVariant: string | null;
   /** Запись плитки — на ближайшее мероприятие вида в окне обзвона (D-355); иначе false и остальные поля пусты. */
   confirmCandidate: boolean;
   /** Недозвоны карточки сегодня (звонки `no_answer` от начала местных суток). */
@@ -304,13 +307,13 @@ export async function selectBoardRows(sql: Sql, viewer: Viewer, ids: readonly st
            c.last_no_show_at, c.last_no_show_kind, c.purchases_total, c.last_purchase_at, c.closed_at, c.close_reason_code,
            c.custom AS card_custom, cl.custom AS client_custom,
            bk.event_type_key AS booking_type, bk.status AS booking_status, bk.starts_at AS booking_starts_at, bk.id AS booking_id, bk.version AS booking_version,
-           ou.name AS owner_name, lp.amount_kzt AS last_purchase_amount, lp.won_at AS last_purchase_won_at,
+           ou.name AS owner_name, lp.amount_kzt AS last_purchase_amount, lp.won_at AS last_purchase_won_at, lp.service_type_key AS last_purchase_service_type, lp.service_variant_key AS last_purchase_variant,
            COALESCE(bk.confirm_cand, FALSE) AS confirm_candidate, COALESCE(ct.tries, 0) AS confirm_tries, ct.last_try AS confirm_last_try_at,
            ch.created_at AS confirmed_at, chu.name AS confirmed_by_name
       FROM cards c JOIN clients cl ON cl.id = c.client_id
       LEFT JOIN users ou ON ou.id = c.owner_user_id
       LEFT JOIN LATERAL (
-        SELECT d.amount_kzt, d.won_at FROM deals d
+        SELECT d.amount_kzt, d.won_at, d.service_type_key, d.service_variant_key FROM deals d
          WHERE c.state = 'client' AND d.card_id = c.id AND d.status = 'won' AND ${scopeSql(viewer, 'deal', 'deal.read')}
          ORDER BY d.won_at DESC, d.id LIMIT 1) lp ON TRUE
       LEFT JOIN LATERAL (

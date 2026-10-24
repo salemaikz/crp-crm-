@@ -98,7 +98,7 @@ test('«Покупка»: плитка несёт сумму последней 
                  VALUES (${id}, ${SPACE}, 'sales', 'won', 'won', 'cl-tile-5', 'tile-5', ${U.opA}, 'smm', ${amount}, ${wonAt}, ${wonAt}, ${wonAt}, ${wonAt})`;
   }
   const b = await getBoard(opA, {});
-  assert.deepEqual(tile(b, 'tile-5')?.purchases, { total: 2, lastAt: SEED_NOW - 1000, lastAmountKzt: 150000 });
+  assert.deepEqual(tile(b, 'tile-5')?.purchases, { total: 2, lastAt: SEED_NOW - 1000, lastAmountKzt: 150000, lastServiceType: 'smm', lastVariant: null });
   assert.equal(tile(b, 'tile-1')?.purchases?.lastAmountKzt, null, 'у «Новой» карточки суммы нет');
 });
 
@@ -108,7 +108,7 @@ test('«Покупка»: дата берётся у той же сделки, �
   await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, service_type_key, amount_kzt, won_at, stage_changed_at, created_at, updated_at)
                VALUES ('dl-tile-6', ${SPACE}, 'sales', 'won', 'won', 'cl-tile-6', 'tile-6', ${U.opA}, 'smm', 90000, ${SEED_NOW - 2000}, ${SEED_NOW - 2000}, ${SEED_NOW - 2000}, ${SEED_NOW - 2000})`;
   const b = await getBoard(opA, {});
-  assert.deepEqual(tile(b, 'tile-6')?.purchases, { total: 0, lastAt: SEED_NOW - 2000, lastAmountKzt: 90000 });
+  assert.deepEqual(tile(b, 'tile-6')?.purchases, { total: 0, lastAt: SEED_NOW - 2000, lastAmountKzt: 90000, lastServiceType: 'smm', lastVariant: null });
 });
 
 test('«Покупка»: сумма читается под охватом deal.read; роль с card.read=space и deal.read=own чужих сумм не видит', async () => {
