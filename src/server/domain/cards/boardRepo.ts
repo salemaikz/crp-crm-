@@ -23,7 +23,23 @@ export interface BoardFilters {
   /** «Пришёл, не купил»: была явка на мероприятие, покупок нет (как `purchased`, только при `deal.read`). */
   attendedNoBuy: boolean;
   callbackReason: string | null;
+  /** «Подтвердить явку» (D-355): только карточки обзвона; вне окна обзвона `board.ts` не включает. */
+  confirm?: boolean;
 }
+
+/**
+ * Обзвон подтверждения явки на момент запроса: ближайшие даты по видам (`selectConfirmDays`), «сейчас» и начало местных
+ * суток (для недозвонов «сегодня»). null — вне окна обзвона или без флагов: пометок нет.
+ */
+export interface ConfirmSel {
+  types: readonly string[];
+  /** Местные даты 'YYYY-MM-DD' попарно с `types`. */
+  dates: readonly string[];
+  now: number;
+  dayStart: number;
+}
+
+const confirmArgs = (c: ConfirmSel | null) => ({ on: c !== null, types: [...(c?.types ?? [])], dates: [...(c?.dates ?? [])], now: c?.now ?? 0, dayStart: c?.dayStart ?? 0 });
 
 /** Ключ страницы: часть («огонёк» или остальные) и три числа порядка. Для колонки «Перезвон» k1 = heat, k2 = срок. */
 export interface KeyCursor {
@@ -60,6 +76,8 @@ export interface ColumnSelect {
   /** Сколько ключей вернуть (вызывающий просит limit + 1, чтобы узнать, есть ли «Ещё»). */
   limit: number;
   filters: BoardFilters;
+  /** Только `agreed`: обзвон подтверждения; null — вне окна. */
+  confirm?: ConfirmSel | null;
 }
 
 export interface KeyRow {
@@ -98,6 +116,7 @@ async function callbackKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<
           AND c.next_call_at < ${t}::bigint
           AND ${scopeSql(viewer, 'card', 'card.read')}
           AND (${f.owner}::text IS NULL OR c.owner_user_id = ${f.owner}::text)
+          AND NOT ${f.confirm === true}::boolean
           AND (NOT ${f.attendedGroup}::boolean OR c.attended_group_at IS NOT NULL)
           AND (NOT ${f.attendedIndividual}::boolean OR c.attended_individual_at IS NOT NULL)
           AND (NOT ${f.noShow}::boolean OR (c.last_no_show_at IS NOT NULL AND c.last_no_show_at > COALESCE(GREATEST(c.attended_group_at, c.attended_individual_at), 0)))
@@ -116,6 +135,7 @@ async function callbackKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<
           AND (c.next_call_at IS NULL OR c.next_call_at >= ${t}::bigint)
           AND ${scopeSql(viewer, 'card', 'card.read')}
           AND (${f.owner}::text IS NULL OR c.owner_user_id = ${f.owner}::text)
+          AND NOT ${f.confirm === true}::boolean
           AND (NOT ${f.today}::boolean)
           AND (NOT ${f.attendedGroup}::boolean OR c.attended_group_at IS NOT NULL)
           AND (NOT ${f.attendedIndividual}::boolean OR c.attended_individual_at IS NOT NULL)
@@ -133,19 +153,31 @@ async function callbackKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<
     LIMIT ${q.limit}`;
 }
 
-/** Страница ключей «Договорились»: порядок — дата записи открытой сделки ↑; виды записи — по колонке (§2.1). */
+/**
+ * Страница ключей «Договорились»: порядок — `(part, k2, k1, id)`. Вне обзвона part = 1 и k2 = 0 у всех, то есть порядок —
+ * дата записи ↑ (круг 2). В окне обзвона (D-355) part = 0 у записанных (`registered`) на ближайшее мероприятие вида:
+ * сначала без недозвонов (k2 = 0), затем по времени последнего недозвона сегодня ↑. Виды записи — по колонке (§2.1).
+ */
 async function agreedKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<KeyRow[]> {
   const k = cur(q.cursor);
   const f = q.filters;
+  const cf = confirmArgs(q.confirm ?? null);
   return scoped(sql)<KeyRow>`
-    SELECT t.id, 0 AS part, t.k1, 0::bigint AS k2, 0::bigint AS k3 FROM (
-      SELECT c.id, COALESCE(bk.starts_at, ${KEY_MAX}::bigint) AS k1, bk.event_type_key
+    SELECT t.id, t.part, t.k1, t.k2, 0::bigint AS k3 FROM (
+      SELECT c.id, COALESCE(bk.starts_at, ${KEY_MAX}::bigint) AS k1, bk.event_type_key, COALESCE(bk.confirm_cand, FALSE) AS cand,
+             CASE WHEN bk.confirm_cand AND bk.status = 'registered' THEN 0 ELSE 1 END AS part,
+             CASE WHEN bk.confirm_cand AND bk.status = 'registered' THEN COALESCE(lt.last_try, 0::bigint) ELSE 0::bigint END AS k2
         FROM cards c
         LEFT JOIN LATERAL (
-          SELECT b.event_type_key, b.starts_at
+          SELECT b.event_type_key, b.starts_at, b.status,
+                 (${cf.on}::boolean AND b.status IN ('registered','confirmed') AND b.starts_at > ${cf.now}::bigint
+                  AND EXISTS (SELECT 1 FROM unnest(${cf.types}::text[], ${cf.dates}::text[]) AS cd(t, d) WHERE cd.t = b.event_type_key AND cd.d = b.booking_date)) AS confirm_cand
             FROM bookings b JOIN deals d ON d.id = b.deal_id AND d.status = 'open' AND d.card_id = c.id
            WHERE b.status IN ('registered','confirmed','attended','no_show')
            ORDER BY b.starts_at DESC, b.id LIMIT 1) bk ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT max(ca.occurred_at) AS last_try FROM calls ca
+           WHERE bk.confirm_cand AND bk.status = 'registered' AND ca.card_id = c.id AND ca.outcome_kind = 'no_answer' AND ca.occurred_at >= ${cf.dayStart}::bigint) lt ON TRUE
        WHERE c.space_id = ${q.spaceId} AND c.state = 'agreed'
          AND c.hold_reason <> 'merged'
          AND ${scopeSql(viewer, 'card', 'card.read')}
@@ -158,8 +190,9 @@ async function agreedKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<Ke
           AND (NOT ${f.attendedNoBuy}::boolean OR ((c.attended_group_at IS NOT NULL OR c.attended_individual_at IS NOT NULL) AND c.purchases_total = 0))) t
      WHERE (t.event_type_key = ANY(${[...q.agreed.types]}::text[])
             OR (${q.agreed.fallback}::boolean AND (t.event_type_key IS NULL OR NOT t.event_type_key = ANY(${[...q.agreed.allTypes]}::text[]))))
-       AND (NOT ${k.on}::boolean OR (t.k1, t.id) > (${k.k1}::bigint, ${k.id}::text))
-     ORDER BY t.k1, t.id
+       AND (NOT ${f.confirm === true}::boolean OR t.cand)
+       AND (NOT ${k.on}::boolean OR (t.part, t.k2, t.k1, t.id) > (${k.part}::int, ${k.k2}::bigint, ${k.k1}::bigint, ${k.id}::text))
+     ORDER BY t.part, t.k2, t.k1, t.id
      LIMIT ${q.limit}`;
 }
 
@@ -182,6 +215,7 @@ async function simpleKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<Ke
          AND (${q.closedFrom}::bigint IS NULL OR c.closed_at >= ${q.closedFrom}::bigint)
          AND ${scopeSql(viewer, 'card', 'card.read')}
          AND (${f.owner}::text IS NULL OR c.owner_user_id = ${f.owner}::text)
+         AND NOT ${f.confirm === true}::boolean
          AND (NOT ${f.today}::boolean OR (c.next_call_at IS NOT NULL AND c.next_call_at < ${q.bounds.tomorrowStart}::bigint))
          AND (NOT ${f.attendedGroup}::boolean OR c.attended_group_at IS NOT NULL)
          AND (NOT ${f.attendedIndividual}::boolean OR c.attended_individual_at IS NOT NULL)
@@ -250,18 +284,29 @@ export interface BoardRowDb {
   lastPurchaseAmount: number | null;
   /** Дата той же сделки, что и сумма (не кэш `last_purchase_at`): сумма и дата не разойдутся. */
   lastPurchaseWonAt: number | null;
+  /** Запись плитки — на ближайшее мероприятие вида в окне обзвона (D-355); иначе false и остальные поля пусты. */
+  confirmCandidate: boolean;
+  /** Недозвоны карточки сегодня (звонки `no_answer` от начала местных суток). */
+  confirmTries: number;
+  confirmLastTryAt: number | null;
+  /** Последняя строка истории записи с `to_status = 'confirmed'`: время и имя автора (имя в DTO — только при охвате шире своих). */
+  confirmedAt: number | null;
+  confirmedByName: string | null;
 }
 
 /** Строки по id под тем же охватом; порядок — как у `ids`. */
-export async function selectBoardRows(sql: Sql, viewer: Viewer, ids: readonly string[]): Promise<BoardRowDb[]> {
+export async function selectBoardRows(sql: Sql, viewer: Viewer, ids: readonly string[], confirm: ConfirmSel | null = null): Promise<BoardRowDb[]> {
   if (ids.length === 0) return [];
+  const cf = confirmArgs(confirm);
   const rows = await scoped(sql)<BoardRowDb>`
     SELECT c.id, c.client_id, cl.name, c.state, c.version, c.owner_user_id, c.hold_reason, c.attempts, c.next_call_at, c.next_call_precision,
            c.callback_reason, c.callback_touches, c.lpr, c.is_target, c.attended_group_at, c.attended_individual_at,
            c.last_no_show_at, c.last_no_show_kind, c.purchases_total, c.last_purchase_at, c.closed_at, c.close_reason_code,
            c.custom AS card_custom, cl.custom AS client_custom,
            bk.event_type_key AS booking_type, bk.status AS booking_status, bk.starts_at AS booking_starts_at, bk.id AS booking_id, bk.version AS booking_version,
-           ou.name AS owner_name, lp.amount_kzt AS last_purchase_amount, lp.won_at AS last_purchase_won_at
+           ou.name AS owner_name, lp.amount_kzt AS last_purchase_amount, lp.won_at AS last_purchase_won_at,
+           COALESCE(bk.confirm_cand, FALSE) AS confirm_candidate, COALESCE(ct.tries, 0) AS confirm_tries, ct.last_try AS confirm_last_try_at,
+           ch.created_at AS confirmed_at, chu.name AS confirmed_by_name
       FROM cards c JOIN clients cl ON cl.id = c.client_id
       LEFT JOIN users ou ON ou.id = c.owner_user_id
       LEFT JOIN LATERAL (
@@ -269,14 +314,67 @@ export async function selectBoardRows(sql: Sql, viewer: Viewer, ids: readonly st
          WHERE c.state = 'client' AND d.card_id = c.id AND d.status = 'won' AND ${scopeSql(viewer, 'deal', 'deal.read')}
          ORDER BY d.won_at DESC, d.id LIMIT 1) lp ON TRUE
       LEFT JOIN LATERAL (
-        SELECT b.id, b.version, b.event_type_key, b.status, b.starts_at
+        SELECT b.id, b.version, b.event_type_key, b.status, b.starts_at,
+               (${cf.on}::boolean AND b.status IN ('registered','confirmed') AND b.starts_at > ${cf.now}::bigint
+                AND EXISTS (SELECT 1 FROM unnest(${cf.types}::text[], ${cf.dates}::text[]) AS cd(t, d) WHERE cd.t = b.event_type_key AND cd.d = b.booking_date)) AS confirm_cand
           FROM bookings b JOIN deals d ON d.id = b.deal_id AND d.status = 'open' AND d.card_id = c.id
          WHERE c.state = 'agreed' AND b.status IN ('registered','confirmed','attended','no_show')
          ORDER BY b.starts_at DESC, b.id LIMIT 1) bk ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT count(*)::int AS tries, max(ca.occurred_at) AS last_try FROM calls ca
+         WHERE bk.confirm_cand AND ca.card_id = c.id AND ca.outcome_kind = 'no_answer' AND ca.occurred_at >= ${cf.dayStart}::bigint) ct ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT h.created_at, h.actor_id FROM booking_history h
+         WHERE bk.confirm_cand AND bk.status = 'confirmed' AND h.booking_id = bk.id AND h.to_status = 'confirmed'
+         ORDER BY h.created_at DESC, h.id DESC LIMIT 1) ch ON TRUE
+      LEFT JOIN users chu ON chu.id = ch.actor_id
      WHERE c.id = ANY(${[...ids]}::text[]) AND ${scopeSql(viewer, 'card', 'card.read')}`;
   const byId = new Map(rows.map((r) => [r.id, r]));
   return ids.flatMap((id) => {
     const r = byId.get(id);
     return r ? [r] : [];
   });
+}
+
+/** Ближайшая дата мероприятия по каждому виду: `scheduled`, ещё не началось, в горизонте обзвона. Расписание пространства. */
+export async function selectConfirmDays(
+  sql: Sql,
+  viewer: Viewer,
+  a: { spaceId: string; types: readonly string[]; now: number; horizonEnd: string },
+): Promise<Array<{ type: string; date: string }>> {
+  // Расписание мероприятий видно всем ролям пространства: охват — пространство зрителя (D-355, pv2-round3 §1.4)
+  if (viewer.spaceId !== a.spaceId) return [];
+  const rows = await sql<{ type: string; date: string }>`
+    SELECT DISTINCT ON (e.event_type_key) e.event_type_key AS type, e.event_date AS date
+      FROM events e
+     WHERE e.space_id = ${viewer.spaceId} AND e.status = 'scheduled' AND e.event_type_key = ANY(${[...a.types]}::text[])
+       AND e.starts_at > ${a.now}::bigint AND e.event_date < ${a.horizonEnd}::text
+     ORDER BY e.event_type_key, e.starts_at, e.id`;
+  return rows.map((r) => ({ type: r.type, date: r.date }));
+}
+
+/** Сводка обзвона по охвату зрителя и фильтру владельца: осталось, не дозвонились, придут. */
+export async function selectConfirmSummary(sql: Sql, viewer: Viewer, a: { spaceId: string; owner: string | null; confirm: ConfirmSel }): Promise<{ todo: number; tried: number; confirmed: number }> {
+  const cf = confirmArgs(a.confirm);
+  const [r] = await scoped(sql)<{ todo: number; tried: number; confirmed: number }>`
+    SELECT count(*) FILTER (WHERE t.status = 'registered' AND t.last_try IS NULL)::int AS todo,
+           count(*) FILTER (WHERE t.status = 'registered' AND t.last_try IS NOT NULL)::int AS tried,
+           count(*) FILTER (WHERE t.status = 'confirmed')::int AS confirmed
+      FROM (
+        SELECT bk.status, lt.last_try
+          FROM cards c
+          JOIN LATERAL (
+            SELECT b.status,
+                   (b.status IN ('registered','confirmed') AND b.starts_at > ${cf.now}::bigint
+                    AND EXISTS (SELECT 1 FROM unnest(${cf.types}::text[], ${cf.dates}::text[]) AS cd(t, d) WHERE cd.t = b.event_type_key AND cd.d = b.booking_date)) AS confirm_cand
+              FROM bookings b JOIN deals d ON d.id = b.deal_id AND d.status = 'open' AND d.card_id = c.id
+             WHERE b.status IN ('registered','confirmed','attended','no_show')
+             ORDER BY b.starts_at DESC, b.id LIMIT 1) bk ON bk.confirm_cand
+          LEFT JOIN LATERAL (
+            SELECT max(ca.occurred_at) AS last_try FROM calls ca
+             WHERE bk.status = 'registered' AND ca.card_id = c.id AND ca.outcome_kind = 'no_answer' AND ca.occurred_at >= ${cf.dayStart}::bigint) lt ON TRUE
+         WHERE c.space_id = ${a.spaceId} AND c.state = 'agreed' AND c.hold_reason <> 'merged'
+           AND ${scopeSql(viewer, 'card', 'card.read')}
+           AND (${a.owner}::text IS NULL OR c.owner_user_id = ${a.owner}::text)) t`;
+  return { todo: r?.todo ?? 0, tried: r?.tried ?? 0, confirmed: r?.confirmed ?? 0 };
 }

@@ -42,6 +42,16 @@ const Slice = z
       })
       .passthrough()
       .optional(),
+    booking: z
+      .object({
+        eventTypes: z.array(z.object({ key: z.string(), behavior: z.string() }).passthrough()).optional(),
+        confirmCall: z
+          .object({ eventTypes: z.array(z.string()), weekdays: z.array(z.number().int().min(1).max(7)), declineReason: z.string() })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
     calling: z.object({ callbackReason: z.object({ required: z.boolean() }).passthrough().optional() }).passthrough().optional(),
   })
   .passthrough();
@@ -53,6 +63,13 @@ export interface BoardColumnInfo {
   def: calling.BoardColumnDef;
 }
 
+/** Обзвон подтверждения явки (D-355): только групповые виды; `individual` пропущены. */
+export interface ConfirmCallSettings {
+  eventTypes: readonly string[];
+  weekdays: readonly number[];
+  declineReason: string;
+}
+
 export interface BoardSettings {
   spec: calling.BoardSpec;
   columns: readonly BoardColumnInfo[];
@@ -61,6 +78,10 @@ export interface BoardSettings {
   heat: calling.HeatWeights;
   /** Задан ли `queue.heat` (иначе горячесть всегда 0 и сортировка идёт по сроку). */
   hasHeat: boolean;
+  /** `booking.confirmCall`; null — настройки нет или не осталось ни одного группового вида. */
+  confirmCall: ConfirmCallSettings | null;
+  /** Предупреждения разбора: `invalid-setting` — вид `individual` в `confirmCall.eventTypes` пропущен. */
+  warnings: readonly 'invalid-setting'[];
 }
 
 const ZERO_HEAT: calling.HeatWeights = { states: {}, reasons: {}, flags: { attendedGroup: 0, attendedIndividual: 0, noShow: 0, purchased: 0, lprYes: 0 } };
@@ -82,7 +103,14 @@ export function parseBoardSettings(doc: unknown): BoardSettings {
       }))
     : STATES.map((s) => ({ key: s, states: [s] }));
   const labels = new Map((board?.columns ?? []).map((c) => [c.key, c.label.ru]));
+  // Обзвон подтверждения: консультации (individual) в v1 не обзванивают, неизвестный вид тоже пропускается
+  const cc = d.booking?.confirmCall;
+  const behavior = new Map((d.booking?.eventTypes ?? []).map((e) => [e.key, e.behavior]));
+  const ccTypes = cc ? cc.eventTypes.filter((k) => behavior.get(k) === 'group') : [];
+  const confirmCall: ConfirmCallSettings | null = cc && ccTypes.length > 0 ? { eventTypes: ccTypes, weekdays: cc.weekdays, declineReason: cc.declineReason } : null;
   return {
+    confirmCall,
+    warnings: cc && ccTypes.length < cc.eventTypes.length ? ['invalid-setting'] : [],
     spec: { columns: defs, ...(board?.agreedFallback !== undefined ? { agreedFallback: board.agreedFallback } : {}) },
     columns: defs.map((def) => ({ key: def.key, label: labels.get(def.key) ?? null, def })),
     tones: board?.tones?.map((t) => ({ when: t.when, tone: t.tone })) ?? [],

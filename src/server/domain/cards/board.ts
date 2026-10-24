@@ -1,7 +1,7 @@
 // Сервер доски оператора (docs/pipeline-v2-design.md §2.3, §6.2, §9.4): колонки с ключевой пагинацией, поиск по своим,
 // фильтры. Колонка вычисляется ядром (`calling.columnOf`), а не хранится. Охват — в SQL каждого запроса (boardRepo).
 // Клиенту уходят только поля плитки (`showOn.kanban`) и признаки покупок при `deal.read` с охватом роли.
-import { calling, fields } from '@crm/core';
+import { booking as coreBooking, calling, fields, time } from '@crm/core';
 import { z } from 'zod';
 import { BadRequestError, NotFoundError, type Viewer } from '@/server/access';
 import type { Scope } from '@crm/core/access';
@@ -13,14 +13,14 @@ import { ConfigMissingError } from '@/server/platform/config/active';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import { getDb } from '@/server/platform/db';
 import { loadBoardSettings, type BoardColumnInfo, type BoardSettings } from './boardSettings';
-import { selectBoardRows, selectColumnKeys, selectSearchIds, type BoardFilters, type BoardRowDb, type ColumnKind, type KeyCursor, type KeyRow } from './boardRepo';
+import { selectBoardRows, selectColumnKeys, selectConfirmDays, selectConfirmSummary, selectSearchIds, type BoardFilters, type ConfirmSel, type BoardRowDb, type ColumnKind, type KeyCursor, type KeyRow } from './boardRepo';
 import { loadCallingContext } from './settings';
 
 /** Карточек в колонке за один запрос и в результате поиска (PROCESS 8.3). */
 export const BOARD_PAGE = 50;
 export const BOARD_SEARCH_LIMIT = 20;
 
-const FILTER_KEYS = ['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased', 'attendedNoBuy'] as const;
+const FILTER_KEYS = ['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased', 'attendedNoBuy', 'confirm'] as const;
 export type BoardFilterKey = (typeof FILTER_KEYS)[number];
 
 export interface BoardQuery {
@@ -70,6 +70,11 @@ export interface BoardCardDto {
    * (для строки колонки «Покупка»), целые тенге; null — суммы нет.
    */
   purchases?: { total: number; lastAt: number | null; lastAmountKzt: number | null };
+  /**
+   * Обзвон «подтвердить явку» (D-355): только у карточек обзвона в день обзвона и при флагах `OP_BOARD` и `CALLBACK_V2`.
+   * `tries` — недозвоны сегодня; `confirmedBy` — имя подтвердившего, только при охвате шире своих (как `ownerName`).
+   */
+  confirm?: { mark: coreBooking.ConfirmMark; tries: number; lastTryAt: number | null; confirmedAt: number | null; confirmedBy?: string };
   /** Запись открытой сделки (для «Договорились»). */
   event: { type: string; status: string; startsAt: number; bookingId: string; bookingVersion: number } | null;
   closedAt: number | null;
@@ -91,6 +96,8 @@ export interface BoardDto {
   tones: readonly { when: string; tone: string }[];
   /** Можно ли фильтровать по владельцу (охват шире своих). */
   canFilterOwner: boolean;
+  /** Обзвон подтверждения явки: ключ есть только в день обзвона (флаги `OP_BOARD`, `CALLBACK_V2`), иначе его нет. */
+  confirm?: { day: string; events: { type: string; date: string }[]; declineReason: string; summary: { todo: number; tried: number; confirmed: number } };
   /** Поиск: совпадения среди своих карточек; `short` — запрос слишком короткий. */
   search?: { matches: BoardCardDto[]; short: boolean };
 }
@@ -123,12 +130,14 @@ function boardAccess(viewer: Viewer): Access {
   return { spaceId: viewer.spaceId, scope, purchases: viewer.grants.has('deal.read') };
 }
 
-function parseFilters(q: BoardQuery, access: Access): BoardFilters {
+function parseFilters(q: BoardQuery, access: Access, confirmActive: boolean): BoardFilters {
   const set = new Set<string>();
   for (const f of q.filter ?? []) {
     if (!(FILTER_KEYS as readonly string[]).includes(f)) throw new BadRequestError('filter');
     set.add(f);
   }
+  // «Подтвердить явку» вне окна обзвона отбрасывается молча: ссылка с f=confirm в другой день не ломается
+  if (!confirmActive) set.delete('confirm');
   // Признаки покупок скрыты от роли без `deal.read`: фильтр по ним — тоже 400 (PROCESS 8.3)
   if ((set.has('purchased') || set.has('attendedNoBuy')) && !access.purchases) throw new BadRequestError('filter');
   const owner = q.owner && q.owner !== '' ? q.owner : null;
@@ -144,6 +153,7 @@ function parseFilters(q: BoardQuery, access: Access): BoardFilters {
     purchased: set.has('purchased'),
     attendedNoBuy: set.has('attendedNoBuy'),
     callbackReason: reason,
+    confirm: set.has('confirm'),
   };
 }
 
@@ -199,6 +209,32 @@ interface Ctx {
   cfg: ClientsConfig | null;
   bounds: calling.DueBounds;
   now: number;
+  /** Обзвон подтверждения: null — вне окна обзвона, без настройки или без флагов. */
+  confirm: ConfirmCtx | null;
+}
+
+interface ConfirmCtx {
+  sel: ConfirmSel;
+  day: string;
+  events: { type: string; date: string }[];
+  declineReason: string;
+}
+
+/** Окно обзвона по местному дню зрителя (пояс установки) и ближайшие даты мероприятий видов `confirmCall`. */
+async function buildConfirm(viewer: Viewer, spaceId: string, settings: BoardSettings, now: number): Promise<ConfirmCtx | null> {
+  const cc = settings.confirmCall;
+  if (!cc || !isFeatureEnabled('CALLBACK_V2')) return null;
+  const day = time.localDayOf(now, viewer.timeZone);
+  const w = coreBooking.confirmWindow(cc, day, time.isoWeekday(day));
+  if (!w.active || w.horizonEndDay === null) return null;
+  const db = await getDb();
+  const events = await selectConfirmDays(db.sql, viewer, { spaceId, types: cc.eventTypes, now, horizonEnd: w.horizonEndDay });
+  return {
+    sel: { types: events.map((e) => e.type), dates: events.map((e) => e.date), now, dayStart: time.fromLocalMsOfDay(day, 0, viewer.timeZone) },
+    day,
+    events,
+    declineReason: cc.declineReason,
+  };
 }
 
 async function configOrNull(viewer: Viewer): Promise<ClientsConfig | null> {
@@ -214,7 +250,8 @@ async function buildCtx(viewer: Viewer): Promise<Ctx> {
   const access = boardAccess(viewer);
   const now = viewer.now;
   const [settings, cc, cfg] = await Promise.all([loadBoardSettings(access.spaceId), loadCallingContext(access.spaceId, now), configOrNull(viewer)]);
-  return { access, settings, cfg, bounds: dueBoundsAt(now, cc.overdueAlertMinutes, cc.calendar), now };
+  const confirm = await buildConfirm(viewer, access.spaceId, settings, now);
+  return { access, settings, cfg, bounds: dueBoundsAt(now, cc.overdueAlertMinutes, cc.calendar), now, confirm };
 }
 
 // ---------- Плитка ----------
@@ -279,6 +316,17 @@ function toDto(viewer: Viewer, c: Ctx, r: BoardRowDb, column: string | null, x: 
       attendedIndividual: r.attendedIndividualAt !== null,
       noShow: r.lastNoShowAt !== null && r.lastNoShowAt > lastAttended,
     },
+    ...(r.confirmCandidate && r.bookingStatus !== null && coreBooking.confirmMark(r.bookingStatus, r.confirmTries) !== null
+      ? {
+          confirm: {
+            mark: coreBooking.confirmMark(r.bookingStatus, r.confirmTries)!,
+            tries: r.confirmTries,
+            lastTryAt: r.confirmLastTryAt === null ? null : Number(r.confirmLastTryAt),
+            confirmedAt: r.confirmedAt === null ? null : Number(r.confirmedAt),
+            ...(showsOwner(c.access.scope) && r.confirmedByName !== null && r.confirmedByName !== '' ? { confirmedBy: r.confirmedByName } : {}),
+          },
+        }
+      : {}),
     ...(c.access.purchases ? { purchases: { total: r.purchasesTotal, lastAt: r.lastPurchaseAmount !== null ? (r.lastPurchaseWonAt === null ? null : Number(r.lastPurchaseWonAt)) : r.lastPurchaseAt, lastAmountKzt: r.lastPurchaseAmount === null ? null : Number(r.lastPurchaseAmount) } } : {}),
     event:
       r.bookingType !== null && r.bookingStatus !== null && r.bookingStartsAt !== null && r.bookingId !== null && r.bookingVersion !== null
@@ -312,10 +360,11 @@ async function loadColumn(viewer: Viewer, c: Ctx, info: BoardColumnInfo, cursor:
     cursor,
     limit: BOARD_PAGE + 1,
     filters,
+    confirm: c.confirm?.sel ?? null,
   });
   const page = keys.slice(0, BOARD_PAGE);
   const last = page[page.length - 1];
-  const rows = await selectBoardRows(db.sql, viewer, page.map((k) => k.id));
+  const rows = await selectBoardRows(db.sql, viewer, page.map((k) => k.id), c.confirm?.sel ?? null);
   const x = await loadExtras(rows);
   return {
     key: info.key,
@@ -331,7 +380,7 @@ async function search(viewer: Viewer, c: Ctx, q: string): Promise<{ matches: Boa
   const p1 = parsed.patterns[0] ?? '';
   const db = await getDb();
   const ids = await selectSearchIds(db.sql, viewer, { spaceId: c.access.spaceId, p1, p2: parsed.patterns[1] ?? p1, limit: BOARD_SEARCH_LIMIT });
-  const rows = await selectBoardRows(db.sql, viewer, ids);
+  const rows = await selectBoardRows(db.sql, viewer, ids, c.confirm?.sel ?? null);
   const x = await loadExtras(rows);
   return { matches: rows.map((r) => toDto(viewer, c, r, columnForSearch(c, r), x)), short: false };
 }
@@ -339,15 +388,17 @@ async function search(viewer: Viewer, c: Ctx, q: string): Promise<{ matches: Boa
 /** Доска: первая страница каждой колонки, поиск при непустом `q`. */
 export async function getBoard(viewer: Viewer, q: BoardQuery): Promise<BoardDto> {
   const c = await buildCtx(viewer);
-  const filters = parseFilters(q, c.access);
-  const [pages, found] = await Promise.all([
+  const filters = parseFilters(q, c.access, c.confirm !== null);
+  const [pages, found, summary] = await Promise.all([
     Promise.all(c.settings.columns.map((info) => loadColumn(viewer, c, info, null, filters))),
     q.q ? search(viewer, c, q.q) : Promise.resolve(null),
+    c.confirm ? selectConfirmSummary((await getDb()).sql, viewer, { spaceId: c.access.spaceId, owner: filters.owner, confirm: c.confirm.sel }) : Promise.resolve(null),
   ]);
   return {
     columns: c.settings.columns.map((info, i) => ({ key: info.key, label: info.label, states: info.def.states, cards: pages[i]!.cards, next: pages[i]!.next })),
     tones: c.settings.tones,
     canFilterOwner: c.access.scope !== 'own',
+    ...(c.confirm && summary ? { confirm: { day: c.confirm.day, events: c.confirm.events, declineReason: c.confirm.declineReason, summary } } : {}),
     ...(found ? { search: found } : {}),
   };
 }
@@ -355,7 +406,7 @@ export async function getBoard(viewer: Viewer, q: BoardQuery): Promise<BoardDto>
 /** «Ещё» по ключу: следующая страница колонки после курсора. */
 export async function getBoardColumn(viewer: Viewer, q: BoardColumnQuery): Promise<BoardColumnPage> {
   const c = await buildCtx(viewer);
-  const filters = parseFilters(q, c.access);
+  const filters = parseFilters(q, c.access, c.confirm !== null);
   const info = c.settings.columns.find((x) => x.key === q.column);
   if (!info) throw new BadRequestError('column');
   return loadColumn(viewer, c, info, decodeCursor(q.cursor), filters);
