@@ -12,7 +12,8 @@ import { getDb, newId } from '@/server/platform/db';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import { CardActionError } from './errors';
 import { applyCardEventLocked } from './manual';
-import { findMoveOpState, listFutureActiveBookingIds, lockCardScoped } from './repo';
+import { loadBoardSettings } from './boardSettings';
+import { findMoveOpState, hasFutureActiveBookingOfTypes, listFutureActiveBookingIds, lockCardScoped } from './repo';
 import { hasWriteOffReasons, loadCallingContext } from './settings';
 import type { MenuResult } from './menu';
 
@@ -66,6 +67,15 @@ export async function moveCard(viewer: Viewer, cardId: string, input: MoveInput)
         // Версию проверяем до отметки явки: чужая правка не должна оставлять явку без перехода
         if (snap.version !== input.version) throw new CardActionError('version_conflict', null, snap.version);
         if (snap.state !== 'agreed') throw new CardActionError('invalid_transition', null, snap.version);
+        // Причина «не придёт» (booking.confirmCall.declineReason) применима, только пока у клиента есть будущая запись
+        // подтверждаемого вида (D-355). Проверка после охвата: чужая карточка остаётся 404
+        if (input.to === 'callback' && input.reasonCode !== '') {
+          const cc = (await loadBoardSettings(row.spaceId)).confirmCall;
+          if (cc !== null && cc.declineReason === input.reasonCode) {
+            const has = await hasFutureActiveBookingOfTypes(tx, { spaceId: row.spaceId, clientId: snap.clientId, after: now, statuses: coreBooking.ACTIVE_STATUSES, eventTypes: cc.eventTypes });
+            if (!has) throw new BadRequestError('reason_not_applicable');
+          }
+        }
         if (text === '' && input.reasonCode !== '' && (await reasonNeedsText(viewer, input.to, input.reasonCode))) {
           throw new CardActionError('reason_required', 'reasonText', snap.version);
         }

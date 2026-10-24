@@ -144,6 +144,15 @@ test('№ 33: точность «день» — сегодняшний срок 
   assert.equal(r.card.nextCallPrecision, 'day');
 });
 
+test('№ 33: событие ленты card.state несёт reasonCode (код, не ПДн) у всех трёх выходов', () => {
+  const cb = okOf(run(ev()));
+  assert.deepStrictEqual(cb.effects.timeline[0]?.data, { fromState: 'agreed', toState: 'callback', cause: 'agreed_exit', reasonCode: 'think' });
+  const ni = okOf(run(ev({ to: 'not_interested', reasonCode: 'too_expensive', callbackAt: null })));
+  assert.deepStrictEqual(ni.effects.timeline[0]?.data, { fromState: 'agreed', toState: 'not_interested', cause: 'agreed_exit', reasonCode: 'too_expensive' });
+  const wo = okOf(run(ev({ to: 'written_off', reasonCode: 'unreachable', callbackAt: null })));
+  assert.deepStrictEqual(wo.effects.timeline[0]?.data, { fromState: 'agreed', toState: 'written_off', cause: 'agreed_exit', reasonCode: 'unreachable' });
+});
+
 // ---------- № 31 после № 33 ----------
 
 const correct = (card: CardSnapshot, hasOpenNoShowTask: boolean): TransitionResult =>

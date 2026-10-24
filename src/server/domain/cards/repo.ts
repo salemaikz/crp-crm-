@@ -388,3 +388,13 @@ export async function listFutureActiveBookingIds(tx: Sql, a: { spaceId: string; 
      ORDER BY b.id`;
   return rows.map((r) => r.id);
 }
+
+/** Есть ли у клиента будущая активная запись одного из видов (для проверки применимости причины «не придёт»). */
+export async function hasFutureActiveBookingOfTypes(tx: Sql, a: { spaceId: string; clientId: string; after: number; statuses: readonly string[]; eventTypes: readonly string[] }): Promise<boolean> {
+  const rows = await tx<{ hit: number }>`
+    SELECT 1 AS hit FROM bookings b
+     WHERE b.space_id = ${a.spaceId} AND b.client_id = ${a.clientId} AND b.status = ANY(${[...a.statuses]}) AND b.starts_at > ${a.after}
+       AND b.event_type_key = ANY(${[...a.eventTypes]}::text[])
+     LIMIT 1`;
+  return rows.length > 0;
+}

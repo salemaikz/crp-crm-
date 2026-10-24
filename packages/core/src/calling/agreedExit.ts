@@ -7,6 +7,7 @@ import type {
   CallingSettings,
   CardSnapshot,
   ReasonDef,
+  TimelineEffect,
   TransitionInput,
   TransitionResult,
 } from './spec/types.js';
@@ -44,7 +45,11 @@ export function applyAgreedExit(input: TransitionInput, card: CardSnapshot, e: A
 
   const effects = emptyEffects();
   const ref = { type: 'card_move' as const, id: e.opId };
-  const timeline = (to: 'callback' | 'not_interested' | 'written_off') => ({ ...tlState(now, actor.userId, 'agreed', to, 'agreed_exit'), ref });
+  // В данных события — код причины (не ПДн): по нему отчёт «Причины» видит и «не придёт», и прочие причины № 33
+  const timeline = (to: 'callback' | 'not_interested' | 'written_off'): TimelineEffect => {
+    const base = tlState(now, actor.userId, 'agreed', to, 'agreed_exit');
+    return { ...base, ref, data: { ...base.data, reasonCode: e.reasonCode } };
+  };
 
   if (e.to === 'callback') {
     if (e.callbackAt === null) return reject('callback_at_required', 'callbackAt');
