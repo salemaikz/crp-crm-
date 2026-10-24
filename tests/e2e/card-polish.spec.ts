@@ -131,3 +131,67 @@ test('оператор: кнопки «Покупка» нет', async ({ page }
   await expect(page.getByRole('heading', { name: 'Итог по клиенту' })).toBeVisible();
   await expect(page.getByTestId('card-purchase')).toHaveCount(0);
 });
+
+test('новый контакт: номер не принят → правка имени и номера сохраняется в тот же контакт, второго нет', async ({ page }) => {
+  const op = await makeOperator(1, { lpr: true });
+  await login(page, op);
+  const clientId = op.clientIds[0]!;
+  await page.goto(`/clients/${clientId}`);
+  const count = async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM contacts WHERE client_id = ${clientId}`)[0]!.n;
+  const before = await count();
+
+  await page.getByRole('button', { name: 'Добавить контакт' }).click();
+  await page.getByLabel('Имя', { exact: true }).fill('Иван Синтетик');
+  await page.getByLabel('Телефон').fill('123');
+  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(page.getByText('Контакт сохранён, но номер не добавлен')).toBeVisible();
+  expect(await count()).toBe(before + 1);
+
+  // Исправляем имя и номер: правится созданный контакт, повторное создание не глотает правку
+  await page.getByLabel('Имя', { exact: true }).fill('Пётр Синтетик');
+  await page.getByLabel('Телефон').fill(pretty(await uniquePhone(sql)));
+  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(page.getByText('Контакт сохранён', { exact: true })).toBeVisible();
+  expect(await count()).toBe(before + 1);
+  const names = await sql<{ name: string }[]>`SELECT name FROM contacts WHERE client_id = ${clientId}`;
+  expect(names.map((n) => n.name)).toContain('Пётр Синтетик');
+  expect(names.map((n) => n.name)).not.toContain('Иван Синтетик');
+
+  // После сбоя и закрытия шторки следующий контакт создаётся заново
+  await page.getByRole('button', { name: 'Добавить контакт' }).click();
+  await page.getByLabel('Имя', { exact: true }).fill('Анна Синтетик');
+  await page.getByLabel('Телефон').fill('123');
+  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(page.getByText('Контакт сохранён, но номер не добавлен')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Добавить контакт' }).click();
+  await page.getByLabel('Имя', { exact: true }).fill('Дана Синтетик');
+  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(page.getByText('Контакт сохранён', { exact: true })).toBeVisible();
+  const all = (await sql<{ name: string }[]>`SELECT name FROM contacts WHERE client_id = ${clientId}`).map((n) => n.name);
+  expect(all).toEqual(expect.arrayContaining(['Анна Синтетик', 'Дана Синтетик']));
+});
+
+test('WhatsApp в строке номера пишет «Открыт WhatsApp» в ленту', async ({ page }) => {
+  const op = await makeOperator(1);
+  await login(page, op);
+  const clientId = op.clientIds[0]!;
+  await page.goto(`/clients/${clientId}`);
+  const wa = page.getByTestId('phone-whatsapp').first();
+  await expect(wa).toBeVisible();
+  await wa.evaluate((a) => a.removeAttribute('target'));
+  await wa.evaluate((a) => a.addEventListener('click', (e) => e.preventDefault()));
+  const req = page.waitForRequest((r) => r.url().includes('/api/messenger/opened') && r.method() === 'POST');
+  await wa.click();
+  await req;
+});
+
+test('срок «на день» без доски: и шапка, и «Итог» показывают «в течение дня»', async ({ page }) => {
+  test.skip(OP_BOARD || !CALLBACK_V2, 'нужны FEATURE_CALLBACK_V2=1 и выключенная доска');
+  const op = await makeOperator(1);
+  await login(page, op);
+  await sql`UPDATE cards SET state = 'callback', next_call_at = ${Date.now() + 3 * DAY}, next_call_precision = 'day' WHERE id = ${op.cardIds[0]!}`;
+  await page.goto(`/clients/${op.clientIds[0]!}`);
+  await expect(page.getByTestId('client-summary')).toContainText('в течение дня');
+  await expect(page.locator('header, main').first()).toContainText('в течение дня');
+});

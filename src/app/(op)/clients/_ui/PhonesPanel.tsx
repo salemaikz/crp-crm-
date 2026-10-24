@@ -6,14 +6,16 @@ import { Ellipsis, MessageCircle } from 'lucide-react';
 import { useRef, useState, type FormEvent } from 'react';
 import { useChannelModes } from '@/ui/channels';
 import { chatAction } from '@/ui/messenger/openChat';
+import { reportOpened } from '@/ui/messenger/reportOpened';
 import { Alert, BottomSheet, Badge, Button, Card, Field, Input, List, ListItem, Select, useToast } from '@/ui/kit';
 import { formatPhone } from './format';
 import { send } from './requests';
 import type { ContactView, PhoneView } from './types';
 
-type Props = { clientId: string; phones: PhoneView[]; contacts: ContactView[]; canEdit: boolean };
+/** `cardId` — карточка обзвона клиента; без неё (клиент виден по отношению) кнопки WhatsApp в строках нет, как и основной. */
+type Props = { clientId: string; cardId: string | null; phones: PhoneView[]; contacts: ContactView[]; canEdit: boolean };
 
-export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
+export function PhonesPanel({ clientId, cardId, phones, contacts, canEdit }: Props) {
   const t = useTranslations('clients');
   const router = useRouter();
   const toast = useToast();
@@ -84,18 +86,23 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
         <List>
           {phones.map((p) => {
             // WhatsApp у строки: только рабочий мобильный; в режиме окна чата кнопка одна, у основного номера, над карточкой
-            const wa = p.working && p.kind === 'mobile' ? chatAction(p.e164, '', modes) : null;
+            const wa = cardId && p.working && p.kind === 'mobile' ? chatAction(p.e164, '', modes) : null;
             return (
               <ListItem
                 key={p.id}
-                title={<span className="k-num">{`${formatPhone(p.e164)}${p.ext ? ` (${t('phones.ext', { ext: p.ext })})` : ''}`}</span>}
+                title={
+                  // Значок «Основной» рядом с номером и переносится под него: номер не обрезается многоточием
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="k-num">{`${formatPhone(p.e164)}${p.ext ? ` (${t('phones.ext', { ext: p.ext })})` : ''}`}</span>
+                    {p.primary && p.working && <Badge tone="success">{t('phones.primary')}</Badge>}
+                  </span>
+                }
                 meta={[t(`phones.kind.${p.kind}`), contactName(p.contactId) || t('phones.ofClient')].filter(Boolean).join(' · ')}
                 trailing={
                   <span className="flex flex-wrap items-center justify-end gap-1">
-                    {p.primary && p.working && <Badge tone="success">{t('phones.primary')}</Badge>}
                     {!p.working && <Badge tone="danger">{t('phones.notWorking')}</Badge>}
                     {wa && wa.kind === 'link' && (
-                      <Button href={wa.href} external target="_blank" rel="noopener noreferrer" variant="quiet" size="sm" iconOnly aria-label={t('phones.whatsapp', { phone: formatPhone(p.e164) })} data-testid="phone-whatsapp">
+                      <Button href={wa.href} external target="_blank" rel="noopener noreferrer" variant="quiet" size="sm" iconOnly aria-label={t('phones.whatsapp', { phone: formatPhone(p.e164) })} data-testid="phone-whatsapp" onClick={() => reportOpened(cardId!)}>
                         <MessageCircle aria-hidden="true" />
                       </Button>
                     )}

@@ -26,6 +26,11 @@ export function ContactsPanel({ clientId, contacts, contactFields, phones, canEd
   // null — закрыто, 'new' — новый контакт, иначе id редактируемого
   const [editing, setEditing] = useState<string | null>(null);
   const opId = useRef<string>(crypto.randomUUID());
+  // Контакт, уже созданный в этой форме, но с несохранённым номером: следующие отправки правят его (PATCH),
+  // а не повторяют создание с прежним opId — иначе сервер молча вернул бы старые данные.
+  const createdId = useRef<string | null>(null);
+  // Что сервер уже хранит у созданного контакта: из него строится `expect` правки (ключи set и expect совпадают)
+  const saved = useRef<FormBody['set']>({ system: {}, custom: {} });
   // Телефон нового контакта: свой opId на попытку, чтобы повтор не создал второй номер
   const phoneOpId = useRef<string>(crypto.randomUUID());
   const [phone, setPhone] = useState('');
@@ -41,6 +46,10 @@ export function ContactsPanel({ clientId, contacts, contactFields, phones, canEd
   ];
 
   function closeForm() {
+    createdId.current = null;
+    saved.current = { system: {}, custom: {} };
+    opId.current = crypto.randomUUID();
+    phoneOpId.current = crypto.randomUUID();
     setEditing(null);
     setPhone('');
     setPhoneError(null);
@@ -61,22 +70,40 @@ export function ContactsPanel({ clientId, contacts, contactFields, phones, canEd
     return false;
   }
 
+  /** Правка созданного контакта: ожидаемое — то, что отправили при создании (для нового ключа — пустое значение). */
+  function resumeBody(body: FormBody): FormBody {
+    const empty = (v: unknown) => (typeof v === 'boolean' ? false : typeof v === 'string' ? '' : null);
+    const expect: FormBody['expect'] = { system: {}, custom: {} };
+    for (const part of ['system', 'custom'] as const) {
+      for (const [k, v] of Object.entries(body.set[part])) expect[part][k] = k in saved.current[part] ? saved.current[part][k] : empty(v);
+    }
+    return { set: body.set, expect };
+  }
+
   async function submit(body: FormBody): Promise<SubmitResult> {
     const isNew = editing === 'new';
-    const { result } = isNew
-      ? await send('POST', `/api/clients/${clientId}/contacts`, { opId: opId.current, system: body.set.system, custom: body.set.custom })
-      : await send('PATCH', `/api/clients/contacts/${editing}`, body);
+    // Продолжение после сбоя номера: контакт уже есть, правим его
+    const resume = isNew ? createdId.current : null;
+    const { result } = resume
+      ? await send('PATCH', `/api/clients/contacts/${resume}`, resumeBody(body))
+      : isNew
+        ? await send('POST', `/api/clients/${clientId}/contacts`, { opId: opId.current, system: body.set.system, custom: body.set.custom })
+        : await send('PATCH', `/api/clients/contacts/${editing}`, body);
     if (result.ok) {
       // Номер нового контакта: сам контакт уже создан (его id — opId), номер привязывается к нему
-      if (isNew && phone.trim()) {
-        const added = await addPhoneOf(opId.current);
+      if (isNew && !resume) {
+        createdId.current = opId.current;
+        opId.current = crypto.randomUUID();
+      }
+      if (isNew) saved.current = { system: { ...saved.current.system, ...body.set.system }, custom: { ...saved.current.custom, ...body.set.custom } };
+      if (isNew && phone.trim() && createdId.current) {
+        const added = await addPhoneOf(createdId.current);
         if (!added) {
-          // Контакт есть, номера нет: форма остаётся с ошибкой, повтор не создаст второй контакт (тот же opId)
+          // Контакт есть, номера нет: форма остаётся с ошибкой; повтор правит этот контакт, второй не создаётся
           router.refresh();
           return { ok: false, kind: 'invalid' };
         }
       }
-      if (isNew) opId.current = crypto.randomUUID();
       closeForm();
       toast.show({ message: t('contacts.saved'), tone: 'success' });
       router.refresh();
@@ -84,7 +111,7 @@ export function ContactsPanel({ clientId, contacts, contactFields, phones, canEd
       closeForm();
       toast.show({ message: t('form.failure.conflict'), tone: 'danger' });
       router.refresh();
-    } else if (isNew && result.kind !== 'network') {
+    } else if (isNew && !resume && result.kind !== 'network') {
       opId.current = crypto.randomUUID();
     }
     return result;

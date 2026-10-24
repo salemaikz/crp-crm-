@@ -74,7 +74,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
             {can(viewer, 'task.read') && <ClientTasksPanel clientId={card.id} clientName={card.name} canCreate={card.can.task} meId={viewer.userId} timeZone={tz} />}
             <NotesPanel key={pinnedNotes.map((n) => n.id).join(',')} clientId={card.id} pinned={pinnedNotes} canWrite={card.can.note} timeZone={tz} />
             <DealsPanel deals={deals} catalog={catalog} timeZone={tz} />
-            <PhonesPanel clientId={card.id} phones={card.phones} contacts={card.contacts} canEdit={card.can.edit} />
+            <PhonesPanel clientId={card.id} cardId={card.card?.id ?? null} phones={card.phones} contacts={card.contacts} canEdit={card.can.edit} />
             <ContactsPanel clientId={card.id} contacts={card.contacts} contactFields={card.contactFields.fields} phones={card.phones} canEdit={card.can.edit} />
           </div>
           <div className="min-w-0 lg:sticky lg:top-4">

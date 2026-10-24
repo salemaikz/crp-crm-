@@ -22,8 +22,8 @@ export async function ClientHeader({ card, legalForms, timeZone, back = { href: 
   if (card.decisionMaker) parts.push(`${t('header.decisionMaker')}: ${card.decisionMaker.name}`);
   if (card.primaryPhone) parts.push(<span className="k-num">{formatPhone(card.primaryPhone.e164)}</span>);
   if (head?.nextCallAt != null) {
-    // Срок «на день» (воронка v2): только дата и «в течение дня»; без доски шапка прежняя
-    const day = head.board !== null && head.nextCallPrecision === 'day';
+    // Срок «на день» (воронка v2): только дата и «в течение дня» — время у такого срока ложное и без доски; так же и в «Итоге»
+    const day = head.nextCallPrecision === 'day';
     parts.push(t('header.callback', { date: day ? t('header.callbackDay', { date: formatDue(head.nextCallAt, 'day', timeZone) }) : formatDateTime(head.nextCallAt, timeZone) }));
   }
   if (head && (head.ownerName || head.actingName)) {

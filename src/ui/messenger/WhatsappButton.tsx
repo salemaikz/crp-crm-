@@ -10,12 +10,7 @@ import { Button } from '@/ui/kit';
 import { ChatPanel } from './ChatPanel';
 import type { ConsentState } from './ConsentToggle';
 import { chatAction } from './openChat';
-
-/** «Открыт WhatsApp» в ленту: без ожидания и без влияния на открытие ссылки; офлайн не шлём. */
-function reportOpened(cardId: string): void {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-  void fetch('/api/messenger/opened', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cardId, templateKey: null }), keepalive: true }).catch(() => {});
-}
+import { reportOpened } from './reportOpened';
 
 export function WhatsappButton({ cardId, clientId, phone, modes, consent, canEditConsent }: { cardId: string; clientId: string; phone: string; modes: ChannelModes; consent: ConsentState; canEditConsent: boolean }) {
   const t = useTranslations('messenger');
