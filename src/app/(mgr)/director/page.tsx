@@ -15,5 +15,5 @@ export default page<Props, ReactNode>({ perm: 'report.view' }, async ({ viewer, 
   // присваивание проверяет, что форма из домена совместима с типами клиентского экрана
   const data: DirectorData = await getDirectorDashboard(viewer, { week });
   const meta = await getReportMeta(viewer);
-  return <DirectorScreen initial={data} labels={meta.labels} canExport={can(viewer, 'report.export')} />;
+  return <DirectorScreen key={week} initial={data} labels={meta.labels} canExport={can(viewer, 'report.export')} />;
 });
