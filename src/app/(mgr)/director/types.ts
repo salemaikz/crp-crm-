@@ -11,7 +11,8 @@ export type DirectorData = {
   calls: { outcomes: number; connects: number; prevOutcomes: number; prevConnects: number };
   eventLabels: { group: string; individual: string };
   bookings: { groups: number; consults: number };
-  attendance: { attended: number; noShow: number; rate: Rate };
+  /** `unmarked` — дата записи прошла, явка не отмечена (в «из отмеченных» не входят). */
+  attendance: { attended: number; noShow: number; rate: Rate; unmarked: number };
   conversion: { average: Rate; team: Rate; operators: number; minConnects: number };
   /** `withoutBooking` — покупки недели без записи на мероприятие: в «Покупках» есть, в цепочке «запись → явка» нет. */
   purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number; withoutBooking: number };

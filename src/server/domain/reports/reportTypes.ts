@@ -308,7 +308,7 @@ export interface DirectorDashboard {
   /** Короткие подписи видов записи из настроек: первый групповой и первый индивидуальный; пусто — вида нет. */
   eventLabels: { group: string; individual: string };
   bookings: { groups: number; consults: number };
-  attendance: { attended: number; noShow: number; rate: Rate };
+  attendance: { attended: number; noShow: number; rate: Rate; unmarked: number };
   /** «Средняя конверсия операторов» (D-343): среднее «записи / дозвоны» по операторам с ≥ `minConnects` дозвонов за неделю. */
   conversion: { average: Rate; team: Rate; operators: number; minConnects: number };
   /** `withoutBooking` — покупки недели без записи на мероприятие: в «Покупках» есть, в цепочке «запись → явка» нет. */

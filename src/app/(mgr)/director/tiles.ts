@@ -1,4 +1,5 @@
 // Плитки панели директора (§11.1): чистая сборка набора и порядка, без React. Подписи видов записи — из настроек.
+import type { FunnelStep } from '../reports/types';
 import type { DirectorData } from './types';
 
 export type TileId = 'outcomes' | 'connects' | 'bookGroup' | 'bookIndividual' | 'attendance' | 'purchases' | 'conversion' | 'pool';
@@ -12,6 +13,10 @@ export interface TileSpec {
   label?: string;
   /** Доля, % (плитка «Средняя конверсия операторов»); null — оператор с нужным числом дозвонов не набрался. */
   rate?: number | null;
+  /** Плитка конверсии: операторов с нужным числом дозвонов нет — показываем «Пока мало данных», а не прочерк. */
+  lowData?: boolean;
+  /** Плитка «Явка»: записи с прошедшей датой, где явка не отмечена. */
+  unmarked?: number;
 }
 
 export interface Delta {
@@ -32,14 +37,15 @@ export function directorTiles(d: DirectorData): TileSpec[] {
     { id: 'connects', value: d.calls.connects, prev: d.calls.prevConnects },
     { id: 'bookGroup', value: d.bookings.groups, label: d.eventLabels.group },
     { id: 'bookIndividual', value: d.bookings.consults, label: d.eventLabels.individual },
-    { id: 'attendance', value: d.attendance.attended },
+    { id: 'attendance', value: d.attendance.attended, unmarked: d.attendance.unmarked },
     { id: 'purchases', value: d.purchases.count },
-    { id: 'conversion', value: d.conversion.average ?? 0, rate: d.conversion.average },
+    { id: 'conversion', value: d.conversion.average ?? 0, rate: d.conversion.average, lowData: d.conversion.average === null },
     { id: 'pool', value: d.stock.poolReady },
   ];
 }
 
-export type FunnelHint = { kind: 'none' } | { kind: 'rate'; value: number } | { kind: 'attendance'; value: number };
+/** Доля шага — от предыдущего шага воронки; `from` называет его в подписи. */
+export type FunnelHint = { kind: 'none' } | { kind: 'rate'; value: number; from: FunnelStep } | { kind: 'attendance'; value: number };
 
 export interface FunnelHints {
   connected: FunnelHint;
@@ -61,20 +67,20 @@ export interface FunnelHints {
 export function funnelHints(d: DirectorData): FunnelHints {
   const { counts, rates } = d.funnel;
   let capped = false;
-  const rateHint = (r: number | null | undefined): FunnelHint => {
+  const rateHint = (r: number | null | undefined, from: FunnelStep): FunnelHint => {
     if (r === null || r === undefined) return { kind: 'none' };
     if (r > 100) {
       capped = true;
       return { kind: 'none' };
     }
-    return { kind: 'rate', value: r };
+    return { kind: 'rate', value: r, from };
   };
   const attended: FunnelHint = d.attendance.rate === null ? { kind: 'none' } : { kind: 'attendance', value: d.attendance.rate };
-  const purchased = rateHint(rates.purchased);
+  const purchased = rateHint(rates.purchased, 'attended');
   return {
-    connected: rateHint(rates.connected),
-    lpr: rateHint(rates.lpr),
-    booked: rateHint(rates.booked),
+    connected: rateHint(rates.connected, 'issued'),
+    lpr: rateHint(rates.lpr, 'connected'),
+    booked: rateHint(rates.booked, 'lpr'),
     attended,
     purchased,
     note: capped || counts.purchased > counts.attended,

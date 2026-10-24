@@ -2,7 +2,7 @@
 
 import { RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import { fmtDec, fmtInt, formatDay } from '../reports/format';
 import { FUNNEL_STEPS } from '../reports/types';
 import { Alert, Button, EmptyState, Page, PageHeader, Section, Stat, StatGrid, Table, type TableColumn } from '@/ui/kit';
@@ -59,7 +59,8 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
   const prev = (value: string) => t('prevWeek', { value });
   const att = data.attendance;
   const hints = funnelHints(data);
-  const hintText = (h: FunnelHint): string => (h.kind === 'none' ? tp('none') : h.kind === 'attendance' ? t('funnel.attendanceRate', { rate: percent(h.value) }) : percent(h.value));
+  const hintText = (h: FunnelHint): string =>
+    h.kind === 'none' ? tp('none') : h.kind === 'attendance' ? t('funnel.attendanceRate', { rate: percent(h.value) }) : t('funnel.ofPrev', { pct: percent(h.value), prev: tf(`steps.${h.from}`) });
   const revenueRows: RevenueRow[] = data.revenue;
   const cols: TableColumn<RevenueRow>[] = [
     {
@@ -85,18 +86,40 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
         }
       />
       {error && <Alert tone="warning">{t(`errors.${error}`)}</Alert>}
-      <StatGrid aria-label={t('tilesLabel')}>
+      <Section
+        title={t('tilesLabel')}
+        actions={
+          <>
+            <Button variant="quiet" size="sm" href={moreHref('operators', data)}>
+              {t('moreOperators')}
+            </Button>
+            <Button variant="quiet" size="sm" href={moreHref('attendance', data)}>
+              {t('moreAttendance')}
+            </Button>
+          </>
+        }
+      >
+      {/* Телефон: две колонки по 140 px, подписи не наезжают друг на друга (A2) */}
+      <StatGrid aria-label={t('tilesLabel')} style={{ '--stat-min': '140px' } as CSSProperties}>
         {directorTiles(data)
           .filter((x) => x.label !== '')
           .map((x) => {
             const cmp = x.prev === undefined ? null : delta(x.value, x.prev);
             const extra =
               x.id === 'attendance'
-                ? t('tiles.attendance.hint', { noShow: fmtInt(att.noShow) })
+                ? t('tiles.attendance.hint', { noShow: fmtInt(att.noShow), unmarked: fmtInt(att.unmarked) })
                 : x.id === 'purchases'
                   ? t('tiles.purchases.hint', { sum: money(data.purchases.sumKzt) })
                   : x.id === 'conversion'
-                    ? t('tiles.conversion.hint', { teamRate: percent(data.conversion.team), min: data.conversion.minConnects })
+                    ? x.lowData
+                      ? t('tiles.conversion.emptyHint', { min: data.conversion.minConnects })
+                      : (
+                          <>
+                            {t('tiles.conversion.hintLead')}
+                            <br />
+                            {t('tiles.conversion.hint', { teamRate: percent(data.conversion.team), min: data.conversion.minConnects })}
+                          </>
+                        )
                     : t(`tiles.${x.id}.hint`);
             const title = x.label === undefined ? t(`tiles.${x.id}.title`) : t(`tiles.${x.id}.title`, { event: x.label });
             return (
@@ -106,10 +129,12 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
                   x.id === 'attendance'
                     ? t('tiles.attendance.value', { attended: fmtInt(att.attended), total: fmtInt(att.attended + att.noShow) })
                     : x.id === 'conversion'
-                      ? percent(x.rate ?? null)
+                      ? x.lowData
+                        ? <span className="text-lg leading-tight">{t('tiles.conversion.empty')}</span>
+                        : percent(x.rate ?? null)
                       : fmtInt(x.value)
                 }
-                label={x.id === 'attendance' ? `${title}: ${percent(att.rate)}` : title}
+                label={x.id === 'attendance' ? t('tiles.attendance.label', { title, rate: percent(att.rate) }) : title}
                 hint={
                   <>
                     {extra}
@@ -131,6 +156,7 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
             );
           })}
       </StatGrid>
+      </Section>
 
       {/* Каждая «подробнее» стоит в шапке своего блока, а не рядом внизу страницы */}
       <Section
@@ -140,16 +166,10 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
             <Button variant="quiet" size="sm" href={moreHref('funnel', data)}>
               {t('more')}
             </Button>
-            <Button variant="quiet" size="sm" href={moreHref('operators', data)}>
-              {t('moreOperators')}
-            </Button>
-            <Button variant="quiet" size="sm" href={moreHref('attendance', data)}>
-              {t('moreAttendance')}
-            </Button>
           </>
         }
       >
-        <StatGrid variant="strip" aria-label={t('funnel.title')}>
+        <StatGrid variant="strip" className="k-statgrid--wrap2" aria-label={t('funnel.title')}>
           {FUNNEL_STEPS.map((step) => (
             <Stat key={step} value={fmtInt(data.funnel.counts[step])} label={tf(`steps.${step}`)} hint={step === 'issued' ? undefined : hintText(hints[step])} />
           ))}

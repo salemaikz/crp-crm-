@@ -43,11 +43,12 @@ export const getDirectorDashboard: GetDirectorDashboard = async (viewer) => {
   const space = Object.values(active?.spaces ?? {}).find((s) => s.spaceId === viewer.spaceId)?.doc;
   const eventLabels = eventShortLabels((space?.booking.eventTypes ?? []) as readonly EventTypeDoc[]);
 
-  const [ops, prevOps, funnel, revenue, summary] = await Promise.all([
+  const [ops, prevOps, funnel, revenue, attendanceReport, summary] = await Promise.all([
     getReport(viewer, { key: 'operators', period: week, filters: NO_FILTERS, grouping: 'total' }),
     getReport(viewer, { key: 'operators', period: prev, filters: NO_FILTERS, grouping: 'total' }),
     getReport(viewer, { key: 'funnel', period: week, filters: NO_FILTERS, by: 'operator' }),
     getReport(viewer, { key: 'revenue', period: week, filters: NO_FILTERS }),
+    getReport(viewer, { key: 'attendance', period: week, filters: NO_FILTERS, by: 'event_type' }),
     getSummary(viewer),
   ]);
 
@@ -72,7 +73,8 @@ export const getDirectorDashboard: GetDirectorDashboard = async (viewer) => {
     calls: { outcomes: t.outcomes, connects: t.connects, prevOutcomes: prevOps.totals.outcomes, prevConnects: prevOps.totals.connects },
     eventLabels,
     bookings: { groups: t.groups, consults: t.consults },
-    attendance: { attended: t.attended, noShow: t.noShow, rate: t.attendanceRate },
+    // unmarked — записи недели, чья дата прошла, а явка не отмечена: в «из отмеченных» не входят
+    attendance: { attended: t.attended, noShow: t.noShow, rate: t.attendanceRate, unmarked: attendanceReport.total.unmarked },
     // «Средняя конверсия операторов»: среднее «записи / дозвоны» операторов с ≥ minConnects дозвонов, рядом — по команде
     conversion: { average: ops.average.bookedPerConnect, team: t.bookedPerConnect, operators: ops.average.operators, minConnects: ops.average.minConnects },
     purchases: {
