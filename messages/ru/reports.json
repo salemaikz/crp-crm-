@@ -23,8 +23,9 @@
         "hint": "лимит × операторов: {operators}"
       },
       "grey": {
-        "title": "Заявки на консультацию",
-        "hint": "ждут консультанта"
+        "title": "Заявки на {event}",
+        "hint": "ждут консультанта",
+        "titleFallback": "Индивидуальные заявки"
       },
       "bookings": {
         "title": "Записи",
@@ -76,7 +77,8 @@
       "rateNone": "—",
       "belowTarget": "ниже нормы {target}",
       "lastSeen": "связь {time}",
-      "neverSeen": "связи не было"
+      "neverSeen": "связи не было",
+      "overdueLink": "Просроченные перезвоны: {name}"
     }
   },
   "page": {

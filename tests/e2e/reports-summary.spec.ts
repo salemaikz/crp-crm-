@@ -76,6 +76,21 @@ test('РОП открывает сводку: плитки, красная пр�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test('сводка → действие: просрочка и «Записи» ведут на доску и в записи, без OP_BOARD ссылок нет (A7)', async ({ page }) => {
+  await login(page, rop);
+  await page.goto('/summary');
+  await expect(page.getByRole('heading', { name: 'Сводка дня', level: 1 })).toBeVisible();
+  const links = page.locator('[data-testid^="summary-link-"]');
+  if (process.env.FEATURE_OP_BOARD !== '1') {
+    await expect(links).toHaveCount(0);
+    return;
+  }
+  await expect(page.getByTestId('summary-link-overdue')).toHaveAttribute('href', '/deals/calling?tab=callback&f=today');
+  await expect(page.getByTestId('summary-link-bookings')).toHaveAttribute('href', '/bookings');
+  const row = page.getByRole('row', { name: new RegExp(operator.name) });
+  await expect(row.getByTestId('summary-link-overdue-op')).toHaveAttribute('href', new RegExp(`^/deals/calling\\?tab=callback&f=today&owner=${operator.id}$`));
+});
+
 test('«Обновить» перечитывает данные и не ломает экран', async ({ page }) => {
   await login(page, rop);
   await page.goto('/summary');

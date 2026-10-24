@@ -2,7 +2,9 @@
 
 import { useTranslations } from 'next-intl';
 import { Badge, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
+import Link from 'next/link';
 import { formatDay, formatSeen } from './format';
+import { overdueHref } from './links';
 import type { OperatorRow, OperatorStatus, SummaryData } from './types';
 
 const TONE: Record<OperatorStatus, BadgeTone> = { working: 'success', paused: 'warning', absent: 'neutral' };
@@ -38,7 +40,22 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
       key: 'overdue',
       header: t('columns.overdue'),
       numeric: true,
-      cell: (o) => (o.overdue > 0 ? <Badge tone="danger" variant="count">{o.overdue}</Badge> : o.overdue),
+      cell: (o) => {
+        if (o.overdue === 0) return o.overdue;
+        const badge = (
+          <Badge tone="danger" variant="count">
+            {o.overdue}
+          </Badge>
+        );
+        const href = data.board.on ? overdueHref(data.board.callbackTab, o.userId) : null;
+        return href ? (
+          <Link href={href} aria-label={t('overdueLink', { name: o.name })} data-testid="summary-link-overdue-op">
+            {badge}
+          </Link>
+        ) : (
+          badge
+        );
+      },
     },
     {
       key: 'rate',

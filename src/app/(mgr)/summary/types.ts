@@ -33,6 +33,7 @@ export type SummaryData = {
   overdueAlertMinutes: number;
   callsPerHourTarget: number | null;
   eventLabels: { group: string; individual: string };
+  board: { on: boolean; callbackTab: string | null };
   tiles: {
     pool: { ready: number; overCap: number; duplicates: number; disputed: number };
     issued: { issued: number; cap: number; operators: number };

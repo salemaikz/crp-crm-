@@ -94,6 +94,18 @@ test('РОП: плитки сводки', async () => {
   assert.deepEqual(s.tiles.unsent, { pending: 5, operators: 1 });
 });
 
+test('ссылки на доску (К1): колонка перезвона при OP_BOARD, без флага — ссылок нет', async () => {
+  const rop = await viewerOf(U.rop);
+  process.env.FEATURE_OP_BOARD = '0';
+  try {
+    assert.deepEqual((await getSummary(rop)).board, { on: false, callbackTab: null });
+    process.env.FEATURE_OP_BOARD = '1';
+    assert.deepEqual((await getSummary(rop)).board, { on: true, callbackTab: 'callback' });
+  } finally {
+    delete process.env.FEATURE_OP_BOARD;
+  }
+});
+
 test('РОП: таблица операторов', async () => {
   const s = await getSummary(await viewerOf(U.rop));
   assert.deepEqual(s.operators.map((o) => o.userId).sort(), [U.duty, U.opA, U.opB].sort());

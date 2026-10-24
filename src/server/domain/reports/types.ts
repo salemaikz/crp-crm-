@@ -70,6 +70,8 @@ export interface Summary {
   callsPerHourTarget: number | null;
   /** Короткие подписи видов записи из настроек (первый групповой и индивидуальный); пусто — вида нет. */
   eventLabels: { group: string; individual: string };
+  /** Доска включена (OP_BOARD): `callbackTab` — ключ колонки роли «перезвон» для ссылок К1. Выключена — null, ссылок нет. */
+  board: { on: boolean; callbackTab: string | null };
   tiles: SummaryTiles;
   /** Красная плитка: что-то просрочено. */
   alarm: boolean;
