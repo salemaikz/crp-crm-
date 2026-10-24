@@ -142,6 +142,44 @@ test('причины панели: «не придёт» через № 33 по�
   }
 });
 
+test('причины панели: тот же код в звонке и в выходе № 33 даёт одну строку с суммой; выход в «Не заинтересован» входит в «Мусор»', async () => {
+  const v = await viewerOf(U.director);
+  const before = await getDirectorDashboard(v);
+  const cnt = (blk: { top: { group: string; reasonCode: string; count: number }[] }, group: string, code: string) => blk.top.find((r) => r.group === group && r.reasonCode === code)?.count ?? 0;
+  const ev = async (id: string, clientId: string, data: Record<string, unknown>) => {
+    await db.sql`
+      INSERT INTO client_events (id, client_id, space_id, kind, actor_id, at, ref_type, ref_id, data)
+      VALUES (${id}, ${clientId}, ${SPACE}, 'card.state', ${U.opA}, ${SEED_NOW - 20 * MIN}, 'card_move', ${id}, ${db.json(data)})`;
+  };
+  const exit = (toState: string, reasonCode: string) => ({ fromState: 'agreed', toState, cause: 'agreed_exit', reasonCode });
+  // звонки с тем же кодом, что и у выходов, и с кодом, которого у выходов нет
+  const callRow = async (id: string, kind: string, reason: string) => {
+    await db.sql`INSERT INTO calls (id, space_id, card_id, client_id, user_id, via, phone_digits, outcome_code, outcome_kind, reason_code, lpr, applied, occurred_at, received_at, config_rev)
+      SELECT ${id}, ${SPACE}, c.id, c.client_id, ${U.opA}, 'ui', '', ${kind}, ${kind}, ${reason}, '', 'applied', ${SEED_NOW - 10 * MIN}, ${SEED_NOW}, 1
+        FROM cards c WHERE c.space_id = ${SPACE} LIMIT 1`;
+  };
+  await callRow('x33dup-c1', 'callback', 'x33dup_code');
+  await callRow('x33dup-c2', 'callback', 'x33dup_code');
+  await callRow('x33dup-c3', 'callback', 'x33dup_code');
+  await ev('x33dup-a', 'cl-a-2', exit('callback', 'x33dup_code'));
+  await ev('x33dup-b', 'cl-a-3', exit('callback', 'x33dup_code'));
+  await ev('x33dup-n', 'cl-a-4', exit('not_interested', 'x33dup_trash'));
+  try {
+    const d = await getDirectorDashboard(v);
+    const cb = d.reasons.callback!;
+    const rows = cb.top.filter((r) => r.group === 'callback' && r.reasonCode === 'x33dup_code');
+    assert.equal(rows.length, 1, 'одна строка, а не две');
+    assert.equal(rows[0]!.count, cnt(before.reasons.callback!, 'callback', 'x33dup_code') + 5);
+    assert.equal(cb.total, before.reasons.callback!.total + 5);
+    const tr = d.reasons.trash!;
+    assert.equal(tr.total, before.reasons.trash!.total + 1, 'выход № 33 в «Не заинтересован» входит в «Мусор»');
+    assert.equal(cnt(tr, 'not_interested', 'x33dup_trash'), 1);
+  } finally {
+    await db.sql`DELETE FROM client_events WHERE id LIKE 'x33dup-%'`;
+    await db.sql`DELETE FROM calls WHERE id LIKE 'x33dup-%'`;
+  }
+});
+
 test('директор: неделя, прошлая неделя, запас', async () => {
   const v = await viewerOf(U.director);
   const d = await getDirectorDashboard(v);

@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { expect, test, type Page } from '@playwright/test';
 import { pretty, runTag, uniquePhone } from './support/phones';
+import { installTimezone } from './support/preset';
 
 const DB_URL = process.env.E2E_DATABASE_URL;
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -153,10 +154,11 @@ for (const width of [1280, 1440]) {
 // A6 (круг 3): ссылка «Подтвердить явку» — только при OP_BOARD и CALLBACK_V2 и в день обзвона из настроек
 test('«Подтвердить явку» в сводке: ссылка только при флагах и в день обзвона', async ({ page }) => {
   const preset = JSON.parse(readFileSync('presets/clients/crp/preset.json', 'utf8')) as { spaces: { sales: { booking: { confirmCall?: { weekdays: number[] } } } } };
+  const tz = installTimezone();
   const weekdays = preset.spaces.sales.booking.confirmCall?.weekdays ?? [];
   const flagsOn = process.env.FEATURE_OP_BOARD === '1' && process.env.FEATURE_CALLBACK_V2 === '1';
   // ISO-день недели «сегодня» в поясе установки
-  const short = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Almaty', weekday: 'short' }).format(new Date());
+  const short = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(new Date());
   const iso = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(short) + 1;
   const expected = flagsOn && weekdays.includes(iso);
   await login(page, rop);

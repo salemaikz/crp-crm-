@@ -90,7 +90,7 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
           ))}
         </ol>
       )}
-      {role === 'callback' && <p className="m-0 text-sm" style={{ color: 'var(--text-2)' }} data-testid="director-reasons-note">{t('reasons.callbackNote')}</p>}
+      {(role === 'callback' || role === 'trash') && <p className="m-0 text-sm" style={{ color: 'var(--text-2)' }} data-testid={`director-reasons-note-${role}`}>{t('reasons.callbackNote')}</p>}
     </div>
   );
   const cols: TableColumn<RevenueRow>[] = [

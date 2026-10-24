@@ -489,7 +489,8 @@ export async function reasonCounts(viewer: Viewer, sql: Sql, a: PeriodArgs & { c
      GROUP BY 1, 2
     UNION ALL
     -- Выходы из «Договорились» без звонка (№ 33, D-355): итога-звонка нет, причина лежит в данных события ленты.
-    -- Старые события без reasonCode не считаются; списание считает блок по карточкам ниже, поэтому здесь только перезвон и отказ
+    -- Старые события без reasonCode не считаются; списание считает блок по карточкам ниже, поэтому здесь только перезвон и «не интересно» (оба блока, «Перезвон» и «Мусор»).
+    -- Совпадающие с итогами звонков коды складывает buildReasonsReport
     SELECT ev.data->>'toState', ev.data->>'reasonCode', count(*)::int
       FROM client_events ev
      WHERE ev.space_id = ${a.spaceId} AND ev.kind = 'card.state' AND ev.data->>'cause' = 'agreed_exit'

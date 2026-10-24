@@ -192,7 +192,7 @@ test.describe('ноутбук 1440×900', () => {
     expect(callback!.x).toBeGreaterThan(trash!.x + trash!.width - 1);
     await expect(page.getByTestId('director-reasons-trash').getByRole('heading', { level: 3 })).toContainText('Мусор');
     await expect(page.getByTestId('director-reasons-callback').getByRole('heading', { level: 3 })).toContainText('Перезвон');
-    await expect(page.getByTestId('director-reasons-note')).toBeVisible();
+    await expect(page.getByTestId('director-reasons-note-callback')).toBeVisible();
   });
 });
 

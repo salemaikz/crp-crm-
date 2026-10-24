@@ -6,6 +6,10 @@ import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { expect, test, type Page } from '@playwright/test';
 import { uniquePhone } from './support/phones';
+import { eventKinds, installTimezone } from './support/preset';
+
+const tz = installTimezone();
+const presetKinds = eventKinds();
 
 const DB_URL = process.env.E2E_DATABASE_URL;
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -56,7 +60,7 @@ test.beforeAll(async () => {
   // две прошедшие записи этого клиента (пришёл, не отмечено) — для списка явки
   bookingClient = clientId;
   const startsAt = now - 2 * 3_600_000;
-  bookingDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(startsAt));
+  bookingDay = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(startsAt));
   for (const [i, status] of (['attended', 'registered'] as const).entries()) {
     await sql`INSERT INTO bookings (id, space_id, kind, event_type_key, client_id, card_id, booking_date, start_time, starts_at, duration_min, status, via,
                                     booked_by_user_id, responsible_user_id, created_at, updated_at)
@@ -175,6 +179,7 @@ test('«Явка — список»: дата и время одной стро�
   const cell = date.locator('xpath=ancestor::td');
   expect(await cell.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('nowrap');
   const type = page.getByTestId('attendance-event-type').first();
-  await expect(type).toHaveText('БК');
-  await expect(type).toHaveAttribute('title', 'Бизнес-консультация');
+  const kind = presetKinds.find((k) => k.key === 'bk')!;
+  await expect(type).toHaveText(kind.short.ru);
+  await expect(type).toHaveAttribute('title', kind.label.ru);
 });

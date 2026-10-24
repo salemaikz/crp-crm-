@@ -12,7 +12,7 @@ const TONE: Record<OperatorStatus, BadgeTone> = { working: 'success', paused: 'w
 // Ноутбук (дефект 8): 12 колонок не должны вылезать за окно. Заголовки переносятся по словам, отступы плотнее;
 // если места всё равно мало, прокручивается обёртка таблицы (overflow-x у kit), а имя оператора остаётся на месте.
 // Числа — tabular-nums (kit: data-numeric). min-w-0: обёртка в сетке экрана не раздувается шире окна.
-const TABLE_FIT = 'min-w-0 max-w-full [&_table]:text-sm [&_th]:whitespace-normal [&_th]:px-2 [&_th]:align-bottom [&_th]:leading-tight [&_td]:px-2 [&_td:first-child]:pl-3 [&_th:first-child]:pl-3';
+const TABLE_FIT = 'k-table-wrap--edge min-w-0 max-w-full [&_table]:text-sm [&_th]:whitespace-normal [&_th]:px-2 [&_th]:align-bottom [&_th]:leading-tight [&_td]:px-2 [&_td:first-child]:pl-3 [&_th:first-child]:pl-3';
 
 /** Таблица операторов за сегодня; на телефоне строки становятся карточками. */
 export function OperatorsTable({ data }: { data: SummaryData }) {
