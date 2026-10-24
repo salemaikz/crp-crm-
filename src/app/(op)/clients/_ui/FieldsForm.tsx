@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { useState, type FormEvent } from 'react';
 import { Alert, Button, Checkbox, Field, Input, Select, Textarea } from '@/ui/kit';
-import { FieldControl, draftOf, isFormField, payloadOf, type Draft } from './FieldControl';
+import { FieldControl, draftOf, isFormField, payloadOf, type Draft } from './formFields';
 import { labelOf } from './format';
 import type { FieldValue, FieldView, LegalFormOption } from './types';
 
