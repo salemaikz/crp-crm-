@@ -19,6 +19,7 @@ import { SummaryBlock } from '../_ui/SummaryBlock';
 import { Counters } from '../_ui/Counters';
 import { FeedPanel } from '../_ui/FeedPanel';
 import { FieldsPanel } from '../_ui/FieldsPanel';
+import { feedLabelsFor } from '../_ui/feedLabels.server';
 import { formatPhone, labelOf } from '../_ui/format';
 import { PhonesPanel } from '../_ui/PhonesPanel';
 import type { FeedLabels } from '../_ui/types';
@@ -38,16 +39,15 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
   // Отметка согласия нужна только окну чата провайдера; в режиме wa.me ничего не читаем
   const consent = modes.messenger.chat === 'iframe' ? await getMessengerConsent(viewer, card.id) : null;
 
-  // Подписи ленты: только видимые поля, варианты, номера и контакты карточки
-  const labels: FeedLabels = { fields: {}, options: {}, phones: {}, contacts: {} };
-  const cardFieldList = card.card?.fields.fields ?? [];
-  for (const [obj, list] of [['client', card.fields.fields], ['contact', card.contactFields.fields], ['card', cardFieldList]] as const) {
+  // Подписи ленты: общие с превью доски (feedLabelsFor) плюс номера и контакты этой карточки
+  const labels: FeedLabels = await feedLabelsFor(viewer);
+  // Поля карточки обзвона видны по своим правилам (cardFieldViewer): берём их из данных страницы
+  for (const [obj, list] of [['client', card.fields.fields], ['contact', card.contactFields.fields], ['card', card.card?.fields.fields ?? []]] as const) {
     for (const f of list) {
       labels.fields[`${obj}:${f.key}`] = labelOf(f.label);
       for (const o of f.options) labels.options[`${obj}:${f.key}:${o.key}`] = labelOf(o.label);
     }
   }
-  for (const f of legalForms) labels.options[`legal_form:${f.key}`] = labelOf(f.label);
   for (const p of card.phones) labels.phones[p.id] = formatPhone(p.e164);
   for (const c of card.contacts) labels.contacts[c.id] = c.name;
 
@@ -67,7 +67,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
             <SummaryBlock summary={summary} catalog={catalog} timeZone={tz} />
             {card.card && <Counters head={card.card} timeZone={tz} />}
             <FieldsPanel client={card} legalForms={legalForms} />
-            {card.card && <CardFieldsPanel cardId={card.card.id} version={card.card.version} fields={cardFieldList} canEdit={card.can.editCard} />}
+            {card.card && <CardFieldsPanel cardId={card.card.id} version={card.card.version} fields={card.card.fields.fields} canEdit={card.can.editCard} />}
             {can(viewer, 'task.read') && <ClientTasksPanel clientId={card.id} clientName={card.name} canCreate={card.can.task} meId={viewer.userId} timeZone={tz} />}
             <NotesPanel key={pinnedNotes.map((n) => n.id).join(',')} clientId={card.id} pinned={pinnedNotes} canWrite={card.can.note} timeZone={tz} />
             <DealsPanel deals={deals} catalog={catalog} timeZone={tz} />

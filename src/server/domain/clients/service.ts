@@ -12,7 +12,7 @@ import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
 import { pickDecisionMaker, pickPrimaryPhone, toCardHead, toContactDto, toPhoneDto } from './dto';
 import { FieldIssuesError } from './errors';
 import { hiddenIdAction } from './hiddenId';
-import { SEARCH_LIMIT, LIST_LIMIT, decodeCursor, encodeCursor, type ListQuery, type PatchBody } from './input';
+import { SEARCH_LIMIT, LIST_LIMIT, decodeCursor, encodeCursor, parseFeedLimit, type ListQuery, type PatchBody } from './input';
 import {
   iinTakenBy,
   insertIinReviewTask,
@@ -177,8 +177,9 @@ export async function findSurvivor(viewer: Viewer, id: string): Promise<string |
 export async function getClientFeed(
   viewer: Viewer,
   id: string,
-  raw: { cursor: string | null; groups: string | null; group?: string | null; dealId?: string | null },
+  raw: { cursor: string | null; groups: string | null; group?: string | null; dealId?: string | null; limit?: string | null },
 ): Promise<FeedPage> {
+  const limit = parseFeedLimit(raw.limit);
   const cfg = await loadClientsConfig(viewer);
   const db = await getDb();
   const row = await selectClient(db.sql, viewer, id);
@@ -191,6 +192,7 @@ export async function getClientFeed(
     groups: parseGroups(raw.groups),
     filter: parseFilter(raw.group ?? null),
     dealId,
+    limit,
     fields: cfg.fields,
     fieldViewer: fieldViewer(viewer, cfg),
   });

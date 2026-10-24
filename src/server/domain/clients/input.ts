@@ -97,6 +97,15 @@ export function decodeCursor(raw: string | null | undefined): Cursor | null {
   return { at, id: m[2]! };
 }
 
+/** `limit` ленты: целое 1–20 (превью в шторке доски); без параметра — null (полная страница), иначе 400. */
+export function parseFeedLimit(raw: string | null | undefined): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  if (!/^\d{1,2}$/.test(raw)) throw new BadRequestError('limit');
+  const n = Number(raw);
+  if (n < 1 || n > 20) throw new BadRequestError('limit');
+  return n;
+}
+
 // ---------- Список ----------
 
 export const LIST_LIMIT = 50;

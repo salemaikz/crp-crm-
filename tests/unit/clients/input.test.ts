@@ -5,6 +5,7 @@ import {
   addContactBody,
   addPhoneBody,
   decodeCursor,
+  parseFeedLimit,
   encodeCursor,
   parseBody,
   parseListQuery,
@@ -88,4 +89,15 @@ test('вид списка (C9): all по умолчанию, mine и archive; ow
   assert.throws(() => parseListQuery(new URLSearchParams('view=mine&owner=u-1')), { code: 'bad_request' });
   assert.throws(() => parseListQuery(new URLSearchParams('owner=u-1')), { code: 'bad_request' });
   assert.throws(() => parseListQuery(new URLSearchParams('view=archive&owner=')), { code: 'bad_request' });
+});
+
+test('limit ленты: целое 1–20, без параметра — null, всё прочее — 400', () => {
+  assert.equal(parseFeedLimit(null), null);
+  assert.equal(parseFeedLimit(''), null);
+  assert.equal(parseFeedLimit('1'), 1);
+  assert.equal(parseFeedLimit('3'), 3);
+  assert.equal(parseFeedLimit('20'), 20);
+  for (const bad of ['0', '21', '-1', '1.5', 'abc', '3 ', '1e1', '007x', '100']) {
+    assert.throws(() => parseFeedLimit(bad), { code: 'bad_request' }, bad);
+  }
 });

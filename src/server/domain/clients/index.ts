@@ -1,7 +1,7 @@
 // Публичный API модуля клиентов для маршрутов и страниц. Репозиторий (repo.ts) наружу не выходит.
 export { addContact, archiveContactById, updateContact, type PatchContactResult } from './contacts';
 export { cardFieldViewer, updateCardFields, type CardFieldsResult } from './cardFields';
-export { loadCatalogLabels, type CatalogLabels } from './labels';
+export { loadCatalogLabels, loadFeedCatalog, type CatalogLabels, type FeedCatalog } from './labels';
 export { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
 export { DetailedConflictError, FieldConflictError, FieldIssuesError } from './errors';
 export {

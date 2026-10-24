@@ -5,7 +5,7 @@ import { scopeSql, scoped } from '@/server/access/scope';
 import { seesDealsOnlyAsDepartment } from '@/server/domain/deals/visibility';
 import { newId, type Sql } from '@/server/platform/db';
 import { jsonParam } from '@/server/platform/db/core';
-import type { ClientSummaryDto, DealRowDto, NoteDto } from './types';
+import type { CallInfoDto, ClientSummaryDto, DealRowDto, FeedRefDto, NoteDto } from './types';
 
 export type NewEvent = {
   clientId: string;
@@ -183,6 +183,40 @@ export async function selectNotesByIds(sql: Sql, viewer: Viewer, ids: readonly s
       FROM notes n LEFT JOIN users u ON u.id = n.author_id
      WHERE n.id = ANY(${ids as string[]}::text[]) AND ${scopeSql(viewer, 'note', 'card.read')}`;
   return rows.map(toNote);
+}
+
+// ---------- Звонки и ссылки событий ленты (C1, C3) ----------
+
+/**
+ * Заметка, причина и срок перезвона звонков страницы ленты одним запросом по id. Охват — `card.read` по карточке
+ * звонка (как у заметок); отменённый звонок (есть событие `call.voided` с его id) не отдаётся совсем.
+ */
+export async function selectCallsByIds(sql: Sql, viewer: Viewer, ids: readonly string[]): Promise<Map<string, CallInfoDto>> {
+  if (ids.length === 0) return new Map();
+  const rows = await scoped(sql)<{ id: string; note: string; reasonCode: string; callbackAt: number | null; callbackPrecision: 'time' | 'day' }>`
+    SELECT ca.id, ca.note, ca.reason_code, ca.callback_at, ca.callback_precision
+      FROM calls ca
+     WHERE ca.id = ANY(${ids as string[]}::text[]) AND ${scopeSql(viewer, 'call', 'card.read')}
+       AND NOT EXISTS (SELECT 1 FROM client_events vo WHERE vo.kind = 'call.voided' AND vo.client_id = ca.client_id AND vo.data->>'callId' = ca.id)`;
+  return new Map(rows.map((r) => [r.id, { note: r.note, reasonCode: r.reasonCode, callbackAt: r.callbackAt, callbackPrecision: r.callbackPrecision }]));
+}
+
+/** Вид мероприятия записей страницы ленты (событие `booking.status` несёт только id записи); охват — `booking.read`. */
+export async function selectBookingTypesByIds(sql: Sql, viewer: Viewer, ids: readonly string[]): Promise<Map<string, FeedRefDto>> {
+  if (ids.length === 0) return new Map();
+  const rows = await scoped(sql)<{ id: string; eventTypeKey: string }>`
+    SELECT b.id, b.event_type_key FROM bookings b
+     WHERE b.id = ANY(${ids as string[]}::text[]) AND ${scopeSql(viewer, 'booking', 'booking.read')}`;
+  return new Map(rows.map((r) => [r.id, { eventTypeKey: r.eventTypeKey }]));
+}
+
+/** Точность срока задач страницы ленты («день» — без времени); охват — `task.read`. */
+export async function selectTaskPrecisionByIds(sql: Sql, viewer: Viewer, ids: readonly string[]): Promise<Map<string, FeedRefDto>> {
+  if (ids.length === 0) return new Map();
+  const rows = await scoped(sql)<{ id: string; duePrecision: 'time' | 'day' }>`
+    SELECT t.id, t.due_precision FROM tasks t
+     WHERE t.id = ANY(${ids as string[]}::text[]) AND ${scopeSql(viewer, 'task', 'task.read')}`;
+  return new Map(rows.map((r) => [r.id, { duePrecision: r.duePrecision }]));
 }
 
 // ---------- Итоговый отчёт (C8, §3.4): каждый запрос со своим охватом ----------

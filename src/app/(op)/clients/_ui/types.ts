@@ -69,6 +69,17 @@ export type FeedItemView = {
   message?: { text: string | null; deleted: boolean; status: string | null };
   /** Заметка события `note.created` (текст берётся из notes при чтении). */
   note: NoteView | null;
+  /** Звонок (kind = 'call'): причина, срок перезвона, текст заметки; `null` — нет, отменён или не виден. */
+  call: CallView | null;
+  /** Вид мероприятия записи или точность срока задачи (для подписи события). */
+  ref: { eventTypeKey?: string; duePrecision?: 'time' | 'day' } | null;
+};
+
+export type CallView = {
+  note: string;
+  reasonCode: string;
+  callbackAt: number | null;
+  callbackPrecision: 'time' | 'day';
 };
 
 export type NoteView = {
@@ -114,4 +125,16 @@ export type FeedLabels = {
   options: Record<string, string>;
   phones: Record<string, string>;
   contacts: Record<string, string>;
+  /** Итоги звонков: ключ итога → подпись. */
+  outcomes: Record<string, string>;
+  /** Причины итогов: `итог:причина` → подпись. */
+  reasons: Record<string, string>;
+  /** Виды мероприятий: ключ → короткая подпись. */
+  events: Record<string, string>;
+  /** Этапы сделок: ключ этапа → подпись. */
+  stages: Record<string, string>;
+  /** Состояние карточки → подпись колонки доски (пусто — доски в пресете нет). */
+  columns: Record<string, string>;
+  /** Пояс установки: время событий показывается в нём. */
+  timeZone: string;
 };
