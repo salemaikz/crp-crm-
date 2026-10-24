@@ -1,9 +1,13 @@
 // Регистрация service worker (public/sw.js): только оболочка приложения, без кэша API. В разработке не нужен.
 
-export function registerShell(): void {
-  if (process.env.NODE_ENV !== 'production') return;
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => undefined);
+/** Регистрация идемпотентна; промис завершается, когда регистрация создана (или невозможна) — ошибок наружу нет. */
+export function registerShell(): Promise<void> {
+  if (process.env.NODE_ENV !== 'production') return Promise.resolve();
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return Promise.resolve();
+  return navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 const SHELL_CACHE_PREFIX = 'crm-shell-';
