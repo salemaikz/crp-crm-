@@ -19,6 +19,7 @@ const board: HelpBoard = {
   tones: [{ when: 'attendedIndividual', tone: 'warning' }, { when: 'attendedGroup', tone: 'success' }],
 };
 const doc: HelpDoc = {
+  calling: { returnDays: { not_interested: 90, deal_lost_soft: 90 } },
   booking: {
     eventTypes: [
       { key: 'g', behavior: 'group', label: { ru: 'Групповая встреча' }, short: { ru: 'Группа' } },
@@ -71,15 +72,15 @@ test('причины мусора — из drop колонки, причины �
 test('нет правила тона или вида мероприятия — легенды тона нет', () => {
   const bare = buildHelpData({ ...board, tones: [] }, {}, (s) => s);
   assert.deepEqual(bare.tones, { group: null, individual: null });
-  const items = itemsFor('board', 'operator', bare, ext, { callbackV2: false });
+  const items = itemsFor('board', 'operator', bare, ext, { callbackV2: false, canOutcome: true });
   assert.ok(!items.some((i) => i.key === 'tone'));
 });
 
 test('разделы по роли: оператор — доска и покупки; консультант — свои; руководитель без охвата — только отчёты', () => {
-  assert.deepEqual(sectionsFor('operator', { wideCards: false }), ['board', 'move', 'trash', 'callback', 'attend', 'purchases', 'duty']);
-  assert.deepEqual(sectionsFor('consultant', { wideCards: false }), ['consultations', 'attend', 'tasks']);
-  assert.deepEqual(sectionsFor('manager', { wideCards: false }), ['reports']);
-  assert.ok(sectionsFor('manager', { wideCards: true }).includes('board'));
+  assert.deepEqual(sectionsFor('operator', { wideCards: false, canReports: true, canTasks: true }), ['board', 'move', 'trash', 'callback', 'attend', 'purchases', 'duty']);
+  assert.deepEqual(sectionsFor('consultant', { wideCards: false, canReports: true, canTasks: true }), ['consultations', 'attend', 'tasks']);
+  assert.deepEqual(sectionsFor('manager', { wideCards: false, canReports: true, canTasks: true }), ['reports']);
+  assert.ok(sectionsFor('manager', { wideCards: true, canReports: true, canTasks: true }).includes('board'));
   assert.equal(helpKindOf(['queue', 'tasks']), 'operator');
   assert.equal(helpKindOf(['consultations']), 'consultant');
   assert.equal(helpKindOf(['summary']), 'manager');
@@ -87,7 +88,7 @@ test('разделы по роли: оператор — доска и поку�
 
 test('якоря контракта К4 есть у оператора и у руководителя с охватом', () => {
   const anchors = ['board', 'move', 'trash', 'callback', 'attend', 'purchases'];
-  for (const ids of [sectionsFor('operator', { wideCards: false }), sectionsFor('manager', { wideCards: true })]) {
+  for (const ids of [sectionsFor('operator', { wideCards: false, canReports: true, canTasks: true }), sectionsFor('manager', { wideCards: true, canReports: true, canTasks: true })]) {
     for (const a of anchors) assert.ok(ids.includes(a as never), a);
   }
 });
@@ -95,8 +96,8 @@ test('якоря контракта К4 есть у оператора и у р�
 test('каждый пункт каждого раздела имеет шаблон в help.json и все его подстановки заданы', () => {
   const msgs = JSON.parse(readFileSync(join(ROOT, 'messages/ru/help.json'), 'utf8')) as { sections: Record<string, { items: Record<string, string> }> };
   for (const kind of ['operator', 'manager', 'consultant'] as const) {
-    for (const id of sectionsFor(kind, { wideCards: true })) {
-      for (const flags of [{ callbackV2: false }, { callbackV2: true }]) {
+    for (const id of sectionsFor(kind, { wideCards: true, canReports: true, canTasks: true })) {
+      for (const flags of [{ callbackV2: false, canOutcome: true }, { callbackV2: true, canOutcome: true }]) {
         for (const item of itemsFor(id, kind, data, ext, flags)) {
           const tpl = msgs.sections[id]?.items[item.key];
           assert.ok(tpl, `${kind}/${id}/${item.key}: нет шаблона`);
@@ -109,12 +110,38 @@ test('каждый пункт каждого раздела имеет шабл�
 });
 
 test('перезвон: причины и срок показываются только при CALLBACK_V2', () => {
-  assert.deepEqual(itemsFor('callback', 'operator', data, ext, { callbackV2: false }).map((i) => i.key), ['what']);
-  assert.deepEqual(itemsFor('callback', 'operator', data, ext, { callbackV2: true }).map((i) => i.key), ['what', 'reasons', 'term']);
+  assert.deepEqual(itemsFor('callback', 'operator', data, ext, { callbackV2: false, canOutcome: true }).map((i) => i.key), ['what']);
+  assert.deepEqual(itemsFor('callback', 'operator', data, ext, { callbackV2: true, canOutcome: true }).map((i) => i.key), ['what', 'reasons', 'term']);
 });
 
 test('страница справки открыта любому входу и внесена в манифест', () => {
   const src = readFileSync(join(ROOT, 'src/app/(op)/help/page.tsx'), 'utf8');
   assert.match(src, /perm: 'authenticated'/);
   assert.match(readFileSync(join(ROOT, 'tests/isolation/manifest/shell.ts'), 'utf8'), /\/\(op\)\/help/);
+});
+
+test('мусор: причины со сроком — «вернётся через N дн.» из настроек, остальные — только руководитель', () => {
+  assert.deepEqual(data.trashReturns, [{ days: 90, reasons: ['Позже'] }]);
+  assert.equal(data.trashHasManualReturn, true);
+  const items = itemsFor('trash', 'operator', data, ext, { callbackV2: false, canOutcome: true });
+  assert.deepEqual(items.map((i) => i.key), ['what', 'closed', 'returns', 'stays']);
+  assert.deepEqual(items[2]!.params, { reasons: 'Позже', days: '90' });
+  const msgs = JSON.parse(readFileSync(join(ROOT, 'messages/ru/help.json'), 'utf8')) as { sections: { trash: { items: Record<string, string> } } };
+  assert.ok(!/только руководитель/.test(msgs.sections.trash.items.closed!), 'closed не утверждает «вернёт только руководитель»');
+  // срок 90 дней другой установки — подставляется 45
+  const other = buildHelpData(board, { ...doc, calling: { returnDays: { not_interested: 45 } } }, (s) => s);
+  assert.deepEqual(other.trashReturns, [{ days: 45, reasons: ['Позже'] }]);
+  // все причины возвращаются сами — строки «только руководитель» нет
+  const all = buildHelpData({ ...board, columns: [{ key: 'e', label: 'М', def: { states: ['not_interested'], drop: [{ kind: 'not_interested', reason: 'later' }] } }] }, doc, (s) => s);
+  assert.equal(all.trashHasManualReturn, false);
+  assert.ok(!itemsFor('trash', 'operator', all, ext, { callbackV2: false, canOutcome: true }).some((i) => i.key === 'stays'));
+});
+
+test('справка по правам: без card.outcome нет «вносит итог»; без отчётов и доски — задачи, без отчётов нет раздела отчётов', () => {
+  const manager = (canOutcome: boolean) => itemsFor('move', 'manager', data, ext, { callbackV2: false, canOutcome }).map((i) => i.key);
+  assert.deepEqual(manager(true), ['manager', 'managerOutcome']);
+  assert.deepEqual(manager(false), ['manager']);
+  assert.deepEqual(sectionsFor('manager', { wideCards: false, canReports: false, canTasks: true }), ['tasks']);
+  assert.deepEqual(sectionsFor('manager', { wideCards: false, canReports: false, canTasks: false }), []);
+  assert.ok(!sectionsFor('manager', { wideCards: true, canReports: false, canTasks: true }).includes('reports'));
 });

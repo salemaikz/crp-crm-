@@ -37,7 +37,7 @@ test('кнопка «Свернуть» — зона касания 44 px; бе�
 
 test('AppShell: полоса — первая в области страницы, у области нет своих отступов (их задаёт Page)', () => {
   const src = readFileSync(join(ROOT, 'src/ui/shells/AppShell.tsx'), 'utf8');
-  const area = /<div className="min-w-0 flex-1">\s*<ShellBanner banner=\{banner\} side=\{side\} \/>\s*\{children\}\s*<\/div>/;
+  const area = /<div className="min-w-0 flex-1">\s*<ShellBanner banner=\{banner\} side=\{side\} \/>\s*\{children\}\s*(?:\{boardTip \? <BoardTipSpacer userId=\{userId\} \/> : null\}\s*)?<\/div>/;
   assert.match(src, area);
   assert.doesNotMatch(src, /LicenseBannerBar banner=/, 'полоса рисуется только через ShellBanner');
 });

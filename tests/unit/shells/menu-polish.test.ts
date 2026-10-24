@@ -8,7 +8,7 @@ import type { RoleConfig } from '@crm/core/access';
 import { can, scopeOf } from '../../../src/server/access/viewer';
 import { testViewer } from '../../../src/server/access/testing';
 import { canSpaceReports } from '../../../src/server/domain/reports/access';
-import { MENU_GROUP, buildMenu, shellKindOf, type ShellKind } from '../../../src/ui/shells/menu';
+import { MENU_GROUP, buildMenu, shellKindOf, shellVariantOf, type ShellKind } from '../../../src/ui/shells/menu';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 const BASE = ['KANBAN', 'IMPORT', 'REPORTS', 'SALES_SETTINGS', 'PURCHASES', 'BK_WIZARD'];
@@ -106,4 +106,10 @@ test('«Как работать» есть у консультанта и деж
 test('каждый пункт каталога имеет значок в ShellNav', () => {
   const nav = readFileSync(join(ROOT, 'src/ui/shells/ShellNav.tsx'), 'utf8');
   for (const id of Object.keys(MENU_GROUP)) assert.match(nav, new RegExp(`\\b${id}:\\s*[A-Z]`), `значок ${id}`);
+});
+
+test('вид каркаса оператора: side только при OP_BOARD, у остальных ролей всегда side', () => {
+  assert.equal(shellVariantOf('operator', new Set()), 'bottom');
+  assert.equal(shellVariantOf('operator', new Set(['OP_BOARD'])), 'side');
+  for (const sh of ['manager', 'consultant', 'duty'] as const) assert.equal(shellVariantOf(sh, new Set()), 'side');
 });

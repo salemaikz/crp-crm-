@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react';
 import { PushSync } from '../push/PushSync';
 import { ThemeSwitch, type ThemeSwitchProps } from '../theme/ThemeSwitch';
-import { BoardTip, type BoardTipProps } from './BoardTip';
+import { BoardTip, BoardTipSpacer, type BoardTipProps } from './BoardTip';
 import { DesktopOnly } from './DesktopOnly';
 import { DeviceOwnerGuard } from './DeviceOwnerGuard';
 import type { BannerView } from './LicenseBannerBar';
@@ -81,6 +81,7 @@ export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots,
       <div className="min-w-0 flex-1">
         <ShellBanner banner={banner} side={side} />
         {children}
+        {boardTip ? <BoardTipSpacer userId={userId} /> : null}
       </div>
       {boardTip ? <BoardTip userId={userId} {...boardTip} /> : null}
       <BottomNav

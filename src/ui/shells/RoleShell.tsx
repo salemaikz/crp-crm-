@@ -10,9 +10,9 @@ import { loadChannelModes } from '@/ui/channels/loadModes';
 import { AppShell } from './AppShell';
 import { loadLicenseBanner } from './loadBanner';
 import { loadBrand } from './loadBrand';
-import { loadMenu } from './loadMenu';
+import { enabledFeatures, loadMenu } from './loadMenu';
 import { foreignOutboxTtlMs } from './outboxTtl';
-import { MENU_GROUP, MENU_GROUPS, type ShellKind } from './menu';
+import { MENU_GROUP, MENU_GROUPS, shellVariantOf, type ShellKind } from './menu';
 
 type Props = {
   viewer: Viewer;
@@ -53,7 +53,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
       : null;
   return (
     <AppShell
-      variant="side"
+      variant={shellVariantOf(menu.shell, enabledFeatures())}
       brand={brand}
       groups={groups}
       navLabel={t('nav.label')}

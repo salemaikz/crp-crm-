@@ -221,15 +221,20 @@ test('оператор (телефон): сетка всех страниц ме
   for (const href of [...hrefs, '/archive', '/notifications', `/clients/${op.clientIds[0]}`]) await check(page, href, true);
 });
 
-test('оператор (ноутбук 1440×900): боковая колонка, левый край страниц меню 272 ± 1, нижней панели нет', async ({ page }) => {
+test('оператор (ноутбук 1440×900): с OP_BOARD — боковая колонка, левый край 272 ± 1; без флага — нижняя панель', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const op = await makeOperator(2, { lpr: true });
   await login(page, op);
   await page.goto('/call');
   await expectBrand(page);
+  if (!OP_BOARD) {
+    // без OP_BOARD оператор на ноутбуке остаётся с нижней панелью (поведение прежнее): боковой колонки нет
+    await expect(page.locator('aside nav[aria-label="Разделы"]')).toBeHidden();
+    return;
+  }
   await expect(page.locator('aside nav[aria-label="Разделы"]')).toBeVisible();
   const hrefs = (await menuHrefs(page, false)).filter((h) => h !== '/account');
-  expect(hrefs).toEqual(expect.arrayContaining(OP_BOARD ? ['/board', '/call', '/tasks'] : ['/call', '/clients', '/tasks']));
+  expect(hrefs).toEqual(expect.arrayContaining(['/board', '/call', '/tasks']));
   for (const href of [...hrefs, '/archive', '/notifications', `/clients/${op.clientIds[0]}`]) await check(page, href, false);
 });
 

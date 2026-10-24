@@ -21,7 +21,11 @@ export type HelpExt = {
 
 export type HelpItem = { key: string; params: Record<string, string>; tone?: string };
 
-export type HelpFlags = { callbackV2: boolean };
+export type HelpFlags = {
+  callbackV2: boolean;
+  /** Право вносить итог (`card.outcome`): директору (только чтение) про итог в карточке не пишем. */
+  canOutcome: boolean;
+};
 
 export function itemsFor(id: HelpSectionId, kind: HelpKind, data: HelpData, ext: HelpExt, flags: HelpFlags): HelpItem[] {
   const manager = kind === 'manager';
@@ -46,15 +50,20 @@ export function itemsFor(id: HelpSectionId, kind: HelpKind, data: HelpData, ext:
     }
     case 'move':
       return manager
-        ? [{ key: 'manager', params: {} }]
+        ? [{ key: 'manager', params: {} }, ...(flags.canOutcome ? [{ key: 'managerOutcome', params: {} }] : [])]
         : [{ key: 'hold', params: {} }, { key: 'menu', params: { move: ext.moveTitle } }, { key: 'blocked', params: { move: ext.moveTitle } }];
-    case 'trash':
-      return [
+    case 'trash': {
+      const items: HelpItem[] = [
         data.trashReasons.length > 0
           ? { key: 'what', params: { trash, reasons: data.trashReasons.join(', '), more: ext.moreReasons } }
           : { key: 'whatNoReasons', params: { trash } },
-        { key: manager ? 'closedManager' : 'closed', params: { trash } },
+        { key: 'closed', params: { trash } },
       ];
+      // причины со сроком возврата: число дней — из настроек; для остальных вернуть может только руководитель
+      for (const r of data.trashReturns) items.push({ key: 'returns', params: { reasons: r.reasons.join(', '), days: String(r.days) } });
+      if (data.trashHasManualReturn) items.push({ key: manager ? 'staysManager' : 'stays', params: { trash } });
+      return items;
+    }
     case 'callback': {
       const items: HelpItem[] = [{ key: 'what', params: { callback } }];
       if (flags.callbackV2 && data.callbackReasons.length > 0) {

@@ -120,6 +120,11 @@ export const MENU_KEYS: ReadonlySet<string> = new Set(
   Object.values(SHELLS).flatMap((sh) => sh.items.flatMap((it) => it.keys ?? [])),
 );
 
+/** Вид каркаса: оператор получает боковую колонку на ноутбуке только при OP_BOARD (без флага — прежняя нижняя панель). */
+export function shellVariantOf(shell: ShellKind, features: ReadonlySet<string>): 'bottom' | 'side' {
+  return shell === 'operator' && !features.has('OP_BOARD') ? 'bottom' : 'side';
+}
+
 /** Какая оболочка у роли: по ключам её меню. Нет роли (например, администратор) — менеджерская. */
 export function shellKindOf(menu: readonly string[]): ShellKind {
   if (menu.includes('queue')) return 'operator';

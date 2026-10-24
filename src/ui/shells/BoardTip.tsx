@@ -1,7 +1,9 @@
 'use client';
 // Подсказка первого входа на доску (S4): «Удерживайте плитку, чтобы перенести». Показывается один раз на сотрудника
 // на этом устройстве; отметка — в localStorage под ключом без ПДн (идентификатор сотрудника). Стоит над нижним
-// меню и не закрывает вкладки колонок; сама плашка не перехватывает касания плиток под ней (кликабельны только ссылка и кнопка), которые лежат вверху экрана. Оболочка по пути: страница доски не меняется.
+// меню и не закрывает вкладки колонок. Плашка целиком принимает касания (иначе нажатие на её текст попадало бы в кнопку
+// «Позвонить» плитки под ней), а у области страницы на время показа есть нижний отступ (BoardTipSpacer), чтобы она не
+// закрывала последнюю плитку. Оболочка по пути: страница доски не меняется.
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSyncExternalStore } from 'react';
@@ -16,7 +18,7 @@ const subscribe = (cb: () => void) => {
   return () => void listeners.delete(cb);
 };
 
-export function BoardTip({ userId, hold, link, ok }: BoardTipProps) {
+function useTipVisible(userId: string): boolean {
   const pathname = usePathname();
   // отметка читается из localStorage уже в браузере; на сервере подсказки нет (нет мигания и расхождения гидрации)
   const unseen = useSyncExternalStore(
@@ -31,7 +33,17 @@ export function BoardTip({ userId, hold, link, ok }: BoardTipProps) {
     },
     () => false,
   );
-  if (pathname !== BOARD_TIP_PATH || !unseen) return null;
+  return pathname === BOARD_TIP_PATH && unseen;
+}
+
+/** Нижний отступ области страницы на время показа плашки: последняя плитка не остаётся под ней. */
+export function BoardTipSpacer({ userId }: { userId: string }) {
+  if (!useTipVisible(userId)) return null;
+  return <div aria-hidden data-testid="board-tip-spacer" style={{ height: 'calc(var(--bottom-nav-h) + 6rem)' }} />;
+}
+
+export function BoardTip({ userId, hold, link, ok }: BoardTipProps) {
+  if (!useTipVisible(userId)) return null;
   const dismiss = () => {
     try {
       window.localStorage.setItem(boardTipKey(userId), '1');
@@ -44,7 +56,7 @@ export function BoardTip({ userId, hold, link, ok }: BoardTipProps) {
     <div
       role="note"
       data-testid="board-tip"
-      className="pointer-events-none fixed inset-x-0 z-20 mx-auto flex max-w-md items-center gap-3 rounded-xl border p-3 md:right-auto md:left-[calc(var(--sidebar-w)+var(--gutter))] md:mx-0"
+      className="fixed inset-x-0 z-20 mx-auto flex max-w-md items-center gap-3 rounded-xl border p-3 md:right-auto md:left-[calc(var(--sidebar-w)+var(--gutter))] md:mx-0"
       style={{
         bottom: 'calc(var(--bottom-nav-h) + 12px)',
         width: 'calc(100% - 2 * var(--gutter))',
@@ -55,11 +67,11 @@ export function BoardTip({ userId, hold, link, ok }: BoardTipProps) {
     >
       <p className="min-w-0 flex-1 text-sm">
         {hold}{' '}
-        <Link href="/help#board" onClick={dismiss} className="pointer-events-auto underline" style={{ color: 'var(--brand-ink)' }}>
+        <Link href="/help#board" onClick={dismiss} className="underline" style={{ color: 'var(--brand-ink)' }}>
           {link}
         </Link>
       </p>
-      <button type="button" onClick={dismiss} className={buttonClass({ variant: 'secondary', className: 'pointer-events-auto' })} data-testid="board-tip-ok">
+      <button type="button" onClick={dismiss} className={buttonClass({ variant: 'secondary', })} data-testid="board-tip-ok">
         {ok}
       </button>
     </div>

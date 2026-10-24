@@ -95,17 +95,23 @@ async function bottomBarVisible(page: Page): Promise<boolean> {
   return page.evaluate(() => [...document.querySelectorAll('nav')].some((n) => getComputedStyle(n).position === 'fixed' && n.getBoundingClientRect().height > 0));
 }
 
-test('оператор (ноутбук 1280): боковое меню со всеми пунктами, нижней панели и «Ещё» нет', async ({ page }) => {
+test('оператор (ноутбук 1280): с OP_BOARD — боковое меню без нижней панели, без флага — прежняя нижняя панель', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const op = await makeOperator(1);
   await login(page, op);
   await page.goto('/call');
   const side = page.locator('aside nav[aria-label="Разделы"]');
+  if (!BOARD) {
+    // флаг выключен: поведение прежнее (CONFIG §8) — нижняя панель на любом экране, боковой колонки нет
+    expect(await bottomBarVisible(page), 'нижняя панель есть').toBe(true);
+    await expect(side, 'боковой колонки нет').toBeHidden();
+    return;
+  }
   await expect(side).toBeVisible();
   expect(await bottomBarVisible(page), 'нижней панели нет').toBe(false);
   await expect(page.getByRole('button', { name: 'Ещё' }), 'кнопки «Ещё» нет').toBeHidden();
   const hrefs = await side.locator('a[href^="/"]').evaluateAll((els) => els.map((e) => e.getAttribute('href')));
-  expect(hrefs).toEqual(expect.arrayContaining(BOARD ? ['/board', '/call', '/tasks', '/bookings', '/archive'] : ['/call', '/clients', '/tasks', '/bookings', '/archive']));
+  expect(hrefs).toEqual(expect.arrayContaining(['/board', '/call', '/tasks', '/bookings', '/archive']));
   // аккаунт и выход — внизу колонки
   await expect(page.locator('aside').getByRole('link', { name: 'Мой аккаунт' })).toBeVisible();
   await expect(page.locator('aside').getByTestId('logout')).toBeVisible();

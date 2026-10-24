@@ -159,3 +159,34 @@ test('подсказка: ссылка ведёт на /help#board и тоже �
   await page.goto('/board');
   await expect(page.getByTestId('board-tip')).toHaveCount(0);
 });
+
+test('подсказка принимает касания целиком: касание текста не доходит до «Позвонить» под ней, последняя плитка не закрыта', async ({ page }) => {
+  const op = await makeOperator(3, { role: OPERATOR_ROLE });
+  await login(page, op);
+  await page.goto('/board');
+  const tip = page.getByTestId('board-tip');
+  await expect(tip).toBeVisible();
+  await expect(page.getByTestId('tile-call').first()).toBeVisible();
+  // в центре текста подсказки — сама подсказка, а не плитка под ней
+  const box = (await tip.locator('p').boundingBox())!;
+  const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('[data-testid="board-tip"]') !== null, { x: box.x + 20, y: box.y + box.height / 2 });
+  expect(hit, 'под пальцем подсказка').toBe(true);
+  await page.mouse.click(box.x + 20, box.y + box.height / 2);
+  await expect(page.getByTestId('outcome-sheet'), 'шторка итога не открылась').toHaveCount(0);
+  expect(await page.evaluate(() => Object.keys(window.localStorage).filter((k) => k.includes('pending'))), 'намерения звонка нет').toEqual([]);
+  // нижний отступ области страницы: прокрутив вниз, последняя кнопка «Позвонить» оказывается выше подсказки
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const geo = await page.evaluate(() => {
+    const calls = [...document.querySelectorAll('[data-testid="tile-call"]')];
+    const tipTop = document.querySelector('[data-testid="board-tip"]')!.getBoundingClientRect().top;
+    return { lastBottom: Math.max(...calls.map((c) => c.getBoundingClientRect().bottom)), tipTop };
+  });
+  expect(geo.lastBottom, 'последняя плитка не под подсказкой').toBeLessThanOrEqual(geo.tipTop);
+});
+
+test('К5: при OP_BOARD доска обзвона РОП открывается (200); с FEATURE_KANBAN=0 — тоже', async ({ page }) => {
+  const rop = await staff(ROP_ROLE);
+  await login(page, rop);
+  const res = await page.goto('/deals/calling');
+  expect(res?.status()).toBe(200);
+});

@@ -27,7 +27,11 @@ export default page<Record<string, never>, React.ReactNode>({ perm: 'authenticat
   const data = await loadHelp(viewer, (state) => tb(`state.${state}` as 'state.new'));
   const kind = helpKindOf(menu);
   const scope = scopeOf(viewer, 'card.read');
-  const ids = sectionsFor(kind, { wideCards: can(viewer, 'card.read') && (scope === 'space' || scope === 'all') });
+  const ids = sectionsFor(kind, {
+    wideCards: can(viewer, 'card.read') && (scope === 'space' || scope === 'all'),
+    canReports: can(viewer, 'report.view') || can(viewer, 'pool.read'),
+    canTasks: can(viewer, 'task.read'),
+  });
   const ext: HelpExt = {
     sortHeat: tb('sort.heat'),
     callNext: tb('callNext'),
@@ -41,7 +45,7 @@ export default page<Record<string, never>, React.ReactNode>({ perm: 'authenticat
     attended: ts('attended'),
     noShow: ts('no_show'),
   };
-  const flags = { callbackV2: isFeatureEnabled('CALLBACK_V2') };
+  const flags = { callbackV2: isFeatureEnabled('CALLBACK_V2'), canOutcome: can(viewer, 'card.outcome') && !viewer.readOnly };
   return (
     <Page width="list">
       <PageHeader title={t('title')} lead={t('lead')} />

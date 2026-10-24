@@ -473,6 +473,30 @@ describe('доска: роли без неё получают 404 и не вид
   });
 });
 
+describe('S2: пункт «Доска» менеджерской оболочки и страница /deals/calling только при охвате «пространство» и шире', () => {
+  test('оператор (охват own): в меню менеджерской оболочки нет доски, страница не отдаёт данных; РОП и директор — доска есть (контроль)', async () => {
+    const { loadMenu } = await import('../../../src/ui/shells/loadMenu');
+    const hrefsOf = async (user: string) => {
+      actAs(user);
+      try {
+        return (await loadMenu(await viewerOf(user), 'manager')).items.map((i) => i.href);
+      } finally {
+        actAs(null);
+      }
+    };
+    assert.equal((await hrefsOf(U.opA)).includes('/deals/calling'), false, 'у оператора пункта доски РОП нет');
+    for (const user of [U.rop, U.director]) assert.equal((await hrefsOf(user)).includes('/deals/calling'), true, `${user}: доска РОП есть`);
+
+    const units = scanApp('src');
+    const matched = matchEntries(units, await allEntries());
+    const hit = [...matched].find(([, entry]) => entry.path === '/(mgr)/deals/calling');
+    assert.ok(hit, '/(mgr)/deals/calling описан в манифесте');
+    const page = await invoke(hit[0], hit[1], { userId: U.opA });
+    assert.ok(page.status === 403 || page.status === 404, `оператор: /deals/calling → ${page.status}`);
+    assert.deepEqual(leakViolations('оператор /deals/calling', page, foreign), []);
+  });
+});
+
 describe('контроль: положительные случаи (изоляция не равна «404 на всё»)', () => {
   test('РОП отмечает «не пришёл» по записи открытой сделки чужой для него карточки A: явка и перенос одной операцией', async () => {
     const r = await api(U.rop, 'move', {

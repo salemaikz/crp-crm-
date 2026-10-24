@@ -2,7 +2,7 @@
 // Навигация оболочки: боковая колонка (ноутбук) и нижняя панель с «Ещё» (телефон). Текущий раздел
 // определяется по адресу, поэтому компоненты клиентские; подписи приходят готовыми из локали.
 import {
-  Archive, ArrowRightLeft, Bell, CalendarDays, ChartColumn, CircleQuestionMark, Columns3, Ellipsis, Forward, Handshake, Headset, Kanban,
+  Archive, ArrowRightLeft, Bell, CalendarDays, ChartColumn, CircleQuestionMark, LayoutGrid, Ellipsis, Forward, Handshake, Headset, Kanban,
   FileDown, Gauge, LayoutDashboard, ListChecks, Phone, PlugZap, Settings, Shuffle, ShoppingBag, Upload, UserCheck, User, UserCog, Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -15,7 +15,7 @@ import { MENU_GROUPS, currentHref, type MenuGroup, type MenuId } from './menu';
 export type NavEntry = { id: MenuId; href: string; label: string; group: MenuGroup };
 
 const ICONS: Record<MenuId, LucideIcon> = {
-  board: Columns3, purchases: ShoppingBag, help: CircleQuestionMark, call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive,
+  board: LayoutGrid, purchases: ShoppingBag, help: CircleQuestionMark, call: Phone, clients: Users, tasks: ListChecks, bookings: CalendarDays, archive: Archive,
   summary: LayoutDashboard, director: Gauge, exports: FileDown, distribution: Shuffle, kanban: Kanban, reports: ChartColumn,
   settings: Settings, import: Upload, handoffs: ArrowRightLeft, team: UserCog, transfer: Forward,
   consultations: Headset, duty: UserCheck, integrations: PlugZap,
