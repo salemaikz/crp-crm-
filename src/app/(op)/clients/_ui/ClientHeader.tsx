@@ -1,6 +1,6 @@
 import { getTranslations } from 'next-intl/server';
 import { Fragment, type ReactNode } from 'react';
-import { ArrowLeft, Check } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { Badge, Button, PageHeader } from '@/ui/kit';
 import type { CardHeadDto, ClientCardDto } from '@/server/domain/clients';
 import type { BackTarget } from './backTarget';
@@ -58,13 +58,11 @@ export async function ClientHeader({ card, legalForms, timeZone, back = { href: 
             {reasonChip && <Badge tone="neutral" data-testid="head-reason">{reasonChip}</Badge>}
             {board?.attended.group !== null && board?.attended.group !== undefined && (
               <Badge tone="success" data-testid="head-attended-group">
-                <Check aria-hidden="true" />
                 {board.attended.group ? t('header.attended', { event: board.attended.group }) : t('header.attendedAny')}
               </Badge>
             )}
             {board?.attended.individual !== null && board?.attended.individual !== undefined && (
               <Badge tone="success" data-testid="head-attended-individual">
-                <Check aria-hidden="true" />
                 {board.attended.individual ? t('header.attended', { event: board.attended.individual }) : t('header.attendedAny')}
               </Badge>
             )}

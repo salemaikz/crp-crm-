@@ -102,7 +102,7 @@ export function CardMenu({ cardId, version, can, phones, reasons, recipients }: 
       {can.closeFromMenu && (
         // Закрытие карточки — редкое и необратимое: «Другие действия», тихо, без красной кнопки на виду
         <details className="group" data-testid="other-actions">
-          <summary className={buttonClass({ variant: 'quiet', className: 'cursor-pointer list-none' })}>{t('menu.other')}</summary>
+          <summary className={buttonClass({ variant: 'quiet', flush: true, className: 'cursor-pointer list-none' })}>{t('menu.other')}</summary>
           <div className="mt-1 flex flex-wrap gap-2">
             <Button variant="quiet" onClick={() => open('not_target')}>
               {t('menu.notTarget')}

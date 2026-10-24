@@ -3,6 +3,7 @@
 // и FEATURE_CALLBACK_V2=1. Только синтетика: номера +7 709 …, названия «ТОО Синтетика …».
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { uniquePhone, pretty } from './support/phones';
 import { CALLBACK_V2, DB_URL, OP_BOARD, login, makeOperator, prepareDb, sql } from './support/calling';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
@@ -94,10 +95,12 @@ test('номера одним списком: номер контакта под
   // Новый контакт с телефоном: номер появляется в списке и подписан этим контактом
   await page.getByRole('button', { name: 'Добавить контакт' }).click();
   await page.getByLabel('Имя', { exact: true }).fill('Бахыт Синтетик');
-  await page.getByLabel('Телефон').fill('+7 709 555 01 77');
+  // Свободный номер: прежние прогоны на той же БД заняли бы фиксированный (тогда он уходит на проверку)
+  const fresh = await uniquePhone(sql);
+  await page.getByLabel('Телефон').fill(pretty(fresh));
   await page.getByRole('button', { name: 'Сохранить' }).click();
   await expect(phones.getByRole('listitem')).toHaveCount(3);
-  await expect(phones.getByRole('listitem').filter({ hasText: '+7 709 555 01 77' })).toContainText('Бахыт Синтетик');
+  await expect(phones.getByRole('listitem').filter({ hasText: `+7 ${fresh.slice(1, 4)} ${fresh.slice(4, 7)} ${fresh.slice(7, 9)} ${fresh.slice(9)}` })).toContainText('Бахыт Синтетик');
   expect(await noHorizontalScroll(page)).toBe(true);
 });
 

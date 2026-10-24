@@ -105,7 +105,7 @@
       "unknown": "Тип не определён"
     },
     "whose": "Чей номер",
-    "ofClient": "Номер клиента",
+    "ofClient": "Клиент",
     "whatsapp": "Написать в WhatsApp на {phone}",
     "more": "Действия с номером {phone}",
     "makePrimary": "Сделать основным",

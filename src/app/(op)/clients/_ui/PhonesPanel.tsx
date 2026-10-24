@@ -89,10 +89,9 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
               <ListItem
                 key={p.id}
                 title={<span className="k-num">{`${formatPhone(p.e164)}${p.ext ? ` (${t('phones.ext', { ext: p.ext })})` : ''}`}</span>}
-                meta={[t(`phones.kind.${p.kind}`), contactName(p.contactId) || t('phones.ofClient')].filter(Boolean).join(' · ')}
+                meta={[t(`phones.kind.${p.kind}`), contactName(p.contactId) || t('phones.ofClient'), p.primary && p.working ? t('phones.primary') : ''].filter(Boolean).join(' · ')}
                 trailing={
                   <span className="flex flex-wrap items-center justify-end gap-1">
-                    {p.primary && p.working && <Badge tone="brand">{t('phones.primary')}</Badge>}
                     {!p.working && <Badge tone="danger">{t('phones.notWorking')}</Badge>}
                     {wa && wa.kind === 'link' && (
                       <Button href={wa.href} external target="_blank" rel="noopener noreferrer" variant="quiet" size="sm" iconOnly aria-label={t('phones.whatsapp', { phone: formatPhone(p.e164) })} data-testid="phone-whatsapp">
