@@ -314,6 +314,13 @@ export type GetReport = <Q extends ReportQuery>(viewer: Viewer, q: Q) => Promise
 // Панель директора (R4)
 // ---------------------------------------------------------------------------
 
+export interface DirectorReasons {
+  key: string;
+  label: string | null;
+  total: number;
+  top: ReasonRow[];
+}
+
 export interface DirectorDashboard {
   generatedAt: number;
   /** Текущая неделя: понедельник … сегодня. */
@@ -333,10 +340,14 @@ export interface DirectorDashboard {
   revenue: RevenueRow[];
   /** Какая неделя показана: текущая или прошлая целиком (`?week=prev`). */
   weekKey: DirectorWeek;
-  /** Топ-5 причин колонки доски роли «мусор» за показанную неделю; null — колонки такой роли в пресете нет. */
-  reasons: { key: string; label: string | null; total: number; top: ReasonRow[] } | null;
-  /** Запас: готово в пуле и в рабочих днях (пул / (участники × лимит)); null — ёмкость 0. */
-  stock: { poolReady: number; capacityPerDay: number; days: number | null };
+  /**
+   * Топ-5 причин двух колонок доски за показанную неделю: роль «мусор» и роль «перезвон» (подписи — из пресета);
+   * доля — от итога колонки. Перезвон считает итоги `callback` и выходы № 33 с кодом причины (D-355); null — колонки
+   * такой роли в пресете нет.
+   */
+  reasons: { trash: DirectorReasons | null; callback: DirectorReasons | null };
+  /** «В пуле»: готово к раздаче. Запас в днях не показываем (требование руководителя, круг 3). */
+  stock: { poolReady: number };
 }
 
 export const DIRECTOR_WEEKS = ['current', 'prev'] as const;

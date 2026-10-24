@@ -4,12 +4,14 @@ import type { FunnelRow, Period, Rate, ReasonRow, ReportLabels, RevenueRow } fro
 
 export type { FunnelRow, Period, Rate, ReportLabels, RevenueRow };
 
+export type DirectorReasons = { key: string; label: string | null; total: number; top: ReasonRow[] };
+
 export type DirectorData = {
   generatedAt: number;
   /** Показанная неделя: текущая или прошлая целиком. */
   weekKey: 'current' | 'prev';
-  /** Топ-5 причин колонки «мусор» доски; null — такой колонки в настройках нет. */
-  reasons: { key: string; label: string | null; total: number; top: ReasonRow[] } | null;
+  /** Топ-5 причин колонок «мусор» и «перезвон» доски (доля — от итога колонки); null — такой колонки в настройках нет. */
+  reasons: { trash: DirectorReasons | null; callback: DirectorReasons | null };
   week: Period;
   prevWeek: Period;
   calls: { outcomes: number; connects: number; prevOutcomes: number; prevConnects: number };
@@ -22,7 +24,7 @@ export type DirectorData = {
   purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number; withoutBooking: number };
   funnel: FunnelRow;
   revenue: RevenueRow[];
-  stock: { poolReady: number; capacityPerDay: number; days: number | null };
+  stock: { poolReady: number };
 };
 
 export type DirectorProps = {

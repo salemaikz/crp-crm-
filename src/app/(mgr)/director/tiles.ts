@@ -1,6 +1,6 @@
 // Плитки панели директора (§11.1): чистая сборка набора и порядка, без React. Подписи видов записи — из настроек.
 import type { FunnelStep } from '../reports/types';
-import type { DirectorData } from './types';
+import type { DirectorData, DirectorReasons } from './types';
 
 export type TileId = 'outcomes' | 'connects' | 'bookGroup' | 'bookIndividual' | 'attendance' | 'purchases' | 'conversion' | 'pool';
 
@@ -86,4 +86,14 @@ export function funnelHints(d: DirectorData): FunnelHints {
     note: capped || counts.purchased > counts.attended,
     withoutBooking: d.purchases.withoutBooking,
   };
+}
+
+export type ReasonList = { role: 'trash' | 'callback'; block: DirectorReasons };
+
+/** Блок «Причины отказа»: списки колонок «мусор» и «перезвон» по порядку; колонки нет в пресете — списка нет. */
+export function reasonLists(d: DirectorData): ReasonList[] {
+  const out: ReasonList[] = [];
+  if (d.reasons.trash) out.push({ role: 'trash', block: d.reasons.trash });
+  if (d.reasons.callback) out.push({ role: 'callback', block: d.reasons.callback });
+  return out;
 }

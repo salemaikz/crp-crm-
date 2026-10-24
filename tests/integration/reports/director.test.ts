@@ -4,7 +4,7 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as directorRoute from '../../../src/app/api/reports/director/route';
 import { ForbiddenError } from '../../../src/server/access';
-import { getDirectorDashboard, getSummary, stockDays } from '../../../src/server/domain/reports';
+import { getDirectorDashboard, getSummary } from '../../../src/server/domain/reports';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { DAY, MIN, SEED_NOW, SEED_TODAY, SPACE, U, actAs, closeWorld, enterReportsConfig, leaveReportsConfig, openWorld, seedCall, seedPool, viewerOf } from './helpers';
 
@@ -87,23 +87,59 @@ test('причины на панели: топ-5 колонки «Мусор» �
   }
   try {
     const d = await getDirectorDashboard(v);
-    assert.ok(d.reasons, 'колонка «Мусор» из настроек');
-    assert.equal(d.reasons.key, 'trash');
-    assert.equal(d.reasons.top.length, 5);
-    assert.deepEqual(d.reasons.top.map((r) => r.reasonCode), ['r7', 'r6', 'r5', 'r4', 'r3']);
-    assert.ok(d.reasons.total >= 28);
-    const sum = d.reasons.top.reduce((s, r) => s + r.count, 0);
-    assert.ok(sum <= d.reasons.total);
+    const trash = d.reasons.trash;
+    assert.ok(trash, 'колонка «Мусор» из настроек');
+    assert.equal(trash.key, 'trash');
+    assert.equal(trash.top.length, 5);
+    assert.deepEqual(trash.top.map((r) => r.reasonCode), ['r7', 'r6', 'r5', 'r4', 'r3']);
+    assert.ok(trash.total >= 28);
+    const sum = trash.top.reduce((s, r) => s + r.count, 0);
+    assert.ok(sum <= trash.total);
+    // доля — от итога блока (колонки), а не от всех причин
+    assert.equal(trash.top[0]!.share, Math.round((trash.top[0]!.count / trash.total) * 1000) / 10);
     await assert.rejects(getDirectorDashboard(await viewerOf(U.opA)), ForbiddenError);
   } finally {
     await db.sql`DELETE FROM calls WHERE id LIKE 'rs-r%'`;
   }
 });
 
-test('stockDays: один знак, нулевая ёмкость — null', () => {
-  assert.equal(stockDays(20, 80), 0.3);
-  assert.equal(stockDays(100, 40), 2.5);
-  assert.equal(stockDays(10, 0), null);
+test('«В пуле»: только число готовых к раздаче, без запаса в днях (требование руководителя)', async () => {
+  const d = await getDirectorDashboard(await viewerOf(U.director));
+  assert.deepEqual(Object.keys(d.stock), ['poolReady']);
+  const s = await getSummary(await viewerOf(U.rop));
+  assert.equal(d.stock.poolReady, s.tiles.pool.ready);
+});
+
+test('причины панели: «не придёт» через № 33 попадает в блок «Перезвон», старые события без кода не считаются', async () => {
+  const v = await viewerOf(U.director);
+  const before = await getDirectorDashboard(v);
+  assert.ok(before.reasons.callback, 'колонка «Перезвон» из настроек');
+  const ev = async (id: string, clientId: string, data: Record<string, unknown>, at = SEED_NOW - 20 * MIN) => {
+    await db.sql`
+      INSERT INTO client_events (id, client_id, space_id, kind, actor_id, at, ref_type, ref_id, data)
+      VALUES (${id}, ${clientId}, ${SPACE}, 'card.state', ${U.opA}, ${at}, 'card_move', ${id}, ${JSON.stringify(data)}::text::jsonb)`;
+  };
+  const exit = (toState: string, reasonCode?: string) => ({ fromState: 'agreed', toState, cause: 'agreed_exit', ...(reasonCode === undefined ? {} : { reasonCode }) });
+  await ev('x33-a', 'cl-a-2', exit('callback', 'declined_br'));
+  await ev('x33-b', 'cl-a-3', exit('callback', 'declined_br'));
+  await ev('x33-old', 'cl-a-4', exit('callback')); // до D-355 кода не было: не считается
+  await ev('x33-other', 'cl-a-5', { fromState: 'new', toState: 'callback', cause: 'call' }); // не № 33
+  await ev('x33-week', 'cl-a-2', exit('callback', 'declined_br'), SEED_NOW - 20 * DAY); // не эта неделя
+  try {
+    const d = await getDirectorDashboard(v);
+    const cb = d.reasons.callback!;
+    assert.equal(cb.total, before.reasons.callback!.total + 2);
+    const top = cb.top.find((r) => r.reasonCode === 'declined_br');
+    assert.ok(top, 'причина № 33 в топе');
+    assert.equal(top.count, 2);
+    assert.equal(top.group, 'callback');
+    // блок «Мусор» от выходов в «Перезвон» не меняется
+    assert.equal(d.reasons.trash!.total, before.reasons.trash!.total);
+    // охват: оператор панель не видит
+    await assert.rejects(getDirectorDashboard(await viewerOf(U.opA)), ForbiddenError);
+  } finally {
+    await db.sql`DELETE FROM client_events WHERE id LIKE 'x33-%'`;
+  }
 });
 
 test('директор: неделя, прошлая неделя, запас', async () => {
@@ -121,8 +157,6 @@ test('директор: неделя, прошлая неделя, запас', 
   // запас согласован с плитками сводки РОП
   const s = await getSummary(await viewerOf(U.rop));
   assert.equal(d.stock.poolReady, s.tiles.pool.ready);
-  assert.equal(d.stock.capacityPerDay, s.tiles.issued.cap);
-  assert.equal(d.stock.days, stockDays(s.tiles.pool.ready, s.tiles.issued.cap));
 });
 
 test('покупки без записи считаются отдельно и входят в покупки недели (D-261)', async () => {

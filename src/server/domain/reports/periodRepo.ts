@@ -488,6 +488,20 @@ export async function reasonCounts(viewer: Viewer, sql: Sql, a: PeriodArgs & { c
        AND ${scopeSql(viewer, 'call', 'card.read')}
      GROUP BY 1, 2
     UNION ALL
+    -- Выходы из «Договорились» без звонка (№ 33, D-355): итога-звонка нет, причина лежит в данных события ленты.
+    -- Старые события без reasonCode не считаются; списание считает блок по карточкам ниже, поэтому здесь только перезвон и отказ
+    SELECT ev.data->>'toState', ev.data->>'reasonCode', count(*)::int
+      FROM client_events ev
+     WHERE ev.space_id = ${a.spaceId} AND ev.kind = 'card.state' AND ev.data->>'cause' = 'agreed_exit'
+       AND ev.data->>'toState' IN ('callback', 'not_interested') AND ev.data->>'reasonCode' IS NOT NULL
+       AND ev.at >= ${a.fromMs}::bigint AND ev.at < ${a.toMs}::bigint
+       AND (${a.userIds}::text[] IS NULL OR ev.actor_id = ANY(${a.userIds}::text[]))
+       AND (${a.sourceKey}::text IS NULL OR (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END
+                                               FROM client_sources s WHERE s.client_id = ev.client_id
+                                              ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
+       AND ${scopeSql(viewer, 'client_event', 'card.read')}
+     GROUP BY 1, 2
+    UNION ALL
     SELECT 'written_off', c.close_reason_code, count(*)::int
       FROM cards c
      WHERE c.space_id = ${a.spaceId} AND c.state = 'written_off'
