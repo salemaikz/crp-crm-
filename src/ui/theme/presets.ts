@@ -63,6 +63,12 @@ export const TONE_HUE: Record<StateKey, string> = {
 /** Доля чистого тона в заливке плитки: светлая и тёмная тема. */
 export const TONE_ALPHA = { light: 0.3, dark: 0.26 } as const;
 
+/**
+ * Тёмная тема: жёлтому нужна большая доля, иначе заливка оливково-коричневая. Выше этого значения не поднять: светлый
+ * text-2 перестаёт держать 4.5 на более яркой заливке (deriveToneTile двигает долю к ближайшей проходящей).
+ */
+export const TONE_ALPHA_DARK_BY_TONE: Partial<Record<StateKey, number>> = { warning: 0.34 };
+
 /** Тон «опасности» для проверки конфликта с цветом бренда. */
 export const DANGER_HUE = 358;
 

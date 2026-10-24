@@ -6,7 +6,7 @@ import { getActiveConfig } from '@/server/platform/config/active';
 import type { ReasonRule } from '@/ui/board/moves';
 import type { AgreedExitConfig, BoardConfig, BoardDrop, BoardReason } from '@/ui/board/types';
 import type { CallbackPreset } from '@/ui/call/types';
-import { roleOfStates } from '@/ui/board/columns';
+import { columnEventLabel, roleOfStates } from '@/ui/board/columns';
 import { fieldViewer, loadClientsConfig } from '@/server/domain/clients';
 import { ConfigMissingError } from '@/server/platform/config/active';
 import { loadCallConfig } from '../call/loadCallConfig';
@@ -56,6 +56,7 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     states: [...info.def.states],
     drop: (info.def.drop ?? []).map((d): BoardDrop => ({ kind: d.kind, reason: d.reason, label: labelIn(d.kind, d.reason) })),
     dropMore: info.def.dropMore === true,
+    emptyEvent: columnEventLabel(info.def.eventTypes, eventLabels),
   }));
 
   const eventBehaviors: BoardConfig['eventBehaviors'] = Object.fromEntries(eventTypes.map((e) => [e.key, e.behavior]));

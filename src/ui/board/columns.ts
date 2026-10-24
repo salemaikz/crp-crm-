@@ -23,3 +23,9 @@ export const isEndRole = (r: ColumnRole): boolean => r === 'client' || r === 'tr
 export function trackTemplate(roles: readonly ColumnRole[]): string {
   return roles.map((r) => (isEndRole(r) ? 'minmax(var(--board-col-end),0.75fr)' : 'minmax(var(--board-col),1fr)')).join(' ');
 }
+
+/** Подпись вида записи пустой колонки «Договорились»: по первому виду именно этой колонки, а не группового вообще. */
+export function columnEventLabel(eventTypes: readonly string[] | undefined, eventLabels: Readonly<Record<string, string>>): string {
+  const key = eventTypes?.[0];
+  return key === undefined ? '' : (eventLabels[key] ?? '');
+}

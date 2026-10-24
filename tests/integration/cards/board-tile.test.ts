@@ -7,6 +7,10 @@ import { getBoard } from '../../../src/server/domain/cards/board';
 import { phoneHmac } from '../../../src/server/platform/hmac';
 import { enterSeedWorld, viewerOf } from '../../isolation/harness/actors';
 import { U } from '../../isolation/harness/seed';
+import { testViewer } from '../../../src/server/access/testing';
+import type { RoleConfig } from '@crm/core/access';
+import { configDoc } from '../../isolation/harness/config';
+import { SEED_TZ } from '../../isolation/harness/seed';
 import type { TestDb } from '../../../src/server/platform/db/testing';
 import { SEED_NOW, SPACE, addCard, clearOwner, closeBoardWorld, openBoardWorld } from './boardWorld';
 
@@ -105,4 +109,21 @@ test('«Покупка»: дата берётся у той же сделки, �
                VALUES ('dl-tile-6', ${SPACE}, 'sales', 'won', 'won', 'cl-tile-6', 'tile-6', ${U.opA}, 'smm', 90000, ${SEED_NOW - 2000}, ${SEED_NOW - 2000}, ${SEED_NOW - 2000}, ${SEED_NOW - 2000})`;
   const b = await getBoard(opA, {});
   assert.deepEqual(tile(b, 'tile-6')?.purchases, { total: 0, lastAt: SEED_NOW - 2000, lastAmountKzt: 90000 });
+});
+
+test('«Покупка»: сумма читается под охватом deal.read; роль с card.read=space и deal.read=own чужих сумм не видит', async () => {
+  await enterSeedWorld();
+  const ropRole = (configDoc() as { global: { roles: RoleConfig[] } }).global.roles.find((r) => r.key === 'rop')!;
+  // Охват card.read — пространство, deal.read задаётся: так выглядит роль, заданная через CLI (D-300)
+  const as = (dealScope: 'own' | 'space'): Viewer => {
+    const grants = ropRole.grants.map((g) => (g.perm === 'deal.read' ? { ...g, scope: dealScope } : g.perm === 'card.read' ? { ...g, scope: 'space' as const } : g));
+    return testViewer({ userId: U.rop, role: { ...ropRole, grants }, spaceId: SPACE, now: SEED_NOW, timeZone: SEED_TZ });
+  };
+  const b = await getBoard(as('own'), {});
+  const t = tile(b, 'tile-5');
+  assert.ok(t, 'карточка видна по card.read');
+  assert.equal(t.purchases?.lastAmountKzt, null, 'сумма чужой сделки не отдаётся');
+  assert.ok(!JSON.stringify(b).includes('150000'), 'суммы нет нигде в ответе');
+  // Контроль: с охватом пространства по deal.read та же сумма на месте
+  assert.equal(tile(await getBoard(as('space'), {}), 'tile-5')?.purchases?.lastAmountKzt, 150000);
 });

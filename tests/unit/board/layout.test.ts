@@ -1,7 +1,7 @@
 // Раскладка колонок, сортировка и запросы доски (pipeline-v2 §9.2, §9.4).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { roleOfStates } from '@/ui/board/columns';
+import { columnEventLabel, roleOfStates } from '@/ui/board/columns';
 import { availableFilters, boardQuery, columnQuery, sortCards } from '@/ui/board/order';
 import { applyPlacements } from '@/ui/board/placement';
 import { card } from './fixtures';
@@ -67,4 +67,13 @@ test('перенос «в уме»: без размещений колонки �
   assert.equal(applyPlacements(cols, []), cols);
   const out = applyPlacements(cols, [{ cardId: 'ghost', column: 'callback', patch: {}, opId: 'o' }]);
   assert.deepEqual(out.callback, []);
+});
+
+test('пустая «Договорились»: подпись берётся по виду записи своей колонки, две колонки agreed различаются', () => {
+  const labels = { br: 'БР', bk: 'БК' };
+  assert.equal(columnEventLabel(['br'], labels), 'БР');
+  assert.equal(columnEventLabel(['bk'], labels), 'БК');
+  assert.equal(columnEventLabel([], labels), '');
+  assert.equal(columnEventLabel(undefined, labels), '');
+  assert.equal(columnEventLabel(['zz'], labels), '');
 });

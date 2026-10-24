@@ -36,6 +36,8 @@ export interface BoardColumnConfig {
   states: string[];
   drop: BoardDrop[];
   dropMore: boolean;
+  /** Подпись вида записи колонки (первый из `eventTypes`); пусто — у колонок без видов. Для текста пустой колонки. */
+  emptyEvent: string;
 }
 
 /** Всё, что доске нужно из настроек и прав. Приходит с сервера один раз; ПДн здесь нет. */

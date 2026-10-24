@@ -56,3 +56,10 @@ test('плитка тона: доля подстраивается, когда �
   assert.ok(r.alpha < 0.26, 'доля уменьшена');
   assert.ok(contrast('#a2a7b0', r.tile) >= 4.5);
 });
+
+test('плитка тона: в тёмной теме жёлтая заметно жёлтая, а не оливковая (жалоба N16)', () => {
+  const tile = computeTheme({}, 'dark').vars['--warning-tile']!;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(tile.slice(i, i + 2), 16));
+  assert.ok(r! - b! >= 75, tile);
+  assert.ok(g! / r! >= 0.75, `зелёный не отстаёт от красного (оттенок жёлтый, не коричневый): ${tile}`);
+});

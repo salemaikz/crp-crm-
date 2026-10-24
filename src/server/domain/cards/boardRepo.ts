@@ -266,7 +266,7 @@ export async function selectBoardRows(sql: Sql, viewer: Viewer, ids: readonly st
       LEFT JOIN users ou ON ou.id = c.owner_user_id
       LEFT JOIN LATERAL (
         SELECT d.amount_kzt, d.won_at FROM deals d
-         WHERE c.state = 'client' AND d.card_id = c.id AND d.status = 'won'
+         WHERE c.state = 'client' AND d.card_id = c.id AND d.status = 'won' AND ${scopeSql(viewer, 'deal', 'deal.read')}
          ORDER BY d.won_at DESC, d.id LIMIT 1) lp ON TRUE
       LEFT JOIN LATERAL (
         SELECT b.id, b.version, b.event_type_key, b.status, b.starts_at

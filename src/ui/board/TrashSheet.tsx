@@ -5,6 +5,7 @@
 // («Другое»). «Не отвечает» — ручное списание № 32: онлайн, только после недозвона (оператору).
 // Чего не хватает, написано над кнопкой подвала (те же тексты, что в шторке «Звонить»), а не молча серой кнопкой.
 // Подписи колонки, причины и итога подставляются из настроек, в локалях их нет (§9.9).
+import { Check } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { BottomSheet, Button, Chip, ChipGroup, Field, Segmented, Textarea } from '@/ui/kit';
@@ -78,17 +79,21 @@ export function TrashSheet({
     return '';
   };
 
-  const chipOf = (c: TrashChoice) => (
-    <Chip
-      key={idOf(c)}
-      active={chosen !== null && idOf(chosen) === idOf(c)}
-      disabled={(c.kind === 'write_off' && c.blocked !== null) || noPhone(c)}
-      onClick={() => setChosen(c)}
-      data-testid={`trash-reason-${idOf(c).replace(':', '-')}`}
-    >
-      {c.label}
-    </Chip>
-  );
+  const chipOf = (c: TrashChoice) => {
+    const picked = chosen !== null && idOf(chosen) === idOf(c);
+    return (
+      <Chip
+        key={idOf(c)}
+        active={picked}
+        disabled={(c.kind === 'write_off' && c.blocked !== null) || noPhone(c)}
+        onClick={() => setChosen(c)}
+        data-testid={`trash-reason-${idOf(c).replace(':', '-')}`}
+      >
+        {picked && <Check aria-hidden="true" className="size-4" />}
+        {c.label}
+      </Chip>
+    );
+  };
 
   return (
     <BottomSheet
@@ -127,6 +132,11 @@ export function TrashSheet({
                 onSelect={(id) => setLpr(lpr === id ? '' : (id as 'yes' | 'no'))}
               />
             </div>
+            {lpr === '' && (
+              <p className="text-sm" style={{ color: 'var(--text-2)' }} data-testid="trash-lpr-hint">
+                {tc('sheet.missing.lpr')}
+              </p>
+            )}
           </fieldset>
         )}
         <ChipGroup label={t('trash.reasons')} className="flex-wrap">

@@ -317,10 +317,17 @@ test('«Мусор»: причина без ЛПР - подсказка над �
   // Причина выбрана, ЛПР не отмечен: подсказка над кнопкой, сегмент обведён жёлтым, кнопка погашена нейтрально
   await expect(page.getByTestId('trash-missing')).toContainText('Отметьте, был ли разговор с ЛПР.');
   await expect(page.getByTestId('trash-lpr').locator('[data-missing="1"]')).toBeVisible();
+  // Подсказка стоит под сегментом ЛПР, а выбранная причина отмечена галочкой и не сливается с погашенной
+  const hint = page.getByTestId('trash-lpr-hint');
+  await expect(hint).toHaveText('Отметьте, был ли разговор с ЛПР.');
+  const [segBox, hintBox] = [await page.getByTestId('trash-lpr-yes').boundingBox(), await hint.boundingBox()];
+  expect(hintBox!.y).toBeGreaterThan(segBox!.y + segBox!.height - 1);
+  await expect(page.getByTestId('trash-reason-not_interested-no_need').locator('svg')).toBeVisible();
   await expect(confirm).toBeDisabled();
   const opacity = await confirm.evaluate((el) => getComputedStyle(el).opacity);
   expect(opacity).toBe('1');
   await page.getByTestId('trash-lpr-yes').click();
+  await expect(hint).toHaveCount(0);
   await expect(confirm).toBeEnabled();
   await expect(page.getByTestId('trash-missing')).toHaveCount(0);
   // «Не отвечает» погашено нейтрально (без opacity), причина названа текстом с подписью из настроек

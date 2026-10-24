@@ -30,10 +30,10 @@ export function card(over: Partial<BoardCardDto> = {}): BoardCardDto {
 }
 
 export const COLUMNS: BoardColumnConfig[] = [
-  { key: 'new', label: 'Новые', role: 'new', states: ['new'], drop: [], dropMore: false },
-  { key: 'callback', label: 'Перезвон', role: 'callback', states: ['retry', 'callback'], drop: [], dropMore: false },
-  { key: 'meet', label: 'Встреча', role: 'agreed', states: ['agreed'], drop: [], dropMore: false },
-  { key: 'paid', label: 'Покупка', role: 'client', states: ['client'], drop: [], dropMore: false },
+  { key: 'new', label: 'Новые', role: 'new', states: ['new'], drop: [], dropMore: false, emptyEvent: '' },
+  { key: 'callback', label: 'Перезвон', role: 'callback', states: ['retry', 'callback'], drop: [], dropMore: false, emptyEvent: '' },
+  { key: 'meet', label: 'Встреча', role: 'agreed', states: ['agreed'], drop: [], dropMore: false, emptyEvent: '' },
+  { key: 'paid', label: 'Покупка', role: 'client', states: ['client'], drop: [], dropMore: false, emptyEvent: '' },
   {
     key: 'trash',
     label: 'Мусор',
@@ -45,6 +45,7 @@ export const COLUMNS: BoardColumnConfig[] = [
       { kind: 'written_off', reason: 'unreachable', label: 'Не отвечает' },
     ],
     dropMore: true,
+    emptyEvent: '',
   },
 ];
 

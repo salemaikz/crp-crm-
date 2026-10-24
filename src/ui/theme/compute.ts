@@ -32,6 +32,7 @@ import {
   STATES_DARK,
   TAP_MIN,
   TONE_ALPHA,
+  TONE_ALPHA_DARK_BY_TONE,
   TONE_HUE,
   type DensityKey,
   type RadiusKey,
@@ -181,7 +182,7 @@ const TILE_SURFACE_MIN = 1.2;
  * проходящей нет — остаётся стартовая и `ok: false` (тема пишет предупреждение).
  */
 export function deriveToneTile(key: StateKey, surface: string, text: string, text2: string, stripe: string, dark: boolean) {
-  const start = dark ? TONE_ALPHA.dark : TONE_ALPHA.light;
+  const start = dark ? (TONE_ALPHA_DARK_BY_TONE[key] ?? TONE_ALPHA.dark) : TONE_ALPHA.light;
   const at = (a: number) => mix(surface, TONE_HUE[key], a);
   const passes = (a: number) => {
     const tile = at(a);

@@ -373,7 +373,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
                   key={col.key}
                   columnKey={col.key}
                   role={col.role}
-                  event={config.attendLabels.attendedGroup || t('chip.eventUnknown')}
+                  event={col.emptyEvent || t('chip.eventUnknown')}
                   title={titleOf(col)}
                   count={cards.length}
                   hasMore={state?.next != null}
