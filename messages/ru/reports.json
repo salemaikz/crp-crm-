@@ -30,7 +30,8 @@
       "bookings": {
         "title": "Записи",
         "today": "Сегодня: {total}, подтвердили {confirmed}",
-        "tomorrow": "Завтра: {total}, подтвердили {confirmed}"
+        "tomorrow": "Завтра: {total}, подтвердили {confirmed}",
+        "confirm": "Подтвердить явку"
       },
       "overdue": {
         "title": "Просроченные перезвоны",

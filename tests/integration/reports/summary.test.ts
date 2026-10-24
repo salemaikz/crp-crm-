@@ -98,11 +98,42 @@ test('ссылки на доску (К1): колонка перезвона пр
   const rop = await viewerOf(U.rop);
   process.env.FEATURE_OP_BOARD = '0';
   try {
-    assert.deepEqual((await getSummary(rop)).board, { on: false, callbackTab: null });
+    assert.deepEqual((await getSummary(rop)).board, { on: false, callbackTab: null, confirm: false });
     process.env.FEATURE_OP_BOARD = '1';
-    assert.deepEqual((await getSummary(rop)).board, { on: true, callbackTab: 'callback' });
+    assert.deepEqual((await getSummary(rop)).board, { on: true, callbackTab: 'callback', confirm: false });
   } finally {
     delete process.env.FEATURE_OP_BOARD;
+  }
+});
+
+test('ссылка «Подтвердить явку» (A6, D-355): только при OP_BOARD и CALLBACK_V2 и в день обзвона', async () => {
+  const rop = await viewerOf(U.rop);
+  const confirmOf = async (): Promise<boolean> => (await getSummary(rop)).board.confirm;
+  const setDays = (weekdays: number[]) => enterReportsConfig(clock, { confirmCall: { eventTypes: ['br'], weekdays } });
+  try {
+    process.env.FEATURE_OP_BOARD = '1';
+    process.env.FEATURE_CALLBACK_V2 = '1';
+    // SEED_NOW — среда (ISO 3): в день обзвона окно открыто, в другой день — нет
+    setDays([3]);
+    assert.equal(await confirmOf(), true);
+    setDays([4]);
+    assert.equal(await confirmOf(), false);
+    // нет настройки обзвона или нет видов — ссылки нет
+    enterReportsConfig(clock);
+    assert.equal(await confirmOf(), false);
+    enterReportsConfig(clock, { confirmCall: { eventTypes: [], weekdays: [3] } });
+    assert.equal(await confirmOf(), false);
+    // без любого из флагов — тоже нет, даже в день обзвона
+    setDays([3]);
+    process.env.FEATURE_CALLBACK_V2 = '0';
+    assert.equal(await confirmOf(), false);
+    process.env.FEATURE_CALLBACK_V2 = '1';
+    process.env.FEATURE_OP_BOARD = '0';
+    assert.equal(await confirmOf(), false);
+  } finally {
+    delete process.env.FEATURE_OP_BOARD;
+    delete process.env.FEATURE_CALLBACK_V2;
+    enterReportsConfig(clock);
   }
 });
 

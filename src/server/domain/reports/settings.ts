@@ -5,7 +5,7 @@ import { loadDistributionConfig } from '@/server/domain/distribution';
 import { parseBoardSettings } from '@/server/domain/cards/boardSettings';
 import { getActiveConfig, getActiveConfigOrNull } from '@/server/platform/config/active';
 import { reasonColumns, type ReasonColumn } from './reasons';
-import type { ReportsConfig } from './types';
+import type { ConfirmCallCfg, ReportsConfig } from './types';
 
 const DEFAULT_OVERDUE_MINUTES = 60;
 
@@ -39,4 +39,13 @@ export async function loadReasonColumns(spaceId: string): Promise<ReasonColumn[]
   const space = Object.values(active?.spaces ?? {}).find((s) => s.spaceId === spaceId);
   if (!space) return [];
   return reasonColumns(parseBoardSettings(space.doc).columns.map((c) => ({ key: c.key, label: c.label, states: c.def.states })));
+}
+
+/** Обзвон «подтвердить явку» из настроек пространства; настроек или групповых видов нет — null. */
+export async function loadConfirmCall(spaceId: string): Promise<ConfirmCallCfg | null> {
+  const active = await getActiveConfigOrNull();
+  const space = Object.values(active?.spaces ?? {}).find((s) => s.spaceId === spaceId);
+  if (!space) return null;
+  const cc = parseBoardSettings(space.doc).confirmCall;
+  return cc ? { eventTypes: cc.eventTypes, weekdays: cc.weekdays } : null;
 }

@@ -68,9 +68,9 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
       numeric: true,
       // Мягкая цель: число и отметка «ниже нормы», без красного и без блокировок.
       cell: (o) => (
-        <span className="flex flex-wrap items-center justify-end gap-2">
+        <span className="flex flex-col items-end gap-1">
           {o.callsPerHour === null ? t('rateNone') : t('rateValue', { rate: o.callsPerHour })}
-          {o.belowTarget && data.callsPerHourTarget !== null && <Badge tone="neutral">{t('belowTarget', { target: data.callsPerHourTarget })}</Badge>}
+          {o.belowTarget && data.callsPerHourTarget !== null && <Badge tone="neutral" className="whitespace-normal text-right">{t('belowTarget', { target: data.callsPerHourTarget })}</Badge>}
         </span>
       ),
     },
@@ -81,7 +81,7 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
       cell: (o) => (
         <span className="flex flex-col items-end">
           {o.unsent > 0 ? <Badge tone="warning" variant="count">{o.unsent}</Badge> : o.unsent}
-          <span className="text-sm">{o.lastSeenAt === null ? t('neverSeen') : t('lastSeen', { time: formatSeen(o.lastSeenAt, data.generatedAt, data.timeZone) })}</span>
+          <span className="max-w-[7rem] whitespace-normal text-right text-sm leading-tight">{o.lastSeenAt === null ? t('neverSeen') : t('lastSeen', { time: formatSeen(o.lastSeenAt, data.generatedAt, data.timeZone) })}</span>
         </span>
       ),
     },

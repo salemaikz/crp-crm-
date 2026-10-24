@@ -11,3 +11,8 @@ export function overdueHref(callbackTab: string | null, ownerId?: string): strin
 export function bookingsHref(boardOn: boolean): string | null {
   return boardOn ? '/bookings' : null;
 }
+
+/** «Подтвердить явку»: доска с фильтром обзвона — только в день обзвона (`confirm`) при включённой доске. */
+export function confirmHref(board: { on: boolean; confirm: boolean }): string | null {
+  return board.on && board.confirm ? '/deals/calling?f=confirm' : null;
+}

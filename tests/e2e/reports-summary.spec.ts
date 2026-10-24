@@ -2,6 +2,7 @@
 // Сотрудники, карточки и устройство создаются прямо в БД приложения (E2E_DATABASE_URL — та же база, что у DATABASE_URL
 // сервера; настройки пресета уже применены `crmctl config apply`); без неё тесты пропускаются. Синтетика: номера +7 709 … без коллизий в прогоне (support/phones.ts).
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { expect, test, type Page } from '@playwright/test';
@@ -148,3 +149,26 @@ for (const width of [1280, 1440]) {
     });
   });
 }
+
+// A6 (круг 3): ссылка «Подтвердить явку» — только при OP_BOARD и CALLBACK_V2 и в день обзвона из настроек
+test('«Подтвердить явку» в сводке: ссылка только при флагах и в день обзвона', async ({ page }) => {
+  const preset = JSON.parse(readFileSync('presets/clients/crp/preset.json', 'utf8')) as { spaces: { sales: { booking: { confirmCall?: { weekdays: number[] } } } } };
+  const weekdays = preset.spaces.sales.booking.confirmCall?.weekdays ?? [];
+  const flagsOn = process.env.FEATURE_OP_BOARD === '1' && process.env.FEATURE_CALLBACK_V2 === '1';
+  // ISO-день недели «сегодня» в поясе установки
+  const short = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Almaty', weekday: 'short' }).format(new Date());
+  const iso = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(short) + 1;
+  const expected = flagsOn && weekdays.includes(iso);
+  await login(page, rop);
+  await page.goto('/summary');
+  await expect(page.getByRole('heading', { name: 'Сводка дня', level: 1 })).toBeVisible();
+  const link = page.getByTestId('summary-link-confirm');
+  if (expected) {
+    await expect(link).toHaveAttribute('href', '/deals/calling?f=confirm');
+    await expect(link).toHaveText('Подтвердить явку');
+  } else {
+    await expect(link).toHaveCount(0);
+  }
+  const res = await page.request.get('/api/reports/summary');
+  expect(((await res.json()) as { board: { confirm: boolean } }).board.confirm).toBe(expected);
+});

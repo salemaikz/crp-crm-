@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { bookingsHref, overdueHref } from '../../../src/app/(mgr)/summary/links';
+import { bookingsHref, confirmHref, overdueHref } from '../../../src/app/(mgr)/summary/links';
 
 test('просроченные перезвоны: tab колонки, f=today, owner по необходимости', () => {
   assert.equal(overdueHref('callback'), '/deals/calling?tab=callback&f=today');
@@ -23,4 +23,10 @@ test('локаль сводки: заявки на {event}, ссылки наз�
   assert.match(ru.tiles.grey.title, /\{event\}/);
   assert.ok(ru.tiles.grey.titleFallback);
   assert.match(ru.operators.overdueLink, /\{name\}/);
+});
+
+test('«Подтвердить явку»: ссылка на доску с фильтром confirm только в день обзвона', () => {
+  assert.equal(confirmHref({ on: true, confirm: true }), '/deals/calling?f=confirm');
+  assert.equal(confirmHref({ on: true, confirm: false }), null);
+  assert.equal(confirmHref({ on: false, confirm: true }), null);
 });
