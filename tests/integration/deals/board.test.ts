@@ -243,6 +243,24 @@ test('флаг FEATURE_KANBAN выключен — обе доски отвеч�
   }
 });
 
+test('OP_BOARD без KANBAN: РОП и директор получают список сотрудников, оператор — 404 (К5, A8)', async () => {
+  process.env.FEATURE_KANBAN = '0';
+  process.env.FEATURE_OP_BOARD = '1';
+  try {
+    const workers = await getCallingWorkers(await viewerOf(U.rop));
+    assert.ok(workers.some((w) => w.userId === U.opA));
+    assert.deepEqual(await getCallingWorkers(await viewerOf(U.director)), workers);
+    await assert.rejects(async () => getCallingWorkers(await viewerOf(U.opA)), NotFoundError);
+    // остальные доски по-прежнему под KANBAN
+    await assert.rejects(async () => getCallingBoard(await viewerOf(U.rop)), NotFoundError);
+    process.env.FEATURE_OP_BOARD = '0';
+    await assert.rejects(async () => getCallingWorkers(await viewerOf(U.rop)), NotFoundError);
+  } finally {
+    process.env.FEATURE_KANBAN = '1';
+    delete process.env.FEATURE_OP_BOARD;
+  }
+});
+
 test('отдел передачи (D-300): на доске, в «Ещё», закрытых и выборе сотрудников только сделка передачи; РОП видит все', async () => {
   // У клиента живой передачи (dl-b7, выиграна) есть ещё открытая и выигранная сделки — для отдела они «чужие».
   // Давнее на этапе — выше: плитка попадает в первые 50 колонки РОП, сколько бы сделок ни добавили тесты выше.

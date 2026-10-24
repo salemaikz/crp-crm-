@@ -25,7 +25,7 @@ const TOAST_HOLD_MS = 60_000;
 
 type PanelState = { tile: Tile; target: BoardStage; nextStep: boolean; fields: string[] };
 
-export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board; timeZone: string; showCalling: boolean }) {
+export function DealsBoard({ initial, timeZone, showCalling, opBoard = false }: { initial: Board; timeZone: string; showCalling: boolean; opBoard?: boolean }) {
   const t = useTranslations('deals.board');
   const router = useRouter();
   const toast = useToast();
@@ -334,7 +334,7 @@ export function DealsBoard({ initial, timeZone, showCalling }: { initial: Board;
       <PageHeader
         title={t('title')}
         lead={t('lead')}
-        tabs={showCalling ? <BoardTabs active="deals" showCalling /> : undefined}
+        tabs={showCalling ? <BoardTabs active="deals" showCalling opBoard={opBoard} /> : undefined}
         actions={
           <>
         {board.pipelines.length > 1 && (
