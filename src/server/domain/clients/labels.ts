@@ -23,6 +23,8 @@ const label = (v: unknown, fallback: string): Label => {
 
 type Item = { key: string; label?: unknown };
 
+const SAME_GROUP: readonly string[] = ['not_interested', 'not_target', 'do_not_call', 'bad_number'];
+
 export async function loadCatalogLabels(viewer: Viewer): Promise<CatalogLabels> {
   const cfg = await getActiveConfig();
   const space = Object.values(cfg.spaces).find((s) => s.spaceId === viewer.spaceId);
@@ -64,14 +66,16 @@ export async function loadFeedCatalog(viewer: Viewer): Promise<FeedCatalog> {
   const out: FeedCatalog = { outcomes: {}, reasons: {}, events: {}, stages: {}, columns: {} };
   if (!space) return out;
   const doc = space.doc as unknown as {
-    calling?: { outcomes?: Array<Item & { reasonGroup?: string | null }> };
+    calling?: { outcomes?: Array<Item & { kind?: string; reasonGroup?: string | null }> };
     reasons?: Record<string, Item[] | undefined>;
     pipelines?: Array<Item & { stages?: Item[] }>;
     booking?: { eventTypes?: Array<Item & { short?: unknown }> };
   };
   for (const o of doc.calling?.outcomes ?? []) {
     out.outcomes[o.key] = label(o.label, o.key).ru;
-    for (const r of (o.reasonGroup ? doc.reasons?.[o.reasonGroup] : undefined) ?? []) out.reasons[`${o.key}:${r.key}`] = label(r.label, r.key).ru;
+    // Группа причин итога — то же правило, что у ядра: перезвон берёт «callback», остальные — свою группу или одноимённую
+    const group = o.kind === 'callback' ? 'callback' : o.reasonGroup ? o.reasonGroup : o.kind && SAME_GROUP.includes(o.kind) ? o.kind : null;
+    for (const r of (group ? doc.reasons?.[group] : undefined) ?? []) out.reasons[`${o.key}:${r.key}`] = label(r.label, r.key).ru;
   }
   for (const e of doc.booking?.eventTypes ?? []) out.events[e.key] = label(e.short ?? e.label, e.key).ru;
   for (const p of doc.pipelines ?? []) for (const st of p.stages ?? []) out.stages[st.key] ??= label(st.label, st.key).ru;

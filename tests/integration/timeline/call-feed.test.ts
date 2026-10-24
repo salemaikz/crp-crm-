@@ -74,3 +74,15 @@ test('РОП видит заметку звонка своего простра�
   // Клиент без отношения: ни ленты, ни заметки
   await assert.rejects(getClientFeed(cons, clientOf('a', 70), { cursor: null, groups: 'calls' }), { code: 'not_found' });
 });
+
+test('подписи ленты из настроек: итоги, причины итога по его группе, виды записи и этапы', async () => {
+  const { loadFeedCatalog } = await import('../../../src/server/domain/clients');
+  const c = await loadFeedCatalog(await viewerOf(U.opA));
+  assert.ok(Object.keys(c.outcomes).length >= 7, 'итоги из настроек');
+  assert.equal(c.outcomes['callback'], c.outcomes['callback']?.trim());
+  // причины лежат под ключом `итог:причина`; группа — по правилу ядра (перезвон → callback, прочие → одноимённая)
+  assert.equal(c.reasons['not_interested:expensive'], 'Дорого');
+  assert.ok(Object.keys(c.stages).length > 0, 'этапы сделок');
+  // сырых ключей вместо подписей нет
+  for (const v of Object.values(c.outcomes)) assert.notEqual(v, '');
+});
