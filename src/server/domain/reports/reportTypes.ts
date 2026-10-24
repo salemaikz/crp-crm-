@@ -217,6 +217,8 @@ export interface AttendanceListReport {
   rows: AttendanceListRow[];
   /** Курсор следующей страницы; null — конец списка. */
   next: string | null;
+  /** Записей по статусам при тех же фильтрах, кроме статуса (чипы над таблицей); null — страница не первая. */
+  counts: Record<AttendanceListStatus, number> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,9 +241,23 @@ export interface ReasonRow {
   share: Rate;
 }
 
+/** Блок отчёта «Причины» — колонка доски роли `trash` или `callback`; доли — от итога блока, а не группы. */
+export interface ReasonBlock {
+  /** Ключ колонки доски пресета. */
+  key: string;
+  /** Подпись колонки из пресета; null — пресет доски не задан (интерфейс берёт подпись состояния из локали). */
+  label: string | null;
+  role: 'trash' | 'callback';
+  total: number;
+  rows: ReasonRow[];
+}
+
 export interface ReasonsReport {
   period: ResolvedPeriod;
+  /** Прежние группы («Подробно»): доля внутри группы. */
   rows: ReasonRow[];
+  /** Блоки по колонкам доски (A4); пусто, если колонок этих ролей нет. */
+  blocks: ReasonBlock[];
 }
 
 // ---------------------------------------------------------------------------
@@ -308,18 +324,25 @@ export interface DirectorDashboard {
   /** Короткие подписи видов записи из настроек: первый групповой и первый индивидуальный; пусто — вида нет. */
   eventLabels: { group: string; individual: string };
   bookings: { groups: number; consults: number };
-  attendance: { attended: number; noShow: number; rate: Rate };
+  attendance: { attended: number; noShow: number; rate: Rate; unmarked: number };
   /** «Средняя конверсия операторов» (D-343): среднее «записи / дозвоны» по операторам с ≥ `minConnects` дозвонов за неделю. */
   conversion: { average: Rate; team: Rate; operators: number; minConnects: number };
   /** `withoutBooking` — покупки недели без записи на мероприятие: в «Покупках» есть, в цепочке «запись → явка» нет. */
   purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number; withoutBooking: number };
   funnel: FunnelRow;
   revenue: RevenueRow[];
+  /** Какая неделя показана: текущая или прошлая целиком (`?week=prev`). */
+  weekKey: DirectorWeek;
+  /** Топ-5 причин колонки доски роли «мусор» за показанную неделю; null — колонки такой роли в пресете нет. */
+  reasons: { key: string; label: string | null; total: number; top: ReasonRow[] } | null;
   /** Запас: готово в пуле и в рабочих днях (пул / (участники × лимит)); null — ёмкость 0. */
   stock: { poolReady: number; capacityPerDay: number; days: number | null };
 }
 
-export type GetDirectorDashboard = (viewer: Viewer) => Promise<DirectorDashboard>;
+export const DIRECTOR_WEEKS = ['current', 'prev'] as const;
+export type DirectorWeek = (typeof DIRECTOR_WEEKS)[number];
+
+export type GetDirectorDashboard = (viewer: Viewer, opts?: { week?: DirectorWeek }) => Promise<DirectorDashboard>;
 
 // ---------------------------------------------------------------------------
 // Выгрузки (R3b)

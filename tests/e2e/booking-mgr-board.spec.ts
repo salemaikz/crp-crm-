@@ -92,3 +92,29 @@ test('оператору страница «Обзвон» недоступна'
   expect([403, 404]).toContain(res?.status());
 });
 
+
+test('заголовок «Доска» и вкладки «Доска» / «Этапы сделок» (A8)', async ({ page }) => {
+  test.skip(process.env.FEATURE_KANBAN === '0', 'вкладки есть только при включённом KANBAN');
+  const rop = await staff('rop', 'РОП Вкладки');
+  await loginAs(page, rop);
+  await expect(page.locator('.k-page-header__title')).toHaveText('Доска');
+  const tabs = page.getByRole('group', { name: 'Вид доски' });
+  const links = tabs.getByRole('link');
+  await expect(links.nth(0)).toHaveText('Доска');
+  await expect(links.nth(1)).toHaveText('Этапы сделок');
+  await links.nth(1).click();
+  await expect(page).toHaveURL(/\/deals$/);
+  await expect(page.getByTestId('deals-board')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Вид доски' }).getByRole('link').first()).toHaveText('Доска');
+});
+
+test('KANBAN выключен: РОП видит доску без вкладок, оператору 404 (A8, К5)', async ({ page }) => {
+  test.skip(process.env.FEATURE_KANBAN !== '0', 'сценарий для прогона с FEATURE_KANBAN=0');
+  const rop = await staff('rop', 'РОП Без Канбана');
+  await loginAs(page, rop);
+  await expect(page.locator('.k-page-header__title')).toHaveText('Доска');
+  await expect(page.getByRole('group', { name: 'Вид доски' })).toHaveCount(0);
+  const op = await makeOperator(1);
+  await login(page, op);
+  expect((await page.goto('/deals/calling'))?.status()).toBe(404);
+});

@@ -59,7 +59,10 @@ test('любой компонент с <PageHeader> стоит внутри Page
   // (BookingsDetail) вызывался в файле, где Page рисует соседний компонент, и стоял вне Page.
   const all = files.map((f) => ({ f, src: readFileSync(f, 'utf8') }));
   const bad: string[] = [];
+  // Шапка уходит в слот `header` общего экрана доски (BoardScreen), а тот рисует её внутри своего Page
+  const SLOT_HEADERS = new Set(['src/app/(mgr)/deals/calling/page.tsx']);
   for (const { f, src } of all) {
+    if (SLOT_HEADERS.has(relative(ROOT, f))) continue;
     const loose = [...src.matchAll(/<PageHeader\b/g)].filter((m) => pageDepth(src, m.index) === 0);
     if (loose.length === 0) continue;
     const names = [...src.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1]!);

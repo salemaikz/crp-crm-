@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { eventShortLabels } from '../../../src/server/domain/reports/director';
+import { directorWeeks, eventShortLabels, parseDirectorWeek } from '../../../src/server/domain/reports/director';
 import { delta, directorTiles, funnelHints, type TileSpec } from '../../../src/app/(mgr)/director/tiles';
 import type { DirectorData } from '../../../src/app/(mgr)/director/types';
 
@@ -10,7 +10,7 @@ const data = {
   calls: { outcomes: 40, connects: 12, prevOutcomes: 30, prevConnects: 12 },
   bookings: { groups: 5, consults: 2 },
   eventLabels: { group: 'АБ', individual: 'ВГ' },
-  attendance: { attended: 3, noShow: 1, rate: 75 },
+  attendance: { attended: 3, noShow: 1, rate: 75, unmarked: 2 },
   purchases: { count: 2, sumKzt: 100000, prevCount: 1, prevSumKzt: 50000 },
   conversion: { average: 22.5, team: 20, operators: 3, minConnects: 20 },
   stock: { poolReady: 321, capacityPerDay: 80, days: 4 },
@@ -43,7 +43,16 @@ test('плитки: итоги и дозвоны отдельно, записи 
 
 test('плитка средней конверсии: нет операторов с нужным числом дозвонов — доли нет', () => {
   const none = { ...data, conversion: { average: null, team: null, operators: 0, minConnects: 20 } } as unknown as DirectorData;
-  assert.equal(directorTiles(none).find((x) => x.id === 'conversion')?.rate, null);
+  const tile = directorTiles(none).find((x) => x.id === 'conversion');
+  assert.equal(tile?.rate, null);
+  assert.equal(tile?.lowData, true, 'вместо прочерка — текст «Пока мало данных» с порогом');
+  assert.equal(directorTiles(data).find((x) => x.id === 'conversion')?.lowData, false);
+});
+
+test('плитка «Явка»: неотмеченные записи выводятся отдельным числом', () => {
+  const a = directorTiles(data).find((x) => x.id === 'attendance');
+  assert.equal(a?.unmarked, 2);
+  assert.equal(a?.value, 3);
 });
 
 test('eventShortLabels: первый групповой и первый индивидуальный вид, подписи short', () => {
@@ -86,6 +95,42 @@ test('воронка директора: «Пришли» показывает �
 test('воронка директора: согласованная воронка — доли шагов как есть, сноски нет', () => {
   const d = funnelData({ booked: 10, attended: 4, purchased: 2 }, { connected: 50, lpr: 40, booked: 80, attended: 40, purchased: 50 }, { attended: 4, noShow: 1, rate: 80 });
   const h = funnelHints(d);
-  assert.deepEqual([h.connected, h.booked, h.purchased], [{ kind: 'rate', value: 50 }, { kind: 'rate', value: 80 }, { kind: 'rate', value: 50 }]);
+  assert.deepEqual([h.connected, h.booked, h.purchased], [{ kind: 'rate', value: 50, from: 'issued' }, { kind: 'rate', value: 80, from: 'lpr' }, { kind: 'rate', value: 50, from: 'attended' }]);
   assert.deepEqual([h.note, h.withoutBooking], [false, 0]);
+});
+
+test('воронка директора: доля шага названа от предыдущего шага («от «Выдано»»)', () => {
+  const d = funnelData({ issued: 100, connected: 50, lpr: 40, booked: 32, attended: 20, purchased: 10 }, { connected: 50, lpr: 80, booked: 80, attended: 62.5, purchased: 50 }, { attended: 20, noShow: 5, rate: 80 });
+  const h = funnelHints(d);
+  assert.deepEqual([h.connected, h.lpr, h.booked, h.purchased].map((x) => (x.kind === 'rate' ? x.from : null)), ['issued', 'connected', 'lpr', 'attended']);
+});
+
+test('локаль панели: «Пока мало данных», «не отмечено», «от «…»» без терминов клиента', () => {
+  const ru = JSON.parse(readFileSync('messages/ru/reports.json', 'utf8')).director;
+  assert.match(ru.tiles.conversion.empty, /Пока мало данных/);
+  assert.match(ru.tiles.conversion.emptyHint, /\{min\}/);
+  assert.match(ru.tiles.attendance.hint, /\{unmarked\}/);
+  assert.match(ru.funnel.ofPrev, /\{pct\}.*\{prev\}/);
+});
+
+test('панель: неделя — закрытый список, неизвестное значение молча отбрасывается', () => {
+  assert.equal(parseDirectorWeek('prev'), 'prev');
+  assert.equal(parseDirectorWeek('current'), 'current');
+  for (const bad of [undefined, '', 'next', 'PREV', '2026-10-19', ['prev']]) assert.equal(parseDirectorWeek(bad), 'current');
+});
+
+test('панель: «Эта неделя» — понедельник…сегодня против прошлой; «Прошлая» — целая неделя против предыдущей', () => {
+  assert.deepEqual(directorWeeks('2026-10-28', 'current'), { week: { from: '2026-10-26', to: '2026-10-28' }, prev: { from: '2026-10-19', to: '2026-10-25' } });
+  assert.deepEqual(directorWeeks('2026-10-28', 'prev'), { week: { from: '2026-10-19', to: '2026-10-25' }, prev: { from: '2026-10-12', to: '2026-10-18' } });
+  assert.deepEqual(directorWeeks('2026-10-26', 'prev').week, { from: '2026-10-19', to: '2026-10-25' });
+});
+
+test('локали сводки и «Операторов»: колонки записей — шаблон «Записи на {event}», запасной вариант без названий клиента (A6)', () => {
+  const ru = JSON.parse(readFileSync('messages/ru/reports.json', 'utf8'));
+  for (const cols of [ru.summary.operators.columns, ru.operators.cols]) {
+    assert.match(cols.groups, /^Записи на \{event\}$/);
+    assert.match(cols.consults, /^Записи на \{event\}$/);
+    assert.ok(cols.groupsFallback && cols.consultsFallback);
+    assert.doesNotMatch(`${cols.groups}${cols.consults}${cols.groupsFallback}${cols.consultsFallback}`, /Группы|Консультации|БР|БК|разбор/);
+  }
 });

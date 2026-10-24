@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState } from 'react';
-import { Alert, Button, Checkbox, Field, FilterBar, Page, PageHeader, Segmented, Select } from '@/ui/kit';
+import { Alert, Button, Checkbox, Chip, ChipGroup, Field, FilterBar, Page, PageHeader, Segmented, Select } from '@/ui/kit';
 import { loadReport, queryString, type LoadFailure } from './api';
 import { periodProblem } from './dates';
 import { ExportBar } from './ExportBar';
@@ -24,6 +24,9 @@ import {
   type ReportMeta,
   type ReportQueryState,
 } from './types';
+
+/** Чипы-счётчики над списком явки; «запланирована» и «отменена» остаются в выпадающем фильтре. */
+const CHIP_STATUSES = ['attended', 'no_show', 'unmarked'] as const satisfies readonly AttendanceListStatus[];
 
 type Props = { meta: ReportMeta; initialQuery: ReportQueryState; initial: InitialReport; actions: ExportActions };
 
@@ -78,7 +81,7 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
     const r = await loadReport(query, data.next);
     if (mine !== seq.current) return;
     setBusy(false);
-    if (r.ok && 'next' in r.data) setData({ ...r.data, rows: [...(data as AttendanceListData).rows, ...r.data.rows] });
+    if (r.ok && 'next' in r.data) setData({ ...r.data, rows: [...(data as AttendanceListData).rows, ...r.data.rows], counts: (data as AttendanceListData).counts });
     else if (!r.ok) setError(r.key);
   };
 
@@ -197,6 +200,21 @@ export function ReportsScreen({ meta, initialQuery, initial, actions }: Props) {
         )}
       </section>
       {error && <Alert tone="warning">{t(`page.errors.${error}`)}</Alert>}
+      {shownKey === 'attendance' && data && 'next' in data && data.counts && (
+        <ChipGroup label={t('attendance.list.chips.label')} data-testid="attendance-chips">
+          {CHIP_STATUSES.map((st) => (
+            <Chip
+              key={st}
+              count={(data as AttendanceListData).counts![st]}
+              active={query.listStatus === st}
+              onClick={() => set({ listStatus: query.listStatus === st ? '' : st })}
+              data-testid={`attendance-chip-${st}`}
+            >
+              {t(`attendance.list.chips.${st}`)}
+            </Chip>
+          ))}
+        </ChipGroup>
+      )}
       <div aria-busy={busy} className={busy ? 'opacity-60' : undefined}>
         {data && !isEmpty(shownKey, data) && <ReportTable reportKey={shownKey} data={data} labels={meta.labels} />}
         {data && 'next' in data && data.next !== null && (

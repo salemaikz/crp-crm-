@@ -2,7 +2,9 @@
 
 import { useTranslations } from 'next-intl';
 import { Badge, Table, type BadgeTone, type TableColumn } from '@/ui/kit';
+import Link from 'next/link';
 import { formatDay, formatSeen } from './format';
+import { overdueHref } from './links';
 import type { OperatorRow, OperatorStatus, SummaryData } from './types';
 
 const TONE: Record<OperatorStatus, BadgeTone> = { working: 'success', paused: 'warning', absent: 'neutral' };
@@ -10,6 +12,11 @@ const TONE: Record<OperatorStatus, BadgeTone> = { working: 'success', paused: 'w
 /** Таблица операторов за сегодня; на телефоне строки становятся карточками. */
 export function OperatorsTable({ data }: { data: SummaryData }) {
   const t = useTranslations('reports.summary.operators');
+  // Названия видов записи — из настроек; вида нет — нейтральный запасной вариант
+  const kindHeader = (kind: 'groups' | 'consults'): string => {
+    const label = kind === 'groups' ? data.eventLabels.group : data.eventLabels.individual;
+    return label === '' ? t(`columns.${kind}Fallback`) : t(`columns.${kind}`, { event: label });
+  };
   const columns: TableColumn<OperatorRow>[] = [
     { key: 'name', header: t('columns.name'), primary: true, nowrap: true, cell: (o) => <strong>{o.name}</strong> },
     {
@@ -26,14 +33,29 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
     { key: 'outcomes', header: t('columns.outcomes'), numeric: true, cell: (o) => o.outcomes },
     { key: 'connects', header: t('columns.connects'), numeric: true, cell: (o) => o.connects },
     { key: 'lpr', header: t('columns.lpr'), numeric: true, cell: (o) => o.lpr },
-    { key: 'groups', header: t('columns.groups'), numeric: true, cell: (o) => o.groups },
-    { key: 'consults', header: t('columns.consults'), numeric: true, cell: (o) => o.consults },
+    { key: 'groups', header: kindHeader('groups'), numeric: true, cell: (o) => o.groups },
+    { key: 'consults', header: kindHeader('consults'), numeric: true, cell: (o) => o.consults },
     { key: 'skips', header: t('columns.skips'), numeric: true, cell: (o) => o.skips },
     {
       key: 'overdue',
       header: t('columns.overdue'),
       numeric: true,
-      cell: (o) => (o.overdue > 0 ? <Badge tone="danger" variant="count">{o.overdue}</Badge> : o.overdue),
+      cell: (o) => {
+        if (o.overdue === 0) return o.overdue;
+        const badge = (
+          <Badge tone="danger" variant="count">
+            {o.overdue}
+          </Badge>
+        );
+        const href = data.board.on ? overdueHref(data.board.callbackTab, o.userId) : null;
+        return href ? (
+          <Link href={href} aria-label={t('overdueLink', { name: o.name })} data-testid="summary-link-overdue-op">
+            {badge}
+          </Link>
+        ) : (
+          badge
+        );
+      },
     },
     {
       key: 'rate',

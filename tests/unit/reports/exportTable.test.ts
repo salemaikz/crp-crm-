@@ -90,6 +90,7 @@ test('воронка, выручка, явка, причины: подписи �
       { group: 'not_interested', reasonCode: 'expensive', count: 3, share: 75 },
       { group: 'not_interested', reasonCode: '', count: 1, share: 25 },
     ],
+    blocks: [],
   };
   assert.deepEqual(toExportTable('reasons', rs, t).rows, [
     ['Не интересно', 'Дорого', 3, 75],

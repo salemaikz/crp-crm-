@@ -23,8 +23,9 @@
         "hint": "лимит × операторов: {operators}"
       },
       "grey": {
-        "title": "Заявки на консультацию",
-        "hint": "ждут консультанта"
+        "title": "Заявки на {event}",
+        "hint": "ждут консультанта",
+        "titleFallback": "Индивидуальные заявки"
       },
       "bookings": {
         "title": "Записи",
@@ -56,12 +57,14 @@
         "outcomes": "Итогов",
         "connects": "Дозвонов",
         "lpr": "ЛПР",
-        "groups": "Группы",
-        "consults": "Консультации",
+        "groups": "Записи на {event}",
+        "consults": "Записи на {event}",
         "skips": "Пропуски",
         "overdue": "Просрочено",
         "rate": "Звонков в час",
-        "unsent": "Не отправлено"
+        "unsent": "Не отправлено",
+        "groupsFallback": "Групповые записи",
+        "consultsFallback": "Индивидуальные записи"
       },
       "status": {
         "working": "Работает",
@@ -74,7 +77,8 @@
       "rateNone": "—",
       "belowTarget": "ниже нормы {target}",
       "lastSeen": "связь {time}",
-      "neverSeen": "связи не было"
+      "neverSeen": "связи не было",
+      "overdueLink": "Просроченные перезвоны: {name}"
     }
   },
   "page": {
@@ -156,8 +160,8 @@
       "outcomes": "Итогов",
       "connects": "Дозвонов",
       "lpr": "ЛПР",
-      "groups": "Группы",
-      "consults": "Консультации",
+      "groups": "Записи на {event}",
+      "consults": "Записи на {event}",
       "attended": "Пришли",
       "noShow": "Не пришли",
       "attendanceRate": "Явка",
@@ -168,7 +172,9 @@
       "callsPerHour": "Звонков в час",
       "bookedPerConnect": "Запись / дозвон",
       "attendedPerBooked": "Явка / запись",
-      "purchasedPerAttended": "Покупка / явка"
+      "purchasedPerAttended": "Покупка / явка",
+      "groupsFallback": "Групповые записи",
+      "consultsFallback": "Индивидуальные записи"
     },
     "average": "Средняя по операторам",
     "averageHint": "«Итого» — по команде в целом. Средняя — среднее по операторам, у которых за период не меньше {min} дозвонов (в расчёте: {count})."
@@ -240,7 +246,7 @@
       "purchases": "Покупки"
     },
     "view": {
-      "label": "Вид",
+      "label": "Показать",
       "summary": "Сводка",
       "list": "Список"
     },
@@ -257,7 +263,7 @@
       "cols": {
         "date": "Дата",
         "time": "Время",
-        "eventType": "Вид",
+        "eventType": "Мероприятие",
         "client": "Клиент",
         "bookedBy": "Кто записал",
         "status": "Статус",
@@ -271,6 +277,12 @@
         "unmarked": "Не отмечено",
         "planned": "Запланирована",
         "cancelled": "Отменена"
+      },
+      "chips": {
+        "label": "Статус записи",
+        "attended": "Пришли",
+        "no_show": "Не пришли",
+        "unmarked": "Не отмечено"
       }
     }
   },
@@ -297,6 +309,24 @@
     "system": {
       "no_answer_limit": "Лимит недозвонов исчерпан",
       "no_working_phone": "Нет рабочего номера"
+    },
+    "view": {
+      "label": "Вид отчёта",
+      "blocks": "По колонкам доски",
+      "details": "Подробно"
+    },
+    "block": {
+      "total": "Всего: {n}",
+      "empty": "Причин за период нет",
+      "cols": {
+        "reason": "Причина",
+        "count": "Число",
+        "share": "Доля"
+      }
+    },
+    "blockFallback": {
+      "callback": "Перезвон",
+      "trash": "Мусор"
     }
   },
   "export": {
@@ -393,7 +423,8 @@
       "attendance": {
         "title": "Явка",
         "value": "{attended} из {total}",
-        "hint": "не пришли: {noShow}"
+        "hint": "не пришли: {noShow} · не отмечено: {unmarked}",
+        "label": "{title}: {rate} от отмеченных"
       },
       "purchases": {
         "title": "Покупки",
@@ -401,11 +432,15 @@
       },
       "conversion": {
         "title": "Средняя конверсия операторов",
-        "hint": "запись / дозвон, по команде {teamRate}; учтены операторы от {min} дозвонов"
+        "hint": "по команде {teamRate} · от {min} дозвонов",
+        "empty": "Пока мало данных",
+        "emptyHint": "Нужны операторы с {min}+ дозвонами за неделю",
+        "hintLead": "запись / дозвон"
       },
       "pool": {
         "title": "В пуле",
-        "hint": "готово к раздаче"
+        "hint": "готово к раздаче",
+        "hintDays": "готово к раздаче · хватит на {days} дн."
       }
     },
     "delta": {
@@ -417,7 +452,8 @@
       "title": "Воронка недели",
       "attendanceRate": "явка {rate}",
       "note": "Воронка недели: каждый шаг считает свои события за неделю, поэтому доли шагов могут не сходиться. «Пришли» — явка отмеченных записей, как в плитке выше.",
-      "withoutBooking": "Покупок без записи на мероприятие: {n}."
+      "withoutBooking": "Покупок без записи на мероприятие: {n}.",
+      "ofPrev": "{pct} от «{prev}»"
     },
     "revenue": {
       "title": "Выручка по типам услуг",
@@ -433,6 +469,17 @@
       "generic": "Не удалось обновить панель."
     },
     "moreOperators": "Операторы — подробнее",
-    "moreAttendance": "Явка — подробнее"
+    "moreAttendance": "Явка — подробнее",
+    "leadPrev": "Прошлая неделя: {from} — {to}. Только просмотр.",
+    "prevWeekShifted": "Неделей раньше: {value}",
+    "weekSwitch": {
+      "label": "Неделя",
+      "current": "Эта неделя",
+      "prev": "Прошлая неделя"
+    },
+    "reasons": {
+      "title": "Причины отказа: {column}",
+      "empty": "Отказов за неделю нет"
+    }
   }
 }

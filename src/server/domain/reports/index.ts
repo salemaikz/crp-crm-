@@ -21,4 +21,4 @@ export { ExportLimitError, ExportTooLargeError, PasswordInvalidError, type Expor
 export { FULL_EXPORTS_PER_DAY, issueFullExportTicket, streamFullExport } from './fullExport';
 
 // Панель директора (R4)
-export { getDirectorDashboard, stockDays } from './director';
+export { getDirectorDashboard, parseDirectorWeek, stockDays } from './director';

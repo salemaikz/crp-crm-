@@ -73,6 +73,8 @@ after(async () => {
 test('РОП: плитки сводки', async () => {
   const s = await getSummary(await viewerOf(U.rop));
   assert.equal(s.day, SEED_TODAY);
+  // подписи видов записи для колонок «Записи на {event}» (A6): объект с двумя строками, без настроек — пустые
+  assert.deepEqual(Object.keys(s.eventLabels).sort(), ['group', 'individual']);
   // пул: 17 готовых (20 − 2 дубля − 1 конфликт), три выдано A выше из pc-1..3 только в журнале, карточки остались в пуле
   assert.equal(s.tiles.pool.ready, 17);
   assert.equal(s.tiles.pool.duplicates, 2);
@@ -90,6 +92,18 @@ test('РОП: плитки сводки', async () => {
   assert.deepEqual(s.tiles.overdue, { cards: 3, operators: 2 });
   assert.equal(s.alarm, true);
   assert.deepEqual(s.tiles.unsent, { pending: 5, operators: 1 });
+});
+
+test('ссылки на доску (К1): колонка перезвона при OP_BOARD, без флага — ссылок нет', async () => {
+  const rop = await viewerOf(U.rop);
+  process.env.FEATURE_OP_BOARD = '0';
+  try {
+    assert.deepEqual((await getSummary(rop)).board, { on: false, callbackTab: null });
+    process.env.FEATURE_OP_BOARD = '1';
+    assert.deepEqual((await getSummary(rop)).board, { on: true, callbackTab: 'callback' });
+  } finally {
+    delete process.env.FEATURE_OP_BOARD;
+  }
 });
 
 test('РОП: таблица операторов', async () => {

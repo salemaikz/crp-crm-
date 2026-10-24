@@ -72,8 +72,19 @@ export function decodeListCursor(raw: string): { startsAt: number; id: string } 
 
 const STATUS_SET: ReadonlySet<string> = new Set(ATTENDANCE_LIST_STATUSES);
 
+function statusCounts(rows: ReadonlyArray<{ status: string; n: number }>): Record<AttendanceListStatus, number> {
+  const out = Object.fromEntries(ATTENDANCE_LIST_STATUSES.map((s) => [s, 0])) as Record<AttendanceListStatus, number>;
+  for (const r of rows) if (STATUS_SET.has(r.status)) out[r.status as AttendanceListStatus] += r.n;
+  return out;
+}
+
 /** Страница списка из строк репозитория (запрошено `limit + 1`, лишняя строка — признак следующей страницы). */
-export function buildAttendanceList(i: { period: ResolvedPeriod; rows: readonly AttendanceListSqlRow[]; limit: number }): AttendanceListReport {
+export function buildAttendanceList(i: {
+  period: ResolvedPeriod;
+  rows: readonly AttendanceListSqlRow[];
+  limit: number;
+  counts?: ReadonlyArray<{ status: string; n: number }> | null;
+}): AttendanceListReport {
   const page = i.rows.slice(0, i.limit);
   const last = page[page.length - 1];
   return {
@@ -95,5 +106,6 @@ export function buildAttendanceList(i: { period: ResolvedPeriod; rows: readonly 
       purchaseSumKzt: r.purchaseSumKzt === null ? null : toKzt(r.purchaseSumKzt),
     })),
     next: i.rows.length > i.limit && last ? encodeListCursor(last.startsAt, last.bookingId) : null,
+    counts: i.counts ? statusCounts(i.counts) : null,
   };
 }

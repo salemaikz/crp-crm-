@@ -615,3 +615,31 @@ export async function attendanceListRows(viewer: Viewer, sql: Sql, a: Attendance
      ORDER BY l.starts_at DESC, l.booking_id DESC
      LIMIT ${a.limit}`;
 }
+
+/**
+ * Сколько записей в каждом статусе при тех же фильтрах, что у списка, но без статуса и курсора: числа для чипов над
+ * таблицей. Набор записей и охват — как в `attendanceListRows`.
+ */
+export async function attendanceListCounts(viewer: Viewer, sql: Sql, a: Omit<AttendanceListArgs, 'status' | 'after' | 'limit'>): Promise<{ status: string; n: number }[]> {
+  return scoped(sql)<{ status: string; n: number }>`
+    SELECT CASE WHEN b.status = 'cancelled' THEN 'cancelled'
+                WHEN b.status = 'attended' THEN 'attended'
+                WHEN b.status = 'no_show' THEN 'no_show'
+                WHEN b.starts_at < ${a.now}::bigint THEN 'unmarked'
+                ELSE 'planned' END AS status,
+           count(*)::int AS n
+      FROM bookings b
+      JOIN clients cl ON cl.id = b.client_id AND ${scopeSql(viewer, 'client', 'client.read')}
+      LEFT JOIN resources r ON r.id = b.resource_id
+     WHERE b.space_id = ${a.spaceId} AND b.booking_date BETWEEN ${a.from}::text AND ${a.to}::text AND NOT b.is_reserve
+       AND b.status IN ('registered','confirmed','attended','no_show','cancelled')
+       AND NOT (b.status = 'cancelled' AND b.cancel_reason = 'operator_error')
+       AND (${a.eventType}::text IS NULL OR b.event_type_key = ${a.eventType}::text)
+       AND (${a.consultant}::text IS NULL OR r.user_id = ${a.consultant}::text)
+       AND (${a.userIds}::text[] IS NULL OR b.booked_by_user_id = ANY(${a.userIds}::text[]))
+       AND (${a.sourceKey}::text IS NULL OR (SELECT CASE WHEN s.source_key <> '' THEN s.source_key ELSE s.source_kind END
+                                               FROM client_sources s WHERE s.client_id = b.client_id
+                                              ORDER BY s.first_seen_at, s.id LIMIT 1) = ${a.sourceKey}::text)
+       AND ${scopeSql(viewer, 'booking', 'booking.read')}
+     GROUP BY 1`;
+}

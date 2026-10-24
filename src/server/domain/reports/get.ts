@@ -11,6 +11,7 @@ import { addCounts, buildOperatorsReport, emptyCounts, loadNames, loadUserDayCel
 import { defaultPeriod, resolvePeriod } from './period';
 import {
   attendanceGroups,
+  attendanceListCounts,
   attendanceListRows,
   attendancePurchases,
   funnelBySource,
@@ -22,6 +23,7 @@ import {
   type PeriodArgs,
 } from './periodRepo';
 import { buildReasonsReport } from './reasons';
+import { loadReasonColumns } from './settings';
 import { buildRevenueReport } from './revenue';
 import { BadRequestError } from '@/server/access';
 import { ExportTooLargeError } from './exportErrors';
@@ -93,8 +95,12 @@ export const getReport: GetReport = async <Q extends ReportQuery>(viewer: Parame
         const after = q.list.cursor === null ? null : decodeListCursor(q.list.cursor);
         if (q.list.cursor !== null && after === null) throw new BadRequestError('invalid');
         const limit = Math.max(1, Math.trunc(q.list.limit));
-        const rows = await attendanceListRows(viewer, sql, { ...a, now, eventType: q.list.eventType, status: q.list.status, consultant: q.list.consultant, after, limit: limit + 1 });
-        return buildAttendanceList({ period, rows, limit }) as ReportResult<Q>;
+        const [rows, counts] = await Promise.all([
+          attendanceListRows(viewer, sql, { ...a, now, eventType: q.list.eventType, status: q.list.status, consultant: q.list.consultant, after, limit: limit + 1 }),
+          // чипы над таблицей считаются один раз, на первой странице
+          after === null ? attendanceListCounts(viewer, sql, { ...a, now, eventType: q.list.eventType, consultant: q.list.consultant }) : Promise.resolve(null),
+        ]);
+        return buildAttendanceList({ period, rows, limit, counts }) as ReportResult<Q>;
       }
       const [rows, purchases] = await Promise.all([
         attendanceGroups(viewer, sql, { ...a, by: q.by, now }),
@@ -107,8 +113,11 @@ export const getReport: GetReport = async <Q extends ReportQuery>(viewer: Parame
       }
       return buildAttendanceReport({ period, by: q.by, rows, purchases, names }) as ReportResult<Q>;
     }
-    case 'reasons':
-      return buildReasonsReport(period, await reasonCounts(viewer, sql, { ...a, closingKinds: REASON_OUTCOME_KINDS })) as ReportResult<Q>;
+    case 'reasons': {
+      // Блоки по колонкам доски пресета (роли «мусор» и «перезвон»); нет настроек — только прежние группы
+      const columns = await (deps.reasonColumns ?? loadReasonColumns)(spaceId);
+      return buildReasonsReport(period, await reasonCounts(viewer, sql, { ...a, closingKinds: REASON_OUTCOME_KINDS }), columns) as ReportResult<Q>;
+    }
   }
 };
 
@@ -139,7 +148,7 @@ export async function getAttendanceListAll(viewer: Parameters<GetReport>[0], q: 
     first ??= page;
     rows.push(...page.rows);
     if (rows.length > ATTENDANCE_EXPORT_MAX_ROWS) throw new ExportTooLargeError();
-    if (page.next === null) return { period: first.period, rows, next: null };
+    if (page.next === null) return { period: first.period, rows, next: null, counts: first.counts };
     cursor = page.next;
   }
 }

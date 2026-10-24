@@ -224,6 +224,15 @@ test('причины: перезвон (в том числе «без причи
   );
 });
 
+test('причины: блоки по колонкам доски — доли от итога блока, оператору нельзя', async () => {
+  const r = await getReport(await viewerOf(U.rop), { key: 'reasons', period: REAS, filters: NO_FILTERS });
+  assert.deepEqual(r.blocks.map((b) => [b.key, b.label, b.total]), [['callback', 'Перезвон', 4], ['trash', 'Мусор', 3]]);
+  const trash = r.blocks.find((b) => b.key === 'trash')!;
+  assert.deepEqual(trash.rows.map((x) => [x.group, x.reasonCode, x.count, x.share]), [['written_off', 'no_answer_limit', 2, 66.7], ['written_off', 'unreachable', 1, 33.3]]);
+  assert.equal(r.blocks.find((b) => b.key === 'callback')!.rows.reduce((s, x) => s + (x.share ?? 0), 0), 100);
+  await assert.rejects(getReport(await viewerOf(U.opA), { key: 'reasons', period: REAS, filters: NO_FILTERS }), (e: { code?: string }) => e.code === 'forbidden');
+});
+
 test('причины: фильтр по сотруднику и охват пространства', async () => {
   const onlyB = await getReport(await viewerOf(U.rop), { key: 'reasons', period: REAS, filters: { userIds: [U.opB], sourceKey: null } });
   assert.deepEqual(onlyB.rows.map((x) => [x.group, x.reasonCode, x.count]), [['callback', 'later', 1], ['written_off', 'no_answer_limit', 1], ['no_show', 'other', 1]]);
@@ -279,6 +288,18 @@ test('список явки: фильтры вид, статус, сотрудн
   assert.deepEqual(await ids(listQ({ users: [U.opA] })), ['l4', 'l3', 'l1']);
   assert.deepEqual(await ids(listQ({ consultant: U.consultant })), ['l2', 'l1']);
   assert.deepEqual(await ids(listQ({ users: [U.opB], status: 'attended' })), ['l7']);
+});
+
+test('список явки: счётчики по статусам для чипов — те же фильтры, кроме статуса; на следующих страницах их нет', async () => {
+  const all = { attended: 2, no_show: 1, unmarked: 2, planned: 0, cancelled: 1 };
+  assert.deepEqual((await list(listQ())).counts, all);
+  assert.deepEqual((await list(listQ({ status: 'attended' }))).counts, all, 'выбранный статус чипы не сужает');
+  assert.deepEqual((await list(listQ({ eventType: 'other' }))).counts, { attended: 0, no_show: 0, unmarked: 1, planned: 0, cancelled: 0 });
+  assert.deepEqual((await list(listQ({ consultant: U.consultant }))).counts, { attended: 1, no_show: 1, unmarked: 0, planned: 0, cancelled: 0 });
+  assert.deepEqual((await list(listQ({ users: [U.opA] }))).counts, { attended: 1, no_show: 0, unmarked: 1, planned: 0, cancelled: 1 });
+  const p1 = await list(listQ({ limit: 4 }));
+  assert.deepEqual(p1.counts, all);
+  assert.equal((await list(listQ({ limit: 4, cursor: p1.next! }))).counts, null);
 });
 
 test('список явки: курсорная пагинация без пропусков и повторов', async () => {

@@ -2,13 +2,18 @@
 // page() с правом 'report.view'; охват пространства проверяет сервис. Кнопок изменения на экране нет.
 import type { ReactNode } from 'react';
 import { can, page } from '@/server/access';
-import { getDirectorDashboard, getReportMeta } from '@/server/domain/reports';
+import { getDirectorDashboard, getReportMeta, parseDirectorWeek } from '@/server/domain/reports';
 import { DirectorScreen } from './DirectorScreen';
 import type { DirectorData } from './types';
 
-export default page<unknown, ReactNode>({ perm: 'report.view' }, async ({ viewer }) => {
+type Props = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
+
+export default page<Props, ReactNode>({ perm: 'report.view' }, async ({ viewer, props }) => {
+  // ?week=prev — прошлая неделя целиком (закрытый список, остальное — текущая)
+  const sp = (await props.searchParams) ?? {};
+  const week = parseDirectorWeek(Array.isArray(sp.week) ? sp.week[0] : sp.week);
   // присваивание проверяет, что форма из домена совместима с типами клиентского экрана
-  const data: DirectorData = await getDirectorDashboard(viewer);
+  const data: DirectorData = await getDirectorDashboard(viewer, { week });
   const meta = await getReportMeta(viewer);
-  return <DirectorScreen initial={data} labels={meta.labels} canExport={can(viewer, 'report.export')} />;
+  return <DirectorScreen key={week} initial={data} labels={meta.labels} canExport={can(viewer, 'report.export')} />;
 });

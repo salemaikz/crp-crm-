@@ -2,9 +2,11 @@
 
 import { RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Button, EmptyState, Page, PageHeader, Section, Stat, StatGrid } from '@/ui/kit';
+import Link from 'next/link';
 import { formatTime } from './format';
+import { bookingsHref, overdueHref } from './links';
 import { OperatorsTable } from './OperatorsTable';
 import type { SummaryData } from './types';
 
@@ -61,6 +63,8 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
   }, [refresh]);
 
   const tl = data.tiles;
+  const overdueLink = data.board.on ? overdueHref(data.board.callbackTab) : null;
+  const bookingsLink = bookingsHref(data.board.on);
   const time = formatTime(data.generatedAt, data.timeZone);
   return (
     <Page width="wide">
@@ -81,10 +85,10 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
           label={t('tiles.issued.title')}
           hint={t('tiles.issued.hint', { operators: tl.issued.operators })}
         />
-        <Stat value={tl.grey.waiting} label={t('tiles.grey.title')} hint={t('tiles.grey.hint')} />
+        <Stat value={tl.grey.waiting} label={data.eventLabels.individual === '' ? t('tiles.grey.titleFallback') : t('tiles.grey.title', { event: data.eventLabels.individual })} hint={t('tiles.grey.hint')} />
         <Stat
           value={tl.bookings.today.total}
-          label={t('tiles.bookings.title')}
+          label={bookingsLink ? <TileLink href={bookingsLink} testId="summary-link-bookings">{t('tiles.bookings.title')}</TileLink> : t('tiles.bookings.title')}
           hint={
             <>
               {t('tiles.bookings.today', tl.bookings.today)}
@@ -95,7 +99,7 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
         />
         <Stat
           value={tl.overdue.cards}
-          label={t('tiles.overdue.title')}
+          label={overdueLink && tl.overdue.cards > 0 ? <TileLink href={overdueLink} testId="summary-link-overdue">{t('tiles.overdue.title')}</TileLink> : t('tiles.overdue.title')}
           tone={data.alarm ? 'danger' : 'default'}
           hint={tl.overdue.cards > 0 ? t('tiles.overdue.hint', { operators: tl.overdue.operators }) : t('tiles.overdue.none')}
         />
@@ -113,5 +117,14 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
         )}
       </Section>
     </Page>
+  );
+}
+
+/** Название плитки как ссылка: число остаётся крупным, переход — по подписи. */
+function TileLink({ href, testId, children }: { href: string; testId: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="underline underline-offset-2" data-testid={testId}>
+      {children}
+    </Link>
   );
 }

@@ -3,6 +3,7 @@
 import { notFound } from 'next/navigation';
 import { NotFoundError, page, scopeOf } from '@/server/access';
 import { getDealsBoard } from '@/server/domain/deals';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { DealsBoard } from './DealsBoard';
 
 export default page({ perm: 'deal.read', target: 'section' }, async ({ viewer }) => {
@@ -14,5 +15,5 @@ export default page({ perm: 'deal.read', target: 'section' }, async ({ viewer })
     throw e;
   }
   const scope = scopeOf(viewer, 'card.read');
-  return <DealsBoard initial={board} timeZone={viewer.timeZone} showCalling={scope === 'space' || scope === 'all'} />;
+  return <DealsBoard initial={board} timeZone={viewer.timeZone} showCalling={scope === 'space' || scope === 'all'} opBoard={isFeatureEnabled('OP_BOARD')} />;
 });

@@ -8,6 +8,9 @@ import { dueBoundsAt } from '@/server/domain/calls/dueBounds';
 import { requireSpaceReports } from './access';
 import { buildOperatorRows, roomToday } from './compose';
 import { reportsDeps } from './deps';
+import { isFeatureEnabled } from '@/server/platform/flags';
+import { loadEventLabels } from './eventLabels';
+import { loadReasonColumns } from './settings';
 import {
   countGreyBookings,
   selectBookingDays,
@@ -53,6 +56,11 @@ export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
     countGreyBookings(viewer, sql, { spaceId, fromDay: day }),
   ]);
 
+  const eventLabels = await loadEventLabels(spaceId);
+  // Ссылки на доску (К1) — только при включённом OP_BOARD; колонка перезвона берётся из настроек доски
+  const boardOn = isFeatureEnabled('OP_BOARD');
+  const columns = boardOn ? await (deps.reasonColumns ?? loadReasonColumns)(spaceId) : [];
+  const board = { on: boardOn, callbackTab: columns.find((c) => c.role === 'callback')?.key ?? null };
   const operators = buildOperatorRows({
     staff,
     today: day,
@@ -88,6 +96,8 @@ export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
     timeZone,
     overdueAlertMinutes: cfg.overdueAlertMinutes,
     callsPerHourTarget: cfg.callsPerHourTarget,
+    eventLabels,
+    board,
     tiles: {
       pool,
       issued: { issued: operators.reduce((sum, o) => sum + o.issued, 0), cap: settings.dailyCap * accepting.length, operators: accepting.length },

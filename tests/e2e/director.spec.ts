@@ -64,7 +64,7 @@ test('директор: панель недели, пункт меню, без �
   // из действий только «Обновить» и ссылки «Подробнее»; форм и полей ввода нет
   await expect(page.getByRole('textbox')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Обновить' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Подробнее' }).first()).toHaveAttribute('href', /\/reports\?r=funnel&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
+  await expect(page.getByRole('link', { name: 'Подробнее', exact: true }).first()).toHaveAttribute('href', /\/reports\?r=\w+&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
   // страница без горизонтальной прокрутки
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   // мутация от директора блокируется ролью «только чтение»
@@ -95,4 +95,50 @@ test('оператору панели нет', async ({ page }) => {
   await login(page, operator);
   const res = await page.goto('/director');
   expect(res?.status()).toBe(404);
+});
+
+test('телефон: подписи плиток недели и шагов воронки не перекрываются (A2)', async ({ page }) => {
+  test.skip(test.info().project.name !== 'pixel-7', 'геометрия проверяется на Pixel 7');
+  await login(page, director);
+  await page.goto('/director');
+  await expect(page.getByRole('heading', { name: 'Воронка недели' })).toBeVisible();
+  for (const name of ['Показатели недели', 'Воронка недели']) {
+    const grid = page.getByRole('region', { name });
+    const boxes = await grid.locator('.k-stat').evaluateAll((els) =>
+      els.map((e) => {
+        const r = (e.querySelector('.k-stat__label') ?? e).getBoundingClientRect();
+        return { l: r.left, t: r.top, r: r.right, b: r.bottom };
+      }),
+    );
+    expect(boxes.length).toBeGreaterThan(3);
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]!;
+        const b = boxes[j]!;
+        const overlap = a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+        expect(overlap, `${name}: подписи ${i} и ${j} перекрываются`).toBe(false);
+      }
+    }
+    // плитки в две колонки: у первых двух общая верхняя граница, правая колонка не уходит за экран
+    const tiles = await grid.locator('.k-stat').evaluateAll((els) => els.map((e) => e.getBoundingClientRect()));
+    expect(Math.abs(tiles[0]!.top - tiles[1]!.top)).toBeLessThan(2);
+    expect(tiles.every((r) => r.right <= page.viewportSize()!.width + 0.5)).toBe(true);
+  }
+});
+
+test('переключатель «Эта неделя / Прошлая неделя» и блок причин отказа (A3)', async ({ page }) => {
+  await login(page, director);
+  await page.goto('/director');
+  await expect(page.getByTestId('week-current')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByText(/^Текущая неделя:/)).toBeVisible();
+  await page.getByTestId('week-prev').click();
+  await expect(page).toHaveURL(/\/director\?week=prev$/);
+  await expect(page.getByText(/^Прошлая неделя: \d/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Причины отказа/ })).toBeVisible();
+  // обновление берёт ту же неделю
+  await page.getByRole('button', { name: 'Обновить' }).click();
+  await expect(page.getByText(/^Прошлая неделя: \d/)).toBeVisible();
+  // неизвестное значение — текущая неделя
+  await page.goto('/director?week=unknown');
+  await expect(page.getByTestId('week-current')).toHaveAttribute('aria-current', 'page');
 });

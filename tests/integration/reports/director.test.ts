@@ -6,7 +6,7 @@ import * as directorRoute from '../../../src/app/api/reports/director/route';
 import { ForbiddenError } from '../../../src/server/access';
 import { getDirectorDashboard, getSummary, stockDays } from '../../../src/server/domain/reports';
 import type { TestDb } from '../../../src/server/platform/db/testing';
-import { DAY, MIN, SEED_NOW, SEED_TODAY, U, actAs, closeWorld, enterReportsConfig, leaveReportsConfig, openWorld, seedCall, seedPool, viewerOf } from './helpers';
+import { DAY, MIN, SEED_NOW, SEED_TODAY, SPACE, U, actAs, closeWorld, enterReportsConfig, leaveReportsConfig, openWorld, seedCall, seedPool, viewerOf } from './helpers';
 
 let db: TestDb;
 let base: Awaited<ReturnType<typeof getDirectorDashboard>>; // числа мира изоляции до собственных звонков
@@ -37,6 +37,67 @@ test('итог с канала board увеличивает итоги, но н�
   assert.equal(typeof after.calls.prevConnects, 'number');
   assert.deepEqual(Object.keys(after.eventLabels).sort(), ['group', 'individual']);
   await db.sql`DELETE FROM calls WHERE id = 'd4'`;
+});
+
+test('в плитке «Явка» unmarked равен числу записей недели с прошедшей датой без отметки', async () => {
+  const v = await viewerOf(U.director);
+  const before = await getDirectorDashboard(v);
+  const mk = async (id: string, status: string, startsAt: number, card: string, client: string) => {
+    await db.sql`
+      INSERT INTO bookings (id, space_id, kind, event_type_key, client_id, card_id, booking_date, start_time, starts_at, duration_min, status, via,
+                            booked_by_user_id, responsible_user_id, created_at, updated_at)
+      VALUES (${id}, ${SPACE}, 'individual', 'consult', ${client}, ${card}, ${before.week.to}, '09:00', ${startsAt}, 60, ${status}, 'ui', ${U.opA}, ${U.opA}, ${SEED_NOW}, ${SEED_NOW})`;
+  };
+  // две прошедшие без отметки, одна будущая (не «не отмечено») и одна отмеченная
+  await mk('bk-um-1', 'registered', SEED_NOW - 3 * 60 * MIN, 'cd-a-2', 'cl-a-2');
+  await mk('bk-um-2', 'confirmed', SEED_NOW - 2 * 60 * MIN, 'cd-a-3', 'cl-a-3');
+  await mk('bk-um-3', 'registered', SEED_NOW + 60 * MIN, 'cd-a-4', 'cl-a-4');
+  await mk('bk-um-4', 'attended', SEED_NOW - 4 * 60 * MIN, 'cd-a-5', 'cl-a-5');
+  try {
+    const d = await getDirectorDashboard(v);
+    assert.equal(d.attendance.unmarked, before.attendance.unmarked + 2);
+    assert.equal(d.attendance.attended, before.attendance.attended + 1);
+  } finally {
+    await db.sql`DELETE FROM bookings WHERE id LIKE 'bk-um-%'`;
+  }
+});
+
+test('?week=prev: прошлая неделя целиком, сравнение с предыдущей, те же числа, что в сравнении текущей недели', async () => {
+  const v = await viewerOf(U.director);
+  const cur = await getDirectorDashboard(v);
+  const prev = await getDirectorDashboard(v, { week: 'prev' });
+  assert.equal(cur.weekKey, 'current');
+  assert.equal(prev.weekKey, 'prev');
+  assert.deepEqual([prev.week.from, prev.week.to], [cur.prevWeek.from, cur.prevWeek.to]);
+  assert.deepEqual([prev.prevWeek.from, prev.prevWeek.to], ['2026-10-12', '2026-10-18']);
+  assert.equal(prev.calls.outcomes, cur.calls.prevOutcomes);
+  assert.equal(prev.calls.connects, cur.calls.prevConnects);
+  // неизвестное значение — текущая неделя
+  assert.equal((await getDirectorDashboard(v, { week: 'next' as never })).weekKey, 'current');
+});
+
+test('причины на панели: топ-5 колонки «Мусор» по убыванию, оператору панели нет', async () => {
+  const v = await viewerOf(U.director);
+  for (const [i, code] of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'].entries()) {
+    for (let k = 0; k <= i; k++) {
+      await db.sql`
+        INSERT INTO calls (id, space_id, card_id, client_id, user_id, via, phone_digits, outcome_code, outcome_kind, lpr, applied, fact_reason, occurred_at, received_at, config_rev, reason_code)
+        VALUES (${`rs-${code}-${k}`}, ${SPACE}, 'cd-a-2', 'cl-a-2', ${U.opA}, 'ui', '', 'not_interested', 'not_interested', '', 'applied', '', ${SEED_NOW - 30 * MIN}, ${SEED_NOW - 30 * MIN}, 1, ${code})`;
+    }
+  }
+  try {
+    const d = await getDirectorDashboard(v);
+    assert.ok(d.reasons, 'колонка «Мусор» из настроек');
+    assert.equal(d.reasons.key, 'trash');
+    assert.equal(d.reasons.top.length, 5);
+    assert.deepEqual(d.reasons.top.map((r) => r.reasonCode), ['r7', 'r6', 'r5', 'r4', 'r3']);
+    assert.ok(d.reasons.total >= 28);
+    const sum = d.reasons.top.reduce((s, r) => s + r.count, 0);
+    assert.ok(sum <= d.reasons.total);
+    await assert.rejects(getDirectorDashboard(await viewerOf(U.opA)), ForbiddenError);
+  } finally {
+    await db.sql`DELETE FROM calls WHERE id LIKE 'rs-r%'`;
+  }
 });
 
 test('stockDays: один знак, нулевая ёмкость — null', () => {

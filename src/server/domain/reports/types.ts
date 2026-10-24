@@ -2,6 +2,7 @@
 // Только счётчики, id и имена сотрудников; данных клиентов (названий, номеров) в сводке нет.
 import type { Viewer } from '@/server/access';
 import type { DistributionConfig } from '@/server/domain/distribution';
+import type { ReasonColumn } from './reasons';
 
 export type OperatorStatus = 'working' | 'paused' | 'absent';
 
@@ -67,6 +68,10 @@ export interface Summary {
   overdueAlertMinutes: number;
   /** Норма звонков в час (`reports.callsPerHourTarget`); null — не задана. */
   callsPerHourTarget: number | null;
+  /** Короткие подписи видов записи из настроек (первый групповой и индивидуальный); пусто — вида нет. */
+  eventLabels: { group: string; individual: string };
+  /** Доска включена (OP_BOARD): `callbackTab` — ключ колонки роли «перезвон» для ссылок К1. Выключена — null, ссылок нет. */
+  board: { on: boolean; callbackTab: string | null };
   tiles: SummaryTiles;
   /** Красная плитка: что-то просрочено. */
   alarm: boolean;
@@ -83,6 +88,8 @@ export interface ReportsConfig {
 export interface ReportsDeps {
   config: (spaceId: string, now: number) => Promise<ReportsConfig>;
   now: () => number;
+  /** Колонки доски ролей «мусор» и «перезвон» для отчёта «Причины»; без подмены — из активных настроек. */
+  reasonColumns?: (spaceId: string) => Promise<ReasonColumn[]>;
 }
 
 export type GetSummary = (viewer: Viewer) => Promise<Summary>;

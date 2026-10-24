@@ -1,8 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { Badge, EmptyState, Table, type TableColumn } from '@/ui/kit';
+import { useState } from 'react';
+import { Badge, EmptyState, Segmented, Table, type TableColumn } from '@/ui/kit';
 import { fmtDec, fmtInt, formatDay } from './format';
+import { useReasonLabel } from './reasonLabel';
 import {
   FUNNEL_KINDS,
   type FunnelKind,
@@ -33,7 +36,7 @@ type Props = { reportKey: ReportKey; data: ReportData; labels: ReportLabels };
 export function ReportTable({ reportKey, data, labels }: Props) {
   switch (reportKey) {
     case 'operators':
-      return <OperatorsTable data={data as OperatorsData} />;
+      return <OperatorsTable data={data as OperatorsData} labels={labels} />;
     case 'funnel':
       return <FunnelTable data={data as FunnelData} labels={labels} />;
     case 'revenue':
@@ -59,8 +62,13 @@ function Percent({ value }: { value: number | null }) {
 
 type OpRow = OperatorMetrics & { id: string; name: string; bucket: string; belowTarget: boolean; isTotal: boolean; isAverage?: boolean };
 
-function OperatorsTable({ data }: { data: OperatorsData }) {
+function OperatorsTable({ data, labels }: { data: OperatorsData; labels: ReportLabels }) {
   const t = useTranslations('reports.operators');
+  // Названия видов записи — из настроек; вида нет — нейтральный запасной вариант
+  const kindHeader = (kind: 'groups' | 'consults'): string => {
+    const label = labels.eventKinds[kind === 'groups' ? 'group' : 'individual'];
+    return label ? t(`cols.${kind}`, { event: label }) : t(`cols.${kind}Fallback`);
+  };
   const rows: OpRow[] = [
     ...data.rows.map((r: OperatorPeriodRow) => ({ ...r, id: `${r.userId}|${r.bucket}`, isTotal: false })),
     { ...data.totals, id: 'total', name: t('total'), bucket: '', belowTarget: false, isTotal: true },
@@ -100,8 +108,8 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
     num('outcomes', t('cols.outcomes')),
     num('connects', t('cols.connects')),
     num('lpr', t('cols.lpr')),
-    num('groups', t('cols.groups')),
-    num('consults', t('cols.consults')),
+    num('groups', kindHeader('groups')),
+    num('consults', kindHeader('consults')),
     num('attended', t('cols.attended')),
     num('noShow', t('cols.noShow')),
     pct('attendanceRate', t('cols.attendanceRate')),
@@ -255,7 +263,19 @@ function AttendanceListTable({ data, labels }: { data: AttendanceListData; label
   const cols: TableColumn<AttendanceListRow>[] = [
     { key: 'date', header: t('list.cols.date'), primary: true, cell: (r) => <strong>{`${formatDay(r.date)} ${r.startTime}`}</strong> },
     { key: 'eventType', header: t('list.cols.eventType'), cell: (r) => labels.eventTypes[r.eventTypeKey] ?? r.eventTypeKey },
-    { key: 'client', header: t('list.cols.client'), cell: (r) => r.clientName },
+    {
+      key: 'client',
+      header: t('list.cols.client'),
+      // ссылка только если id пришёл с сервера (охват клиента проверяет карточка)
+      cell: (r) =>
+        r.clientId ? (
+          <Link href={`/clients/${encodeURIComponent(r.clientId)}`} className="underline underline-offset-2" data-testid="attendance-client-link">
+            {r.clientName}
+          </Link>
+        ) : (
+          r.clientName
+        ),
+    },
     { key: 'bookedBy', header: t('list.cols.bookedBy'), cell: (r) => r.bookedByName ?? dash },
     { key: 'status', header: t('list.cols.status'), cell: (r) => <Badge tone={STATUS_TONE[r.status]}>{t(`list.status.${r.status}`)}</Badge> },
     { key: 'markedBy', header: t('list.cols.markedBy'), cell: (r) => r.markedByName ?? dash },
@@ -273,23 +293,68 @@ function AttendanceListTable({ data, labels }: { data: AttendanceListData; label
 
 function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabels }) {
   const t = useTranslations('reports.reasons');
-  if (data.rows.length === 0) return <EmptyState title={t('empty')} />;
-  const reasonLabel = (r: ReasonRow): string => {
-    if (r.group === 'no_show') return labels.eventTypes[r.reasonCode] ?? r.reasonCode; // неявки — по виду мероприятия
-    if (r.reasonCode === '') return r.group === 'callback' ? t('withoutReason') : t('noReason');
-    const fromSettings = labels.reasons[r.group]?.[r.reasonCode];
-    if (fromSettings !== undefined) return fromSettings;
-    return r.group === 'written_off' && (r.reasonCode === 'no_answer_limit' || r.reasonCode === 'no_working_phone') ? t(`system.${r.reasonCode}`) : r.reasonCode;
-  };
+  const [view, setView] = useState<'blocks' | 'details'>('blocks');
+  const reasonLabel = useReasonLabel(labels);
+  if (data.rows.length === 0 && data.blocks.every((b) => b.total === 0)) return <EmptyState title={t('empty')} />;
   const cols: TableColumn<ReasonRow>[] = [
     { key: 'group', header: t('cols.group'), primary: true, cell: (r) => <strong>{t(`groups.${r.group}`)}</strong> },
     { key: 'reason', header: t('cols.reason'), cell: reasonLabel },
     { key: 'count', header: t('cols.count'), numeric: true, cell: (r) => fmtInt(r.count) },
     { key: 'share', header: t('cols.share'), numeric: true, cell: (r) => <Percent value={r.share} /> },
   ];
-  return (
+  const blockCols: TableColumn<ReasonRow>[] = [
+    {
+      key: 'reason',
+      header: t('block.cols.reason'),
+      primary: true,
+      // итог (группа) — второй строкой: колонок меньше, на телефоне доля не уходит за край
+      cell: (r) => (
+        <span className="flex flex-col">
+          <strong>{reasonLabel(r)}</strong>
+          <span className="text-sm" style={{ color: 'var(--text-2)' }}>{t(`groups.${r.group}`)}</span>
+        </span>
+      ),
+    },
+    { key: 'count', header: t('block.cols.count'), numeric: true, cell: (r) => fmtInt(r.count) },
+    { key: 'share', header: t('block.cols.share'), numeric: true, cell: (r) => <Percent value={r.share} /> },
+  ];
+  const details = (
     <div className={WRAP}>
       <Table caption={t('caption')} captionHidden columns={cols} rows={data.rows} rowKey={(r) => `${r.group}|${r.reasonCode}`} dense stackOnMobile={false} />
+    </div>
+  );
+  if (data.blocks.length === 0) return details;
+  return (
+    <div className="flex flex-col gap-4" data-testid="reasons-report">
+      <Segmented
+        label={t('view.label')}
+        items={[
+          { id: 'blocks', label: t('view.blocks'), active: view === 'blocks', testId: 'reasons-view-blocks' },
+          { id: 'details', label: t('view.details'), active: view === 'details', testId: 'reasons-view-details' },
+        ]}
+        onSelect={(id) => setView(id === 'details' ? 'details' : 'blocks')}
+      />
+      {view === 'details' ? (
+        details
+      ) : (
+        data.blocks.map((b) => (
+          <section key={b.key} className="flex flex-col gap-2" data-testid={`reasons-block-${b.key}`}>
+            <h3 className="flex flex-wrap items-baseline gap-x-3 text-base font-semibold">
+              {b.label ?? t(`blockFallback.${b.role}`)}
+              <span className="text-sm font-normal" style={{ color: 'var(--text-2)' }}>
+                {t('block.total', { n: fmtInt(b.total) })}
+              </span>
+            </h3>
+            {b.rows.length === 0 ? (
+              <EmptyState title={t('block.empty')} />
+            ) : (
+              <div className={WRAP}>
+                <Table caption={b.label ?? t(`blockFallback.${b.role}`)} captionHidden columns={blockCols} rows={b.rows} rowKey={(r) => `${r.group}|${r.reasonCode}`} dense stackOnMobile={false} />
+              </div>
+            )}
+          </section>
+        ))
+      )}
     </div>
   );
 }

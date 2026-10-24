@@ -289,8 +289,17 @@ async function toCallingTiles(viewer: Viewer, rows: readonly CallingRow[]): Prom
 
 /** Сотрудники с карточками в обзвоне (фильтр «сотрудник» общей доски РОП и директора); охват зрителя — в SQL. */
 export async function getCallingWorkers(viewer: Viewer): Promise<{ userId: string; name: string }[]> {
-  const spaceId = spaceOf(viewer);
-  assertSpaceScope(viewer);
+  // Общая доска (OP_BOARD) работает и без KANBAN (К5); без KANBAN охват ниже пространства — 404, а не 403
+  const kanban = isFeatureEnabled('KANBAN');
+  if (!kanban && !isFeatureEnabled('OP_BOARD')) throw new NotFoundError();
+  if (viewer.spaceId === null) throw new NotFoundError();
+  const spaceId = viewer.spaceId;
+  try {
+    assertSpaceScope(viewer);
+  } catch (e) {
+    if (!kanban && e instanceof ForbiddenError) throw new NotFoundError();
+    throw e;
+  }
   return selectCallingWorkers(viewer, (await getDb()).sql, { spaceId });
 }
 
