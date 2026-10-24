@@ -23,7 +23,8 @@
     "attendedGroup": "Был: {event}",
     "attendedIndividual": "Был: {event}",
     "noShow": "Не пришёл",
-    "purchased": "Покупал"
+    "purchased": "Покупал",
+    "attendedNoBuy": "Пришёл, не купил"
   },
   "manager": {
     "owner": "Сотрудник",

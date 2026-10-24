@@ -60,9 +60,11 @@ jobs:
       - name: E2E
         run: npm run test:e2e
       # Доска оператора и новый «Перезвон» за флагами (на стенде включены, в бою выключены): основной прогон выше идёт
-      # с выключенными флагами и держит прежнее поведение, этот — сценарии доски с включёнными
+      # с выключенными флагами и держит прежнее поведение, этот — сценарии доски с включёнными: оператор (calling-board*),
+      # РОП и директор (booking-mgr-board), сквозной путь на телефонах и ноутбуке (flow-board-*). Новые спеки доски
+      # называй с префиксом calling-board или flow-board, иначе фильтр их не подхватит
       - name: E2E с OP_BOARD и CALLBACK_V2
-        run: npx playwright test calling-board calling-callback shell-menu
+        run: npx playwright test calling-board calling-callback shell-menu booking-mgr-board flow-board
         env:
           FEATURE_OP_BOARD: '1'
           FEATURE_CALLBACK_V2: '1'

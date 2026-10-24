@@ -10,8 +10,8 @@ export type ColumnRole = 'new' | 'callback' | 'agreed' | 'client' | 'trash' | 'o
 export type BoardSort = 'heat' | 'due' | 'new';
 export const BOARD_SORTS: readonly BoardSort[] = ['heat', 'due', 'new'];
 
-export type BoardFilter = 'today' | 'attendedGroup' | 'attendedIndividual' | 'noShow' | 'purchased';
-export const BOARD_FILTERS: readonly BoardFilter[] = ['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased'];
+export type BoardFilter = 'today' | 'attendedGroup' | 'attendedIndividual' | 'noShow' | 'purchased' | 'attendedNoBuy';
+export const BOARD_FILTERS: readonly BoardFilter[] = ['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased', 'attendedNoBuy'];
 
 /** Быстрая причина переноса в «Мусор» (`board.columns[].drop`) с подписью причины. */
 export interface BoardDrop {

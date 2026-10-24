@@ -74,12 +74,14 @@ export interface AttendanceBlock {
   hint: 'noRight' | 'notStarted' | null;
 }
 
-/** Блок явки окна № 33: переключатель виден, если мероприятие началось и есть право; иначе статус только для чтения. */
+/** Блок явки окна № 33: переключатель виден, если мероприятие началось, есть право и явка не отмечена; иначе статус только для чтения. */
 export function attendanceBlock(card: BoardCardDto, canAttend: boolean, now: number): AttendanceBlock {
   const ev = card.event;
   if (!ev) return { mode: 'hidden', status: 'unmarked', bookingId: null, hint: null };
   const status = ev.status === 'attended' ? 'attended' : ev.status === 'no_show' ? 'no_show' : 'unmarked';
   if (!canAttend) return { mode: 'readonly', status, bookingId: ev.bookingId, hint: 'noRight' };
   if (ev.startsAt > now) return { mode: 'readonly', status, bookingId: ev.bookingId, hint: 'notStarted' };
+  // Явка уже отмечена: переключателя нет, перенос не шлёт attendance (иначе 409 attendance_changed, §3.3)
+  if (status !== 'unmarked') return { mode: 'readonly', status, bookingId: ev.bookingId, hint: null };
   return { mode: 'switch', status, bookingId: ev.bookingId, hint: null };
 }

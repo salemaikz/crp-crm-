@@ -24,9 +24,9 @@ export function sortCards(cards: readonly BoardCardDto[], sort: BoardSort, role:
   return stable(cards, (c) => (isFresh(c) ? 0 : 1));
 }
 
-/** Фильтры, доступные зрителю: «Покупал» — только при праве на покупки (сервер иначе ответит 400). */
+/** Фильтры, доступные зрителю: «Покупал» и «Пришёл, не купил» — только при праве на покупки (сервер иначе ответит 400). */
 export function availableFilters(canPurchases: boolean): BoardFilter[] {
-  return BOARD_FILTERS.filter((f) => f !== 'purchased' || canPurchases);
+  return BOARD_FILTERS.filter((f) => (f !== 'purchased' && f !== 'attendedNoBuy') || canPurchases);
 }
 
 /** Запрос доски: `q` и `filter` — то, что понимает `GET /api/cards/board` (parseBoardQuery). */

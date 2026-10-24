@@ -40,10 +40,12 @@ export function AgreedExitSheet({
   const [openedAt] = useState(() => now);
 
   // Явка → подсказки; ручной выбор причины или срока их больше не затирает
-  const [att, setAtt] = useState<ExitAttendance>('none');
-  const [reason, setReason] = useState('');
+  // Явка уже отмечена консультантом — подсказки берём из неё (переключателя в этом случае нет)
+  const initialAtt: ExitAttendance = block.status === 'unmarked' ? 'none' : block.status;
+  const [att, setAtt] = useState<ExitAttendance>(initialAtt);
+  const [reason, setReason] = useState(() => autoReason(initialAtt, card, config.agreedExit, reasons));
   const [reasonTouched, setReasonTouched] = useState(false);
-  const [due, setDue] = useState<Due | null>(() => autoDue('none', card, config.agreedExit, call, openedAt));
+  const [due, setDue] = useState<Due | null>(() => autoDue(initialAtt, card, config.agreedExit, call, openedAt));
   const [dueTouched, setDueTouched] = useState(false);
   const [note, setNote] = useState('');
 

@@ -195,7 +195,7 @@ describe('300 000 карточек: колонки доски по индекс�
     wide,
     cursor,
     limit: BOARD_PAGE + 1,
-    filters: { owner: null, today: false, attendedGroup: false, attendedIndividual: false, noShow: false, purchased: false, callbackReason: null },
+    filters: { owner: null, today: false, attendedGroup: false, attendedIndividual: false, noShow: false, purchased: false, attendedNoBuy: false, callbackReason: null },
   });
 
   /** План страницы колонки: узлы дерева EXPLAIN настоящего запроса репозитория. */

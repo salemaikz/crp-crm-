@@ -20,6 +20,8 @@ export interface BoardFilters {
   attendedIndividual: boolean;
   noShow: boolean;
   purchased: boolean;
+  /** «Пришёл, не купил»: была явка на мероприятие, покупок нет (как `purchased`, только при `deal.read`). */
+  attendedNoBuy: boolean;
   callbackReason: string | null;
 }
 
@@ -100,6 +102,7 @@ async function callbackKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<
           AND (NOT ${f.attendedIndividual}::boolean OR c.attended_individual_at IS NOT NULL)
           AND (NOT ${f.noShow}::boolean OR (c.last_no_show_at IS NOT NULL AND c.last_no_show_at > COALESCE(GREATEST(c.attended_group_at, c.attended_individual_at), 0)))
           AND (NOT ${f.purchased}::boolean OR c.purchases_total > 0)
+          AND (NOT ${f.attendedNoBuy}::boolean OR ((c.attended_group_at IS NOT NULL OR c.attended_individual_at IS NOT NULL) AND c.purchases_total = 0))
           AND (${f.callbackReason}::text IS NULL OR c.callback_reason = ${f.callbackReason}::text)
           AND (NOT ${firstCur}::boolean OR c.heat < ${k.k1}::bigint
                OR (c.heat = ${k.k1}::bigint AND (COALESCE(c.next_call_at, ${KEY_MAX}::bigint) > ${k.k2}::bigint
@@ -118,6 +121,7 @@ async function callbackKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<
           AND (NOT ${f.attendedIndividual}::boolean OR c.attended_individual_at IS NOT NULL)
           AND (NOT ${f.noShow}::boolean OR (c.last_no_show_at IS NOT NULL AND c.last_no_show_at > COALESCE(GREATEST(c.attended_group_at, c.attended_individual_at), 0)))
           AND (NOT ${f.purchased}::boolean OR c.purchases_total > 0)
+          AND (NOT ${f.attendedNoBuy}::boolean OR ((c.attended_group_at IS NOT NULL OR c.attended_individual_at IS NOT NULL) AND c.purchases_total = 0))
           AND (${f.callbackReason}::text IS NULL OR c.callback_reason = ${f.callbackReason}::text)
           AND (NOT ${secondCur}::boolean OR c.heat < ${k.k1}::bigint
                OR (c.heat = ${k.k1}::bigint AND (COALESCE(c.next_call_at, ${KEY_MAX}::bigint) > ${k.k2}::bigint
@@ -150,7 +154,8 @@ async function agreedKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<Ke
          AND (NOT ${f.attendedGroup}::boolean OR c.attended_group_at IS NOT NULL)
          AND (NOT ${f.attendedIndividual}::boolean OR c.attended_individual_at IS NOT NULL)
          AND (NOT ${f.noShow}::boolean OR (c.last_no_show_at IS NOT NULL AND c.last_no_show_at > COALESCE(GREATEST(c.attended_group_at, c.attended_individual_at), 0)))
-         AND (NOT ${f.purchased}::boolean OR c.purchases_total > 0)) t
+         AND (NOT ${f.purchased}::boolean OR c.purchases_total > 0)
+          AND (NOT ${f.attendedNoBuy}::boolean OR ((c.attended_group_at IS NOT NULL OR c.attended_individual_at IS NOT NULL) AND c.purchases_total = 0))) t
      WHERE (t.event_type_key = ANY(${[...q.agreed.types]}::text[])
             OR (${q.agreed.fallback}::boolean AND (t.event_type_key IS NULL OR NOT t.event_type_key = ANY(${[...q.agreed.allTypes]}::text[]))))
        AND (NOT ${k.on}::boolean OR (t.k1, t.id) > (${k.k1}::bigint, ${k.id}::text))
@@ -182,6 +187,7 @@ async function simpleKeys(sql: Sql, viewer: Viewer, q: ColumnSelect): Promise<Ke
          AND (NOT ${f.attendedIndividual}::boolean OR c.attended_individual_at IS NOT NULL)
          AND (NOT ${f.noShow}::boolean OR (c.last_no_show_at IS NOT NULL AND c.last_no_show_at > COALESCE(GREATEST(c.attended_group_at, c.attended_individual_at), 0)))
          AND (NOT ${f.purchased}::boolean OR c.purchases_total > 0)
+          AND (NOT ${f.attendedNoBuy}::boolean OR ((c.attended_group_at IS NOT NULL OR c.attended_individual_at IS NOT NULL) AND c.purchases_total = 0))
          AND (${f.callbackReason}::text IS NULL OR c.callback_reason = ${f.callbackReason}::text)) t
      WHERE NOT ${k.on}::boolean OR (t.k1, t.k2, t.k3, t.id) > (${k.k1}::bigint, ${k.k2}::bigint, ${k.k3}::bigint, ${k.id}::text)
      ORDER BY t.k1, t.k2, t.k3, t.id

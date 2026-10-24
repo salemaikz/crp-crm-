@@ -151,6 +151,9 @@ test('фильтры признаков и «сегодня»', async () => {
   // неявка считается, если она позже последней явки: у ord-003 явка раньше неявки
   assert.deepEqual((await ids(['noShow'])).sort(), ['ord-003', 'ord-005']);
   assert.deepEqual(await ids(['purchased']), ['ord-007']);
+  // «Пришёл, не купил»: явка есть, покупок нет (ord-001 и ord-003); ord-007 купил, но не был — не попадает
+  await db.sql`UPDATE cards SET attended_individual_at = ${SEED_NOW - 6 * DAY}, purchases_total = 1 WHERE id = 'ord-003'`;
+  assert.deepEqual((await ids(['attendedNoBuy'])).sort(), ['ord-001']);
   const today = await ids(['today']);
   const times = await db.sql<{ id: string; nextCallAt: number | null }>`SELECT id, next_call_at FROM cards WHERE id = ANY(${today}::text[])`;
   const b = await boundsNow();
@@ -190,6 +193,7 @@ test('признаки покупок: есть при deal.read роли, у р
     assert.ok(cards.length > 0 && cards.every((c) => !('purchases' in c)));
     assert.ok(!JSON.stringify(cards).includes('lastAt'));
     await assert.rejects(getBoard(v, { filter: ['purchased'] }), (e: unknown) => e instanceof BadRequestError && e.detail === 'filter');
+    await assert.rejects(getBoard(v, { filter: ['attendedNoBuy'] }), (e: unknown) => e instanceof BadRequestError && e.detail === 'filter');
   } finally {
     enterSeedWorld();
   }

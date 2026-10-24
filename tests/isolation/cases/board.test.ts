@@ -23,7 +23,7 @@ const { createTestDb } = await import('../../../src/server/platform/db/testing')
 const { resetAccessForTests } = await import('../../../src/server/access/testing');
 const { bookingDeps, overrideBookingDepsForTests } = await import('../../../src/server/domain/booking');
 const { actAs, enterSeedWorld, viewerOf } = await import('../harness/actors');
-const { applySeedConfig, SEED_PRESET } = await import('../harness/config');
+const { applySeedConfig, configDoc, SEED_PRESET } = await import('../harness/config');
 const { SEED_NOW, SPACE, FX, U, cardOf, clientOf, nameOf, seedIsolation } = await import('../harness/seed');
 const { allForeignNeedles, markFixtures } = await import('../runner/objects');
 const { leakViolations, notFoundViolations, snapshotViolations } = await import('../runner/checks');
@@ -262,17 +262,30 @@ describe('доска: чтение (оператор A)', () => {
     assert.deepEqual(leakViolations('owner', own, foreign), []);
     const rop = await api(U.rop, 'board', { query: `?owner=${U.opA}` });
     assert.equal(rop.status, 200, 'контроль: РОП фильтрует по сотруднику');
-    // Признаки покупок видны только при `deal.read`: у кого права нет — ключа нет, а фильтр по нему отвечает 400
-    for (const user of [U.opA, U.rop]) {
+    // Признаки покупок видны только при `deal.read`: с правом ключ purchases есть, без права — ключа нет, фильтр — 400
+    const probe = async (user: string, hasReadExpected: boolean) => {
       const v = await viewerOf(user);
       const hasRead = v.grants.has('deal.read');
-      const filtered = await api(user, 'board', { query: '?filter=purchased' });
-      assert.equal(filtered.status === 400, !hasRead, `${user}: фильтр purchased при deal.read=${hasRead} → ${filtered.status}`);
+      assert.equal(hasRead, hasReadExpected, `${user}: контроль права deal.read`);
+      for (const f of ['purchased', 'attendedNoBuy']) {
+        const filtered = await api(user, 'board', { query: `?filter=${f}` });
+        assert.equal(filtered.status, hasRead ? 200 : 400, `${user}: фильтр ${f} при deal.read=${hasRead} → ${filtered.status}`);
+      }
       const plain = json<Board>(await api(user, 'board'));
       const cards = plain.columns.flatMap((c) => c.cards);
       assert.ok(cards.length > 0);
-      assert.equal(cards.some((c) => 'purchases' in c), hasRead && cards.some((c) => 'purchases' in c), `${user}: признаки покупок без права не отдаются`);
-      if (!hasRead) assert.equal(cards.filter((c) => 'purchases' in c).length, 0);
+      if (hasRead) assert.ok(cards.every((c) => 'purchases' in c), `${user}: при deal.read ключ purchases есть у каждой карточки`);
+      else assert.equal(cards.filter((c) => 'purchases' in c).length, 0, `${user}: без права признаки покупок не отдаются`);
+    };
+    for (const user of [U.opA, U.rop]) await probe(user, true);
+    // Отрицательная ветка: тот же оператор, но роль без deal.read (подмена настроек, как в интеграционном тесте)
+    const doc = configDoc() as { global: { roles: Array<{ key: string; grants: Array<{ perm: string }> }> } };
+    const roles = doc.global.roles.map((r) => (r.key === 'operator' ? { ...r, grants: r.grants.filter((g) => g.perm !== 'deal.read') } : r));
+    enterSeedWorld({ config: { ...doc, global: { ...doc.global, roles } } });
+    try {
+      await probe(U.opA, false);
+    } finally {
+      enterSeedWorld();
     }
   });
 });

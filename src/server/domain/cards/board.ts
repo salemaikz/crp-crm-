@@ -20,7 +20,7 @@ import { loadCallingContext } from './settings';
 export const BOARD_PAGE = 50;
 export const BOARD_SEARCH_LIMIT = 20;
 
-const FILTER_KEYS = ['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased'] as const;
+const FILTER_KEYS = ['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased', 'attendedNoBuy'] as const;
 export type BoardFilterKey = (typeof FILTER_KEYS)[number];
 
 export interface BoardQuery {
@@ -122,7 +122,7 @@ function parseFilters(q: BoardQuery, access: Access): BoardFilters {
     set.add(f);
   }
   // Признаки покупок скрыты от роли без `deal.read`: фильтр по ним — тоже 400 (PROCESS 8.3)
-  if (set.has('purchased') && !access.purchases) throw new BadRequestError('filter');
+  if ((set.has('purchased') || set.has('attendedNoBuy')) && !access.purchases) throw new BadRequestError('filter');
   const owner = q.owner && q.owner !== '' ? q.owner : null;
   if (owner !== null && access.scope === 'own') throw new BadRequestError('owner');
   const reason = q.callbackReason && q.callbackReason !== '' ? q.callbackReason : null;
@@ -134,6 +134,7 @@ function parseFilters(q: BoardQuery, access: Access): BoardFilters {
     attendedIndividual: set.has('attendedIndividual'),
     noShow: set.has('noShow'),
     purchased: set.has('purchased'),
+    attendedNoBuy: set.has('attendedNoBuy'),
     callbackReason: reason,
   };
 }

@@ -66,3 +66,10 @@ test('окно № 33: переключатель - при праве и нач�
   assert.equal(attendanceBlock(card({ event: ev({ status: 'confirmed' }) }), false, NOW).status, 'unmarked');
   assert.equal(attendanceBlock(card(), true, NOW).mode, 'hidden');
 });
+
+test('окно № 33: уже отмеченная явка - только статус, переключателя нет (иначе сервер ответит 409 attendance_changed)', () => {
+  const attended = attendanceBlock(card({ event: ev({ status: 'attended' }) }), true, NOW);
+  assert.deepEqual([attended.mode, attended.status, attended.hint, attended.bookingId], ['readonly', 'attended', null, 'bk-1']);
+  const noShow = attendanceBlock(card({ event: ev({ status: 'no_show' }) }), true, NOW);
+  assert.deepEqual([noShow.mode, noShow.status], ['readonly', 'no_show']);
+});
