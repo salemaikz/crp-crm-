@@ -239,9 +239,23 @@ export interface ReasonRow {
   share: Rate;
 }
 
+/** Блок отчёта «Причины» — колонка доски роли `trash` или `callback`; доли — от итога блока, а не группы. */
+export interface ReasonBlock {
+  /** Ключ колонки доски пресета. */
+  key: string;
+  /** Подпись колонки из пресета; null — пресет доски не задан (интерфейс берёт подпись состояния из локали). */
+  label: string | null;
+  role: 'trash' | 'callback';
+  total: number;
+  rows: ReasonRow[];
+}
+
 export interface ReasonsReport {
   period: ResolvedPeriod;
+  /** Прежние группы («Подробно»): доля внутри группы. */
   rows: ReasonRow[];
+  /** Блоки по колонкам доски (A4); пусто, если колонок этих ролей нет. */
+  blocks: ReasonBlock[];
 }
 
 // ---------------------------------------------------------------------------

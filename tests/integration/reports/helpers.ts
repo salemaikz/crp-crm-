@@ -16,6 +16,11 @@ export function enterReportsConfig(clock: Clock, over: { overdueAlertMinutes?: n
   overrideReportsDepsForTests({
     config: async () => ({ distribution, overdueAlertMinutes: over.overdueAlertMinutes ?? 60, callsPerHourTarget: over.callsPerHourTarget === undefined ? 10 : over.callsPerHourTarget }),
     now: () => clock.now,
+    // колонки доски пресета: «Перезвон» и «Мусор» (блоки отчёта «Причины»)
+    reasonColumns: async () => [
+      { key: 'callback', label: 'Перезвон', role: 'callback', states: ['retry', 'callback'] },
+      { key: 'trash', label: 'Мусор', role: 'trash', states: ['not_interested', 'not_target', 'do_not_call', 'written_off'] },
+    ],
   });
 }
 

@@ -1,7 +1,8 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { Badge, EmptyState, Table, type TableColumn } from '@/ui/kit';
+import { useState } from 'react';
+import { Badge, EmptyState, Segmented, Table, type TableColumn } from '@/ui/kit';
 import { fmtDec, fmtInt, formatDay } from './format';
 import {
   FUNNEL_KINDS,
@@ -273,7 +274,8 @@ function AttendanceListTable({ data, labels }: { data: AttendanceListData; label
 
 function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabels }) {
   const t = useTranslations('reports.reasons');
-  if (data.rows.length === 0) return <EmptyState title={t('empty')} />;
+  const [view, setView] = useState<'blocks' | 'details'>('blocks');
+  if (data.rows.length === 0 && data.blocks.every((b) => b.total === 0)) return <EmptyState title={t('empty')} />;
   const reasonLabel = (r: ReasonRow): string => {
     if (r.group === 'no_show') return labels.eventTypes[r.reasonCode] ?? r.reasonCode; // неявки — по виду мероприятия
     if (r.reasonCode === '') return r.group === 'callback' ? t('withoutReason') : t('noReason');
@@ -287,9 +289,49 @@ function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabel
     { key: 'count', header: t('cols.count'), numeric: true, cell: (r) => fmtInt(r.count) },
     { key: 'share', header: t('cols.share'), numeric: true, cell: (r) => <Percent value={r.share} /> },
   ];
-  return (
+  const blockCols: TableColumn<ReasonRow>[] = [
+    { key: 'reason', header: t('block.cols.reason'), primary: true, cell: (r) => <strong>{reasonLabel(r)}</strong> },
+    { key: 'group', header: t('block.cols.group'), cell: (r) => t(`groups.${r.group}`) },
+    { key: 'count', header: t('block.cols.count'), numeric: true, cell: (r) => fmtInt(r.count) },
+    { key: 'share', header: t('block.cols.share'), numeric: true, cell: (r) => <Percent value={r.share} /> },
+  ];
+  const details = (
     <div className={WRAP}>
       <Table caption={t('caption')} captionHidden columns={cols} rows={data.rows} rowKey={(r) => `${r.group}|${r.reasonCode}`} dense stackOnMobile={false} />
+    </div>
+  );
+  if (data.blocks.length === 0) return details;
+  return (
+    <div className="flex flex-col gap-4" data-testid="reasons-report">
+      <Segmented
+        label={t('view.label')}
+        items={[
+          { id: 'blocks', label: t('view.blocks'), active: view === 'blocks', testId: 'reasons-view-blocks' },
+          { id: 'details', label: t('view.details'), active: view === 'details', testId: 'reasons-view-details' },
+        ]}
+        onSelect={(id) => setView(id === 'details' ? 'details' : 'blocks')}
+      />
+      {view === 'details' ? (
+        details
+      ) : (
+        data.blocks.map((b) => (
+          <section key={b.key} className="flex flex-col gap-2" data-testid={`reasons-block-${b.key}`}>
+            <h3 className="flex flex-wrap items-baseline gap-x-3 text-base font-semibold">
+              {b.label ?? t(`blockFallback.${b.role}`)}
+              <span className="text-sm font-normal" style={{ color: 'var(--text-2)' }}>
+                {t('block.total', { n: fmtInt(b.total) })}
+              </span>
+            </h3>
+            {b.rows.length === 0 ? (
+              <EmptyState title={t('block.empty')} />
+            ) : (
+              <div className={WRAP}>
+                <Table caption={b.label ?? t(`blockFallback.${b.role}`)} captionHidden columns={blockCols} rows={b.rows} rowKey={(r) => `${r.group}|${r.reasonCode}`} dense stackOnMobile={false} />
+              </div>
+            )}
+          </section>
+        ))
+      )}
     </div>
   );
 }

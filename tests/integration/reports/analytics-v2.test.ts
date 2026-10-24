@@ -224,6 +224,15 @@ test('причины: перезвон (в том числе «без причи
   );
 });
 
+test('причины: блоки по колонкам доски — доли от итога блока, оператору нельзя', async () => {
+  const r = await getReport(await viewerOf(U.rop), { key: 'reasons', period: REAS, filters: NO_FILTERS });
+  assert.deepEqual(r.blocks.map((b) => [b.key, b.label, b.total]), [['callback', 'Перезвон', 4], ['trash', 'Мусор', 3]]);
+  const trash = r.blocks.find((b) => b.key === 'trash')!;
+  assert.deepEqual(trash.rows.map((x) => [x.group, x.reasonCode, x.count, x.share]), [['written_off', 'no_answer_limit', 2, 66.7], ['written_off', 'unreachable', 1, 33.3]]);
+  assert.equal(r.blocks.find((b) => b.key === 'callback')!.rows.reduce((s, x) => s + (x.share ?? 0), 0), 100);
+  await assert.rejects(getReport(await viewerOf(U.opA), { key: 'reasons', period: REAS, filters: NO_FILTERS }), (e: { code?: string }) => e.code === 'forbidden');
+});
+
 test('причины: фильтр по сотруднику и охват пространства', async () => {
   const onlyB = await getReport(await viewerOf(U.rop), { key: 'reasons', period: REAS, filters: { userIds: [U.opB], sourceKey: null } });
   assert.deepEqual(onlyB.rows.map((x) => [x.group, x.reasonCode, x.count]), [['callback', 'later', 1], ['written_off', 'no_answer_limit', 1], ['no_show', 'other', 1]]);

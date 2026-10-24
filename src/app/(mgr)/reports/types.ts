@@ -103,7 +103,9 @@ export type AttendanceListData = { period: Period; rows: AttendanceListRow[]; ne
 export const REASON_GROUPS = ['callback', 'written_off', 'not_interested', 'not_target', 'do_not_call', 'deal_lost', 'no_show'] as const;
 export type ReasonGroup = (typeof REASON_GROUPS)[number];
 export type ReasonRow = { group: ReasonGroup; reasonCode: string; count: number; share: Rate };
-export type ReasonsData = { period: Period; rows: ReasonRow[] };
+/** Блок по колонке доски (роль «мусор» или «перезвон»); доли — от итога блока. */
+export type ReasonBlock = { key: string; label: string | null; role: 'trash' | 'callback'; total: number; rows: ReasonRow[] };
+export type ReasonsData = { period: Period; rows: ReasonRow[]; blocks: ReasonBlock[] };
 
 export type ReportData = OperatorsData | FunnelData | RevenueData | AttendanceData | AttendanceListData | ReasonsData;
 

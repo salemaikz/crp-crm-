@@ -297,6 +297,25 @@
     "system": {
       "no_answer_limit": "Лимит недозвонов исчерпан",
       "no_working_phone": "Нет рабочего номера"
+    },
+    "view": {
+      "label": "Вид отчёта",
+      "blocks": "По колонкам доски",
+      "details": "Подробно"
+    },
+    "block": {
+      "total": "Всего: {n}",
+      "empty": "Причин за период нет",
+      "cols": {
+        "reason": "Причина",
+        "group": "Итог",
+        "count": "Число",
+        "share": "Доля от итога блока"
+      }
+    },
+    "blockFallback": {
+      "callback": "Перезвон",
+      "trash": "Мусор"
     }
   },
   "export": {

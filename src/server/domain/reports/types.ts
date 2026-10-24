@@ -2,6 +2,7 @@
 // Только счётчики, id и имена сотрудников; данных клиентов (названий, номеров) в сводке нет.
 import type { Viewer } from '@/server/access';
 import type { DistributionConfig } from '@/server/domain/distribution';
+import type { ReasonColumn } from './reasons';
 
 export type OperatorStatus = 'working' | 'paused' | 'absent';
 
@@ -83,6 +84,8 @@ export interface ReportsConfig {
 export interface ReportsDeps {
   config: (spaceId: string, now: number) => Promise<ReportsConfig>;
   now: () => number;
+  /** Колонки доски ролей «мусор» и «перезвон» для отчёта «Причины»; без подмены — из активных настроек. */
+  reasonColumns?: (spaceId: string) => Promise<ReasonColumn[]>;
 }
 
 export type GetSummary = (viewer: Viewer) => Promise<Summary>;

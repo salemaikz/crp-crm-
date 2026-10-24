@@ -22,6 +22,7 @@ import {
   type PeriodArgs,
 } from './periodRepo';
 import { buildReasonsReport } from './reasons';
+import { loadReasonColumns } from './settings';
 import { buildRevenueReport } from './revenue';
 import { BadRequestError } from '@/server/access';
 import { ExportTooLargeError } from './exportErrors';
@@ -107,8 +108,11 @@ export const getReport: GetReport = async <Q extends ReportQuery>(viewer: Parame
       }
       return buildAttendanceReport({ period, by: q.by, rows, purchases, names }) as ReportResult<Q>;
     }
-    case 'reasons':
-      return buildReasonsReport(period, await reasonCounts(viewer, sql, { ...a, closingKinds: REASON_OUTCOME_KINDS })) as ReportResult<Q>;
+    case 'reasons': {
+      // Блоки по колонкам доски пресета (роли «мусор» и «перезвон»); нет настроек — только прежние группы
+      const columns = await (deps.reasonColumns ?? loadReasonColumns)(spaceId);
+      return buildReasonsReport(period, await reasonCounts(viewer, sql, { ...a, closingKinds: REASON_OUTCOME_KINDS }), columns) as ReportResult<Q>;
+    }
   }
 };
 
