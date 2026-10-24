@@ -71,10 +71,12 @@ test('после передачи карточки продажа остаётс
   assert.deepEqual(a.month, { count: 1, sumKzt: 100_000 });
 
   const b = await listMine(deps, opB);
-  assert.deepEqual(b.items.map((i) => i.dealId), ['dl-m2'], 'у нового владельца только своя заслуга');
-  assert.equal(b.items[0]!.clientTransferred, true, 'клиент dl-m2 у А: В охвате его нет');
-  assert.equal(b.items[0]!.clientName, null);
-  assert.deepEqual(b.month, { count: 1, sumKzt: 200_000 });
+  // dl-b7/dl-b8 — выигранные сделки мира без записи: заслуга владельцу (D-261)
+  assert.deepEqual(b.items.map((i) => i.dealId).sort(), ['dl-b7', 'dl-b8', 'dl-m2'], 'у нового владельца своя заслуга и сделки без записи; чужая dl-m1 не переходит');
+  const m2 = b.items.find((i) => i.dealId === 'dl-m2')!;
+  assert.equal(m2.clientTransferred, true, 'клиент dl-m2 у А: В охвате его нет');
+  assert.equal(m2.clientName, null);
+  assert.deepEqual(b.month, { count: 3, sumKzt: 200_000 });
 });
 
 test('сотрудник без заслуг — пустой список (РОП своих продаж не засчитывает чужие); отдел передачи — 404', async () => {
@@ -98,5 +100,37 @@ test('«Мои покупки» — часть доски: OP_BOARD выключ
     await assert.rejects(listMine(deps, opA), NotFoundError);
   } finally {
     process.env['FEATURE_OP_BOARD'] = '1';
+  }
+});
+
+test('покупка без записи (РОП оформил из «Перезвона») засчитывается владельцу сделки; с записью — автору записи (D-261)', async () => {
+  await seedDeal(db.sql, { id: 'dl-nb', client: 'cl-a-33', card: 'cd-a-33', stage: 'paid', owner: U.opA, status: 'won' });
+  await db.sql`UPDATE deals SET amount_kzt = 70000, service_type_key = 'smm', won_at = ${THU_NOON + 1000} WHERE id = 'dl-nb'`;
+  const r = await listMine(deps, opA);
+  assert.ok(r.items.some((i) => i.dealId === 'dl-nb'), 'сделка без записи видна владельцу');
+  assert.equal(r.month.count, 2);
+  assert.equal(r.month.sumKzt, 170_000);
+  const b = await listMine(deps, opB);
+  assert.equal(b.items.some((i) => i.dealId === 'dl-nb'), false, 'у другого оператора её нет');
+});
+
+test('более 200 покупок: курсор (won_at, id) отдаёт хвост без потерь и дублей', async () => {
+  const at = Date.UTC(2026, 9, 20, 6, 0);
+  await db.sql`
+    INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, won_at, stage_changed_at, custom, version, created_at, updated_at, amount_kzt)
+    SELECT 'dl-bulk-' || lpad(g::text, 4, '0'), 'sp-sales', 'sales', 'paid', 'won', 'cl-a-33', 'cd-a-33', ${U.opA}, ${THU_NOON}::bigint - g * 1000, ${at}, '{}'::jsonb, 0, ${at}, ${at}, 1000
+      FROM generate_series(1, 201) g`;
+  try {
+    const p1 = await listMine(deps, opA);
+    assert.equal(p1.items.length, 200);
+    assert.ok(p1.next, 'есть следующая страница');
+    const p2 = await listMine(deps, opA, { cursor: p1.next });
+    assert.equal(p2.next, null);
+    const ids = [...p1.items, ...p2.items].map((i) => i.dealId);
+    assert.equal(new Set(ids).size, ids.length, 'без дублей');
+    assert.equal(ids.length, 201 + 3, 'dl-m1, dl-m3, dl-nb и 201 массовая — все на месте');
+    await assert.rejects(listMine(deps, opA, { cursor: 'мусор' }), NotFoundError);
+  } finally {
+    await db.sql`DELETE FROM deals WHERE id LIKE 'dl-bulk-%'`;
   }
 });

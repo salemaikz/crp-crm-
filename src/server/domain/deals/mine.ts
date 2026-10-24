@@ -25,6 +25,8 @@ export interface MyPurchases {
   items: MyPurchase[];
   /** Текущий месяц (по поясу установки) для шапки колонки «Покупка». */
   month: { count: number; sumKzt: number };
+  /** Курсор следующей страницы (`wonAt:id`) или null, если список закончился. */
+  next: string | null;
 }
 
 const LIMIT = 200;
@@ -37,23 +39,34 @@ export function monthBounds(timeZone: string, now: number): { fromMs: number; to
   return { fromMs: booking.localDayStart(timeZone, `${day.slice(0, 7)}-01`), toMs: booking.localDayStart(timeZone, next) };
 }
 
-export async function listMine(deps: DealsDeps, viewer: Viewer): Promise<MyPurchases> {
+function parseCursor(raw: string | null | undefined): { wonAt: number; id: string } | null {
+  if (!raw) return null;
+  const m = /^(\d{1,16}):([\w-]{1,64})$/.exec(raw);
+  if (!m) throw new NotFoundError();
+  return { wonAt: Number(m[1]), id: m[2]! };
+}
+
+export async function listMine(deps: DealsDeps, viewer: Viewer, opts: { cursor?: string | null } = {}): Promise<MyPurchases> {
   requirePurchases();
   // Раздел — часть доски этапа В (pipeline-v2 §9.5): без OP_BOARD API доски отвечает 404 (§8.3)
   if (!isFeatureEnabled('OP_BOARD')) throw new NotFoundError();
   const spaceId = requireSpace(viewer);
   // Отдел передачи сделок как таковых не видит (D-300): тот же ответ, что на несуществующее
   if (seesDealsOnlyAsDepartment(viewer)) throw new NotFoundError();
+  const after = parseCursor(opts.cursor);
   const now = deps.now();
   const settings = await deps.settings(spaceId, now);
   const db = await getDb();
   const month = monthBounds(settings.timeZone, now);
   const [rows, sum] = await Promise.all([
-    listMyPurchases(viewer, db.sql, { spaceId, fromMs: 0, toMs: Number.MAX_SAFE_INTEGER, limit: LIMIT }),
+    listMyPurchases(viewer, db.sql, { spaceId, fromMs: 0, toMs: Number.MAX_SAFE_INTEGER, limit: LIMIT + 1, after }),
     sumMyPurchases(viewer, db.sql, { spaceId, ...month }),
   ]);
+  const page = rows.slice(0, LIMIT);
+  const last = page[page.length - 1];
   return {
-    items: rows.map((r) => ({
+    next: rows.length > LIMIT && last ? `${last.wonAt}:${last.dealId}` : null,
+    items: page.map((r) => ({
       dealId: r.dealId,
       wonAt: Number(r.wonAt),
       serviceTypeKey: r.serviceTypeKey,

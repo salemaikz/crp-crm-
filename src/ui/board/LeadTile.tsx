@@ -13,7 +13,7 @@ import { dialAction } from '@/ui/call/dial';
 import { Badge, Button, type BadgeTone } from '@/ui/kit';
 import { AttendToggle } from './AttendToggle';
 import { toggleViews, type AttendKind } from './attend';
-import { badgesOf, chipOf, dueOf, hasFire, overdueParts, toneOf, type BadgeId, type Tone } from './tile';
+import { badgesOf, chipOf, dueOf, hasFire, overdueParts, reasonLabel, toneOf, type BadgeId, type Tone } from './tile';
 import type { BoardCardDto, BoardConfig } from './types';
 
 const BADGE_TONE: Record<BadgeId, BadgeTone> = { attendedGroup: 'success', attendedIndividual: 'warning', purchased: 'brand', noShow: 'danger' };
@@ -92,7 +92,7 @@ export function LeadTile(p: LeadTileProps) {
 
   const chipText = (() => {
     if (chip.kind === 'reason') {
-      const label = p.reasonLabels[chip.reason] ?? chip.reason;
+      const label = reasonLabel(p.reasonLabels, chip.reason) ?? t('chip.reasonOther');
       return chip.touches > 0 ? t('chip.reasonTouch', { reason: label, n: chip.touches }) : label;
     }
     if (chip.kind === 'attempts') return t('chip.attempts', { n: chip.n });

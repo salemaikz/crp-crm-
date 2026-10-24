@@ -79,6 +79,7 @@
   },
   "chip": {
     "reasonTouch": "{reason} · касание {n}",
+    "reasonOther": "Другая причина",
     "attempts": "Недозвон {n}",
     "event": "{event} {day} {time}",
     "eventUnknown": "Запись"
@@ -211,6 +212,6 @@
     "noType": "Без типа",
     "noAmount": "—",
     "list": "Список покупок",
-    "limit": "Показаны последние {n}."
+    "more": "Показать ещё"
   }
 }

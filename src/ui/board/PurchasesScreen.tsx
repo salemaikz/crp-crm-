@@ -3,10 +3,8 @@
 // Вознаграждение CRM не считает: сумма сделки как есть.
 import Link from 'next/link';
 import { useFormatter, useTranslations } from 'next-intl';
-import { Badge, EmptyState, List, ListItem, Page } from '@/ui/kit';
+import { Badge, EmptyState, List, ListItem, Page, buttonClass } from '@/ui/kit';
 import type { MyPurchases } from '@/server/domain/deals';
-
-const LIMIT = 200;
 
 export function PurchasesScreen({ data, serviceLabels, timeZone }: { data: MyPurchases; serviceLabels: Record<string, string>; timeZone: string }) {
   const t = useTranslations('board');
@@ -38,9 +36,11 @@ export function PurchasesScreen({ data, serviceLabels, timeZone }: { data: MyPur
           ))}
         </List>
       )}
-      {data.items.length >= LIMIT && (
-        <p className="mt-3 text-sm" style={{ color: 'var(--text-3)' }}>
-          {t('purchases.limit', { n: LIMIT })}
+      {data.next && (
+        <p className="mt-3">
+          <Link href={`/board/purchases?cursor=${encodeURIComponent(data.next)}`} className={buttonClass({ variant: 'quiet' })} data-testid="purchases-more">
+            {t('purchases.more')}
+          </Link>
         </p>
       )}
     </Page>

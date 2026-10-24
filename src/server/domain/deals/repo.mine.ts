@@ -16,7 +16,7 @@ export interface MineRow {
 }
 
 /** Выигранные сделки зрителя в окне [fromMs, toMs), новые сверху. Имя и id клиента — только при охвате карточки. */
-export async function listMyPurchases(viewer: Viewer, sql: Sql, a: { spaceId: string; fromMs: number; toMs: number; limit: number }): Promise<MineRow[]> {
+export async function listMyPurchases(viewer: Viewer, sql: Sql, a: { spaceId: string; fromMs: number; toMs: number; limit: number; after?: { wonAt: number; id: string } | null }): Promise<MineRow[]> {
   return scoped(sql)<MineRow>`
     WITH fb AS (
       SELECT DISTINCT ON (b.deal_id) b.deal_id, b.booked_by_user_id
@@ -27,12 +27,14 @@ export async function listMyPurchases(viewer: Viewer, sql: Sql, a: { spaceId: st
            CASE WHEN vis.ok THEN cl.name END AS client_name,
            vis.ok AS client_visible
       FROM deals d
-      JOIN fb ON fb.deal_id = d.id
+      LEFT JOIN fb ON fb.deal_id = d.id
       JOIN clients cl ON cl.id = d.client_id
       LEFT JOIN cards c ON c.id = d.card_id
       CROSS JOIN LATERAL (SELECT (c.id IS NOT NULL AND ${scopeSql(viewer, 'card', 'card.read')}) AS ok) vis
-     WHERE d.space_id = ${a.spaceId} AND d.status = 'won' AND fb.booked_by_user_id = ${viewer.userId}
+     WHERE d.space_id = ${a.spaceId} AND d.status = 'won' AND COALESCE(fb.booked_by_user_id, d.owner_user_id) = ${viewer.userId}
        AND d.won_at >= ${a.fromMs}::bigint AND d.won_at < ${a.toMs}::bigint
+       AND (${a.after?.id ?? null}::text IS NULL OR d.won_at < ${a.after?.wonAt ?? 0}::bigint
+            OR (d.won_at = ${a.after?.wonAt ?? 0}::bigint AND d.id > ${a.after?.id ?? ''}::text))
      ORDER BY d.won_at DESC, d.id
      LIMIT ${a.limit}`;
 }
@@ -45,8 +47,8 @@ export async function sumMyPurchases(viewer: Viewer, sql: Sql, a: { spaceId: str
         FROM bookings b WHERE b.space_id = ${a.spaceId} AND b.deal_id IS NOT NULL
        ORDER BY b.deal_id, b.created_at, b.id)
     SELECT count(*)::int AS count, COALESCE(sum(d.amount_kzt), 0)::text AS sum_kzt
-      FROM deals d JOIN fb ON fb.deal_id = d.id
-     WHERE d.space_id = ${a.spaceId} AND d.status = 'won' AND fb.booked_by_user_id = ${viewer.userId}
+      FROM deals d LEFT JOIN fb ON fb.deal_id = d.id
+     WHERE d.space_id = ${a.spaceId} AND d.status = 'won' AND COALESCE(fb.booked_by_user_id, d.owner_user_id) = ${viewer.userId}
        AND d.won_at >= ${a.fromMs}::bigint AND d.won_at < ${a.toMs}::bigint`;
   return rows[0] ?? { count: 0, sumKzt: '0' };
 }

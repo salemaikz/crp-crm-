@@ -51,6 +51,12 @@ export function chipOf(card: BoardCardDto): ChipView {
   return { kind: 'state', state: card.state };
 }
 
+/** Подпись причины перезвона из справочника; кода нет в справочнике (старый или служебный) — null, сырой ключ не показываем. */
+export function reasonLabel(labels: Readonly<Record<string, string>>, code: string): string | null {
+  const v = Object.hasOwn(labels, code) ? labels[code] : undefined;
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
+}
+
 export type DueView =
   | { kind: 'none' }
   | { kind: 'overdue'; precision: 'time' | 'day'; at: number; minutes: number }

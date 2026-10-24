@@ -1,7 +1,7 @@
 // Что показывает плитка: тон по пресету, значки, чип и срок (pipeline-v2 §5.3, §9.3).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { badgesOf, chipOf, dueOf, hasFire, overdueParts, toneOf } from '@/ui/board/tile';
+import { badgesOf, chipOf, dueOf, hasFire, overdueParts, reasonLabel, toneOf } from '@/ui/board/tile';
 import { card } from './fixtures';
 
 const TONES = [
@@ -61,4 +61,12 @@ test('просрочка словами: минуты, часы, дни', () => 
   assert.deepEqual(overdueParts(35), { unit: 'min', n: 35 });
   assert.deepEqual(overdueParts(120), { unit: 'hour', n: 2 });
   assert.deepEqual(overdueParts(60 * 24 * 3), { unit: 'day', n: 3 });
+});
+
+test('причина перезвона: подпись из справочника; кода нет в справочнике — null, а не сырой ключ', () => {
+  const labels = { thinking: 'Думает', empty: ' ' };
+  assert.equal(reasonLabel(labels, 'thinking'), 'Думает');
+  assert.equal(reasonLabel(labels, 'busy'), null);
+  assert.equal(reasonLabel(labels, 'empty'), null);
+  assert.equal(reasonLabel(labels, 'constructor'), null, 'ключи прототипа не считаются подписями');
 });
