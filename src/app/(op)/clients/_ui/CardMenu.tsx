@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useRef, useState } from 'react';
-import { Alert, Button, Checkbox, Field, Modal, Select, Textarea, useToast } from '@/ui/kit';
+import { Alert, Button, Checkbox, Field, Modal, Select, Textarea, buttonClass, useToast } from '@/ui/kit';
 import { formatPhone } from './format';
 import { send } from './requests';
 
@@ -98,17 +98,21 @@ export function CardMenu({ cardId, version, can, phones, reasons, recipients }: 
             {t('menu.dncClear')}
           </Button>
         )}
-        {can.closeFromMenu && (
-          <>
+      </div>
+      {can.closeFromMenu && (
+        // Закрытие карточки — редкое и необратимое: «Другие действия», тихо, без красной кнопки на виду
+        <details className="group" data-testid="other-actions">
+          <summary className={buttonClass({ variant: 'quiet', className: 'cursor-pointer list-none' })}>{t('menu.other')}</summary>
+          <div className="mt-1 flex flex-wrap gap-2">
             <Button variant="quiet" onClick={() => open('not_target')}>
               {t('menu.notTarget')}
             </Button>
             <Button variant="danger-quiet" onClick={() => open('do_not_call')}>
               {t('menu.doNotCall')}
             </Button>
-          </>
-        )}
-      </div>
+          </div>
+        </details>
+      )}
       <Modal open={mode !== null} onClose={close} title={mode ? t(`menu.dialog.${mode}`) : ''} closeLabel={t('form.close')}>
         <div className="flex flex-col gap-3">
           {error && <Alert tone="danger">{error}</Alert>}

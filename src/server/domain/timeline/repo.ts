@@ -223,7 +223,7 @@ export async function selectTaskPrecisionByIds(sql: Sql, viewer: Viewer, ids: re
 
 type SummaryParts = Pick<ClientSummaryDto, 'period' | 'lprFoundAt' | 'bookings' | 'purchases' | 'handoffs'> & {
   nextBookingAt: number | null;
-  task: { source: string; dueAt: number | null } | null;
+  task: { source: string; dueAt: number | null; duePrecision: 'time' | 'day' } | null;
 };
 
 /**
@@ -266,8 +266,8 @@ export async function selectSummaryParts(sql: Sql, viewer: Viewer, clientId: str
     SELECT t.key, h.status, h.created_at, h.accepted_at FROM handoffs h JOIN teams t ON t.id = h.team_id
      WHERE h.client_id = ${clientId} AND h.space_id_from = ${s} AND ${scopeSql(viewer, 'handoff', 'handoff.read')}
      ORDER BY h.created_at`;
-  const task = await sc<{ source: string; dueAt: number | null }>`
-    SELECT t.source, t.due_at FROM tasks t
+  const task = await sc<{ source: string; dueAt: number | null; duePrecision: 'time' | 'day' }>`
+    SELECT t.source, t.due_at, t.due_precision FROM tasks t
      WHERE t.client_id = ${clientId} AND t.space_id = ${s} AND t.status = 'open' AND ${scopeSql(viewer, 'task', 'task.read')}
      ORDER BY t.due_at NULLS LAST LIMIT 1`;
   const c = calls[0];

@@ -3,26 +3,33 @@
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useRef, useState } from 'react';
-import { Badge, BottomSheet, Button, Card, List, ListItem, useToast } from '@/ui/kit';
+import { Alert, Badge, BottomSheet, Button, Card, Field, Input, List, ListItem, useToast } from '@/ui/kit';
 import { FieldsForm, type FormBody, type SubmitResult, type SystemSpec } from './FieldsForm';
+import { formatPhone } from './format';
 import { send } from './requests';
-import type { ContactView, FieldView } from './types';
+import type { ContactView, FieldView, PhoneView } from './types';
 
 type Props = {
   clientId: string;
   contacts: ContactView[];
   /** Поля контакта из настроек (для нового контакта; у существующих — свои, с их значениями). */
   contactFields: FieldView[];
+  /** Номера клиента: у контакта показываются его номера. */
+  phones: PhoneView[];
   canEdit: boolean;
 };
 
-export function ContactsPanel({ clientId, contacts, contactFields, canEdit }: Props) {
+export function ContactsPanel({ clientId, contacts, contactFields, phones, canEdit }: Props) {
   const t = useTranslations('clients');
   const router = useRouter();
   const toast = useToast();
   // null — закрыто, 'new' — новый контакт, иначе id редактируемого
   const [editing, setEditing] = useState<string | null>(null);
   const opId = useRef<string>(crypto.randomUUID());
+  // Телефон нового контакта: свой opId на попытку, чтобы повтор не создал второй номер
+  const phoneOpId = useRef<string>(crypto.randomUUID());
+  const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const current = contacts.find((c) => c.id === editing) ?? null;
 
   const system = (c: ContactView | null): SystemSpec[] => [
@@ -33,18 +40,48 @@ export function ContactsPanel({ clientId, contacts, contactFields, canEdit }: Pr
     { key: 'note', kind: 'textarea', label: t('contacts.note'), value: c?.note ?? '', editable: true },
   ];
 
+  function closeForm() {
+    setEditing(null);
+    setPhone('');
+    setPhoneError(null);
+  }
+
+  /** Номер контакта: `false` — не добавлен (причина показана у поля). */
+  async function addPhoneOf(contactId: string): Promise<boolean> {
+    const { result, data } = await send('POST', `/api/clients/${clientId}/phones`, { opId: phoneOpId.current, phone: phone.trim(), contactId });
+    if (result.ok) {
+      phoneOpId.current = crypto.randomUUID();
+      setPhone('');
+      setPhoneError(null);
+      return true;
+    }
+    if (result.kind !== 'network') phoneOpId.current = crypto.randomUUID();
+    const stand = (data as { detail?: string } | null)?.detail === 'stand_phone';
+    setPhoneError(`${t('contacts.phoneFailed')}. ${result.kind === 'invalid' ? t(stand ? 'phones.standPhone' : 'phones.invalid') : t(`form.failure.${result.kind === 'fields' ? 'invalid' : result.kind}`)}`);
+    return false;
+  }
+
   async function submit(body: FormBody): Promise<SubmitResult> {
     const isNew = editing === 'new';
     const { result } = isNew
       ? await send('POST', `/api/clients/${clientId}/contacts`, { opId: opId.current, system: body.set.system, custom: body.set.custom })
       : await send('PATCH', `/api/clients/contacts/${editing}`, body);
     if (result.ok) {
+      // Номер нового контакта: сам контакт уже создан (его id — opId), номер привязывается к нему
+      if (isNew && phone.trim()) {
+        const added = await addPhoneOf(opId.current);
+        if (!added) {
+          // Контакт есть, номера нет: форма остаётся с ошибкой, повтор не создаст второй контакт (тот же opId)
+          router.refresh();
+          return { ok: false, kind: 'invalid' };
+        }
+      }
       if (isNew) opId.current = crypto.randomUUID();
-      setEditing(null);
+      closeForm();
       toast.show({ message: t('contacts.saved'), tone: 'success' });
       router.refresh();
     } else if (result.kind === 'conflict') {
-      setEditing(null);
+      closeForm();
       toast.show({ message: t('form.failure.conflict'), tone: 'danger' });
       router.refresh();
     } else if (isNew && result.kind !== 'network') {
@@ -56,7 +93,7 @@ export function ContactsPanel({ clientId, contacts, contactFields, canEdit }: Pr
   async function archive() {
     if (!editing || editing === 'new') return;
     const { result } = await send('PATCH', `/api/clients/contacts/${editing}`, { archived: true });
-    setEditing(null);
+    closeForm();
     if (result.ok) {
       toast.show({ message: t('contacts.archived'), tone: 'success' });
       router.refresh();
@@ -85,7 +122,7 @@ export function ContactsPanel({ clientId, contacts, contactFields, canEdit }: Pr
             <ListItem
               key={c.id}
               title={c.name || t('contacts.noName')}
-              meta={[c.position, c.callHint].filter(Boolean).join(' · ') || undefined}
+              meta={[c.position, c.callHint, ...phones.filter((p) => p.contactId === c.id).map((p) => formatPhone(p.e164))].filter(Boolean).join(' · ') || undefined}
               trailing={c.isDecisionMaker ? <Badge tone="brand">{t('contacts.decisionMaker')}</Badge> : undefined}
               onClick={canEdit ? () => setEditing(c.id) : undefined}
             />
@@ -95,7 +132,7 @@ export function ContactsPanel({ clientId, contacts, contactFields, canEdit }: Pr
       {canEdit && (
         <BottomSheet
           open={editing !== null}
-          onClose={() => setEditing(null)}
+          onClose={closeForm}
           title={editing === 'new' ? t('contacts.newTitle') : t('contacts.editTitle')}
           closeLabel={t('form.close')}
         >
@@ -105,7 +142,17 @@ export function ContactsPanel({ clientId, contacts, contactFields, canEdit }: Pr
             customFields={current ? current.fields.fields : contactFields}
             submitLabel={t('form.save')}
             onSubmit={submit}
-            onCancel={() => setEditing(null)}
+            onCancel={closeForm}
+            afterFields={
+              editing === 'new' ? (
+                <>
+                  {phoneError && <Alert tone="danger">{phoneError}</Alert>}
+                  <Field label={t('contacts.phone')} hint={t('contacts.phoneHint')}>
+                    <Input name="contact-phone" type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                  </Field>
+                </>
+              ) : undefined
+            }
             extra={
               current ? (
                 <Button type="button" variant="danger" onClick={archive}>

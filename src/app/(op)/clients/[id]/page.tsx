@@ -1,12 +1,14 @@
 import { notFound, redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { can, page } from '@/server/access';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { loadClientPage } from '@/server/domain/clients';
 import { getMessengerConsent } from '@/server/domain/messenger';
 import { loadChannelModes } from '@/ui/channels/loadModes';
 import { Page } from '@/ui/kit';
 import { WhatsappButton } from '@/ui/messenger/WhatsappButton';
 import { ClientTasksPanel } from '../../tasks/_ui/ClientTasksPanel';
+import { backTarget } from '../_ui/backTarget';
 import { CallButton } from '../_ui/CallButton';
 import { CardActions } from '../_ui/CardActions';
 import { CardFieldsPanel } from '../_ui/CardFieldsPanel';
@@ -24,12 +26,13 @@ import { formatPhone, labelOf } from '../_ui/format';
 import { PhonesPanel } from '../_ui/PhonesPanel';
 import type { FeedLabels } from '../_ui/types';
 
-type Props = { params: Promise<{ id: string }> };
+type Props = { params: Promise<{ id: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
 // Карточка клиента — одна для всех ролей; что видно и что можно править, решает сервер (охват и поля).
 // Слитый клиент ведёт к выжившему, невидимый и несуществующий — одинаковый 404.
 export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' }, async ({ viewer, props }) => {
   const { id } = await props.params;
+  const query = (await props.searchParams) ?? {};
   const r = await loadClientPage(viewer, id);
   if (r.kind === 'redirect') redirect(r.to);
   if (r.kind === 'missing') notFound();
@@ -55,7 +58,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
     <ClientsProviders>
       <Page width="wide">
         {/* Шапка на обе колонки: история справа начинается на одной высоте с первым блоком слева */}
-        <ClientHeader card={card} legalForms={legalForms} timeZone={tz} />
+        <ClientHeader card={card} legalForms={legalForms} timeZone={tz} back={backTarget(query.from, query.tab, isFeatureEnabled('OP_BOARD'))} />
         {/* Одна колонка на телефоне — minmax(0,1fr): ряд чипов ленты прокручивается сам, а не растягивает страницу */}
         <div className="grid grid-cols-[minmax(0,1fr)] gap-[var(--space-section)] lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:items-start">
           <div className="flex min-w-0 flex-col gap-4">
@@ -72,7 +75,7 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
             <NotesPanel key={pinnedNotes.map((n) => n.id).join(',')} clientId={card.id} pinned={pinnedNotes} canWrite={card.can.note} timeZone={tz} />
             <DealsPanel deals={deals} catalog={catalog} timeZone={tz} />
             <PhonesPanel clientId={card.id} phones={card.phones} contacts={card.contacts} canEdit={card.can.edit} />
-            <ContactsPanel clientId={card.id} contacts={card.contacts} contactFields={card.contactFields.fields} canEdit={card.can.edit} />
+            <ContactsPanel clientId={card.id} contacts={card.contacts} contactFields={card.contactFields.fields} phones={card.phones} canEdit={card.can.edit} />
           </div>
           <div className="min-w-0 lg:sticky lg:top-4">
             <FeedPanel clientId={card.id} canPin={card.can.note} initialItems={feed.items} initialNext={feed.next} timeZone={tz} labels={labels} />

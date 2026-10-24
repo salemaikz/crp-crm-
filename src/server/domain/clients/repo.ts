@@ -73,6 +73,19 @@ export type CardHeadDb = {
   canUnblock: boolean;
   canClose: boolean;
   canTransfer: boolean;
+  /** Открытая сделка карточки с правом `deal.purchase` в охвате (кнопка «Покупка»). */
+  canPurchase: boolean;
+  /** Поля шапки доски (воронка v2): причина и касания перезвона, точность срока, признаки явки, покупки. */
+  callbackReason: string;
+  callbackTouches: number;
+  nextCallPrecision: 'time' | 'day';
+  attendedGroupAt: number | null;
+  attendedIndividualAt: number | null;
+  lastNoShowAt: number | null;
+  purchasesTotal: number;
+  /** Запись открытой сделки для «Договорились» (как на доске): вид и статус. */
+  bookingType: string | null;
+  bookingStatus: string | null;
 };
 
 /** 4.2. Карточка обзвона текущего пространства. */
@@ -83,6 +96,9 @@ export async function selectCardHead(sql: Sql, viewer: Viewer, clientId: string)
            c.calls_total, c.no_answer_total, c.connects_total, c.first_connect_at, c.last_connect_at, c.last_touch_at,
            ou.name AS owner_name, au.name AS acting_name,
            c.version, c.owner_user_id, c.acting_until_day, c.close_reason_code, c.closed_at, c.return_at, c.custom,
+           c.callback_reason, c.callback_touches, c.next_call_precision, c.attended_group_at, c.attended_individual_at,
+           c.last_no_show_at, c.purchases_total, bk.event_type_key AS booking_type, bk.status AS booking_status,
+           EXISTS (SELECT 1 FROM deals d WHERE d.card_id = c.id AND d.status = 'open' AND ${scopeSql(viewer, 'deal', 'deal.purchase')}) AS can_purchase,
            (${scopeSql(viewer, 'card', 'booking.create')}) AS can_book,
            (${scopeSql(viewer, 'card', 'card.edit')}) AS can_edit_card,
            (${scopeSql(viewer, 'card', 'card.return')}) AS can_reopen,
@@ -92,6 +108,11 @@ export async function selectCardHead(sql: Sql, viewer: Viewer, clientId: string)
       FROM cards c
       LEFT JOIN users ou ON ou.id = c.owner_user_id
       LEFT JOIN users au ON au.id = c.acting_user_id
+      LEFT JOIN LATERAL (
+        SELECT b.event_type_key, b.status
+          FROM bookings b JOIN deals bd ON bd.id = b.deal_id AND bd.status = 'open' AND bd.card_id = c.id
+         WHERE c.state = 'agreed' AND b.status IN ('registered','confirmed','attended','no_show')
+         ORDER BY b.starts_at DESC, b.id LIMIT 1) bk ON TRUE
      WHERE c.client_id = ${clientId} AND c.space_id = ${viewer.spaceId} AND ${scopeSql(viewer, 'card', 'card.read')}`;
   return rows[0] ?? null;
 }

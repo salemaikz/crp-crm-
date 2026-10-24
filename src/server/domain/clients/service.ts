@@ -3,9 +3,11 @@
 import { calling, fields, names } from '@crm/core';
 import { BadRequestError, can, ConflictError, NotFoundError, type Viewer } from '@/server/access';
 import { getDb, isUniqueViolation, type Sql } from '@/server/platform/db';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { iinHmac } from '@/server/platform/hmac';
 import { getClientSummary, listClientDeals, listFeed, parseFilter, parseGroups, readPinnedNotes, PIN_LIMIT, type ClientSummaryDto, type DealRowDto, type FeedPage, type NoteDto } from '../timeline';
 import { appendEvents, dealOfClientVisible, type NewEvent } from '../timeline/repo';
+import { loadBoardHead, toCardBoard } from './boardHead';
 import { cardFieldViewer } from './cardFields';
 import { loadCatalogLabels, type CatalogLabels } from './labels';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
@@ -62,6 +64,7 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
     selectContacts(db.sql, viewer, id),
   ]);
   const phones = phoneRows.map(toPhoneDto);
+  const boardHead = head ? await loadBoardHead(viewer) : null;
   const contacts = contactRows.map((c) => toContactDto(c, fv, cfg.fields));
   return {
     id: row.id,
@@ -91,8 +94,16 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
       unblock: head ? head.canUnblock && head.state === 'do_not_call' : false,
       // B9a: право передачи по карточке (охват в SQL, «только чтение» уже понижено)
       transfer: head ? head.canTransfer : false,
+      // C7: открытая сделка в охвате `deal.purchase`, раздел покупок включён, «только чтение» — нет
+      purchase: head ? head.canPurchase && isFeatureEnabled('PURCHASES') && !viewer.readOnly : false,
     },
-    card: head ? toCardHead(head, fields.projectFor(cardFieldViewer(viewer, cfg), 'card', cfg.fields, head.custom as fields.CustomValues)) : null,
+    card: head
+      ? toCardHead(
+          head,
+          fields.projectFor(cardFieldViewer(viewer, cfg), 'card', cfg.fields, head.custom as fields.CustomValues),
+          boardHead ? toCardBoard(head, boardHead, viewer.grants.has('deal.read')) : null,
+        )
+      : null,
     phones,
     primaryPhone: pickPrimaryPhone(phones),
     decisionMaker: pickDecisionMaker(contacts),
@@ -136,6 +147,7 @@ export async function loadClientPage(viewer: Viewer, id: string): Promise<Client
       card.card && {
         state: card.card.state,
         nextCallAt: card.card.nextCallAt,
+        nextCallPrecision: card.card.nextCallPrecision,
         callsTotal: card.card.counters.callsTotal,
         connectsTotal: card.card.counters.connectsTotal,
         noAnswerTotal: card.card.counters.noAnswerTotal,

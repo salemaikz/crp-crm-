@@ -45,7 +45,7 @@ export type ClientSummaryDto = {
   handoffs: Array<{ teamKey: string; status: string; createdAt: number; acceptedAt: number | null }>;
   ownerName: string | null;
   actingName: string | null;
-  nextStep: { kind: NextStepKind; at: number | null; taskSource?: string };
+  nextStep: { kind: NextStepKind; at: number | null; taskSource?: string; /** Только «day»: срок без времени. */ precision?: 'day' };
 };
 
 export type DealRowDto = {

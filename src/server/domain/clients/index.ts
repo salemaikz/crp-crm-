@@ -22,5 +22,5 @@ export {
 export { addPhone, updatePhone, type AddPhoneResult } from './phones';
 export { findSurvivor, getClientCard, getClientDeals, getClientFeed, getClientSummaryFor, listClients, loadClientPage, updateClient, type ClientPage } from './service';
 export { CARD_STATES } from './types';
-export type { CardHeadDto, CardState, ClientCan, ClientCardDto, ClientList, ClientRow, ContactDto, PhoneDto, PhoneKind } from './types';
+export type { CardBoardDto, CardHeadDto, CardState, CardTone, ClientCan, ClientCardDto, ClientList, ClientRow, ContactDto, PhoneDto, PhoneKind } from './types';
 export type { ClientSummaryDto, DealRowDto, NoteDto } from '../timeline';
