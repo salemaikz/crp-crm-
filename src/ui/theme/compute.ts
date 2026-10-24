@@ -277,6 +277,8 @@ export function computeTheme(raw: unknown, variant: ThemeVariant = 'light'): The
     // Слой 2. Нейтральные
     '--canvas': canvas,
     '--surface': surface,
+    // Выбранное (D-358): нейтральная подложка — поверхность с примесью текста
+    '--surface-selected': mix(surface, N.text, dark ? 0.16 : 0.1),
     '--text': N.text,
     '--text-2': N.text2,
     '--text-3': N.text3,

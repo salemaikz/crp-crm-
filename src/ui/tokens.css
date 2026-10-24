@@ -20,6 +20,7 @@
   --ring: #2457c5;
   --canvas: #f5f6f8;
   --surface: #ffffff;
+  --surface-selected: #e8e8e8;
   --text: #14161b;
   --text-2: #4a4f59;
   --text-3: #5f646e;
@@ -74,11 +75,12 @@
   --field-w-sm: 200px;
   --field-w-md: 360px;
   /* Не из настроек: сетка колонок доски (ui-polish §9.2). Рабочие роли — не уже --board-col, конечные — --board-col-end */
-  --board-col: 12rem;
-  --board-col-end: 9rem;
+  --board-col: 17rem;
+  --board-col-end: 15rem;
   --board-gap: 8px;
   /* Высоту нижнего меню ставит оболочка (правила ниже); вне оболочки меню нет */
   --bottom-nav-h: 0px;
+  --nav-h: var(--bottom-nav-h);
 }
 
 @media (min-width: 768px) {

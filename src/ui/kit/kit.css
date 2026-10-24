@@ -72,6 +72,14 @@
   .k-btn--quiet:hover {
     --btn-bg: var(--accent-tint);
   }
+  /* Зелёный: «Позвонить» и сохранение итога в потоке звонка (D-358 п. 3) */
+  .k-btn--success {
+    --btn-bg: var(--success);
+    --btn-fg: var(--on-success);
+  }
+  .k-btn--success:hover {
+    --btn-bg: color-mix(in srgb, var(--success) 88%, var(--text));
+  }
   .k-btn--danger-quiet {
     --btn-bg: transparent;
     --btn-fg: var(--danger);
@@ -432,11 +440,11 @@
   .k-segmented > .k-chip[aria-selected='true'],
   .k-segmented > .k-chip[aria-current='page'] {
     border-color: transparent;
-    background-color: var(--accent-tint);
+    background-color: var(--surface-selected);
     background-clip: padding-box;
     color: var(--text);
-    /* Рамка выбранного (ui-polish §9.5): лежит по краю заливки, внутри прозрачной рамки сегмента */
-    box-shadow: inset 0 0 0 1.5px var(--accent-ink);
+    /* Рамка выбранного (D-358): лежит по краю заливки, внутри прозрачной рамки сегмента */
+    box-shadow: inset 0 0 0 2px var(--text);
   }
   /* Фокус внутри группы: overflow-x: auto режет всё за её краем. Кольцо лежит в прозрачной рамке сегмента
      (offset −3 px) на фоне группы; у выбранного там тот же фон, поэтому кольцо — цветом текста на бренде
@@ -445,7 +453,7 @@
     outline-offset: -3px;
   }
   .k-segmented > .k-chip:is([aria-pressed='true'], [aria-selected='true'], [aria-current='page']):focus-visible {
-    outline: 2px solid var(--accent-ink);
+    outline: 2px solid var(--text-2);
     outline-offset: -7px;
   }
   .k-tabs__list.k-segmented {
@@ -572,13 +580,21 @@
   .k-chip:hover {
     background: var(--canvas);
   }
-  /* Выбранное (ui-polish §9.5): подложка акцента и рамка, не сплошная заливка бренда — она только у главной кнопки */
+  /* Выбранное (D-358 п. 3): нейтральное — рамка 2px --text, подложка --surface-selected и галочка. Не акцент и не красный:
+     у клиента с красным брендом акцент читался как ошибка */
   .k-chip[aria-pressed='true'],
   .k-chip[aria-selected='true'],
   .k-chip[aria-current='page'] {
-    border-color: var(--accent-ink);
-    background: var(--accent-tint);
+    border-color: var(--text);
+    /* 1.5px рамки чипа + 0.5px внутри = 2px */
+    box-shadow: inset 0 0 0 0.5px var(--text);
+    background: var(--surface-selected);
     color: var(--text);
+  }
+  .k-chip[aria-pressed='true']::before,
+  .k-chip[aria-selected='true']::before {
+    content: '✓';
+    font-weight: 800;
   }
   /* Погашенное: нейтрально, без opacity (как неактивная кнопка); причину пишет текст рядом, не только title */
   .k-chip:disabled,
@@ -1197,6 +1213,12 @@
     flex-direction: column;
     gap: 8px;
     margin-top: var(--space-gap);
+  }
+  /* Телефон: главная кнопка шторки стоит над нижним меню и безопасной зоной (D-358 п. 4) */
+  @media (max-width: 767.98px) {
+    .k-overlay--sheet .k-overlay__footer {
+      padding-bottom: var(--nav-h);
+    }
   }
   @keyframes k-sheet-in {
     from {
