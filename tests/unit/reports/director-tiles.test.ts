@@ -124,3 +124,13 @@ test('панель: «Эта неделя» — понедельник…сег�
   assert.deepEqual(directorWeeks('2026-10-28', 'prev'), { week: { from: '2026-10-19', to: '2026-10-25' }, prev: { from: '2026-10-12', to: '2026-10-18' } });
   assert.deepEqual(directorWeeks('2026-10-26', 'prev').week, { from: '2026-10-19', to: '2026-10-25' });
 });
+
+test('локали сводки и «Операторов»: колонки записей — шаблон «Записи на {event}», запасной вариант без названий клиента (A6)', () => {
+  const ru = JSON.parse(readFileSync('messages/ru/reports.json', 'utf8'));
+  for (const cols of [ru.summary.operators.columns, ru.operators.cols]) {
+    assert.match(cols.groups, /^Записи на \{event\}$/);
+    assert.match(cols.consults, /^Записи на \{event\}$/);
+    assert.ok(cols.groupsFallback && cols.consultsFallback);
+    assert.doesNotMatch(`${cols.groups}${cols.consults}${cols.groupsFallback}${cols.consultsFallback}`, /Группы|Консультации|БР|БК|разбор/);
+  }
+});

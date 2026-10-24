@@ -73,6 +73,8 @@ after(async () => {
 test('РОП: плитки сводки', async () => {
   const s = await getSummary(await viewerOf(U.rop));
   assert.equal(s.day, SEED_TODAY);
+  // подписи видов записи для колонок «Записи на {event}» (A6): объект с двумя строками, без настроек — пустые
+  assert.deepEqual(Object.keys(s.eventLabels).sort(), ['group', 'individual']);
   // пул: 17 готовых (20 − 2 дубля − 1 конфликт), три выдано A выше из pc-1..3 только в журнале, карточки остались в пуле
   assert.equal(s.tiles.pool.ready, 17);
   assert.equal(s.tiles.pool.duplicates, 2);

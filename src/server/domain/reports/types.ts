@@ -68,6 +68,8 @@ export interface Summary {
   overdueAlertMinutes: number;
   /** Норма звонков в час (`reports.callsPerHourTarget`); null — не задана. */
   callsPerHourTarget: number | null;
+  /** Короткие подписи видов записи из настроек (первый групповой и индивидуальный); пусто — вида нет. */
+  eventLabels: { group: string; individual: string };
   tiles: SummaryTiles;
   /** Красная плитка: что-то просрочено. */
   alarm: boolean;

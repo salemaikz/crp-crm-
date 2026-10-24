@@ -36,7 +36,7 @@ type Props = { reportKey: ReportKey; data: ReportData; labels: ReportLabels };
 export function ReportTable({ reportKey, data, labels }: Props) {
   switch (reportKey) {
     case 'operators':
-      return <OperatorsTable data={data as OperatorsData} />;
+      return <OperatorsTable data={data as OperatorsData} labels={labels} />;
     case 'funnel':
       return <FunnelTable data={data as FunnelData} labels={labels} />;
     case 'revenue':
@@ -62,8 +62,13 @@ function Percent({ value }: { value: number | null }) {
 
 type OpRow = OperatorMetrics & { id: string; name: string; bucket: string; belowTarget: boolean; isTotal: boolean; isAverage?: boolean };
 
-function OperatorsTable({ data }: { data: OperatorsData }) {
+function OperatorsTable({ data, labels }: { data: OperatorsData; labels: ReportLabels }) {
   const t = useTranslations('reports.operators');
+  // Названия видов записи — из настроек; вида нет — нейтральный запасной вариант
+  const kindHeader = (kind: 'groups' | 'consults'): string => {
+    const label = labels.eventKinds[kind === 'groups' ? 'group' : 'individual'];
+    return label ? t(`cols.${kind}`, { event: label }) : t(`cols.${kind}Fallback`);
+  };
   const rows: OpRow[] = [
     ...data.rows.map((r: OperatorPeriodRow) => ({ ...r, id: `${r.userId}|${r.bucket}`, isTotal: false })),
     { ...data.totals, id: 'total', name: t('total'), bucket: '', belowTarget: false, isTotal: true },
@@ -103,8 +108,8 @@ function OperatorsTable({ data }: { data: OperatorsData }) {
     num('outcomes', t('cols.outcomes')),
     num('connects', t('cols.connects')),
     num('lpr', t('cols.lpr')),
-    num('groups', t('cols.groups')),
-    num('consults', t('cols.consults')),
+    num('groups', kindHeader('groups')),
+    num('consults', kindHeader('consults')),
     num('attended', t('cols.attended')),
     num('noShow', t('cols.noShow')),
     pct('attendanceRate', t('cols.attendanceRate')),

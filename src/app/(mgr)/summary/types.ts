@@ -32,6 +32,7 @@ export type SummaryData = {
   timeZone: string;
   overdueAlertMinutes: number;
   callsPerHourTarget: number | null;
+  eventLabels: { group: string; individual: string };
   tiles: {
     pool: { ready: number; overCap: number; duplicates: number; disputed: number };
     issued: { issued: number; cap: number; operators: number };

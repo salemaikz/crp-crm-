@@ -8,6 +8,7 @@ import { dueBoundsAt } from '@/server/domain/calls/dueBounds';
 import { requireSpaceReports } from './access';
 import { buildOperatorRows, roomToday } from './compose';
 import { reportsDeps } from './deps';
+import { loadEventLabels } from './eventLabels';
 import {
   countGreyBookings,
   selectBookingDays,
@@ -53,6 +54,7 @@ export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
     countGreyBookings(viewer, sql, { spaceId, fromDay: day }),
   ]);
 
+  const eventLabels = await loadEventLabels(spaceId);
   const operators = buildOperatorRows({
     staff,
     today: day,
@@ -88,6 +90,7 @@ export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
     timeZone,
     overdueAlertMinutes: cfg.overdueAlertMinutes,
     callsPerHourTarget: cfg.callsPerHourTarget,
+    eventLabels,
     tiles: {
       pool,
       issued: { issued: operators.reduce((sum, o) => sum + o.issued, 0), cap: settings.dailyCap * accepting.length, operators: accepting.length },

@@ -10,6 +10,11 @@ const TONE: Record<OperatorStatus, BadgeTone> = { working: 'success', paused: 'w
 /** Таблица операторов за сегодня; на телефоне строки становятся карточками. */
 export function OperatorsTable({ data }: { data: SummaryData }) {
   const t = useTranslations('reports.summary.operators');
+  // Названия видов записи — из настроек; вида нет — нейтральный запасной вариант
+  const kindHeader = (kind: 'groups' | 'consults'): string => {
+    const label = kind === 'groups' ? data.eventLabels.group : data.eventLabels.individual;
+    return label === '' ? t(`columns.${kind}Fallback`) : t(`columns.${kind}`, { event: label });
+  };
   const columns: TableColumn<OperatorRow>[] = [
     { key: 'name', header: t('columns.name'), primary: true, nowrap: true, cell: (o) => <strong>{o.name}</strong> },
     {
@@ -26,8 +31,8 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
     { key: 'outcomes', header: t('columns.outcomes'), numeric: true, cell: (o) => o.outcomes },
     { key: 'connects', header: t('columns.connects'), numeric: true, cell: (o) => o.connects },
     { key: 'lpr', header: t('columns.lpr'), numeric: true, cell: (o) => o.lpr },
-    { key: 'groups', header: t('columns.groups'), numeric: true, cell: (o) => o.groups },
-    { key: 'consults', header: t('columns.consults'), numeric: true, cell: (o) => o.consults },
+    { key: 'groups', header: kindHeader('groups'), numeric: true, cell: (o) => o.groups },
+    { key: 'consults', header: kindHeader('consults'), numeric: true, cell: (o) => o.consults },
     { key: 'skips', header: t('columns.skips'), numeric: true, cell: (o) => o.skips },
     {
       key: 'overdue',

@@ -56,12 +56,14 @@
         "outcomes": "Итогов",
         "connects": "Дозвонов",
         "lpr": "ЛПР",
-        "groups": "Группы",
-        "consults": "Консультации",
+        "groups": "Записи на {event}",
+        "consults": "Записи на {event}",
         "skips": "Пропуски",
         "overdue": "Просрочено",
         "rate": "Звонков в час",
-        "unsent": "Не отправлено"
+        "unsent": "Не отправлено",
+        "groupsFallback": "Групповые записи",
+        "consultsFallback": "Индивидуальные записи"
       },
       "status": {
         "working": "Работает",
@@ -156,8 +158,8 @@
       "outcomes": "Итогов",
       "connects": "Дозвонов",
       "lpr": "ЛПР",
-      "groups": "Группы",
-      "consults": "Консультации",
+      "groups": "Записи на {event}",
+      "consults": "Записи на {event}",
       "attended": "Пришли",
       "noShow": "Не пришли",
       "attendanceRate": "Явка",
@@ -168,7 +170,9 @@
       "callsPerHour": "Звонков в час",
       "bookedPerConnect": "Запись / дозвон",
       "attendedPerBooked": "Явка / запись",
-      "purchasedPerAttended": "Покупка / явка"
+      "purchasedPerAttended": "Покупка / явка",
+      "groupsFallback": "Групповые записи",
+      "consultsFallback": "Индивидуальные записи"
     },
     "average": "Средняя по операторам",
     "averageHint": "«Итого» — по команде в целом. Средняя — среднее по операторам, у которых за период не меньше {min} дозвонов (в расчёте: {count})."
