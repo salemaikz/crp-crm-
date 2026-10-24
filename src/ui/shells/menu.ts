@@ -7,7 +7,7 @@ export type ShellKind = 'operator' | 'manager' | 'consultant' | 'duty';
 
 /** Идентификатор пункта: он же ключ подписи `shell.nav.<id>` и иконки. */
 export type MenuId =
-  | 'board' | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive'
+  | 'board' | 'purchases' | 'call' | 'clients' | 'tasks' | 'bookings' | 'archive' | 'help'
   | 'summary' | 'director' | 'exports' | 'distribution' | 'kanban' | 'reports' | 'settings' | 'import' | 'handoffs' | 'team' | 'transfer'
   | 'consultations' | 'duty' | 'integrations';
 
@@ -18,8 +18,8 @@ export type MenuGroup = 'work' | 'analytics' | 'manage';
 export const MENU_GROUPS: readonly MenuGroup[] = ['work', 'analytics', 'manage'];
 
 export const MENU_GROUP: Record<MenuId, MenuGroup> = {
-  board: 'work', call: 'work', clients: 'work', tasks: 'work', bookings: 'work', archive: 'work', summary: 'work', director: 'work',
-  distribution: 'work', handoffs: 'work', kanban: 'work', consultations: 'work', duty: 'work',
+  board: 'work', purchases: 'work', call: 'work', clients: 'work', tasks: 'work', bookings: 'work', archive: 'work', summary: 'work', director: 'work',
+  distribution: 'work', handoffs: 'work', kanban: 'work', consultations: 'work', duty: 'work', help: 'work',
   reports: 'analytics', exports: 'analytics',
   settings: 'manage', import: 'manage', transfer: 'manage', team: 'manage', integrations: 'manage',
 };
@@ -32,8 +32,12 @@ type CatalogItem = {
   perm?: Permission;
   /** Страница пускает только охват пространства и шире (сервис отчётов): узкому охвату пункт не показываем. */
   spaceReports?: boolean;
+  /** Страница пускает охват карточек «пространство» и шире (доска РОП): узкому охвату пункт не показываем. */
+  wideCards?: boolean;
   /** Флаг модуля (FEATURE_<NAME>): выключен — пункт скрыт. */
   feature?: string;
+  /** Второй обязательный флаг: страница доски РОП до влития A8 отвечает 404 без KANBAN, пункт на 404 не ведёт. */
+  alsoFeature?: string;
   /** Обратный флаг: пункт виден, только пока модуль выключен (запасной вход в раздел, D-295). */
   unlessFeature?: string;
   /** Только администратор установки (раздел сам проверяет это же право). */
@@ -61,6 +65,9 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
       { id: 'bookings', href: '/bookings', keys: ['bookings'], perm: 'booking.read' },
       { id: 'archive', href: '/archive', keys: ['archive'], perm: 'client.read' },
+      // «Мои покупки» (К4): сделки по заслуге; на телефоне уходят в «Ещё»
+      { id: 'purchases', href: '/board/purchases', perm: 'deal.read', feature: 'OP_BOARD' },
+      { id: 'help', href: '/help', feature: 'OP_BOARD' },
     ],
   },
   // РОП, директор, руководитель, наблюдатель, отдел маркетинга: ноутбук, боковая навигация
@@ -69,6 +76,8 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
     items: [
       { id: 'summary', href: '/summary', keys: ['summary'], perm: 'report.view', spaceReports: true },
       { id: 'director', href: '/director', keys: ['dashboard'], perm: 'report.view', spaceReports: true, feature: 'REPORTS' },
+      // Доска обзвона РОП (К5): пока A8 не влита, страница требует и KANBAN; только охват карточек «пространство» и шире
+      { id: 'board', href: '/deals/calling', perm: 'card.read', wideCards: true, feature: 'OP_BOARD', alsoFeature: 'KANBAN' },
       { id: 'handoffs', href: '/handoffs', keys: ['handoffs'], perm: 'handoff.read', feature: 'PURCHASES' },
       { id: 'distribution', href: '/distribution', keys: ['distribution', 'pool'], perm: 'pool.read' },
       { id: 'clients', href: '/clients', perm: 'client.read' },
@@ -84,6 +93,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'transfer', href: '/team/transfer', keys: ['distribution'], perm: 'client.transfer', feature: 'BULK_TRANSFER' },
       { id: 'team', href: '/team', adminOnly: true },
       { id: 'integrations', href: '/integrations', adminOnly: true },
+      { id: 'help', href: '/help', feature: 'OP_BOARD' },
     ],
   },
   // Консультант: свои консультации и задачи (день — группы «Сегодня / Завтра» на /consultations, D-313)
@@ -92,6 +102,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
     items: [
       { id: 'consultations', href: '/consultations', keys: ['consultations'], perm: 'booking.read', feature: 'BK_WIZARD' },
       { id: 'tasks', href: '/tasks', keys: ['tasks'], perm: 'task.read' },
+      { id: 'help', href: '/help', feature: 'OP_BOARD' },
     ],
   },
   // Дежурный по встрече: явка гостей на встрече (отношение duty_today), без ключей меню роли
@@ -101,6 +112,7 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
       { id: 'duty', href: '/duty', perm: 'booking.attend' },
       { id: 'bookings', href: '/bookings', perm: 'booking.read' },
       { id: 'clients', href: '/clients', perm: 'client.read' },
+      { id: 'help', href: '/help', feature: 'OP_BOARD' },
     ],
   },
 };
@@ -109,6 +121,11 @@ const SHELLS: Record<ShellKind, ShellSpec> = {
 export const MENU_KEYS: ReadonlySet<string> = new Set(
   Object.values(SHELLS).flatMap((sh) => sh.items.flatMap((it) => it.keys ?? [])),
 );
+
+/** Вид каркаса: оператор получает боковую колонку на ноутбуке только при OP_BOARD (без флага — прежняя нижняя панель). */
+export function shellVariantOf(shell: ShellKind, features: ReadonlySet<string>): 'bottom' | 'side' {
+  return shell === 'operator' && !features.has('OP_BOARD') ? 'bottom' : 'side';
+}
 
 /** Какая оболочка у роли: по ключам её меню. Нет роли (например, администратор) — менеджерская. */
 export function shellKindOf(menu: readonly string[]): ShellKind {
@@ -124,6 +141,8 @@ export type MenuInput = {
   can: (perm: Permission) => boolean;
   /** Охват зрителя достаточен для отчётов (`canSpaceReports` сервиса отчётов); без него пункты отчётов скрыты. */
   spaceReports: boolean;
+  /** Охват `card.read` — пространство и шире (как `showCalling` на /deals); без него пункт доски РОП скрыт. */
+  wideCards?: boolean;
   isAdmin: boolean;
   /** Включённые флаги модулей (имена без `FEATURE_`). */
   features?: ReadonlySet<string>;
@@ -147,9 +166,10 @@ export function buildMenu(input: MenuInput): BuiltMenu {
     if (it.adminOnly && !input.isAdmin) continue;
     const adminPass = it.orAdmin === true && input.isAdmin;
     const byRole = (!it.keys || it.keys.some((k) => input.menu.includes(k))) && (!it.perm || input.can(it.perm)) &&
-      (!it.spaceReports || input.spaceReports);
+      (!it.spaceReports || input.spaceReports) && (!it.wideCards || input.wideCards === true);
     if (!byRole && !adminPass) continue;
     if (it.feature && !input.features?.has(it.feature)) continue;
+    if (it.alsoFeature && !input.features?.has(it.alsoFeature)) continue;
     if (it.unlessFeature && input.features?.has(it.unlessFeature)) continue;
     if (seen.has(it.href)) continue;
     seen.add(it.href);

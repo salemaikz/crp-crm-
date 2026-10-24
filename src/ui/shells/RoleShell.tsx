@@ -10,9 +10,9 @@ import { loadChannelModes } from '@/ui/channels/loadModes';
 import { AppShell } from './AppShell';
 import { loadLicenseBanner } from './loadBanner';
 import { loadBrand } from './loadBrand';
-import { loadMenu } from './loadMenu';
+import { enabledFeatures, loadMenu } from './loadMenu';
 import { foreignOutboxTtlMs } from './outboxTtl';
-import { MENU_GROUP, MENU_GROUPS, type ShellKind } from './menu';
+import { MENU_GROUP, MENU_GROUPS, shellVariantOf, type ShellKind } from './menu';
 
 type Props = {
   viewer: Viewer;
@@ -46,9 +46,14 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
     : null;
   const items = menu.items.map((i) => ({ ...i, label: t(`nav.${i.id}`), group: MENU_GROUP[i.id] }));
   const groups = Object.fromEntries(MENU_GROUPS.map((g) => [g, t(`group.${g}`)])) as Record<(typeof MENU_GROUPS)[number], string>;
+  // подсказка про перенос плитки — оператору с доской в меню (флаг OP_BOARD уже учтён каталогом)
+  const boardTip =
+    menu.shell === 'operator' && menu.items.some((i) => i.href === '/board')
+      ? { hold: t('tip.board.hold'), link: t('tip.board.link'), ok: t('tip.board.ok') }
+      : null;
   return (
     <AppShell
-      variant={menu.shell === 'operator' ? 'bottom' : 'side'}
+      variant={shellVariantOf(menu.shell, enabledFeatures())}
       brand={brand}
       groups={groups}
       navLabel={t('nav.label')}
@@ -61,6 +66,7 @@ export async function RoleShell({ viewer, force, bellCount, children }: Props) {
       outboxTtlMs={outboxTtlMs}
       banner={bannerView}
       themeSwitch={themeSwitch}
+      boardTip={boardTip}
     >
       <ChannelModesProvider modes={modes}>{children}</ChannelModesProvider>
     </AppShell>
