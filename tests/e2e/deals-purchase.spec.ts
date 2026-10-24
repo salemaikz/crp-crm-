@@ -2,6 +2,7 @@
 // сделку; РОП на странице сделки правит сумму и отменяет покупку «ошибкой ввода» — сделка возвращается на прежний этап.
 // Только синтетика (+7 709 …). БД — E2E_DATABASE_URL (та же, что у запущенного сервера); сервер с FEATURE_PURCHASES=1.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, makeOperator, prepareDb, sql } from './support/calling';
@@ -24,7 +25,7 @@ async function loginAs(page: Page, phone: string): Promise<void> {
   await page.waitForURL((u) => u.pathname !== '/login');
 }
 
-test('консультант: покупка с передачей, двойное нажатие — одна сделка; РОП правит сумму и отменяет покупку', async ({ page }) => {
+async function seedPurchase() {
   const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
   const spaceId = space!.id;
   const consultant = await makeConsultant();
@@ -46,7 +47,12 @@ test('консультант: покупка с передачей, двойно
                           status, booked_by_user_id, responsible_user_id, version, created_at, updated_at)
     VALUES (${randomUUID()}, ${spaceId}, 'individual', 'bk', ${consultant.resourceId}, ${clientId}, ${cardId}, ${dealId}, ${tomorrow}, '11:00', ${t + 86_400_000}, 45,
             'marketing', 'registered', ${op.id}, ${op.id}, 0, ${t}, ${t})`;
+  return { spaceId, consultant, op, cardId, clientId, name, dealId };
+}
 
+test('консультант: покупка с передачей, двойное нажатие — одна сделка; РОП правит сумму и отменяет покупку', async ({ page }) => {
+  const { spaceId, consultant, cardId, clientId, name, dealId } = await seedPurchase();
+  const t = Date.now();
   // --- консультант: форма покупки ---
   await loginAs(page, consultant.phone);
   await page.goto(`/deals/purchase/${cardId}`);
@@ -106,4 +112,45 @@ test('консультант: покупка с передачей, двойно
   await expect(history.getByText('Итог встречи')).toBeVisible();
   await expect(history.getByText('Консультант назначен')).toBeVisible();
   await expect(history.getByText('Событие', { exact: true })).toHaveCount(0);
+});
+
+test('вариант услуги: плитка подставляет цену из настроек, сумму можно поправить; повтор с тем же requestId — одна сделка (A9, D-348)', async ({ page }) => {
+  const { consultant, cardId, dealId } = await seedPurchase();
+  // цена варианта — из настроек сида (пресет с вариантами); нет вариантов — сценарий не про этот стенд
+  const preset = JSON.parse(readFileSync('presets/clients/crp/preset.json', 'utf8')) as { spaces: { sales: { serviceTypes: { key: string; label: { ru: string }; variants?: { key: string; label: { ru: string }; amountKzt: number }[] }[] } } };
+  const service = preset.spaces.sales.serviceTypes.find((x) => (x.variants?.length ?? 0) > 0);
+  test.skip(!service, 'в пресете нет вариантов услуги');
+  const variant = service!.variants![0]!;
+  await loginAs(page, consultant.phone);
+  await page.goto(`/deals/purchase/${cardId}`);
+  await expect(page.getByTestId('purchase-variants')).toBeVisible();
+  const price = new Intl.NumberFormat('ru-RU').format(variant.amountKzt);
+  const tile = page.getByTestId(`purchase-variant-${service!.key}-${variant.key}`);
+  await expect(tile).toContainText(`${service!.label.ru} · ${variant.label.ru} · ${price}`);
+  await tile.click();
+  await expect(tile).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('Услуга')).toHaveValue(service!.key);
+  const amount = page.getByLabel('Сумма, ₸');
+  await expect(amount).toHaveValue(new RegExp(`^${price.replace(/\s/g, '\\s')}$`));
+  // «Другая услуга» возвращает прежнюю форму, сумма остаётся редактируемой
+  await amount.fill('90000');
+  await expect(amount).toHaveValue(/^90\s000$/);
+  expect(await noHScroll(page)).toBe(true);
+
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/deals/purchase') && r.method() === 'POST');
+  await page.getByRole('button', { name: 'Зарегистрировать' }).click();
+  const body = (await sent).postDataJSON() as { requestId: string; amountKzt: number; serviceTypeKey: string };
+  expect([body.serviceTypeKey, body.amountKzt]).toEqual([service!.key, 90_000]);
+  await page.waitForURL(`**/deals/${dealId}`);
+
+  // повтор запроса с тем же requestId: сделка одна, событие покупки одно
+  const repeat = await page.evaluate(async (b) => {
+    const res = await fetch('/api/deals/purchase', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) });
+    return res.status;
+  }, { ...body, cardId, dealId, wonDay: new Date().toISOString().slice(0, 10) });
+  expect([200, 201, 409]).toContain(repeat);
+  const deals = await sql<{ id: string; amount: string }[]>`SELECT id, amount_kzt::text AS amount FROM deals WHERE card_id = ${cardId}`;
+  expect(deals.map((d) => [d.id, d.amount])).toEqual([[dealId, '90000']]);
+  const won = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM client_events WHERE deal_id = ${dealId} AND kind = 'deal.won'`;
+  expect(won[0]?.n).toBe(1);
 });

@@ -6,7 +6,9 @@ import { pickLabel } from '@/server/domain/booking';
 import { dealsDeps, getPurchaseForm } from '@/server/domain/deals';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import { Alert, Button, Card, Page, PageHeader } from '@/ui/kit';
+import { getActiveConfigOrNull } from '@/server/platform/config/active';
 import { PurchaseForm } from '../../_components/PurchaseForm';
+import { purchaseVariants } from '../../_components/variants';
 
 type Props = { params: Promise<{ cardId: string }> };
 
@@ -25,6 +27,9 @@ export default page<Props, ReactNode>({ perm: 'deal.purchase', target: 'object' 
     throw e;
   }
   const settings = viewer.spaceId ? await deps.settings(viewer.spaceId, deps.now()) : null;
+  // Плитки вариантов услуги и их цены — из настроек установки (D-348)
+  const active = await getActiveConfigOrNull();
+  const spaceDoc = Object.values(active?.spaces ?? {}).find((s) => s.spaceId === viewer.spaceId)?.doc;
   const stageLabel = (key: string): string => {
     for (const p of settings?.pipelines ?? []) {
       const s = p.stages.find((x) => x.key === key);
@@ -42,6 +47,7 @@ export default page<Props, ReactNode>({ perm: 'deal.purchase', target: 'object' 
           defaultDealId={form.defaultDealId}
           services={form.serviceTypes}
           today={form.today}
+          variants={purchaseVariants(spaceDoc)}
         />
       ) : (
         <Card as="section">
