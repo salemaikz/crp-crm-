@@ -125,7 +125,7 @@ test('итог «Договорились» → мастер → запись �
   expect(task?.status).toBe('done');
 
   await page.getByRole('link', { name: 'К карточке клиента' }).click();
-  await expect(page.getByText('Запись на мероприятие').first()).toBeVisible();
+  await expect(page.getByText(/^Запись: БР /).first()).toBeVisible();
   await page.goto('/bookings');
   await expect(page.getByText(w.name)).toBeVisible();
   await expect(page.getByText('Записан', { exact: true }).first()).toBeVisible();

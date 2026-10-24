@@ -114,3 +114,9 @@ test('вид каркаса оператора: side только при OP_BOAR
   assert.equal(shellVariantOf('operator', new Set(['OP_BOARD'])), 'side');
   for (const sh of ['manager', 'consultant', 'duty'] as const) assert.equal(shellVariantOf(sh, new Set()), 'side');
 });
+
+test('«Как работать» никогда не становится главной: без других пунктов главная — личный кабинет', () => {
+  const m = buildMenu({ shell: 'manager', menu: [], can: () => false, spaceReports: false, isAdmin: false, features: new Set(['OP_BOARD']) });
+  assert.deepEqual(m.items.map((i) => i.id), ['help']);
+  assert.equal(m.home, '/account');
+});

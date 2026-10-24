@@ -175,9 +175,9 @@ export function buildMenu(input: MenuInput): BuiltMenu {
     seen.add(it.href);
     items.push({ id: it.id, href: it.href });
     // пункт, открытый администратору только исключением orAdmin, главной не становится
-    if (byRole || it.adminOnly) byRoleHrefs.push(it.href);
+    if ((byRole || it.adminOnly) && it.id !== 'help') byRoleHrefs.push(it.href);
   }
-  return { shell: input.shell, items, bottomSlots: spec.bottomSlots, home: byRoleHrefs[0] ?? items[0]?.href ?? '/account' };
+  return { shell: input.shell, items, bottomSlots: spec.bottomSlots, home: byRoleHrefs[0] ?? items.find((i) => i.id !== 'help')?.href ?? '/account' };
 }
 
 /** Текущий пункт среди всех: из совпавших побеждает самый длинный href (`/reports/exports` — не «Отчёты»). */

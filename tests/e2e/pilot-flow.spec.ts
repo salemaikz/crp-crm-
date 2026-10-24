@@ -146,7 +146,7 @@ test('путь пилота: звонок → «Договорились» → �
   await page.goto('/summary');
   const summary = (await (await page.request.get('/api/reports/summary')).json()) as { tiles: { grey: { waiting: number } } };
   expect(summary.tiles.grey.waiting).toBeGreaterThanOrEqual(1);
-  const greyTile = page.locator('.k-stat').filter({ hasText: 'Заявки на консультацию' });
+  const greyTile = page.locator('.k-stat').filter({ hasText: 'Заявки на БК' });
   await expect(greyTile.locator('.k-stat__value')).toHaveText(String(summary.tiles.grey.waiting));
   expect(await noHScroll(page)).toBe(true);
 
