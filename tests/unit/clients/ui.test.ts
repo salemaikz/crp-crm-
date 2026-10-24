@@ -7,7 +7,7 @@ import { describeEvent, makeContext, SYSTEM_LABEL_KEYS } from '../../../src/app/
 import { formatDateTime, formatDay, formatDue, formatPhone, labelOf, splitDuration } from '../../../src/app/(op)/clients/_ui/format';
 import { dialAction } from '../../../src/ui/call/dial';
 import { DEFAULT_CHANNEL_MODES as MODES } from '../../../src/ui/channels/ChannelModesContext';
-import { draftOf, payloadOf } from '../../../src/app/(op)/clients/_ui/FieldControl';
+import { draftOf, payloadOf } from '../../../src/app/(op)/clients/_ui/formFields';
 import { walk, read, ROOT } from '../../helpers/sourceFiles';
 
 test('номер: красивый вид и tel-ссылка', () => {
