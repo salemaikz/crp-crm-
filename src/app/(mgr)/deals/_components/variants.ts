@@ -27,3 +27,16 @@ export function purchaseVariants(doc: { serviceTypes?: readonly ServiceDoc[] | u
   }
   return out;
 }
+
+/** Ключ плитки: `услуга/вариант`. */
+export const tileKey = (serviceKey: string, variantKey: string): string => `${serviceKey}/${variantKey}`;
+
+/**
+ * Вариант для запроса покупки (D-357): ключ выбранной плитки, пока выбрана услуга этой плитки. «Другая услуга» (плитки нет)
+ * и смена услуги вручную — без варианта. Правка суммы плитку не сбрасывает: цену можно поправить (скидка), вариант остаётся.
+ */
+export function variantKeyOf(selected: string | null, serviceKey: string): string | undefined {
+  if (selected === null || serviceKey === '' || !selected.startsWith(`${serviceKey}/`)) return undefined;
+  const key = selected.slice(serviceKey.length + 1);
+  return key === '' ? undefined : key;
+}

@@ -367,6 +367,11 @@ function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabel
                 <Table caption={b.label ?? t(`blockFallback.${b.role}`)} captionHidden columns={blockCols} rows={b.rows} rowKey={(r) => `${r.group}|${r.reasonCode}`} dense stackOnMobile={false} />
               </div>
             )}
+            {b.role === 'callback' && (
+              <p className="m-0 text-sm" style={{ color: 'var(--text-2)' }} data-testid="reasons-callback-note">
+                {t('block.callbackNote')}
+              </p>
+            )}
           </section>
         ))
       )}

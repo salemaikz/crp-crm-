@@ -117,7 +117,7 @@ test('причины панели: «не придёт» через № 33 по�
   const ev = async (id: string, clientId: string, data: Record<string, unknown>, at = SEED_NOW - 20 * MIN) => {
     await db.sql`
       INSERT INTO client_events (id, client_id, space_id, kind, actor_id, at, ref_type, ref_id, data)
-      VALUES (${id}, ${clientId}, ${SPACE}, 'card.state', ${U.opA}, ${at}, 'card_move', ${id}, ${JSON.stringify(data)}::text::jsonb)`;
+      VALUES (${id}, ${clientId}, ${SPACE}, 'card.state', ${U.opA}, ${at}, 'card_move', ${id}, ${db.json(data)})`;
   };
   const exit = (toState: string, reasonCode?: string) => ({ fromState: 'agreed', toState, cause: 'agreed_exit', ...(reasonCode === undefined ? {} : { reasonCode }) });
   await ev('x33-a', 'cl-a-2', exit('callback', 'declined_br'));
