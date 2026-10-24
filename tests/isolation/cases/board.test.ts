@@ -24,7 +24,7 @@ const { resetAccessForTests } = await import('../../../src/server/access/testing
 const { bookingDeps, overrideBookingDepsForTests } = await import('../../../src/server/domain/booking');
 const { actAs, enterSeedWorld, viewerOf } = await import('../harness/actors');
 const { applySeedConfig, configDoc, SEED_PRESET } = await import('../harness/config');
-const { SEED_NOW, SPACE, FX, U, cardOf, clientOf, nameOf, seedIsolation } = await import('../harness/seed');
+const { SEED_NOW, SPACE, FX, U, cardOf, clientOf, roleOf, nameOf, seedIsolation } = await import('../harness/seed');
 const { allForeignNeedles, markFixtures } = await import('../runner/objects');
 const { leakViolations, notFoundViolations, snapshotViolations } = await import('../runner/checks');
 const { snapshotTables } = await import('../runner/snapshot');
@@ -280,7 +280,7 @@ describe('доска: чтение (оператор A)', () => {
     for (const user of [U.opA, U.rop]) await probe(user, true);
     // Отрицательная ветка: тот же оператор, но роль без deal.read (подмена настроек, как в интеграционном тесте)
     const doc = configDoc() as { global: { roles: Array<{ key: string; grants: Array<{ perm: string }> }> } };
-    const roles = doc.global.roles.map((r) => (r.key === 'operator' ? { ...r, grants: r.grants.filter((g) => g.perm !== 'deal.read') } : r));
+    const roles = doc.global.roles.map((r) => (r.key === roleOf('operator') ? { ...r, grants: r.grants.filter((g) => g.perm !== 'deal.read') } : r));
     enterSeedWorld({ config: { ...doc, global: { ...doc.global, roles } } });
     try {
       await probe(U.opA, false);
