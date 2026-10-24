@@ -2,6 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { Chip, ChipGroup, Field, FilterBar, Input } from '@/ui/kit';
+import { formatDay } from './format';
 import { PRESETS, periodProblem, presetRange, type Preset } from './dates';
 
 type Props = {
@@ -37,6 +38,12 @@ export function PeriodPicker({ from, to, today, onChange }: Props) {
           <Input type="date" name="to" value={to} onChange={(e) => onChange({ from, to: e.target.value })} />
         </Field>
       </FilterBar>
+      {/* Нативное поле даты показывает формат системы браузера (мм/дд/гггг на нерусской системе): период дублируем дд.мм.гггг */}
+      {!bad && (
+        <p className="text-sm" style={{ color: 'var(--text-2)' }} data-testid="period-range">
+          {t('range', { from: formatDay(from), to: formatDay(to) })}
+        </p>
+      )}
     </div>
   );
 }

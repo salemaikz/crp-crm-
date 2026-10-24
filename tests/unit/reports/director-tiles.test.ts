@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { eventShortLabels } from '../../../src/server/domain/reports/director';
-import { delta, directorTiles, type TileSpec } from '../../../src/app/(mgr)/director/tiles';
+import { delta, directorTiles, funnelHints, type TileSpec } from '../../../src/app/(mgr)/director/tiles';
 import type { DirectorData } from '../../../src/app/(mgr)/director/types';
 
 const data = {
@@ -65,4 +65,27 @@ test('локаль панели: подписи видов — шаблон с �
   assert.match(ru.conversion.hint, /\{teamRate\}/);
   assert.ok(!('calls' in ru) && !('bookings' in ru) && !('stock' in ru));
   assert.doesNotMatch(JSON.stringify(ru), /БР|БК|разбор/i);
+});
+
+const funnelData = (counts: Partial<Record<'issued' | 'connected' | 'lpr' | 'booked' | 'attended' | 'purchased', number>>, rates: Record<string, number | null>, att: { attended: number; noShow: number; rate: number | null }, withoutBooking = 0) =>
+  ({
+    funnel: { counts: { issued: 0, connected: 0, lpr: 0, booked: 0, attended: 0, purchased: 0, ...counts }, rates },
+    attendance: att,
+    purchases: { count: counts.purchased ?? 0, withoutBooking },
+  }) as unknown as DirectorData;
+
+test('воронка директора: «Пришли» показывает ту же явку, что плитка; доля выше 100 % не выводится', () => {
+  const d = funnelData({ booked: 10, attended: 2, purchased: 4 }, { connected: null, lpr: null, booked: null, attended: 20, purchased: 200 }, { attended: 2, noShow: 2, rate: 50 }, 1);
+  const h = funnelHints(d);
+  assert.deepEqual(h.attended, { kind: 'attendance', value: 50 });
+  assert.deepEqual(h.purchased, { kind: 'none' });
+  assert.equal(h.note, true, 'покупок больше явок — нужна сноска про воронку периода');
+  assert.equal(h.withoutBooking, 1);
+});
+
+test('воронка директора: согласованная воронка — доли шагов как есть, сноски нет', () => {
+  const d = funnelData({ booked: 10, attended: 4, purchased: 2 }, { connected: 50, lpr: 40, booked: 80, attended: 40, purchased: 50 }, { attended: 4, noShow: 1, rate: 80 });
+  const h = funnelHints(d);
+  assert.deepEqual([h.connected, h.booked, h.purchased], [{ kind: 'rate', value: 50 }, { kind: 'rate', value: 80 }, { kind: 'rate', value: 50 }]);
+  assert.deepEqual([h.note, h.withoutBooking], [false, 0]);
 });

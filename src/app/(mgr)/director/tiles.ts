@@ -38,3 +38,46 @@ export function directorTiles(d: DirectorData): TileSpec[] {
     { id: 'pool', value: d.stock.poolReady },
   ];
 }
+
+export type FunnelHint = { kind: 'none' } | { kind: 'rate'; value: number } | { kind: 'attendance'; value: number };
+
+export interface FunnelHints {
+  connected: FunnelHint;
+  lpr: FunnelHint;
+  booked: FunnelHint;
+  attended: FunnelHint;
+  purchased: FunnelHint;
+  /** Нужна сноска «воронка периода»: какая-то доля выше 100 % скрыта или покупок больше явок. */
+  note: boolean;
+  /** Покупки недели без записи (отдельная сноска). */
+  withoutBooking: number;
+}
+
+/**
+ * Подсказки шагов воронки директора. «Пришли» показывает ту же явку, что плитка (пришли / отмеченные), а не долю от
+ * всех записей периода: записи будущих дней ещё не могут быть отмечены. Доля выше 100 % без объяснения не выводится
+ * (воронка периода считает события разных дат), вместо неё — прочерк и сноска.
+ */
+export function funnelHints(d: DirectorData): FunnelHints {
+  const { counts, rates } = d.funnel;
+  let capped = false;
+  const rateHint = (r: number | null | undefined): FunnelHint => {
+    if (r === null || r === undefined) return { kind: 'none' };
+    if (r > 100) {
+      capped = true;
+      return { kind: 'none' };
+    }
+    return { kind: 'rate', value: r };
+  };
+  const attended: FunnelHint = d.attendance.rate === null ? { kind: 'none' } : { kind: 'attendance', value: d.attendance.rate };
+  const purchased = rateHint(rates.purchased);
+  return {
+    connected: rateHint(rates.connected),
+    lpr: rateHint(rates.lpr),
+    booked: rateHint(rates.booked),
+    attended,
+    purchased,
+    note: capped || counts.purchased > counts.attended,
+    withoutBooking: d.purchases.withoutBooking,
+  };
+}

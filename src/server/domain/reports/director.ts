@@ -5,6 +5,8 @@ import { getActiveConfigOrNull } from '@/server/platform/config/active';
 import { requirePeriodReports } from './access';
 import { reportsDeps } from './deps';
 import { getReport } from './get';
+import { purchasesWithoutBooking } from './periodRepo';
+import { getDb } from '@/server/platform/db';
 import { previousWeek, weekOf } from './period';
 import { getSummary } from './summary';
 import type { GetDirectorDashboard, ReportFilters } from './reportTypes';
@@ -49,6 +51,17 @@ export const getDirectorDashboard: GetDirectorDashboard = async (viewer) => {
     getSummary(viewer),
   ]);
 
+  const p = ops.period;
+  const withoutBooking = await purchasesWithoutBooking(viewer, (await getDb()).sql, {
+    spaceId: viewer.spaceId as string,
+    fromMs: p.fromMs,
+    toMs: p.toMs,
+    from: p.from,
+    to: p.to,
+    timeZone: p.timeZone,
+    userIds: null,
+    sourceKey: null,
+  });
   const t = ops.totals;
   const capacityPerDay = summary.tiles.issued.cap;
   const poolReady = summary.tiles.pool.ready;
@@ -67,6 +80,7 @@ export const getDirectorDashboard: GetDirectorDashboard = async (viewer) => {
       sumKzt: t.purchaseSumKzt,
       prevCount: prevOps.totals.purchases,
       prevSumKzt: prevOps.totals.purchaseSumKzt,
+      withoutBooking,
     },
     funnel: funnel.total,
     revenue: revenue.rows,

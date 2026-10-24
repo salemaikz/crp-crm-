@@ -6,7 +6,7 @@ import { useCallback, useRef, useState } from 'react';
 import { fmtDec, fmtInt, formatDay } from '../reports/format';
 import { FUNNEL_STEPS } from '../reports/types';
 import { Alert, Button, EmptyState, Page, PageHeader, Section, Stat, StatGrid, Table, type TableColumn } from '@/ui/kit';
-import { delta, directorTiles } from './tiles';
+import { delta, directorTiles, funnelHints, type FunnelHint } from './tiles';
 import type { DirectorData, DirectorProps, RevenueRow } from './types';
 
 type Failure = 'forbidden' | 'unauthorized' | 'network' | 'generic';
@@ -58,6 +58,8 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
   const percent = (v: number | null) => (v === null ? tp('none') : tp('percent', { value: fmtDec(v) }));
   const prev = (value: string) => t('prevWeek', { value });
   const att = data.attendance;
+  const hints = funnelHints(data);
+  const hintText = (h: FunnelHint): string => (h.kind === 'none' ? tp('none') : h.kind === 'attendance' ? t('funnel.attendanceRate', { rate: percent(h.value) }) : percent(h.value));
   const revenueRows: RevenueRow[] = data.revenue;
   const cols: TableColumn<RevenueRow>[] = [
     {
@@ -149,9 +151,14 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
       >
         <StatGrid variant="strip" aria-label={t('funnel.title')}>
           {FUNNEL_STEPS.map((step) => (
-            <Stat key={step} value={fmtInt(data.funnel.counts[step])} label={tf(`steps.${step}`)} hint={step === 'issued' ? undefined : percent(data.funnel.rates[step])} />
+            <Stat key={step} value={fmtInt(data.funnel.counts[step])} label={tf(`steps.${step}`)} hint={step === 'issued' ? undefined : hintText(hints[step])} />
           ))}
         </StatGrid>
+        {(hints.note || hints.withoutBooking > 0) && (
+          <p className="mt-2 text-sm" style={{ color: 'var(--text-2)' }} data-testid="director-funnel-note">
+            {hints.note && t('funnel.note')} {hints.withoutBooking > 0 && t('funnel.withoutBooking', { n: fmtInt(hints.withoutBooking) })}
+          </p>
+        )}
       </Section>
 
       <Section

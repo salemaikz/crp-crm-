@@ -13,7 +13,8 @@ export type DirectorData = {
   bookings: { groups: number; consults: number };
   attendance: { attended: number; noShow: number; rate: Rate };
   conversion: { average: Rate; team: Rate; operators: number; minConnects: number };
-  purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number };
+  /** `withoutBooking` — покупки недели без записи на мероприятие: в «Покупках» есть, в цепочке «запись → явка» нет. */
+  purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number; withoutBooking: number };
   funnel: FunnelRow;
   revenue: RevenueRow[];
   stock: { poolReady: number; capacityPerDay: number; days: number | null };

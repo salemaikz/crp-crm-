@@ -64,6 +64,23 @@ test('директор: неделя, прошлая неделя, запас', 
   assert.equal(d.stock.days, stockDays(s.tiles.pool.ready, s.tiles.issued.cap));
 });
 
+test('покупки без записи считаются отдельно и входят в покупки недели (D-261)', async () => {
+  const v = await viewerOf(U.director);
+  const before = await getDirectorDashboard(v);
+  assert.equal(typeof before.purchases.withoutBooking, 'number');
+  await db.sql`
+    INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, service_type_key, amount_kzt, won_at,
+                       stage_changed_at, created_by, created_at, updated_at)
+    VALUES ('dl-nobook', 'sp-sales', 'sales', 'won', 'won', 'cl-a-5', 'cd-a-5', ${U.opA}, 'consult', 90000, ${SEED_NOW - 60 * MIN}, ${SEED_NOW}, ${U.opA}, ${SEED_NOW}, ${SEED_NOW})`;
+  try {
+    const after = await getDirectorDashboard(v);
+    assert.equal(after.purchases.withoutBooking, before.purchases.withoutBooking + 1);
+    assert.equal(after.purchases.count, before.purchases.count + 1);
+  } finally {
+    await db.sql`DELETE FROM deals WHERE id = 'dl-nobook'`;
+  }
+});
+
 test('РОП тоже видит панель; оператор — 403', async () => {
   assert.equal((await getDirectorDashboard(await viewerOf(U.rop))).calls.outcomes, base.calls.outcomes + 2);
   await assert.rejects(getDirectorDashboard(await viewerOf(U.opA)), ForbiddenError);

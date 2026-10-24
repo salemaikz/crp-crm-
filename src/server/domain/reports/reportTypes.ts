@@ -311,7 +311,8 @@ export interface DirectorDashboard {
   attendance: { attended: number; noShow: number; rate: Rate };
   /** «Средняя конверсия операторов» (D-343): среднее «записи / дозвоны» по операторам с ≥ `minConnects` дозвонов за неделю. */
   conversion: { average: Rate; team: Rate; operators: number; minConnects: number };
-  purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number };
+  /** `withoutBooking` — покупки недели без записи на мероприятие: в «Покупках» есть, в цепочке «запись → явка» нет. */
+  purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number; withoutBooking: number };
   funnel: FunnelRow;
   revenue: RevenueRow[];
   /** Запас: готово в пуле и в рабочих днях (пул / (участники × лимит)); null — ёмкость 0. */

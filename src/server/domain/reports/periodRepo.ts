@@ -178,6 +178,18 @@ export async function purchasesByUserDay(viewer: Viewer, sql: Sql, a: PeriodArgs
      GROUP BY 1, 2`;
 }
 
+/** Покупки периода без записи на мероприятие (оформлены напрямую, D-261): они в «Покупках», но не в цепочке «запись → явка». */
+export async function purchasesWithoutBooking(viewer: Viewer, sql: Sql, a: PeriodArgs): Promise<number> {
+  const rows = await scoped(sql)<{ n: number }>`
+    SELECT count(*)::int AS n
+      FROM deals d
+     WHERE d.space_id = ${a.spaceId} AND d.status = 'won' AND d.won_at >= ${a.fromMs}::bigint AND d.won_at < ${a.toMs}::bigint
+       AND d.owner_user_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.deal_id = d.id AND b.space_id = d.space_id)
+       AND ${scopeSql(viewer, 'deal', 'deal.read')}`;
+  return rows[0]?.n ?? 0;
+}
+
 export interface SkipDayRow {
   userId: string;
   day: string;
