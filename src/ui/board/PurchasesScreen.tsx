@@ -4,10 +4,11 @@
 import Link from 'next/link';
 import { useFormatter, useTranslations } from 'next-intl';
 import { formatKzt } from './money';
-import { Badge, EmptyState, List, ListItem, Page, buttonClass } from '@/ui/kit';
+import { purchaseAmountLine, serviceLine, type ServiceLabels } from './purchase';
+import { EmptyState, List, ListItem, Page, buttonClass } from '@/ui/kit';
 import type { MyPurchases } from '@/server/domain/deals';
 
-export function PurchasesScreen({ data, serviceLabels, timeZone }: { data: MyPurchases; serviceLabels: Record<string, string>; timeZone: string }) {
+export function PurchasesScreen({ data, serviceLabels, timeZone }: { data: MyPurchases; serviceLabels: ServiceLabels; timeZone: string }) {
   const t = useTranslations('board');
   const f = useFormatter();
   const money = (n: number) => formatKzt(f, n);
@@ -30,8 +31,14 @@ export function PurchasesScreen({ data, serviceLabels, timeZone }: { data: MyPur
             <ListItem
               key={p.dealId}
               title={p.clientName ?? t('purchases.transferred')}
-              meta={[f.dateTime(p.wonAt, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone }), p.serviceTypeKey ? (serviceLabels[p.serviceTypeKey] ?? p.serviceTypeKey) : t('purchases.noType')].join(' · ')}
-              trailing={p.amountKzt === null ? <Badge tone="neutral">{t('purchases.noAmount')}</Badge> : <strong>{money(p.amountKzt)}</strong>}
+              meta={
+                <span className="flex flex-col" data-testid="purchase-meta">
+                  <span data-testid="purchase-service">{serviceLine(p.serviceTypeKey, p.variant, serviceLabels) || t('purchases.noType')}</span>
+                  <span className="whitespace-nowrap" data-testid="purchase-amount">
+                    {purchaseAmountLine(p.amountKzt === null ? t('purchases.noAmount') : money(p.amountKzt), f.dateTime(p.wonAt, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone }))}
+                  </span>
+                </span>
+              }
               {...(p.clientId ? { href: `/clients/${p.clientId}` } : {})}
             />
           ))}

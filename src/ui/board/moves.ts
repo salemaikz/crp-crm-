@@ -234,6 +234,8 @@ export function planFor(card: BoardCardDto, def: Pick<OutcomeButton, 'kind'>, dr
         ? { column: callbackCol.key, patch: { state: 'callback', callbackReason: draft.reasonCode, callbackTouches: card.callbackTouches + 1, nextCallAt: draft.callbackAt, nextCallPrecision: draft.callbackPrecision ?? 'time', fire: null } }
         : null;
     case 'no_answer':
+      // Карточка «Договорились» (обзвон): недозвон ложится фактом, плитка остаётся на месте (D-355)
+      if (card.state === 'agreed') return null;
       return callbackCol ? { column: callbackCol.key, patch: { state: 'retry', attempts: card.attempts + 1, fire: null } } : null;
     case 'not_interested':
     case 'not_target':

@@ -27,6 +27,7 @@ export function MoveMenu({
   onPick,
   onCall,
   onClose,
+  confirm,
 }: {
   card: BoardCardDto;
   columns: readonly BoardColumnConfig[];
@@ -41,11 +42,30 @@ export function MoveMenu({
   onPick: (target: MoveTarget) => void;
   onCall: (card: BoardCardDto) => void;
   onClose: () => void;
+  /** Плитка обзвона: ответ клиента без звонка («Придёт», «Не придёт»), только онлайн. */
+  confirm?: { online: boolean; onYes: () => void; onNo: () => void };
 }) {
   const t = useTranslations('board');
   const blockedText = useBlockedText(outcomeLabel);
   return (
     <BottomSheet open onClose={onClose} closeLabel={t('sheet.close')} title={t('move.title')} description={card.name}>
+      {confirm && (
+        <div className="mb-3 flex flex-col gap-2" data-testid="menu-confirm">
+          <div className="flex gap-2">
+            <Button variant="success" block disabled={!confirm.online} onClick={confirm.onYes} data-testid="menu-confirm-yes">
+              {t('confirm.menu.yes')}
+            </Button>
+            <Button variant="secondary" block disabled={!confirm.online} onClick={confirm.onNo} data-testid="menu-confirm-no">
+              {t('confirm.menu.no')}
+            </Button>
+          </div>
+          {!confirm.online && (
+            <p className="text-sm" role="status" style={{ color: 'var(--text-2)' }}>
+              {t('confirm.sheet.needNetwork')}
+            </p>
+          )}
+        </div>
+      )}
       <ul className="flex flex-col gap-2" data-testid="move-menu">
         {targets.map((tg) => {
           const col = columns.find((c) => c.key === tg.column);

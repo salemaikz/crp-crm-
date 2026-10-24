@@ -55,3 +55,15 @@ test('кнопка success и подвал шторки над нижним ме
   assert.match(kitCss, /\.k-btn--success\s*\{/);
   assert.match(kitCss, /\.k-overlay__footer[^{]*\{[^}]*--nav-h/s);
 });
+
+test('вкладка колонки: активная — жирный --text, полоса 3px снизу и --surface-selected; неактивная — --text-2', () => {
+  const active = selectedBlocks().find((b) => b.selector.includes('.k-tab['));
+  assert.ok(active, 'правило активной вкладки');
+  assert.match(active.body, /font-weight:\s*(700|800)/);
+  assert.match(active.body, /var\(--text\)/);
+  assert.match(active.body, /var\(--surface-selected\)/);
+  assert.match(active.body, /border-bottom-color:\s*var\(--text\)/);
+  const base = /\.k-tab\s*\{([^}]*)\}/.exec(kitCss)?.[1] ?? '';
+  assert.match(base, /color:\s*var\(--text-2\)/);
+  assert.match(base, /border-bottom:\s*3px solid transparent/);
+});

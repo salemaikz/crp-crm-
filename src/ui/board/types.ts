@@ -2,6 +2,7 @@
 // Только типы и константы: файл безопасен и для браузера, и для тестов.
 import type { CallConfig, CallbackPreset } from '@/ui/call/types';
 import type { ReasonRule } from './moves';
+import type { ServiceLabels } from './purchase';
 
 export type { BoardCardDto, BoardColumnDto, BoardColumnPage, BoardDto } from '@/server/domain/cards';
 
@@ -11,8 +12,8 @@ export type ColumnRole = 'new' | 'callback' | 'agreed' | 'client' | 'trash' | 'o
 export type BoardSort = 'heat' | 'due' | 'new';
 export const BOARD_SORTS: readonly BoardSort[] = ['heat', 'due', 'new'];
 
-export type BoardFilter = 'today' | 'attendedGroup' | 'attendedIndividual' | 'noShow' | 'purchased' | 'attendedNoBuy';
-export const BOARD_FILTERS: readonly BoardFilter[] = ['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased', 'attendedNoBuy'];
+export type BoardFilter = 'today' | 'attendedGroup' | 'attendedIndividual' | 'noShow' | 'purchased' | 'attendedNoBuy' | 'confirm';
+export const BOARD_FILTERS: readonly BoardFilter[] = ['today', 'attendedGroup', 'attendedIndividual', 'noShow', 'purchased', 'attendedNoBuy', 'confirm'];
 
 /** Быстрая причина переноса в «Мусор» (`board.columns[].drop`) с подписью причины. */
 export interface BoardDrop {
@@ -38,6 +39,8 @@ export interface BoardColumnConfig {
   dropMore: boolean;
   /** Подпись вида записи колонки (первый из `eventTypes`); пусто — у колонок без видов. Для текста пустой колонки. */
   emptyEvent: string;
+  /** Виды записи колонки «Договорились» (`board.columns[].eventTypes`); пусто — у остальных колонок. */
+  eventTypes: string[];
 }
 
 /** Всё, что доске нужно из настроек и прав. Приходит с сервера один раз; ПДн здесь нет. */
@@ -75,6 +78,8 @@ export interface BoardConfig {
   callbackReasonRules: Record<string, ReasonRule>;
   /** Окно № 33 (выход из «Договорились»): системные причины и срок после неявки из настроек. */
   agreedExit: AgreedExitConfig;
+  /** Подписи услуг и вариантов покупки из настроек: строка 1 плитки «Покупка» («услуга · вариант»). */
+  serviceLabels: ServiceLabels;
   /**
    * Доска РОП и директора (охват пространства): список сотрудников для фильтра и перенос РОП итогом `manual_entry` онлайн.
    * У доски оператора ключа нет.

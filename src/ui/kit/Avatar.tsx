@@ -3,7 +3,7 @@ import { cn } from './cn';
 
 type Props = {
   name: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
 };
 

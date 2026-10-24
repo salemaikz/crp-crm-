@@ -32,6 +32,9 @@ import { useBoardData } from './useBoardData';
 import { useBoardMoves } from './useBoardMoves';
 import { useBoardRuntime } from './useBoardRuntime';
 import { exitCallConfig } from './exit';
+import { ConfirmSheet } from './ConfirmSheet';
+import { confirmColumnKey, confirmEventsFor, eventsText, needsAnswer, remainingOf } from './confirm';
+import { useBoardConfirm } from './useBoardConfirm';
 import { fadeMask, rowEdges, rowStep, rowTarget } from './rowScroll';
 import { useAttendance } from './useAttendance';
 import { useMonthPurchases } from './useMonthPurchases';
@@ -59,7 +62,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   const limits = useMemo<ViewLimits>(
     () => ({
       tabs: config.columns.map((c) => c.key),
-      filters: availableFilters(config.canPurchases),
+      filters: availableFilters(config.canPurchases, true),
       owners: config.manager ? config.manager.owners.map((o) => o.userId) : null,
       reasons: config.manager ? Object.keys(config.reasonLabels) : null,
     }),
@@ -68,11 +71,14 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   const [initial] = useState(() => parseView(searchParams, limits));
   const [q, setQ] = useState(initial.q);
   const [sort, setSort] = useState<BoardSort>(initial.sort);
-  const [filters, setFilters] = useState<BoardFilter[]>(initial.filters);
+  const [rawFilters, setFilters] = useState<BoardFilter[]>(initial.filters);
   const [extra, setExtra] = useState<BoardExtra>(initial.extra);
   const [now, setNow] = useState(() => Date.now());
   const [drawerFor, setDrawerFor] = useState<BoardCardDto | null>(null);
   const [activeTab, setActiveTab] = useState(initial.tab);
+  // Обзвон «подтвердить явку»: «Другой итог…» открыл обычную шторку (opId звонка); «Придёт/Не придёт» из «⋯» без звонка
+  const [otherFor, setOtherFor] = useState<string | null>(null);
+  const [askFor, setAskFor] = useState<{ id: string; decline: boolean } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   // За краем ряда есть ещё колонки: затухание 24 px и кнопки «‹ ›» (ui-polish §9.2, D-358 п. 1)
   const [edges, setEdges] = useState({ before: false, after: false });
@@ -86,7 +92,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
     },
     onPing: () => reloadRef.current(),
   });
-  const data = useBoardData(q, filters, !runtime.locked, runtime.safeFetch, extra);
+  const data = useBoardData(q, rawFilters, !runtime.locked, runtime.safeFetch, extra);
   useEffect(() => {
     reloadRef.current = () => void data.reload();
     dropOpsRef.current = data.unplaceOps;
@@ -138,6 +144,11 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   const blockedText = useBlockedText(agreedLabel);
   const moves = useBoardMoves({ config, userId, runtime, data, findCard: cardOf, columnTitle: titleOfKey });
   const attendance = useAttendance({ config, runtime, data });
+  const confirmInfo = data.board?.confirm;
+  const dayText = useCallback((at: number) => `${f.dateTime(at, { weekday: 'short', timeZone: config.call.timeZone })} ${f.dateTime(at, { day: '2-digit', month: '2-digit', timeZone: config.call.timeZone })}`, [f, config.call.timeZone]);
+  const confirm = useBoardConfirm({ runtime, data, declineReason: confirmInfo?.declineReason ?? '', finishCall: moves.finishCall, dayText });
+  // Фильтр «Подтвердить явку» живёт только в день обзвона: после загрузки без `confirm` значение из адреса не действует
+  const filters = useMemo(() => (data.phase === 'ready' && !data.board?.confirm ? rawFilters.filter((x) => x !== 'confirm') : rawFilters), [data.phase, data.board, rawFilters]);
   const month = useMonthPurchases(config.canPurchases && config.scope === 'own', runtime.safeFetch);
 
   const matchIds = useMemo(() => new Set(data.board?.search?.matches.map((m) => m.id) ?? []), [data.board]);
@@ -273,6 +284,23 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   const emptyBoard = data.phase === 'ready' && tabs.every((x) => x.count === 0) && !q && filters.length === 0 && extra.owner === '' && extra.callbackReason === '';
 
   const callSheetCard = moves.callSheet?.card;
+  // Обзвон: строка в колонке записи — «Подтвердить явку · БР 24.10: осталось N» (РОП — ещё и счётчики)
+  const confirmNotice = (col: BoardColumnConfig): ReactNode => {
+    if (!confirmInfo || col.role !== 'agreed') return undefined;
+    const events = confirmEventsFor(confirmInfo, col.eventTypes);
+    if (events.length === 0) return undefined;
+    const s = confirmInfo.summary;
+    const args = { events: eventsText(events, config.eventLabels, t('chip.eventUnknown')), n: remainingOf(s), tried: s.tried, confirmed: s.confirmed };
+    return (
+      <p className="px-1 text-sm font-medium" style={{ color: 'var(--text-2)' }} data-testid="confirm-line">
+        {config.manager ? t('confirm.lineManager', args) : t('confirm.line', args)}
+      </p>
+    );
+  };
+  // Шторка ответа после звонка по плитке обзвона (вместо «Итога звонка»), пока не выбрали «Другой итог…»
+  const callCard = moves.callSheet ? (cardOf(moves.callSheet.card.id) ?? moves.callSheet.card) : null;
+  const confirmAfterCall = !!(moves.callSheet && moves.callSheet.pending.draft.open && callCard && needsAnswer(callCard) && confirmInfo && otherFor !== moves.callSheet.pending.call.opId);
+  const askCard = askFor ? cardOf(askFor.id) : undefined;
   // В окне переноса «Перезвон» — только причины, уместные карточке: новому лиду не «не пришёл» и не «пришёл, не купил»
   const moveCall = (() => {
     const card = moves.moveSheet?.card;
@@ -291,8 +319,16 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
         sort={sort}
         onSort={setSort}
         filters={filters}
-        onToggleFilter={(f) => setFilters((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]))}
+        onToggleFilter={(f) => {
+          setFilters((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]));
+          // Включение «Подтвердить явку» открывает колонку записи (на телефоне — её вкладку)
+          if (f === 'confirm' && !filters.includes('confirm') && confirmInfo) {
+            const key = confirmColumnKey(config.columns, confirmInfo);
+            if (key) selectTab(key);
+          }
+        }}
         canPurchases={config.canPurchases}
+        confirmDay={confirmInfo !== undefined}
         attendLabels={config.attendLabels}
         manager={config.manager}
         extra={extra}
@@ -393,6 +429,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
                   loadingMore={state?.loadingMore ?? false}
                   dropState={active ? (tg?.available ? 'ok' : 'no') : 'idle'}
                   over={active?.over === col.key}
+                  notice={confirmNotice(col)}
                   summary={
                     col.role === 'client' && month ? (
                       <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 px-1 text-sm" data-testid="purchases-summary">
@@ -467,6 +504,23 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
             moves.startCall(c);
           }}
           onClose={moves.closeMenu}
+          {...(config.canMove && confirmInfo && needsAnswer(moves.menuFor)
+            ? {
+                confirm: {
+                  online: runtime.online,
+                  onYes: () => {
+                    const c = moves.menuFor!;
+                    moves.closeMenu();
+                    void confirm.yes(c, { fromCall: false });
+                  },
+                  onNo: () => {
+                    const c = moves.menuFor!;
+                    moves.closeMenu();
+                    setAskFor({ id: c.id, decline: true });
+                  },
+                },
+              }
+            : {})}
         />
       )}
 
@@ -517,7 +571,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
         />
       )}
 
-      {moves.callSheet && moves.callSheet.pending.draft.open && callSheetCard && (
+      {moves.callSheet && moves.callSheet.pending.draft.open && callSheetCard && !confirmAfterCall && (
         <OutcomeSheet
           config={config.call}
           pending={moves.callSheet.pending}
@@ -533,6 +587,38 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
           onLater={(d, f) => void moves.submitCall(d, f, true)}
           submitBooking={noopAsync}
           onBooked={noop}
+        />
+      )}
+
+      {confirmInfo && confirmAfterCall && moves.callSheet && callCard && (
+        <ConfirmSheet
+          card={callCard}
+          config={config}
+          declineReason={confirmInfo.declineReason}
+          online={runtime.online}
+          busy={confirm.busy}
+          onYes={() => void confirm.yes(callCard, { fromCall: true })}
+          onNoAnswer={() => {
+            const def = config.call.outcomes.find((o) => o.kind === 'no_answer');
+            if (def) void moves.submitCall(def, {});
+          }}
+          onOther={() => setOtherFor(moves.callSheet!.pending.call.opId)}
+          onDecline={(at) => void confirm.decline(callCard, at, { fromCall: true })}
+          onClose={moves.closeCallSheet}
+        />
+      )}
+
+      {confirmInfo && askFor && askCard && (
+        <ConfirmSheet
+          card={askCard}
+          config={config}
+          declineReason={confirmInfo.declineReason}
+          online={runtime.online}
+          startInDecline={askFor.decline}
+          busy={confirm.busy}
+          onYes={() => void confirm.yes(askCard, { fromCall: false }).then((done) => done && setAskFor(null))}
+          onDecline={(at) => void confirm.decline(askCard, at, { fromCall: false }).then((done) => done && setAskFor(null))}
+          onClose={() => setAskFor(null)}
         />
       )}
 

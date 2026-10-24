@@ -19,13 +19,15 @@ type Props = {
   /** Момент открытия шторки: от него считаются «Завтра» и подсказка. */
   openedAt: number;
   onChange: (patch: Partial<SheetDraft>) => void;
+  /** Только день, без времени (ответ обзвона «не придёт»: срок «в течение дня»). */
+  dayOnly?: boolean;
 };
 
 type Pick = 'hint' | 'tomorrow' | 'week' | 'other' | null;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-export function CallbackPicker({ config, draft, touches, openedAt, onChange }: Props) {
+export function CallbackPicker({ config, draft, touches, openedAt, onChange, dayOnly = false }: Props) {
   const t = useTranslations('call');
   const f = useFormatter();
   const tz = config.timeZone;
@@ -114,15 +116,17 @@ export function CallbackPicker({ config, draft, touches, openedAt, onChange }: P
           />
         </Field>
       )}
-      <Checkbox
-        label={t('sheet.callback.withTime')}
-        checked={withTime}
-        disabled={dayOf === null}
-        onChange={(e) => {
-          if (dayOf !== null) setDue(dayOf, e.target.checked ? config.callWindowStart : null);
-        }}
-        data-testid="callback-with-time"
-      />
+      {!dayOnly && (
+        <Checkbox
+          label={t('sheet.callback.withTime')}
+          checked={withTime}
+          disabled={dayOf === null}
+          onChange={(e) => {
+            if (dayOf !== null) setDue(dayOf, e.target.checked ? config.callWindowStart : null);
+          }}
+          data-testid="callback-with-time"
+        />
+      )}
       {withTime && (
         <Field label={t('sheet.callback.timeLabel')}>
           {/* Список слотов в окне звонков, 24 часа: нативное поле времени показывает «09:00 AM» по системной локали */}

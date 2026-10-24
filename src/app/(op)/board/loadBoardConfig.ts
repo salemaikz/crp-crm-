@@ -10,6 +10,7 @@ import { columnEventLabel, roleOfStates } from '@/ui/board/columns';
 import { fieldViewer, loadClientsConfig } from '@/server/domain/clients';
 import { ConfigMissingError } from '@/server/platform/config/active';
 import { loadCallConfig } from '../call/loadCallConfig';
+import { loadServiceLabels } from './serviceLabels';
 import { config as coreConfig, fields } from '@crm/core';
 
 type L = { ru: string };
@@ -57,6 +58,7 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     drop: (info.def.drop ?? []).map((d): BoardDrop => ({ kind: d.kind, reason: d.reason, label: labelIn(d.kind, d.reason) })),
     dropMore: info.def.dropMore === true,
     emptyEvent: columnEventLabel(info.def.eventTypes, eventLabels),
+    eventTypes: [...(info.def.eventTypes ?? [])],
   }));
 
   const eventBehaviors: BoardConfig['eventBehaviors'] = Object.fromEntries(eventTypes.map((e) => [e.key, e.behavior]));
@@ -102,5 +104,6 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     notInterestedReturnDays: doc.calling?.returnDays?.not_interested ?? null,
     callbackReasonRules,
     agreedExit,
+    serviceLabels: await loadServiceLabels(viewer),
   };
 }

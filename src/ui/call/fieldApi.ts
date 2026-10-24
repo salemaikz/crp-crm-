@@ -3,10 +3,8 @@
 // не мешает. Расхождение — 409; новое значение приходит в ответе (карточка) или читается из карточки клиента.
 import { expectOf, type FieldPayload } from '@/ui/fields/draft';
 
-export type FieldSave =
-  | { ok: true }
-  | { ok: false; kind: 'conflict'; current: unknown; known: boolean }
-  | { ok: false; kind: 'fields' | 'forbidden' | 'invalid' | 'network' };
+export type { FieldSave } from '@/ui/fields/save';
+import type { FieldSave } from '@/ui/fields/save';
 
 type Target = { object: 'client' | 'card'; key: string; cardId: string; clientId: string };
 type Fetch = typeof fetch;

@@ -34,7 +34,7 @@ export function ColumnTabs({ label, tabs, active, onSelect, drops }: { label: st
       ref={list}
       role="tablist"
       aria-label={label}
-      className="sticky top-0 z-[var(--z-sticky)] -mx-[var(--gutter)] flex gap-1 overflow-x-auto px-[var(--gutter)] py-2 md:hidden"
+      className="sticky top-0 z-[var(--z-sticky)] -mx-[var(--gutter)] flex gap-1 overflow-x-auto px-[var(--gutter)] pt-2 md:hidden"
       style={{ background: 'var(--canvas)', borderBottom: '1px solid var(--border)' }}
       data-testid="column-tabs"
     >
@@ -47,7 +47,7 @@ export function ColumnTabs({ label, tabs, active, onSelect, drops }: { label: st
             type="button"
             role="tab"
             aria-selected={tab.key === active}
-            className="k-chip shrink-0"
+            className="k-tab"
             data-active={selected ? '1' : undefined}
             data-tab-key={tab.key}
             data-drop={drop?.state === 'idle' ? undefined : drop?.state}

@@ -5,17 +5,19 @@
 // 4) «Позвонить» и WhatsApp. Ноутбук: «Позвонить» — круглая кнопка в первой строке, четвёртой строки нет.
 // Конечные колонки («Покупка», «Мусор») — компактные: название и «сумма · дата» или «причина · дата», без кнопок.
 // Цвет тона не единственный носитель смысла: у плитки с тоном есть значок и текст признака («✓ Был: …»).
-import { Check, Ellipsis, Flame, MessageCircle, Phone } from 'lucide-react';
+import { CalendarCheck, Check, Ellipsis, Flame, MessageCircle, Phone } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 import type { PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent } from 'react';
 import { chatAction } from '@/ui/messenger/openChat';
 import { useChannelModes } from '@/ui/channels';
 import { dialAction } from '@/ui/call/dial';
-import { Avatar, Badge, Button } from '@/ui/kit';
+import { Avatar, Badge, Button, initials } from '@/ui/kit';
+import { needsAnswer } from './confirm';
 import { AttendToggle } from './AttendToggle';
 import { attendControls, type AttendKind } from './attend';
 import { isEndRole, isWorkingRole } from './columns';
 import { formatKzt } from './money';
+import { purchaseAmountLine, serviceLine } from './purchase';
 import { closeReasonLabel, contactDot, hasFire, tileBadge, tileRows, tileValues, toneOf } from './tile';
 import { toneStyle } from './tileStyle';
 import { useCardTexts } from './useCardTexts';
@@ -25,7 +27,7 @@ export interface LeadTileProps {
   card: BoardCardDto;
   /** Роль колонки: конечные роли рисуются компактно. */
   role: ColumnRole;
-  config: Pick<BoardConfig, 'call' | 'scope' | 'canMove' | 'canAttend' | 'eventBehaviors' | 'agreedExit' | 'reasonLabels' | 'eventLabels' | 'attendLabels' | 'tileFields' | 'writeOffReasons'>;
+  config: Pick<BoardConfig, 'call' | 'serviceLabels' | 'scope' | 'canMove' | 'canAttend' | 'eventBehaviors' | 'agreedExit' | 'reasonLabels' | 'eventLabels' | 'attendLabels' | 'tileFields' | 'writeOffReasons'>;
   tones: readonly { when: string; tone: string }[];
   now: number;
   /** Отметка явки по тумблеру: запрос уходит из экрана. */
@@ -74,15 +76,20 @@ export function LeadTile(p: LeadTileProps) {
   const { chipText, chipTone, dueText, overdue, shortDate } = useCardTexts(card, config, p.now);
   const values = p.role === 'new' ? tileValues(card, config.tileFields) : [];
 
-  // Конечные колонки: «сумма · дата» последней покупки и «причина · дата» закрытия.
-  // Дата отдельно: при нехватке места многоточием обрезается подпись, а не дата
+  // Конечные колонки. «Покупка»: строка 1 — «услуга · вариант» из настроек, строка 2 — «сумма · дата» (nowrap).
+  // «Мусор»: «причина ·» и дата. Дата отдельно: при нехватке места переносится подпись, а не дата
   const endParts = (() => {
     if (p.role === 'client') {
       const pr = card.purchases;
-      if (!pr) return { label: '', date: '' };
-      return { label: pr.lastAmountKzt !== null ? formatKzt(f, pr.lastAmountKzt) : '', date: pr.lastAt !== null ? shortDate(pr.lastAt) : '' };
+      if (!pr) return { label: '', date: '', sum: '', service: '' };
+      return {
+        label: '',
+        date: pr.lastAt !== null ? shortDate(pr.lastAt) : '',
+        sum: pr.lastAmountKzt !== null ? formatKzt(f, pr.lastAmountKzt) : '',
+        service: serviceLine(pr.lastServiceType, pr.lastVariant, config.serviceLabels),
+      };
     }
-    return { label: closeLabel(card), date: card.closedAt !== null ? shortDate(card.closedAt) : '' };
+    return { label: closeLabel(card), date: card.closedAt !== null ? shortDate(card.closedAt) : '', sum: '', service: '' };
   })();
 
   const dial = canDial();
@@ -96,7 +103,8 @@ export function LeadTile(p: LeadTileProps) {
   // WhatsApp — только для мобильного номера (как на карточке клиента)
   const chat = canCall && digits !== '' && card.phone?.kind === 'mobile' ? chatAction(digits, '', modes) : null;
   // Ряд действий — только у своих карточек в рабочих колонках (new, callback)
-  const showActions = !end && isWorkingRole(p.role) && canCall && card.phone !== null;
+  // В «Договорились» кнопка звонка — только у плиток обзвона (D-355)
+  const showActions = !end && (isWorkingRole(p.role) || (p.role === 'agreed' && needsAnswer(card))) && canCall && card.phone !== null;
 
   // У доски пространства вместо ЛПР — ответственный
   const contactText = config.scope === 'own' && card.lprName !== '' ? t('lpr', { name: card.lprName }) : '';
@@ -108,7 +116,7 @@ export function LeadTile(p: LeadTileProps) {
 
   return (
     <article
-      className="relative isolate grid min-w-0 grid-cols-[minmax(0,1fr)_auto] content-start gap-x-2 gap-y-1.5 rounded-[var(--radius-card)] p-3 select-none md:grid-cols-[minmax(0,1fr)_auto] md:gap-y-1 md:p-2 md:pl-3.5"
+      className="relative isolate grid min-w-0 grid-cols-[minmax(0,1fr)_auto] content-start gap-x-2 gap-y-1.5 rounded-[var(--radius-card)] p-3 select-none md:grid-cols-[minmax(0,1fr)_auto] md:gap-y-0.5 md:p-2 md:pl-3.5"
       style={{
         ...toneStyle(tone),
         opacity: p.locked ? 0.65 : 1,
@@ -150,6 +158,12 @@ export function LeadTile(p: LeadTileProps) {
             {card.name}
           </button>
         </h3>
+        {/* Доска пространства: ответственный — аватар-инициалы 20 px перед «⋯», полное имя в title и aria-label */}
+        {owner !== undefined && (
+          <span className="mt-0.5 inline-flex shrink-0" title={t('tile.owner', { name: owner })} role="img" aria-label={t('tile.owner', { name: owner })} data-testid="tile-owner">
+            <Avatar name={owner} size="xs" />
+          </span>
+        )}
       </div>
 
       {/* «⋯»: на телефоне 44 px, на ноутбуке 32 px; справа в первой строке */}
@@ -172,15 +186,51 @@ export function LeadTile(p: LeadTileProps) {
       {rows.meta && (
         <div className="col-span-full flex min-w-0 items-center gap-x-2 text-sm md:row-start-2 md:flex-wrap md:gap-y-0.5" data-testid="tile-meta">
           {end ? (
-            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 font-medium" style={{ color: 'var(--text-2)' }} data-testid="tile-end">
-              {/* Подпись переносится; «·» стоит в её конце, а не в начале строки. Дата не режется никогда */}
-              {endParts.label !== '' && <span className="min-w-0 break-words" data-testid="tile-end-label">{endParts.date !== '' ? `${endParts.label} ·` : endParts.label}</span>}
-              {endParts.date !== '' && <span className="shrink-0 whitespace-nowrap" data-testid="tile-end-date">{endParts.date}</span>}
-            </span>
+            p.role === 'client' ? (
+              <span className="flex min-w-0 flex-col font-medium" style={{ color: 'var(--text-2)' }} data-testid="tile-end">
+                {endParts.service !== '' && (
+                  <span className="min-w-0 break-words" data-testid="tile-purchase-service">
+                    {endParts.service}
+                  </span>
+                )}
+                <span className="whitespace-nowrap" data-testid="tile-purchase-line">
+                  {purchaseAmountLine(endParts.sum, endParts.date)}
+                </span>
+              </span>
+            ) : (
+              <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 font-medium" style={{ color: 'var(--text-2)' }} data-testid="tile-end">
+                {/* Подпись переносится; «·» стоит в её конце, а не в начале строки. Дата не режется никогда */}
+                {endParts.label !== '' && <span className="min-w-0 break-words" data-testid="tile-end-label">{endParts.date !== '' ? `${endParts.label} ·` : endParts.label}</span>}
+                {endParts.date !== '' && <span className="shrink-0 whitespace-nowrap" data-testid="tile-end-date">{endParts.date}</span>}
+              </span>
+            )
           ) : (
             <>
+              {card.confirm && (
+                <>
+                  <Badge
+                    tone={card.confirm.mark === 'confirmed' ? 'success' : 'info'}
+                    icon={card.confirm.mark === 'confirmed' ? <></> : <CalendarCheck aria-hidden="true" />}
+                    className="shrink-0 md:min-h-6 md:py-0.5"
+                    data-testid={`tile-confirm-${card.confirm.mark}`}
+                  >
+                    {card.confirm.mark === 'confirmed' ? t('confirm.mark.confirmed') : t('confirm.mark.todo')}
+                    {card.confirm.mark === 'confirmed' && card.confirm.confirmedBy !== undefined && (
+                      <span title={t('confirm.by', { name: card.confirm.confirmedBy })} data-testid="tile-confirm-by">
+                        {' '}
+                        · {initials(card.confirm.confirmedBy)}
+                      </span>
+                    )}
+                  </Badge>
+                  {card.confirm.mark === 'tried' && (
+                    <span className="font-medium whitespace-nowrap" style={{ color: 'var(--text-2)' }} data-testid="tile-confirm-tries">
+                      {t('confirm.mark.tried', { n: card.confirm.tries, time: card.confirm.lastTryAt !== null ? f.dateTime(card.confirm.lastTryAt, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: config.call.timeZone }) : '' })}
+                    </span>
+                  )}
+                </>
+              )}
               {chipText !== '' && (
-                <Badge tone={chipTone} className="h-auto max-w-full min-w-[4.5rem] shrink whitespace-normal py-1 text-left" data-testid="tile-chip">
+                <Badge tone={chipTone} className="h-auto max-w-full min-w-[4.5rem] shrink whitespace-normal py-1 text-left md:min-h-6 md:py-0.5" data-testid="tile-chip">
                   <span className="min-w-0 break-words">{chipText}</span>
                 </Badge>
               )}
@@ -203,16 +253,9 @@ export function LeadTile(p: LeadTileProps) {
       {rows.contact && (
         <div className={`col-span-full flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm ${contactRow} ${menuLow ? 'md:col-span-1' : ''}`} style={{ color: 'var(--text-2)' }} data-testid="tile-contact">
           <span className="flex min-w-0 flex-1 basis-32 flex-wrap items-center gap-x-1.5">
-            {owner !== undefined ? (
-              <span className="flex max-w-full min-w-0 items-center gap-1.5" data-testid="tile-owner" title={t('tile.owner', { name: owner })}>
-                <Avatar name={owner} size="sm" />
-                <span className="truncate">{owner}</span>
-              </span>
-            ) : contactText !== '' ? (
-              <span className="truncate">{contactText}</span>
-            ) : null}
+            {contactText !== '' ? <span className="truncate">{contactText}</span> : null}
             {/* «·» — конец блока ЛПР, не начало строки с номером */}
-            {contactDot({ hasName: owner !== undefined || contactText !== '', hasPhone: card.phone !== null }) === 'after-name' && (
+            {contactDot({ hasName: contactText !== '', hasPhone: card.phone !== null }) === 'after-name' && (
               <span className="shrink-0" aria-hidden="true">·</span>
             )}
             {card.phone ? (
@@ -223,9 +266,13 @@ export function LeadTile(p: LeadTileProps) {
               </span>
             ) : null}
           </span>
-          {toggles.map((c) => (
-            <AttendToggle key={c.kind} view={c.view} event={config.attendLabels[c.kind]} {...(p.attendBusy ? { busy: true } : {})} onToggle={() => p.onAttend(card, c.kind)} />
-          ))}
+          {toggles.length > 0 && (
+            <span className="flex shrink-0 items-center gap-1" data-testid="tile-toggles">
+              {toggles.map((c) => (
+                <AttendToggle key={c.kind} view={c.view} event={config.attendLabels[c.kind]} {...(owner !== undefined ? { compact: true } : {})} {...(p.attendBusy ? { busy: true } : {})} onToggle={() => p.onAttend(card, c.kind)} />
+              ))}
+            </span>
+          )}
           {badge && (
             <Badge
               tone={badge.id === 'noShow' ? 'danger' : badge.id === 'purchased' ? 'brand' : tone === 'warning' ? 'warning' : 'success'}

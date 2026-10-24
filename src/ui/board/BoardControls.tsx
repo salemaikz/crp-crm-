@@ -22,6 +22,7 @@ export function BoardControls({
   filters,
   onToggleFilter,
   canPurchases,
+  confirmDay,
   attendLabels,
   manager,
   extra,
@@ -39,6 +40,8 @@ export function BoardControls({
   filters: readonly BoardFilter[];
   onToggleFilter: (f: BoardFilter) => void;
   canPurchases: boolean;
+  /** День обзвона: появляется фильтр «Подтвердить явку» (`BoardDto.confirm`). */
+  confirmDay: boolean;
   attendLabels: { attendedGroup: string; attendedIndividual: string };
   /** Доска пространства (РОП, директор): фильтры «сотрудник» и «причина перезвона»; у оператора не передаётся. */
   manager?: { owners: { userId: string; name: string }[] } | undefined;
@@ -60,7 +63,7 @@ export function BoardControls({
   const filterLabel = (f: BoardFilter) =>
     t(`filters.${f}`, { event: (f === 'attendedGroup' ? attendLabels.attendedGroup : f === 'attendedIndividual' ? attendLabels.attendedIndividual : '') || t('chip.eventUnknown') });
   const chips = (only?: readonly BoardFilter[]) =>
-    (only ?? availableFilters(canPurchases)).map((f) => (
+    (only ?? availableFilters(canPurchases, confirmDay)).map((f) => (
       <Chip key={f} active={filters.includes(f)} onClick={() => onToggleFilter(f)} data-testid={`filter-${f}`}>
         {filterLabel(f)}
       </Chip>

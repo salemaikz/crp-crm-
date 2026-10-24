@@ -30,10 +30,10 @@ export function card(over: Partial<BoardCardDto> = {}): BoardCardDto {
 }
 
 export const COLUMNS: BoardColumnConfig[] = [
-  { key: 'new', label: 'Новые', role: 'new', states: ['new'], drop: [], dropMore: false, emptyEvent: '' },
-  { key: 'callback', label: 'Перезвон', role: 'callback', states: ['retry', 'callback'], drop: [], dropMore: false, emptyEvent: '' },
-  { key: 'meet', label: 'Встреча', role: 'agreed', states: ['agreed'], drop: [], dropMore: false, emptyEvent: '' },
-  { key: 'paid', label: 'Покупка', role: 'client', states: ['client'], drop: [], dropMore: false, emptyEvent: '' },
+  { key: 'new', label: 'Новые', role: 'new', states: ['new'], drop: [], dropMore: false, emptyEvent: '', eventTypes: [] },
+  { key: 'callback', label: 'Перезвон', role: 'callback', states: ['retry', 'callback'], drop: [], dropMore: false, emptyEvent: '', eventTypes: [] },
+  { key: 'meet', label: 'Встреча', role: 'agreed', states: ['agreed'], drop: [], dropMore: false, emptyEvent: '', eventTypes: ['meet'] },
+  { key: 'paid', label: 'Покупка', role: 'client', states: ['client'], drop: [], dropMore: false, emptyEvent: '', eventTypes: [] },
   {
     key: 'trash',
     label: 'Мусор',
@@ -46,6 +46,7 @@ export const COLUMNS: BoardColumnConfig[] = [
     ],
     dropMore: true,
     emptyEvent: '',
+    eventTypes: [],
   },
 ];
 
@@ -98,6 +99,7 @@ export const CONFIG: BoardConfig = {
   eventLabels: {},
   attendLabels: { attendedGroup: 'БР', attendedIndividual: 'БК' },
   tileFields: [],
+  serviceLabels: { svc_a: { label: 'Услуга А', variants: { online: 'Онлайн' } } },
   canMove: true,
   scope: 'own',
   canPurchases: true,

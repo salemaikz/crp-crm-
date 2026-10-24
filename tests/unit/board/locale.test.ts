@@ -43,7 +43,7 @@ test('динамические ключи (состояния, сортиров�
 });
 
 test('в локали нет ключей, которых не использует код (мёртвые тексты)', () => {
-  const dynamicPrefixes = ['state.', 'sort.', 'filters.', 'badge.', 'move.blocked.', 'due.ago.', 'toggle.hint.', 'exit.status.', 'exit.hint.', 'column.emptyByRole.', 'trash.group.effect.', 'chip.status.'];
+  const dynamicPrefixes = ['state.', 'sort.', 'filters.', 'badge.', 'move.blocked.', 'due.ago.', 'toggle.hint.', 'exit.status.', 'exit.hint.', 'column.emptyByRole.', 'trash.group.effect.', 'chip.status.', 'confirm.toast.'];
   const dead = [...all].filter((k) => !dynamicPrefixes.some((p) => k.startsWith(p)) && !source.includes(`'${k}'`));
   assert.deepEqual(dead, []);
 });

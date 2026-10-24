@@ -77,25 +77,25 @@ test('правка поля в карточке обзвона, пока ито�
   await page.getByTestId('outcome-no_answer').click();
   await expect(cardTitle(page)).toHaveText(op.names[1]!);
 
-  // Пустое поле с правом правки — «Добавить …»; значение вводится на месте
-  const edit = page.getByTestId('field-edit-district');
+  // Пустые поля с правом правки свёрнуты в «Пустые поля (N)»; значение вводится на месте
+  await page.getByTestId('fields-empty-toggle').click();
+  const edit = page.getByTestId('inline-open-client-district');
   await expect(edit).toContainText('Добавить');
   await edit.click();
-  const input = page.locator('#f-call-district');
+  const input = page.getByRole('textbox', { name: 'Район' });
   await input.fill('Синтетический район');
   await input.press('Enter');
-  await expect(page.getByText('Сохранено').last()).toBeVisible();
-  await expect(page.getByTestId('field-edit-district')).toContainText('Синтетический район');
+  await expect(page.getByTestId('inline-client-district')).toContainText('Синтетический район');
   await expect(page.getByText('Значение изменилось. Показано новое.')).toHaveCount(0);
 
   const [client] = await sql<{ custom: Record<string, unknown> }[]>`SELECT custom FROM clients WHERE id = ${op.clientIds[1]!}`;
   expect(client?.custom.district).toBe('Синтетический район');
 
-  // Второе нажатие: значение уже есть, правка меняет его, «Отмена» ничего не пишет
-  await page.getByTestId('field-edit-district').click();
-  await page.locator('#f-call-district').fill('Другое');
-  await page.getByTestId('field-cancel').click();
-  await expect(page.getByTestId('field-edit-district')).toContainText('Синтетический район');
+  // Второе нажатие: значение уже есть, правка меняет его, Esc ничего не пишет
+  await page.getByTestId('inline-open-client-district').click();
+  await page.getByRole('textbox', { name: 'Район' }).fill('Другое');
+  await page.getByTestId('inline-cancel').click();
+  await expect(page.getByTestId('inline-client-district')).toContainText('Синтетический район');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 

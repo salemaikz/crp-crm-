@@ -28,6 +28,8 @@ export interface BoardColumnProps {
   onMore: () => void;
   /** Строка под заголовком (итог месяца в «Покупке»). */
   summary?: ReactNode;
+  /** Строка обзвона «Подтвердить явку · …: осталось N» в колонке записи (на телефоне — под вкладками). */
+  notice?: ReactNode;
   children: ReactNode;
   empty: boolean;
 }
@@ -62,6 +64,7 @@ export function BoardColumn(p: BoardColumnProps) {
         </span>
       </header>
       <div className="flex flex-col gap-3 md:gap-2 md:p-2">
+        {p.notice}
         {p.summary}
         <div className="flex flex-col gap-2">{p.children}</div>
         {p.empty && (

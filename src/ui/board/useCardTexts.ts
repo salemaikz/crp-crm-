@@ -41,7 +41,8 @@ export function useCardTexts(card: BoardCardDto, config: Pick<BoardConfig, 'reas
     if (chip.kind === 'event') {
       const label = config.eventLabels[chip.type] ?? t('chip.eventUnknown');
       const args = { event: label, day: day(chip.startsAt), time: time(chip.startsAt) };
-      const status = eventStatusKey(chip.status);
+      // Плитка обзвона говорит ответом («✓ Придёт»), а не статусом записи
+      const status = card.confirm ? null : eventStatusKey(chip.status);
       return status ? t('chip.eventStatus', { status: t(`chip.status.${status}`), ...args }) : t('chip.event', args);
     }
     if (chip.kind === 'state') return t(`state.${chip.state}`);

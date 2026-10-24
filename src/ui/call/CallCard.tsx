@@ -10,7 +10,7 @@ import { useChannelModes } from '@/ui/channels';
 import { ActionBar, Badge, Button, Card, DataList, type BadgeTone } from '@/ui/kit';
 import { dialAction } from './dial';
 import { fieldText } from './fieldText';
-import { CardFieldRow } from './CardFieldRow';
+import { CardFieldList, splitEmpty } from './CardFieldList';
 import type { CallConfig, QueueCard, QueuePhone } from './types';
 
 const GROUP_TONE: Record<QueueCard['group'], BadgeTone> = { callbacks: 'warning', retries: 'info', returns: 'neutral', new: 'brand' };
@@ -108,11 +108,14 @@ export function CallCard({ card, config, hasPendingCall, canSkip, onCall, onResu
           </blockquote>
         )}
         {inline && editableRows.length > 0 && (
-          <dl className="text-sm" data-testid="call-fields">
-            {editableRows.map((fl) => (
-              <CardFieldRow key={fl.key} field={fl} value={valueOf(fl.key)} cardId={card.cardId} clientId={card.clientId} onValue={onValue} />
-            ))}
-          </dl>
+          <CardFieldList
+            testId="call-fields"
+            rows={splitEmpty(editableRows.map((fl) => ({ field: fl, value: valueOf(fl.key) }))).filled}
+            empties={splitEmpty(editableRows.map((fl) => ({ field: fl, value: valueOf(fl.key) }))).empty}
+            cardId={card.cardId}
+            clientId={card.clientId}
+            onValue={(fl, v) => onValue(fl.key, v)}
+          />
         )}
         {!inline && rows.length > 0 && (
           <DataList className="text-sm" items={rows.map((r) => ({ key: r.key, label: r.label, value: r.text }))} />

@@ -8,7 +8,7 @@
 import { Check, MessageCircle, Phone } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
-import { CardFieldRow } from '@/ui/call/CardFieldRow';
+import { CardFieldList, splitEmpty } from '@/ui/call/CardFieldList';
 import { dialAction } from '@/ui/call/dial';
 import { useChannelModes } from '@/ui/channels';
 import { chatAction } from '@/ui/messenger/openChat';
@@ -100,8 +100,10 @@ export function LeadDrawer({
   })();
   const chat = canCall && digits !== '' && card.phone?.kind === 'mobile' ? chatAction(digits, '', modes) : null;
   const hasStep = texts.chipText !== '' || texts.dueText !== '';
-  const { first, rest } = splitRows(rows);
-  const shown = expanded ? rows : first;
+  const valueOf = (r: DrawerRow) => (Object.hasOwn(saved, `${r.field.object}-${r.field.key}`) ? saved[`${r.field.object}-${r.field.key}`] : r.value);
+  const { filled, empty } = splitEmpty(rows.map((r) => ({ field: r.field, value: valueOf(r) })));
+  const { first, rest } = splitRows(filled);
+  const shown = expanded ? filled : first;
   const secondary = (
     <div className="flex gap-2">
       {canMenu && (
@@ -214,19 +216,15 @@ export function LeadDrawer({
         {phase === 'ready' && rows.length === 0 && <p style={{ color: 'var(--text-2)' }}>{t('drawer.noFields')}</p>}
         {phase === 'ready' && rows.length > 0 && (
           <div className="flex flex-col gap-2">
-            <dl className="text-sm" data-testid="drawer-fields">
-              {shown.map(({ field, value }) => (
-                <CardFieldRow
-                  fetchFn={fetchFn}
-                  key={`${field.object}-${field.key}`}
-                  field={field}
-                  value={Object.hasOwn(saved, `${field.object}-${field.key}`) ? saved[`${field.object}-${field.key}`] : value}
-                  cardId={card.id}
-                  clientId={card.clientId}
-                  onValue={(key, v) => setSaved((s) => ({ ...s, [`${field.object}-${key}`]: v }))}
-                />
-              ))}
-            </dl>
+            <CardFieldList
+              testId="drawer-fields"
+              fetchFn={fetchFn}
+              rows={shown}
+              empties={empty}
+              cardId={card.id}
+              clientId={card.clientId}
+              onValue={(field, v) => setSaved((s) => ({ ...s, [`${field.object}-${field.key}`]: v }))}
+            />
             {rest.length > 0 && (
               <Button variant="quiet" flush onClick={() => setExpanded((x) => !x)} aria-expanded={expanded} data-testid="drawer-more-fields">
                 {expanded ? t('drawer.fewerFields') : t('drawer.moreFields', { n: rest.length })}

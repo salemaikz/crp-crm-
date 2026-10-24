@@ -461,6 +461,14 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
     [callSheet, call, enqueueOutcome, userId],
   );
 
+  /** Звонок с плитки закрыт ответом обзвона («Придёт», «Не придёт»): намерение звонка и шторка снимаются (clearPending). */
+  const finishCall = useCallback(() => {
+    clearPending(window.localStorage, userId);
+    runtime.clearIntent();
+    setCallSheet(null);
+    setOrphanPendingId(null);
+  }, [runtime, userId]);
+
   /** «Договорились — записать»: запись ведёт экран «Звонить» (мастер записи); намерение и черновик сохранены. */
   const continueOnCallScreen = useCallback(() => {
     if (callSheetRef.current) writePending(window.localStorage, userId, callSheetRef.current.pending);
@@ -497,5 +505,6 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
     reopenCallSheet: openCallSheet,
     submitCall,
     continueOnCallScreen,
+    finishCall,
   };
 }

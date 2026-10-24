@@ -4,6 +4,7 @@
 // Синтетика: номера +7 709 …, названия «ТОО Синтетика …».
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, callsOf, login, makeOperator, prepareDb, sql, type Operator } from './support/calling';
+import { makeAgreed } from './support/board';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 test.skip(process.env.FEATURE_OP_BOARD !== '1' || process.env.FEATURE_CALLBACK_V2 !== '1', 'нужен запуск с FEATURE_OP_BOARD=1 и FEATURE_CALLBACK_V2=1 (стенд)');
@@ -389,12 +390,12 @@ test('шторка лида: «Перенести в…» открывает с�
   await openBoard(page, op);
   await tileOf(page, op.names[0]!).getByTestId('tile-open').click();
   await expect(page.getByTestId('lead-drawer')).toBeVisible();
-  const rows = page.getByTestId('drawer-fields').locator('> *');
+  const rows = page.getByTestId('drawer-fields').locator('dl > *');
   await expect(page.getByTestId('drawer-fields')).toBeVisible();
   const more = page.getByTestId('drawer-more-fields');
   if (await more.count()) {
     const before = await rows.count();
-    expect(before).toBe(6);
+    expect(before).toBeLessThanOrEqual(6);
     await more.click();
     expect(await rows.count()).toBeGreaterThan(before);
   }
@@ -497,4 +498,70 @@ test('сортировка: на телефоне кнопка со шторко
   await expect(page).toHaveURL(/sort=due/);
   await page.getByTestId('tab-purchase').click();
   await expect(page.getByTestId('board-sort-open')).toHaveCount(0);
+});
+
+// ---------- Круг 3, B5 (дефект 4): шторка лида на телефоне ----------
+
+test('шторка лида: «Позвонить» целиком в окне и над нижним меню, пустые поля свёрнуты в «Пустые поля (N)», подпись и «Добавить» на одной линии', async ({ page }) => {
+  const op = await makeOperator(1);
+  await openBoard(page, op);
+  await tileOf(page, op.names[0]!).getByTestId('tile-open').click();
+  const drawer = page.getByTestId('lead-drawer');
+  await expect(drawer).toBeVisible();
+  await expect(page.getByTestId('drawer-fields')).toBeVisible();
+
+  // «Позвонить» не заходит под нижнее меню и целиком в окне
+  const geo = await page.evaluate(() => {
+    const call = document.querySelector('[data-testid="drawer-call"]')!.getBoundingClientRect();
+    const nav = [...document.querySelectorAll('nav')].find((n) => getComputedStyle(n).position === 'fixed');
+    return { top: call.top, bottom: call.bottom, left: call.left, right: call.right, inner: { w: window.innerWidth, h: window.innerHeight }, navTop: nav ? nav.getBoundingClientRect().top : window.innerHeight };
+  });
+  expect(geo.top).toBeGreaterThanOrEqual(0);
+  expect(geo.bottom).toBeLessThanOrEqual(geo.inner.h);
+  expect(geo.bottom).toBeLessThanOrEqual(geo.navTop + 0.5);
+  expect(geo.right).toBeLessThanOrEqual(geo.inner.w);
+
+  // Пустые поля свёрнуты: весь блок полей не выше 120 px
+  const toggle = page.getByTestId('fields-empty-toggle');
+  await expect(toggle).toHaveText(/^Пустые поля \(\d+\)$/);
+  expect(Number((await toggle.textContent())!.match(/\d+/)![0])).toBeGreaterThanOrEqual(4);
+  expect((await page.getByTestId('drawer-fields').boundingBox())!.height).toBeLessThanOrEqual(120);
+
+  // Раскрыли: подпись и «Добавить» одной базовой линии (±2 px)
+  await toggle.click();
+  const base = await page.getByTestId('drawer-fields').locator('dl > div').first().evaluate((row) => {
+    const bottomOf = (el: Element) => {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      const rects = r.getClientRects();
+      return rects[rects.length - 1]!.bottom;
+    };
+    return { label: bottomOf(row.querySelector('dt')!), value: bottomOf(row.querySelector('dd button, dd')!) };
+  });
+  expect(Math.abs(base.label - base.value)).toBeLessThanOrEqual(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+// ---------- Круг 3, B9 (дефект 11): активная вкладка и шум статуса ----------
+
+test('телефон: активная вкладка жирная, с полосой 3 px и подложкой; «Не подтвердил» на плитке не пишется', async ({ page }) => {
+  const op = await makeOperator(2);
+  const [agreed] = await makeAgreed(op, 1);
+  await openBoard(page, op);
+  const style = (key: string) =>
+    page.getByTestId(`tab-${key}`).evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { color: cs.color, weight: Number(cs.fontWeight), bar: cs.borderBottomWidth, bg: cs.backgroundColor, bgOfBar: cs.borderBottomColor };
+    });
+  const on = await style('new');
+  const off = await style('callback');
+  expect(on.weight).toBeGreaterThanOrEqual(700);
+  expect(off.weight).toBeLessThan(700);
+  expect(on.bar).toBe('3px');
+  expect(on.color).not.toBe(off.color);
+  expect(on.bg).not.toBe(off.bg);
+  await page.getByTestId('tab-br').click();
+  await expect(tileOf(page, agreed!.name)).toBeVisible();
+  await expect(tileOf(page, agreed!.name)).not.toContainText('Не подтвердил');
+  expect((await style('br')).weight).toBeGreaterThanOrEqual(700);
 });

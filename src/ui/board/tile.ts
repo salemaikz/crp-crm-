@@ -162,8 +162,10 @@ export function tileRows(card: BoardCardDto, ctx: TileCtx, layout: TileLayout): 
   } else {
     meta = chip.kind !== 'none' || due.kind !== 'none' || (ctx.role === 'new' && tileValues(card, ctx.tileFields).length > 0);
   }
-  const contact = !end && ((ctx.scope === 'own' && card.lprName !== '') || hasPhone || card.ownerName !== undefined || controls.length > 0 || badge !== null || (own && !hasPhone));
-  const actions = !end && isWorkingRole(ctx.role) && layout === 'phone' && own && hasPhone;
+  const contact = !end && ((ctx.scope === 'own' && card.lprName !== '') || hasPhone || controls.length > 0 || badge !== null || (own && !hasPhone));
+  // «Позвонить» в «Договорились» — только у плиток обзвона, которым нужен ответ (D-355)
+  const asksConfirm = ctx.role === 'agreed' && card.confirm !== undefined && card.confirm.mark !== 'confirmed';
+  const actions = !end && (isWorkingRole(ctx.role) || asksConfirm) && layout === 'phone' && own && hasPhone;
   return { meta, contact, actions, count: 1 + (meta ? 1 : 0) + (contact ? 1 : 0) + (actions ? 1 : 0) };
 }
 

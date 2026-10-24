@@ -263,7 +263,7 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
         return out;
       });
       expect(clipped).toEqual([]);
-      await expect(page.getByTestId('column-trash').getByTestId('tile-end-label').first()).toHaveText(/Компания закрылась/);
+      await expect(page.getByTestId('column-trash').getByTestId('tile-end-label').first()).toHaveText(/Закрыл компанию/);
 
       // Плейсхолдер поиска помещается целиком (измеряем шрифтом поля)
       const ph = await page.getByTestId('board-search').evaluate((el) => {
@@ -290,10 +290,11 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
       await page.goto(who === 'rop' ? '/deals/calling' : '/board');
       await expect(page.getByTestId('lead-tile').first()).toBeVisible();
       const row = page.getByTestId('board-columns');
-      const m = await row.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, gutter: getComputedStyle(el).scrollbarGutter, barH: (el as HTMLElement).offsetHeight - el.clientHeight }));
+      const m = await row.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, gutter: getComputedStyle(el).scrollbarGutter, bar: getComputedStyle(el).scrollbarWidth }));
       expect(m.sw).toBeGreaterThan(m.cw);
       expect(m.gutter).toContain('stable');
-      expect(m.barH).toBeGreaterThan(4);
+      // Полоса не скрыта (headless-Chromium прячет её сам, поэтому проверяем настройку, а не высоту)
+      expect(m.bar).not.toBe('none');
       // «Мусор» вне окна до прокрутки
       const before = (await page.getByTestId('column-trash').boundingBox())!;
       expect(before.x + before.width).toBeGreaterThan(1440);
@@ -331,5 +332,64 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
     const toneTile = tileOf(page, agreed[0]!.name);
     expect(await toneTile.getAttribute('data-tone')).not.toBeNull();
     expect(Math.abs((await left(agreed[0]!.name)) - (await left(agreed[1]!.name)))).toBeLessThanOrEqual(1);
+  });
+});
+
+// ---------- B4 (D-357): покупка с вариантом — «услуга · вариант» из настроек и сумма целиком ----------
+for (const [name, viewport, mobile] of [['1440', { width: 1440, height: 900 }, false], ['Pixel 7', { width: 412, height: 915 }, true]] as const) {
+  test.describe(`покупка с вариантом, ${name}`, () => {
+    test.use({ viewport, isMobile: mobile, hasTouch: mobile });
+
+    test('плитка «Покупка» и «Мои покупки»: «Целина · Онлайн» и «1 250 000 ₸ · дата» целиком', async ({ page }) => {
+      const op = await makeOperator(1);
+      const won = await makeWonDealVariant(op.id, 1_250_000, 'celina', 'online');
+      await login(page, op);
+      await page.goto('/board');
+      await expect(page.getByTestId('board-screen')).toBeVisible();
+      if (mobile) await page.getByTestId('tab-purchase').click();
+      const tile = tileOf(page, won.name);
+      await expect(tile.getByTestId('tile-purchase-service')).toHaveText('Целина · Онлайн');
+      const line = tile.getByTestId('tile-purchase-line');
+      await expect(line).toHaveText(/^1\s250\s000\s₸ · \d\d\.\d\d$/);
+      // Сумма не режется: влезает в свой элемент и в колонку (на ноутбуке «Покупка» может стоять за краем окна)
+      await expect.poll(() => line.evaluate((el) => el.scrollWidth <= el.clientWidth && el.getBoundingClientRect().right <= el.closest('[data-column-key]')!.getBoundingClientRect().right + 0.5)).toBe(true);
+
+      await page.goto('/board/purchases');
+      const item = page.getByTestId('purchases-list').getByText(won.name);
+      await expect(item).toBeVisible();
+      await expect(page.getByTestId('purchase-service').first()).toHaveText('Целина · Онлайн');
+      await expect(page.getByTestId('purchase-amount').first()).toHaveText(/^1\s250\s000\s₸ · \d\d\.\d\d\.\d{4}$/);
+      expect(await noHScroll(page)).toBe(true);
+    });
+  });
+}
+
+// ---------- B8 (дефект 10): плитка РОП — аватар ответственного, тумблеры явки одной строкой ----------
+test.describe('доска РОП на 1440×900', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
+
+  test('плитка ≤ 120 px, аватар 20 px перед «⋯», тумблеры в одном ряду по 28 px', async ({ page }) => {
+    const rop = await makeOperator(0, { role: 'rop' });
+    const op = await makeOperator(1);
+    const agreed = await makeAgreed(op, 2);
+    await sql`UPDATE users SET name = ${'Айгерим Синтетик'} WHERE id = ${op.id}`;
+    await login(page, rop);
+    await page.goto('/deals/calling');
+    await expect(tileOf(page, agreed[0]!.name)).toBeVisible();
+    const tile = tileOf(page, agreed[0]!.name);
+    const box = (await tile.boundingBox())!;
+    expect(box.height).toBeLessThanOrEqual(120);
+    const avatar = (await tile.getByTestId('tile-owner').boundingBox())!;
+    expect(Math.round(avatar.width)).toBe(20);
+    expect(Math.round(avatar.height)).toBe(20);
+    await expect(tile.getByTestId('tile-owner')).toHaveAttribute('title', /Айгерим Синтетик/);
+    await expect(tile.getByTestId('tile-owner')).toHaveAttribute('aria-label', /Айгерим Синтетик/);
+    const menu = (await tile.getByTestId('tile-menu').boundingBox())!;
+    expect(avatar.x + avatar.width).toBeLessThanOrEqual(menu.x + 0.5);
+    expect(Math.abs(avatar.y - box.y)).toBeLessThan(24);
+    const toggles = await tile.locator('[data-testid^="tile-toggle-"]').evaluateAll((els) => els.map((e) => ({ top: Math.round(e.getBoundingClientRect().top), h: Math.round(e.getBoundingClientRect().height) })));
+    expect(toggles.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(toggles.map((x) => x.top)).size).toBe(1);
+    for (const x of toggles) expect(x.h).toBeLessThanOrEqual(28);
   });
 });

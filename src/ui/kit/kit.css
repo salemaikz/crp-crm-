@@ -543,6 +543,36 @@
     --b-bg: var(--brand-tint);
   }
 
+  /* Вкладка колонки на телефоне (D-358 п. 6): не таблетка, а вкладка. Неактивная — --text-2 без фона, активная — жирный
+     --text, полоса 3 px снизу и нейтральная подложка */
+  .k-tab {
+    display: inline-flex;
+    flex: none;
+    gap: 8px;
+    align-items: center;
+    min-height: var(--tap-min);
+    padding: 0 14px;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    border-radius: var(--radius-control) var(--radius-control) 0 0;
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .k-tab[aria-selected='true'] {
+    border-bottom-color: var(--text);
+    background: var(--surface-selected);
+    color: var(--text);
+    font-weight: 800;
+  }
+  .k-tab:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+
   /* Ряд, который прокручивается по горизонтали (доска): полоса видна всегда, а не «призраком» поверх содержимого */
   .k-hscroll {
     scrollbar-gutter: stable;
@@ -1003,6 +1033,11 @@
     color: var(--brand-ink);
     font-size: 15px;
     font-weight: 700;
+  }
+  .k-avatar--xs {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
   }
   .k-avatar--sm {
     width: 32px;
