@@ -1,6 +1,6 @@
 // Меню зрителя: роль берётся из активных настроек (menu), права — из Viewer, флаги — из окружения.
 // Серверный модуль; чистый расчёт — в menu.ts.
-import { can, type Viewer } from '@/server/access';
+import { can, scopeOf, type Viewer } from '@/server/access';
 import { canSpaceReports } from '@/server/domain/reports';
 import { getActiveConfigOrNull } from '@/server/platform/config/active';
 import { FEATURES, isFeatureEnabled } from '@/server/platform/flags';
@@ -17,6 +17,12 @@ export function enabledFeatures(): ReadonlySet<string> {
   return new Set(FEATURES.filter((f) => isFeatureEnabled(f)));
 }
 
+/** Охват карточек — пространство и шире: доска РОП (как `showCalling` на /deals). */
+function isWideCards(viewer: Viewer): boolean {
+  const scope = scopeOf(viewer, 'card.read');
+  return scope === 'space' || scope === 'all';
+}
+
 /** Оболочка и пункты зрителя. `force` — оболочка, заданная группой маршрутов (дежурный). */
 export async function loadMenu(viewer: Viewer, force?: ShellKind): Promise<BuiltMenu> {
   const menu = await roleMenuOf(viewer);
@@ -25,6 +31,7 @@ export async function loadMenu(viewer: Viewer, force?: ShellKind): Promise<Built
     menu,
     can: (perm) => can(viewer, perm),
     spaceReports: canSpaceReports(viewer),
+    wideCards: isWideCards(viewer),
     isAdmin: viewer.isAdmin,
     features: enabledFeatures(),
   });

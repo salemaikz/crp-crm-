@@ -221,6 +221,18 @@ test('оператор (телефон): сетка всех страниц ме
   for (const href of [...hrefs, '/archive', '/notifications', `/clients/${op.clientIds[0]}`]) await check(page, href, true);
 });
 
+test('оператор (ноутбук 1440×900): боковая колонка, левый край страниц меню 272 ± 1, нижней панели нет', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const op = await makeOperator(2, { lpr: true });
+  await login(page, op);
+  await page.goto('/call');
+  await expectBrand(page);
+  await expect(page.locator('aside nav[aria-label="Разделы"]')).toBeVisible();
+  const hrefs = (await menuHrefs(page, false)).filter((h) => h !== '/account');
+  expect(hrefs).toEqual(expect.arrayContaining(OP_BOARD ? ['/board', '/call', '/tasks'] : ['/call', '/clients', '/tasks']));
+  for (const href of [...hrefs, '/archive', '/notifications', `/clients/${op.clientIds[0]}`]) await check(page, href, false);
+});
+
 test('оператор (телефон): шторка итога — ЛПР «Да/Нет» не ниже 44 px, тост над нижним меню', async ({ page }) => {
   const op = await makeOperator(2, { lpr: true });
   await openCall(page, op);
@@ -323,7 +335,7 @@ test('оператор (телефон): переключатель видов �
   await login(page, op);
 
   await page.goto('/clients');
-  await expect(page.locator('.k-segmented')).toBeVisible();
+  await expect(page.locator('main .k-segmented')).toBeVisible();
   const all = await tabToSegment(page, 'Все');
   expect(all.selected, '«Все» выбран по умолчанию').toBe(true);
   expectSegFocus(all, '/clients');
@@ -351,7 +363,7 @@ test('оператор (телефон): переключатель видов �
   expect(lines.filter((l) => l.off > 2), 'строки подписей по центру сегмента').toEqual([]);
 
   await page.goto('/tasks');
-  await expect(page.locator('.k-segmented')).toBeVisible();
+  await expect(page.locator('main .k-segmented')).toBeVisible();
   const myTasks = await tabToSegment(page, 'Мои');
   expect(myTasks.selected, 'вкладка «Мои» выбрана').toBe(true);
   expectSegFocus(myTasks, '/tasks');

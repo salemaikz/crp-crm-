@@ -1,0 +1,120 @@
+// Справка «Как работать» (S3): подписи берутся из настроек, в локали только шаблоны; разделы зависят от роли.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { buildHelpData, helpKindOf, sectionsFor, type HelpBoard, type HelpDoc } from '../../../src/app/(op)/help/helpData';
+import { itemsFor, type HelpExt } from '../../../src/app/(op)/help/helpItems';
+
+const ROOT = join(import.meta.dirname, '..', '..', '..');
+
+const board: HelpBoard = {
+  columns: [
+    { key: 'a', label: 'Свежие', def: { states: ['new'] } },
+    { key: 'b', label: 'Позже', def: { states: ['retry', 'callback'] } },
+    { key: 'c', label: 'Встреча', def: { states: ['agreed'] } },
+    { key: 'd', label: 'Купили', def: { states: ['client'] } },
+    { key: 'e', label: null, def: { states: ['not_interested', 'written_off'], drop: [{ kind: 'not_target', reason: 'closed' }, { kind: 'not_interested', reason: 'later' }, { kind: 'not_interested', reason: 'gone' }] } },
+  ],
+  tones: [{ when: 'attendedIndividual', tone: 'warning' }, { when: 'attendedGroup', tone: 'success' }],
+};
+const doc: HelpDoc = {
+  booking: {
+    eventTypes: [
+      { key: 'g', behavior: 'group', label: { ru: 'Групповая встреча' }, short: { ru: 'Группа' } },
+      { key: 'i', behavior: 'individual', label: { ru: 'Личная консультация' } },
+    ],
+  },
+  reasons: {
+    not_target: [{ key: 'closed', label: { ru: 'Компания закрыта' } }],
+    not_interested: [{ key: 'later', label: { ru: 'Позже' } }],
+    callback: [
+      { key: 'think', label: { ru: 'Подумает' } },
+      { key: 'old', label: { ru: 'Старая' }, archived: true },
+      { key: 'sys', label: { ru: 'Системная' }, system: 'repeat' },
+      { key: 'hidden', label: { ru: 'Скрытая' }, manual: false },
+    ],
+  },
+};
+const data = buildHelpData(board, doc, (s) => `[${s}]`);
+
+const ext: HelpExt = {
+  sortHeat: 'По горячести',
+  callNext: 'Подряд',
+  moveTitle: 'Перенести в…',
+  moreReasons: 'Другие причины…',
+  owner: 'Сотрудник',
+  badge: (e) => `Был: ${e}`,
+  toneWord: (t) => ({ success: 'Зелёная', warning: 'Жёлтая' })[t] ?? '',
+  nav: { purchases: 'Мои покупки', duty: 'Явка', consultations: 'Консультации', tasks: 'Задачи' },
+  group: { work: 'Работа', analytics: 'Аналитика' },
+  attended: 'Пришёл',
+  noShow: 'Не пришёл',
+};
+
+test('подписи колонок и ролей берутся из настроек, пустая подпись — из состояния', () => {
+  assert.deepEqual(data.columns, ['Свежие', 'Позже', 'Встреча', 'Купили', '[not_interested]']);
+  assert.equal(data.byRole.callback, 'Позже');
+  assert.equal(data.byRole.trash, '[not_interested]');
+});
+
+test('тоны по виду явки: слово тона и название мероприятия из настроек', () => {
+  assert.deepEqual(data.tones.group, { tone: 'success', event: 'Группа' });
+  assert.deepEqual(data.tones.individual, { tone: 'warning', event: 'Личная консультация' });
+});
+
+test('причины мусора — из drop колонки, причины перезвона — без архивных, системных и скрытых', () => {
+  assert.deepEqual(data.trashReasons, ['Компания закрыта', 'Позже']);
+  assert.deepEqual(data.callbackReasons, ['Подумает']);
+});
+
+test('нет правила тона или вида мероприятия — легенды тона нет', () => {
+  const bare = buildHelpData({ ...board, tones: [] }, {}, (s) => s);
+  assert.deepEqual(bare.tones, { group: null, individual: null });
+  const items = itemsFor('board', 'operator', bare, ext, { callbackV2: false });
+  assert.ok(!items.some((i) => i.key === 'tone'));
+});
+
+test('разделы по роли: оператор — доска и покупки; консультант — свои; руководитель без охвата — только отчёты', () => {
+  assert.deepEqual(sectionsFor('operator', { wideCards: false }), ['board', 'move', 'trash', 'callback', 'attend', 'purchases', 'duty']);
+  assert.deepEqual(sectionsFor('consultant', { wideCards: false }), ['consultations', 'attend', 'tasks']);
+  assert.deepEqual(sectionsFor('manager', { wideCards: false }), ['reports']);
+  assert.ok(sectionsFor('manager', { wideCards: true }).includes('board'));
+  assert.equal(helpKindOf(['queue', 'tasks']), 'operator');
+  assert.equal(helpKindOf(['consultations']), 'consultant');
+  assert.equal(helpKindOf(['summary']), 'manager');
+});
+
+test('якоря контракта К4 есть у оператора и у руководителя с охватом', () => {
+  const anchors = ['board', 'move', 'trash', 'callback', 'attend', 'purchases'];
+  for (const ids of [sectionsFor('operator', { wideCards: false }), sectionsFor('manager', { wideCards: true })]) {
+    for (const a of anchors) assert.ok(ids.includes(a as never), a);
+  }
+});
+
+test('каждый пункт каждого раздела имеет шаблон в help.json и все его подстановки заданы', () => {
+  const msgs = JSON.parse(readFileSync(join(ROOT, 'messages/ru/help.json'), 'utf8')) as { sections: Record<string, { items: Record<string, string> }> };
+  for (const kind of ['operator', 'manager', 'consultant'] as const) {
+    for (const id of sectionsFor(kind, { wideCards: true })) {
+      for (const flags of [{ callbackV2: false }, { callbackV2: true }]) {
+        for (const item of itemsFor(id, kind, data, ext, flags)) {
+          const tpl = msgs.sections[id]?.items[item.key];
+          assert.ok(tpl, `${kind}/${id}/${item.key}: нет шаблона`);
+          const used = [...tpl.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!);
+          for (const p of used) assert.ok(item.params[p] !== undefined && item.params[p] !== '', `${kind}/${id}/${item.key}: нет подстановки {${p}}`);
+        }
+      }
+    }
+  }
+});
+
+test('перезвон: причины и срок показываются только при CALLBACK_V2', () => {
+  assert.deepEqual(itemsFor('callback', 'operator', data, ext, { callbackV2: false }).map((i) => i.key), ['what']);
+  assert.deepEqual(itemsFor('callback', 'operator', data, ext, { callbackV2: true }).map((i) => i.key), ['what', 'reasons', 'term']);
+});
+
+test('страница справки открыта любому входу и внесена в манифест', () => {
+  const src = readFileSync(join(ROOT, 'src/app/(op)/help/page.tsx'), 'utf8');
+  assert.match(src, /perm: 'authenticated'/);
+  assert.match(readFileSync(join(ROOT, 'tests/isolation/manifest/shell.ts'), 'utf8'), /\/\(op\)\/help/);
+});

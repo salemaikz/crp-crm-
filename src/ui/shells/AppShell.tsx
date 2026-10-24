@@ -1,9 +1,11 @@
 // Каркас оболочки: шапка с колокольчиком, меню и область страницы. Отступы и ширину страницы задаёт
-// <Page> (D-319); оболочка только ставит data-shell и высоту нижнего меню (--bottom-nav-h). Оператор — нижняя панель на любом экране
-// (работает с телефона); остальные роли — боковая колонка на ноутбуке и нижняя панель на телефоне.
+// <Page> (D-319); оболочка только ставит data-shell и высоту нижнего меню (--bottom-nav-h). Все роли, включая оператора (D-353,
+// ui-polish §9.8): боковая колонка на ≥ 768 px и нижняя панель на телефоне. Вариант `bottom` — панель на любом экране.
 import type { ReactNode } from 'react';
 import { PushSync } from '../push/PushSync';
 import { ThemeSwitch, type ThemeSwitchProps } from '../theme/ThemeSwitch';
+import { BoardTip, type BoardTipProps } from './BoardTip';
+import { DesktopOnly } from './DesktopOnly';
 import { DeviceOwnerGuard } from './DeviceOwnerGuard';
 import type { BannerView } from './LicenseBannerBar';
 import { BrandMark } from './BrandMark';
@@ -33,10 +35,12 @@ export type AppShellProps = {
   banner?: BannerView | null;
   /** Личный переключатель вида (D-342); null — флаг THEME_DARK выключен, переключателя нет. */
   themeSwitch?: Omit<ThemeSwitchProps, 'compact'> | null;
+  /** Подсказка первого входа на доску оператора (S4); null — нет (не оператор или доска выключена). */
+  boardTip?: Omit<BoardTipProps, 'userId'> | null;
   children: ReactNode;
 };
 
-export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots, account, bell, more, userId, outboxTtlMs, banner = null, themeSwitch = null, children }: AppShellProps) {
+export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots, account, bell, more, userId, outboxTtlMs, banner = null, themeSwitch = null, boardTip = null, children }: AppShellProps) {
   const side = variant === 'side';
   return (
     <div
@@ -56,15 +60,21 @@ export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots,
           <NotificationBell {...bell} />
         </div>
         {side && themeSwitch ? (
-          <div className="hidden px-5 pb-2 md:block">
-            <ThemeSwitch {...themeSwitch} compact />
-          </div>
+          <DesktopOnly>
+            <div className="px-5 pb-2">
+              <ThemeSwitch {...themeSwitch} compact />
+            </div>
+          </DesktopOnly>
         ) : null}
         {side ? <SideNav label={navLabel} items={items} groups={groups} /> : null}
         {side ? (
-          <div className="mt-auto hidden flex-col gap-1 border-t px-2 py-3 md:flex" style={{ borderColor: 'var(--border)' }}>
-            <AccountLink {...account} />
-            <LogoutButton userId={userId} side />
+          <div className="mt-auto hidden md:block">
+            <DesktopOnly>
+              <div className="flex flex-col gap-1 border-t px-2 py-3" style={{ borderColor: 'var(--border)' }}>
+                <AccountLink {...account} />
+                <LogoutButton userId={userId} side />
+              </div>
+            </DesktopOnly>
           </div>
         ) : null}
       </aside>
@@ -72,6 +82,7 @@ export function AppShell({ variant, brand, navLabel, items, groups, bottomSlots,
         <ShellBanner banner={banner} side={side} />
         {children}
       </div>
+      {boardTip ? <BoardTip userId={userId} {...boardTip} /> : null}
       <BottomNav
         label={navLabel}
         always={!side}
