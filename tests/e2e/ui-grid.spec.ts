@@ -90,7 +90,10 @@ async function measure(page: Page): Promise<Geo> {
       const range = document.createRange();
       range.selectNodeContents(el);
       const textLeft = range.getBoundingClientRect().left;
-      return Math.abs(textLeft - contentLeft) > 1 ? [`${(el.textContent ?? '').trim().slice(0, 30)}: ${Math.round(textLeft)} ≠ ${Math.round(contentLeft)}`] : [];
+      // Кнопка внутри карточки: край — левый край содержимого этой карточки (её внутренний отступ), а не страницы
+      const host = el.closest('.k-card');
+      const edge = host ? r(host).left + parseFloat(getComputedStyle(host).paddingLeft) + parseFloat(getComputedStyle(host).borderLeftWidth) : contentLeft;
+      return Math.abs(textLeft - edge) > 1 ? [`${(el.textContent ?? '').trim().slice(0, 30)}: ${Math.round(textLeft)} ≠ ${Math.round(edge)}`] : [];
     });
     // Плитки StatGrid (D-319, D-331): все в одном ряду или в последнем ряду не меньше половины колонок — без дыры
     const statHoles = [...(main?.querySelectorAll('.k-statgrid:not(.k-statgrid--strip)') ?? [])].filter(visible).flatMap((grid) => {

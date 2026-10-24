@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
-import { DB_URL, PASSWORD, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, pickCallbackTerm, prepareDb, seedGroupEvents, sql } from './support/calling';
+import { DB_URL, PASSWORD, callAndOutcome, CALLBACK_V2, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, pickCallbackTerm, prepareDb, seedGroupEvents, sql } from './support/calling';
 import { makeConsultant, pretty } from './support/consult';
 import { uniquePhone } from './support/phones';
 
@@ -335,7 +335,9 @@ test('шторка и отмеченное в ней восстанавлива�
   await expect(page.getByTestId('outcome-sheet')).toBeVisible();
   await page.getByTestId('lpr-yes').click();
   await page.getByTestId('outcome-callback').click();
-  await expect(page.getByTestId('outcome-callback')).toHaveAttribute('aria-pressed', 'true');
+  // С CALLBACK_V2 выбранный итог сворачивает сетку в плашку «итог ✓ · Изменить» (pipeline-v2 §4.2)
+  if (CALLBACK_V2) await expect(page.getByTestId('outcome-selected')).toBeVisible();
+  else await expect(page.getByTestId('outcome-callback')).toHaveAttribute('aria-pressed', 'true');
 
   // Перезапуск: вкладку закрыли совсем, приложение открыли заново (localStorage и cookie остались)
   await page.close();
@@ -344,7 +346,8 @@ test('шторка и отмеченное в ней восстанавлива�
   await expect(reopened.getByTestId('outcome-sheet')).toBeVisible();
   await expect(reopened.getByRole('dialog')).toContainText(op.names[0]!);
   await expect(reopened.getByTestId('lpr-yes')).toHaveAttribute('aria-pressed', 'true');
-  await expect(reopened.getByTestId('outcome-callback')).toHaveAttribute('aria-pressed', 'true');
+  if (CALLBACK_V2) await expect(reopened.getByTestId('outcome-selected')).toBeVisible();
+  else await expect(reopened.getByTestId('outcome-callback')).toHaveAttribute('aria-pressed', 'true');
   expect(await callsOf(op.id)).toHaveLength(0);
 
   // Дозаполнили и сохранили — итог ушёл ровно один раз

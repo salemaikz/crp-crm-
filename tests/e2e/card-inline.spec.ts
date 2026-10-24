@@ -162,14 +162,16 @@ for (const size of [{ name: 'телефон', viewport: undefined }, { name: 'н
       const seen = patches(page);
       await open(page, 'client-e2e_date').click();
       await page.getByLabel('Дата встречи').focus();
-      // Локаль браузера en-US: первый сегмент — месяц, затем день; после «12» фокус сам уходит на день
+      // Порядок сегментов зависит от языка браузера (ДД/ММ или ММ/ДД): день и месяц одинаковы, 12.12;
+      // после двух цифр фокус сам уходит на следующий сегмент
       await page.keyboard.type('12');
-      await page.keyboard.type('25');
+      await page.keyboard.type('12');
       expect(seen).toHaveLength(0);
       await page.keyboard.press('Enter');
       await expect.poll(() => seen.length).toBe(1);
-      const saved = (await customOf(clientId)).e2e_date as string;
-      expect(saved).toBe('2026-12-25');
+      // Запрос виден до ответа сервера: значение в БД ждём опросом, а не читаем сразу
+      await expect.poll(async () => (await customOf(clientId)).e2e_date).toBe('2026-12-12');
+      expect(seen).toHaveLength(1);
     });
 
     test('список: выбор сохраняется сразу', async ({ page }) => {
