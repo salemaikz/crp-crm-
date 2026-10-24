@@ -12,7 +12,7 @@ import { cardFieldViewer } from './cardFields';
 import { loadCatalogLabels, type CatalogLabels } from './labels';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
 import { pickDecisionMaker, pickPrimaryPhone, toCardHead, toContactDto, toPhoneDto } from './dto';
-import { FieldIssuesError } from './errors';
+import { ClientFieldConflictError, FieldIssuesError } from './errors';
 import { hiddenIdAction } from './hiddenId';
 import { SEARCH_LIMIT, LIST_LIMIT, decodeCursor, encodeCursor, parseFeedLimit, type ListQuery, type PatchBody } from './input';
 import {
@@ -273,20 +273,31 @@ function listValues(cfg: ClientsConfig, fv: fields.FieldViewer, custom: Record<s
 
 export type Issues = readonly fields.FieldIssue[];
 
-/** Проверка `expect` (D-124): значения, которые видел интерфейс, должны совпасть с текущими. */
+/**
+ * Проверка `expect` (D-124): значения, которые видел интерфейс, должны совпасть с текущими. Передан `visible` —
+ * расхождение несёт текущие значения ключей запроса, видимых зрителю (ввод на месте, D-356); без него — просто 409.
+ */
 export function assertExpected(
   body: PatchBody,
   currentSystem: Record<string, unknown>,
   currentCustom: Record<string, unknown>,
+  visible?: (custom: Record<string, unknown>) => Record<string, unknown>,
 ): void {
-  for (const [k, v] of Object.entries(body.expect.system ?? {})) {
-    if (!sameSystemValue(currentSystem[k], v)) throw new ConflictError();
-  }
-  for (const [k, v] of Object.entries(body.expect.custom ?? {})) {
-    const cur = Object.hasOwn(currentCustom, k) ? (currentCustom[k] as fields.FieldValue) : null;
-    const exp = v === undefined || v === '' ? null : (v as fields.FieldValue | null);
-    if (!fields.sameValue(cur, exp)) throw new ConflictError();
-  }
+  const badSys = Object.entries(body.expect.system ?? {}).filter(([k, v]) => !sameSystemValue(currentSystem[k], v)).map(([k]) => k);
+  const badCustom = Object.entries(body.expect.custom ?? {})
+    .filter(([k, v]) => {
+      const cur = Object.hasOwn(currentCustom, k) ? (currentCustom[k] as fields.FieldValue) : null;
+      const exp = v === undefined || v === '' ? null : (v as fields.FieldValue | null);
+      return !fields.sameValue(cur, exp);
+    })
+    .map(([k]) => k);
+  if (badSys.length === 0 && badCustom.length === 0) return;
+  if (!visible) throw new ConflictError();
+  const shown = visible(currentCustom);
+  throw new ClientFieldConflictError({
+    system: Object.fromEntries(badSys.map((k) => [k, (currentSystem[k] ?? null) as string | boolean | null])),
+    custom: Object.fromEntries(badCustom.filter((k) => Object.hasOwn(shown, k) || !Object.hasOwn(currentCustom, k)).map((k) => [k, (shown[k] ?? null) as fields.FieldValue | null])),
+  });
 }
 
 export function changeEvents(
@@ -357,7 +368,7 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
       );
       const issues = [...sys.errors, ...cv.errors];
       if (issues.length > 0) throw new FieldIssuesError(issues);
-      assertExpected(body, currentSystem, row.custom);
+      assertExpected(body, currentSystem, row.custom, (c) => fields.projectValues(fv, 'client', cfg.fields, c as fields.CustomValues));
       const hidden = hiddenIdAction({
         patch: body.set.system ?? {},
         hiddenId: sys.hiddenId,
