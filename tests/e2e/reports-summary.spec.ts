@@ -138,8 +138,8 @@ for (const width of [1280, 1440]) {
       expect(box.wrapRight).toBeLessThanOrEqual(box.inner);
       expect(box.docScroll).toBeLessThanOrEqual(box.inner);
       // таблица либо целиком в окне, либо прокручивается внутри обёртки
-      if (box.tableRight > box.inner) expect(box.overflowX).toBe('auto');
-      else expect(box.tableRight).toBeLessThanOrEqual(box.inner);
+      if (width >= 1440) expect(box.tableRight, 'на 1440 таблица целиком в окне').toBeLessThanOrEqual(box.inner);
+      else if (box.tableRight > box.inner) expect(box.overflowX).toBe('auto');
       const num = await row.locator('td[data-numeric]').first().evaluate((el) => getComputedStyle(el).fontVariantNumeric);
       expect(num).toContain('tabular-nums');
       // первая колонка липкая
