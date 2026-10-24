@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { compareConfirm, confirmMark, confirmWindow } from './confirmCall';
 
-const cfg = (weekdays: number[]) => ({ eventTypes: ['br'], weekdays });
+const cfg = (weekdays: number[]) => ({ eventTypes: ['group_session'], weekdays });
 
 test('вне дней обзвона окно неактивно', () => {
   // 2026-10-23 — пятница (5)

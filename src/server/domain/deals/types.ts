@@ -96,6 +96,8 @@ export interface DealView {
   cardId: string;
   ownerUserId: string | null;
   serviceTypeKey: string;
+  /** Вариант услуги (D-357); null — не выбран. */
+  variantKey: string | null;
   /** Целые тенге; null — сумма скрыта: зритель видит сделку только как отдел передачи (D-300). */
   amountKzt: number | null;
   wonAt: number | null;

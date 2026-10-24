@@ -21,6 +21,8 @@ export interface DealFullRow {
   cardId: string;
   ownerUserId: string | null;
   serviceTypeKey: string;
+  /** Вариант услуги (D-357); '' — не выбран. */
+  serviceVariantKey: string;
   amountKzt: number;
   wonAt: number | null;
   lostAt: number | null;
@@ -56,7 +58,7 @@ export async function lockCardById(tx: Sql, cardId: string): Promise<LockedCard 
 /** Сделка в охвате `perm`: без блокировки — чтобы узнать карточку и взять блокировки по порядку (карточка → сделка). */
 export async function findDealScoped(viewer: Viewer, tx: Sql, dealId: string, perm: DealPerm): Promise<DealFullRow | null> {
   const rows = await scoped(tx)<DealFullRow>`
-    SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.amount_kzt,
+    SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.service_variant_key, d.amount_kzt,
            d.won_at, d.lost_at, d.lost_reason_code, d.needs_rebook, d.stage_changed_at, d.custom, d.request_id, d.version, d.created_at FROM deals d WHERE d.id = ${dealId} AND ${scopeSql(viewer, 'deal', perm)}`;
   return rows[0] ?? null;
 }
@@ -66,23 +68,23 @@ export async function lockDealScoped(viewer: Viewer, tx: Sql, a: { dealId: strin
   const rows =
     a.cardId === undefined
       ? await scoped(tx)<DealFullRow>`
-          SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.amount_kzt,
+          SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.service_variant_key, d.amount_kzt,
            d.won_at, d.lost_at, d.lost_reason_code, d.needs_rebook, d.stage_changed_at, d.custom, d.request_id, d.version, d.created_at FROM deals d WHERE d.id = ${a.dealId} AND ${scopeSql(viewer, 'deal', a.perm)} FOR UPDATE OF d`
       : await scoped(tx)<DealFullRow>`
-          SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.amount_kzt,
+          SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.service_variant_key, d.amount_kzt,
            d.won_at, d.lost_at, d.lost_reason_code, d.needs_rebook, d.stage_changed_at, d.custom, d.request_id, d.version, d.created_at FROM deals d WHERE d.id = ${a.dealId} AND d.card_id = ${a.cardId} AND ${scopeSql(viewer, 'deal', a.perm)} FOR UPDATE OF d`;
   return rows[0] ?? null;
 }
 
 /** Сделка по id без охвата (исполнитель эффектов карточки: карточка заблокирована вызывающим). */
 export async function lockDealById(tx: Sql, dealId: string): Promise<DealFullRow | null> {
-  const rows = await tx<DealFullRow>`SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.amount_kzt,
+  const rows = await tx<DealFullRow>`SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.service_variant_key, d.amount_kzt,
            d.won_at, d.lost_at, d.lost_reason_code, d.needs_rebook, d.stage_changed_at, d.custom, d.request_id, d.version, d.created_at FROM deals d WHERE d.id = ${dealId} FOR UPDATE OF d`;
   return rows[0] ?? null;
 }
 
 export async function findDealByRequest(tx: Sql, requestId: string): Promise<DealFullRow | null> {
-  const rows = await tx<DealFullRow>`SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.amount_kzt,
+  const rows = await tx<DealFullRow>`SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.service_variant_key, d.amount_kzt,
            d.won_at, d.lost_at, d.lost_reason_code, d.needs_rebook, d.stage_changed_at, d.custom, d.request_id, d.version, d.created_at FROM deals d WHERE d.request_id = ${requestId}`;
   return rows[0] ?? null;
 }

@@ -57,7 +57,7 @@ test('вариант пишется в сделку и в deal.won; сумма �
   assert.equal(feed[0]?.data['serviceTypeKey'], 'smm');
   const audit = await db.sql<{ meta: Record<string, unknown> }>`SELECT meta FROM audit_log WHERE action = 'deal.purchase' AND entity_id = 'dl-var-1'`;
   assert.equal(audit[0]?.meta['variantKey'], 'standard');
-
+  assert.equal(res.deal.variantKey, 'standard', 'ответ покупки несёт вариант');
 });
 
 test('чужой, архивный и неизвестный вариант — 400 variant_unknown, сделка не тронута', async () => {
@@ -93,6 +93,7 @@ test('без варианта в сделке пустая строка; deal.wo
   const req = input();
   const res = await registerPurchase(deps, cons, req);
   assert.equal((await rowOf(res.deal.id)).variant, '');
+  assert.equal(res.deal.variantKey, null, "'' в базе — null в DealView");
   const feed = await db.sql<{ data: Record<string, unknown> }>`SELECT data FROM client_events WHERE id = ${req.requestId}`;
   assert.equal('variantKey' in feed[0]!.data, false);
 });
@@ -106,6 +107,20 @@ test('правка РОП: вариант проверяется по типу �
   assert.equal((await rowOf(res.deal.id)).variant, 'standard', 'вариант чужого типа не записан');
   const ok = await editPurchase(deps, rop, { dealId: res.deal.id, opId: uuid(), version, variantKey: 'standard', amountKzt: 420_000 });
   assert.equal(ok.amountKzt, 420_000);
+  assert.equal(ok.variantKey, 'standard');
+  // правка суммы без variantKey вариант сохраняет, а в ленту и аудит пишет прежний и новый ключ при смене
+  const v2 = (await db.sql<{ version: number }>`SELECT version FROM deals WHERE id = ${res.deal.id}`)[0]!.version;
+  const noVariant = await editPurchase(deps, rop, { dealId: res.deal.id, opId: uuid(), version: v2, amountKzt: 420_000 });
+  assert.equal(noVariant.variantKey, 'standard');
+  const first = await registerPurchase(deps, cons, input());
+  const v3 = (await db.sql<{ version: number }>`SELECT version FROM deals WHERE id = ${first.deal.id}`)[0]!.version;
+  const opId = uuid();
+  await editPurchase(deps, rop, { dealId: first.deal.id, opId, version: v3, variantKey: 'standard' });
+  const feed = await db.sql<{ data: Record<string, unknown> }>`SELECT data FROM client_events WHERE id = ${opId}`;
+  assert.equal(feed[0]?.data['fromVariantKey'], '');
+  assert.equal(feed[0]?.data['toVariantKey'], 'standard');
+  const audit = await db.sql<{ meta: Record<string, unknown> }>`SELECT meta FROM audit_log WHERE action = 'deal.purchase_edit' AND entity_id = ${first.deal.id}`;
+  assert.equal(audit[0]?.meta['fromVariantKey'], '');
   assert.deepEqual(await rowOf(res.deal.id), { status: 'won', variant: 'standard', amountKzt: 420_000 });
 });
 
@@ -122,6 +137,14 @@ test('маршрут: плохой формат ключа — 400, неизве
   assert.match(await unknown.text(), /variant_unknown/);
   const ok = await post({ ...base, requestId: uuid(), variantKey: 'standard' });
   assert.equal(ok.status, 201, await ok.clone().text());
+  const created = JSON.parse(await ok.text()) as { deal?: { id: string; variantKey: string | null }; id?: string; variantKey?: string | null };
+  assert.equal((created.deal ?? created).variantKey, 'standard', 'ответ маршрута несёт вариант');
+  const dealId = (created.deal ?? created).id!;
+  actAs(U.consultant);
+  const { GET: dealGet } = await import('../../../src/app/api/deals/[id]/route');
+  const got = await dealGet(new Request(`${ORIGIN}/api/deals/${dealId}`, { headers: { host: 'crm.test' } }), { params: Promise.resolve({ id: dealId }) });
+  assert.equal(got.status, 200);
+  assert.equal(((await got.json()) as { deal: { variantKey: string | null } }).deal.variantKey, 'standard', 'GET сделки несёт вариант');
 });
 
 test('плитка «Покупка» и «Мои покупки» несут ключи услуги и варианта (null — без варианта)', async () => {

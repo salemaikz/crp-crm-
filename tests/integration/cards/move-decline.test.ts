@@ -104,3 +104,15 @@ test('чужая карточка с причиной declineReason — 404 те
   assert.equal((await f.text()).replaceAll(foreign.card, '<id>'), (await m.text()).replaceAll('zz-no-such-card', '<id>'));
   assert.equal(await snap(), before);
 });
+
+test('CALLBACK_V2=0: та же причина без записи проходит как прежде (проверка применимости — часть обзвона за флагом)', async () => {
+  const s = await setup(46, { withBooking: false });
+  process.env['FEATURE_CALLBACK_V2'] = '0';
+  try {
+    const r = await post(U.opA, s.card, decline((await card(s.card)).version, { callbackPrecision: 'time' }));
+    assert.equal(r.status, 200, await r.clone().text());
+    assert.equal((await card(s.card)).callbackReason, DECLINE);
+  } finally {
+    process.env['FEATURE_CALLBACK_V2'] = '1';
+  }
+});

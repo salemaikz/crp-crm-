@@ -182,15 +182,33 @@ describe(`обзвон подтверждения явки: изоляция (${
     assert.deepEqual(leakViolations('«Ещё» confirm', more, foreign), []);
   });
 
-  test('РОП (охват пространства) видит обе пометки и общий счётчик, имя подтвердившего только у него (контроль)', async () => {
+  test('РОП (охват пространства) видит обе пометки и общий счётчик; подтверждает запись A — имя подтвердившего только у него', async () => {
     const b = json<Board>(await api(U.rop, 'board'));
     assert.deepEqual(b.confirm?.summary, { todo: 1, tried: 1, confirmed: 0 });
     assert.deepEqual(cardsOf(b).filter((c) => c.confirm).map((c) => c.id).sort(), [a1.card, b1.card].sort());
+
+    const version = (await db.sql<{ version: number }>`SELECT version FROM bookings WHERE id = ${a1.booking}`)[0]!.version;
+    const conf = await api(U.rop, 'confirm', { method: 'POST', params: { id: a1.booking }, body: { opId: crypto.randomUUID(), version, to: 'confirmed' } });
+    assert.equal(conf.status, 200, conf.body.slice(0, 200));
+    const ropName = (await db.sql<{ name: string }>`SELECT name FROM users WHERE id = ${U.rop}`)[0]!.name;
+
+    // контроль: у РОП имя подтвердившего есть, иначе проверка ниже была бы пустой
+    const forRop = cardsOf(json<Board>(await api(U.rop, 'board'))).find((c) => c.id === a1.card);
+    assert.equal(forRop?.confirm?.mark, 'confirmed');
+    assert.equal(forRop?.confirm?.confirmedBy, ropName);
+
+    // охват own (оператор A, владелец карточки): ключа confirmedBy нет, имени РОП в теле нет
+    const r = await api(U.opA, 'board');
+    assert.equal(r.status, 200, r.body.slice(0, 200));
+    const forA = cardsOf(json<Board>(r)).find((c) => c.id === a1.card);
+    assert.ok(forA?.confirm, 'пометка своей карточки видна');
+    assert.equal('confirmedBy' in forA.confirm, false);
+    assert.deepEqual(leakViolations('имя подтвердившего', r, [ropName]), []);
   });
 
   test('директор: видит пометки и счётчик пространства, подтверждение записи — 423, таблицы не менялись', async () => {
     const board = json<Board>(await api(U.director, 'board'));
-    assert.deepEqual(board.confirm?.summary, { todo: 1, tried: 1, confirmed: 0 });
+    assert.deepEqual(board.confirm?.summary, { todo: 0, tried: 1, confirmed: 1 });
     const snap = await snapshotTables(db.sql, ['bookings', 'booking_history', 'cards', 'deals', 'calls']);
     const r = await api(U.director, 'confirm', { method: 'POST', params: { id: a1.booking }, body: { opId: crypto.randomUUID(), version: 0, to: 'confirmed' } });
     assert.equal(r.status, 423, r.body.slice(0, 200));

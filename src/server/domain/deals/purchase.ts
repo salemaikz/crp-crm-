@@ -316,7 +316,7 @@ export const editPurchase = (async (deps: DealsDeps, viewer: Viewer, input: Edit
       toWonAt = m;
     }
     if (!(await updatePurchaseScoped(viewer, tx, { id: deal.id, version: input.version, amountKzt: toAmount, wonAt: toWonAt, ...(input.variantKey !== undefined ? { variantKey: input.variantKey } : {}), at: now }))) throw new ConflictError();
-    const change = { dealId: deal.id, fromAmount: deal.amountKzt, toAmount, fromWonAt: deal.wonAt, toWonAt, ...(input.variantKey !== undefined ? { variantKey: input.variantKey } : {}) };
+    const change = { dealId: deal.id, fromAmount: deal.amountKzt, toAmount, fromWonAt: deal.wonAt, toWonAt, ...(input.variantKey !== undefined ? { fromVariantKey: deal.serviceVariantKey, toVariantKey: input.variantKey, variantKey: input.variantKey } : {}) };
     const written = await insertDealFeedWithId(tx, { id: input.opId, clientId: deal.clientId, spaceId, dealId: deal.id, kind: 'deal.purchase_edited', actorId: viewer.userId, at: now, data: change });
     if (!written) throw new DealDomainError('request_reused');
     await writeAudit(tx, { actorId: viewer.userId, action: 'deal.purchase_edit', entity: 'deal', entityId: deal.id, spaceId, meta: change, createdAt: now });

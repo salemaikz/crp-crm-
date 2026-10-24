@@ -26,6 +26,7 @@ export function toDealView(r: DealFullRow, pipeline: DealPipelineInfo | undefine
     cardId: r.cardId,
     ownerUserId: r.ownerUserId,
     serviceTypeKey: r.serviceTypeKey,
+    variantKey: r.serviceVariantKey === '' ? null : r.serviceVariantKey,
     amountKzt: opts.hideMoney ? null : r.amountKzt,
     wonAt: r.wonAt,
     lostAt: r.lostAt,

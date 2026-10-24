@@ -69,7 +69,7 @@ export async function moveCard(viewer: Viewer, cardId: string, input: MoveInput)
         if (snap.state !== 'agreed') throw new CardActionError('invalid_transition', null, snap.version);
         // Причина «не придёт» (booking.confirmCall.declineReason) применима, только пока у клиента есть будущая запись
         // подтверждаемого вида (D-355). Проверка после охвата: чужая карточка остаётся 404
-        if (input.to === 'callback' && input.reasonCode !== '') {
+        if (isFeatureEnabled('CALLBACK_V2') && input.to === 'callback' && input.reasonCode !== '') {
           const cc = (await loadBoardSettings(row.spaceId)).confirmCall;
           if (cc !== null && cc.declineReason === input.reasonCode) {
             const has = await hasFutureActiveBookingOfTypes(tx, { spaceId: row.spaceId, clientId: snap.clientId, after: now, statuses: coreBooking.ACTIVE_STATUSES, eventTypes: cc.eventTypes });

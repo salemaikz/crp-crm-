@@ -22,7 +22,7 @@ export interface DealPageRow extends DealFullRow {
  */
 export async function findDealPageRow(viewer: Viewer, sql: Sql, dealId: string, departmentOnly: boolean): Promise<DealPageRow | null> {
   const rows = await scoped(sql)<DealPageRow>`
-    SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.amount_kzt,
+    SELECT d.id, d.space_id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.service_variant_key, d.amount_kzt,
            d.won_at, d.lost_at, d.lost_reason_code, d.needs_rebook, d.stage_changed_at, d.custom, d.request_id, d.version, d.created_at,
            cl.name AS client_name, ou.name AS owner_name,
            (${scopeSql(viewer, 'deal', 'deal.edit')}) AS can_edit,
