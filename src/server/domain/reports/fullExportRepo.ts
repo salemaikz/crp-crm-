@@ -340,6 +340,8 @@ export interface DealRow {
   cardId: string;
   ownerUserId: string | null;
   serviceTypeKey: string;
+  /** Вариант услуги (D-357): ключ из настроек типа услуги; пусто — без варианта. */
+  serviceVariantKey: string;
   amountKzt: number;
   wonAt: number | null;
   lostAt: number | null;
@@ -354,7 +356,7 @@ export interface DealRow {
 
 export async function pageDeals(viewer: Viewer, sql: Sql, a: PageArgs): Promise<DealRow[]> {
   return scoped(sql)<DealRow>`
-    SELECT d.id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.amount_kzt,
+    SELECT d.id, d.pipeline_key, d.stage_key, d.status, d.client_id, d.card_id, d.owner_user_id, d.service_type_key, d.service_variant_key, d.amount_kzt,
            d.won_at, d.lost_at, d.lost_reason_code, d.lost_reason_text, d.needs_rebook, d.stage_changed_at, d.custom, d.created_by, d.created_at
       FROM deals d
      WHERE ${scopeSql(viewer, 'deal', 'deal.read')} AND (${a.after}::text IS NULL OR d.id > ${a.after}::text)

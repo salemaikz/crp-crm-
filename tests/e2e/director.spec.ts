@@ -142,3 +142,66 @@ test('переключатель «Эта неделя / Прошлая неде
   await page.goto('/director?week=unknown');
   await expect(page.getByTestId('week-current')).toHaveAttribute('aria-current', 'page');
 });
+
+// Дефект 7 (круг 3): «В пуле» без запаса в днях, «Подробнее» на базовой линии заголовка и на одном правом краю,
+// «Причины отказа» — два списка (подписи колонок из пресета)
+test('«В пуле»: только число и «готово к раздаче»', async ({ page }) => {
+  await login(page, director);
+  await page.goto('/director');
+  const pool = page.getByRole('region', { name: 'Показатели недели' }).locator('.k-stat').filter({ hasText: 'В пуле' });
+  await expect(pool).toContainText('готово к раздаче');
+  await expect(pool).not.toContainText('хватит');
+  await expect(pool).not.toContainText('дн.');
+});
+
+test.describe('ноутбук 1440×900', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
+
+  test('«Подробнее» на базовой линии своего заголовка, правый край у всех блоков один; причины — два списка рядом', async ({ page }) => {
+    await login(page, director);
+    await page.goto('/director');
+    await expect(page.getByTestId('director-reasons-trash')).toBeVisible();
+    const blocks = page.getByTestId('director-block');
+    expect(await blocks.count()).toBeGreaterThanOrEqual(4);
+    const geo = await blocks.evaluateAll((list) =>
+      list.map((b) => {
+        const baseline = (el: Element): number => {
+          const probe = document.createElement('span');
+          probe.style.cssText = 'display:inline-block;width:0;height:0';
+          el.appendChild(probe);
+          const y = probe.getBoundingClientRect().bottom;
+          probe.remove();
+          return y;
+        };
+        const h = b.querySelector('h2')!;
+        const link = b.querySelector('[data-testid="director-more"]')!;
+        const r = document.createRange();
+        r.selectNodeContents(link);
+        return { dy: Math.abs(baseline(h) - baseline(link.querySelector('span')!)), right: r.getBoundingClientRect().right, last: link.parentElement!.lastElementChild === link };
+      }),
+    );
+    for (const g of geo) {
+      expect(g.dy, 'базовая линия заголовка и «Подробнее»').toBeLessThanOrEqual(1);
+      expect(g.last, '«Подробнее» — последнее действие шапки').toBe(true);
+    }
+    for (const g of geo) expect(Math.abs(g.right - geo[0]!.right), 'правый край «Подробнее»').toBeLessThanOrEqual(1);
+    // два списка причин рядом: общая верхняя граница, колонка «перезвон» правее
+    const trash = await page.getByTestId('director-reasons-trash').boundingBox();
+    const callback = await page.getByTestId('director-reasons-callback').boundingBox();
+    expect(Math.abs(trash!.y - callback!.y)).toBeLessThanOrEqual(1);
+    expect(callback!.x).toBeGreaterThan(trash!.x + trash!.width - 1);
+    await expect(page.getByTestId('director-reasons-trash').getByRole('heading', { level: 3 })).toContainText('Мусор');
+    await expect(page.getByTestId('director-reasons-callback').getByRole('heading', { level: 3 })).toContainText('Перезвон');
+    await expect(page.getByTestId('director-reasons-note-callback')).toBeVisible();
+  });
+});
+
+test('телефон: списки причин друг под другом', async ({ page }) => {
+  test.skip(test.info().project.name !== 'pixel-7', 'геометрия проверяется на Pixel 7');
+  await login(page, director);
+  await page.goto('/director');
+  const trash = await page.getByTestId('director-reasons-trash').boundingBox();
+  const callback = await page.getByTestId('director-reasons-callback').boundingBox();
+  expect(callback!.y).toBeGreaterThanOrEqual(trash!.y + trash!.height - 1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});

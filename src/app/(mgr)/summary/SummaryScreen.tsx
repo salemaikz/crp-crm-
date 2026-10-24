@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Alert, Button, EmptyState, Page, PageHeader, Section, Stat, StatGrid } from '@/ui/kit';
 import Link from 'next/link';
 import { formatTime } from './format';
-import { bookingsHref, overdueHref } from './links';
+import { bookingsHref, confirmHref, overdueHref } from './links';
 import { OperatorsTable } from './OperatorsTable';
 import type { SummaryData } from './types';
 
@@ -65,6 +65,7 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
   const tl = data.tiles;
   const overdueLink = data.board.on ? overdueHref(data.board.callbackTab) : null;
   const bookingsLink = bookingsHref(data.board.on);
+  const confirmLink = confirmHref(data.board);
   const time = formatTime(data.generatedAt, data.timeZone);
   return (
     <Page width="wide">
@@ -94,6 +95,12 @@ export function SummaryScreen({ initial }: { initial: SummaryData }) {
               {t('tiles.bookings.today', tl.bookings.today)}
               <br />
               {t('tiles.bookings.tomorrow', tl.bookings.tomorrow)}
+              {confirmLink && (
+                <>
+                  <br />
+                  <TileLink href={confirmLink} testId="summary-link-confirm">{t('tiles.bookings.confirm')}</TileLink>
+                </>
+              )}
             </>
           }
         />

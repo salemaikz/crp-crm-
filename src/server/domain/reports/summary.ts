@@ -10,7 +10,8 @@ import { buildOperatorRows, roomToday } from './compose';
 import { reportsDeps } from './deps';
 import { isFeatureEnabled } from '@/server/platform/flags';
 import { loadEventLabels } from './eventLabels';
-import { loadReasonColumns } from './settings';
+import { confirmDayActive } from './confirmDay';
+import { loadConfirmCall, loadReasonColumns } from './settings';
 import {
   countGreyBookings,
   selectBookingDays,
@@ -60,7 +61,9 @@ export const getSummary: GetSummary = async (viewer): Promise<Summary> => {
   // Ссылки на доску (К1) — только при включённом OP_BOARD; колонка перезвона берётся из настроек доски
   const boardOn = isFeatureEnabled('OP_BOARD');
   const columns = boardOn ? await (deps.reasonColumns ?? loadReasonColumns)(spaceId) : [];
-  const board = { on: boardOn, callbackTab: columns.find((c) => c.role === 'callback')?.key ?? null };
+  // «Подтвердить явку»: только при OP_BOARD и CALLBACK_V2 и в день обзвона (то же окно, что у доски)
+  const confirm = boardOn && isFeatureEnabled('CALLBACK_V2') && confirmDayActive(await (deps.confirmCall ?? loadConfirmCall)(spaceId), day);
+  const board = { on: boardOn, callbackTab: columns.find((c) => c.role === 'callback')?.key ?? null, confirm };
   const operators = buildOperatorRows({
     staff,
     today: day,

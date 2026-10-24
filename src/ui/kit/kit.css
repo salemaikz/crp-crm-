@@ -916,6 +916,13 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
   }
+  /* Тень у правого края, пока справа есть непоказанные колонки (D-358); исчезает, когда прокручено до конца */
+  .k-table-wrap--edge {
+    background:
+      linear-gradient(to left, var(--surface) 30%, transparent) right center / 24px 100% no-repeat local,
+      radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.22), transparent) right center / 10px 100% no-repeat scroll,
+      var(--surface);
+  }
   .k-table {
     width: 100%;
     border-collapse: collapse;

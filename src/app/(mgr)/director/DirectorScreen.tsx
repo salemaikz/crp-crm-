@@ -6,10 +6,11 @@ import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import { fmtDec, fmtInt, formatDay } from '../reports/format';
 import { FUNNEL_STEPS } from '../reports/types';
-import { Alert, Button, EmptyState, Page, PageHeader, Section, Segmented, Stat, StatGrid, Table, type TableColumn } from '@/ui/kit';
+import { Alert, Button, EmptyState, Page, PageHeader, Segmented, Stat, StatGrid, Table, type TableColumn } from '@/ui/kit';
+import { DirectorBlock } from './DirectorBlock';
 import { useReasonLabel } from '../reports/reasonLabel';
-import { delta, directorTiles, funnelHints, type FunnelHint } from './tiles';
-import type { DirectorData, DirectorProps, RevenueRow } from './types';
+import { delta, directorTiles, funnelHints, reasonLists, type FunnelHint } from './tiles';
+import type { DirectorData, DirectorProps, DirectorReasons, RevenueRow } from './types';
 
 type Failure = 'forbidden' | 'unauthorized' | 'network' | 'generic';
 
@@ -67,7 +68,31 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
   const hints = funnelHints(data);
   const hintText = (h: FunnelHint): string =>
     h.kind === 'none' ? tp('none') : h.kind === 'attendance' ? t('funnel.attendanceRate', { rate: percent(h.value) }) : t('funnel.ofPrev', { pct: percent(h.value), prev: tf(`steps.${h.from}`) });
+  const lists = reasonLists(data);
   const revenueRows: RevenueRow[] = data.revenue;
+  const ReasonList = ({ role, block }: { role: 'trash' | 'callback'; block: DirectorReasons }) => (
+    <div className="flex min-w-0 flex-col gap-2" data-testid={`director-reasons-${role}`}>
+      <h3 className="m-0 flex flex-wrap items-baseline gap-x-3 text-base font-semibold">
+        {block.label ?? tr0(`blockFallback.${role}`)}
+        <span className="text-sm font-normal" style={{ color: 'var(--text-2)' }}>{tr0('block.total', { n: fmtInt(block.total) })}</span>
+      </h3>
+      {block.total === 0 ? (
+        <p className="m-0 text-sm" style={{ color: 'var(--text-2)' }}>{t('reasons.empty')}</p>
+      ) : (
+        <ol className="m-0 flex list-none flex-col gap-1 p-0">
+          {block.top.map((r) => (
+            <li key={`${r.group}|${r.reasonCode}`} className="flex items-baseline justify-between gap-3">
+              <span className="min-w-0">{reasonLabel(r)}</span>
+              <span className="shrink-0 tabular-nums" style={{ color: 'var(--text-2)' }}>
+                {fmtInt(r.count)} · {percent(r.share)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {(role === 'callback' || role === 'trash') && <p className="m-0 text-sm" style={{ color: 'var(--text-2)' }} data-testid={`director-reasons-note-${role}`}>{t('reasons.callbackNote')}</p>}
+    </div>
+  );
   const cols: TableColumn<RevenueRow>[] = [
     {
       key: 'type',
@@ -101,16 +126,7 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
         }
       />
       {error && <Alert tone="warning">{t(`errors.${error}`)}</Alert>}
-      <Section
-        title={t('tilesLabel')}
-        actions={
-          <>
-            <Button variant="quiet" size="sm" href={moreHref('operators', data)}>
-              {t('more')}
-            </Button>
-          </>
-        }
-      >
+      <DirectorBlock title={t('tilesLabel')} moreHref={moreHref('operators', data)} more={t('more')}>
       {/* Телефон: две колонки по 140 px, подписи не наезжают друг на друга (A2) */}
       <StatGrid aria-label={t('tilesLabel')} style={{ '--stat-min': '140px' } as CSSProperties}>
         {directorTiles(data)
@@ -132,9 +148,7 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
                             {t('tiles.conversion.hint', { teamRate: percent(data.conversion.team), min: data.conversion.minConnects })}
                           </>
                         )
-                    : x.id === 'pool' && data.stock.days !== null
-                      ? t('tiles.pool.hintDays', { days: fmtDec(data.stock.days) })
-                      : t(`tiles.${x.id}.hint`);
+                    : t(`tiles.${x.id}.hint`);
             const title = x.label === undefined ? t(`tiles.${x.id}.title`) : t(`tiles.${x.id}.title`, { event: x.label });
             return (
               <Stat
@@ -178,19 +192,10 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
             );
           })}
       </StatGrid>
-      </Section>
+      </DirectorBlock>
 
       {/* Каждая «подробнее» стоит в шапке своего блока, а не рядом внизу страницы */}
-      <Section
-        title={t('funnel.title')}
-        actions={
-          <>
-            <Button variant="quiet" size="sm" href={moreHref('funnel', data)}>
-              {t('more')}
-            </Button>
-          </>
-        }
-      >
+      <DirectorBlock title={t('funnel.title')} moreHref={moreHref('funnel', data)} more={t('more')}>
         <StatGrid variant="strip" className="k-statgrid--wrap2" aria-label={t('funnel.title')}>
           {FUNNEL_STEPS.map((step) => (
             <Stat key={step} value={fmtInt(data.funnel.counts[step])} label={tf(`steps.${step}`)} hint={step === 'issued' ? undefined : hintText(hints[step])} />
@@ -201,49 +206,20 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
             {hints.note && t('funnel.note')} {hints.withoutBooking > 0 && t('funnel.withoutBooking', { n: fmtInt(hints.withoutBooking) })}
           </p>
         )}
-      </Section>
+      </DirectorBlock>
 
-      {data.reasons && (
-        <Section
-          title={t('reasons.title', { column: data.reasons.label ?? tr0('blockFallback.trash') })}
-          actions={
-            <Button variant="quiet" size="sm" href={moreHref('reasons', data)}>
-              {t('more')}
-            </Button>
-          }
-        >
-          {data.reasons.total === 0 ? (
-            <EmptyState title={t('reasons.empty')} />
-          ) : (
-            <ol className="m-0 flex list-none flex-col gap-1 p-0" data-testid="director-reasons">
-              {data.reasons.top.map((r) => (
-                <li key={`${r.group}|${r.reasonCode}`} className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0">{reasonLabel(r)}</span>
-                  <span className="shrink-0 tabular-nums" style={{ color: 'var(--text-2)' }}>
-                    {fmtInt(r.count)} · {percent(r.share)}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Section>
+      {lists.length > 0 && (
+        <DirectorBlock title={t('reasons.title')} moreHref={moreHref('reasons', data)} more={t('more')}>
+          {/* Два списка: рядом на ≥ 1024, иначе друг под другом; подписи колонок — из пресета */}
+          <div className="grid min-w-0 grid-cols-1 gap-x-8 gap-y-5 lg:grid-cols-2" data-testid="director-reasons">
+            {lists.map(({ role, block }) => (
+              <ReasonList key={role} role={role} block={block} />
+            ))}
+          </div>
+        </DirectorBlock>
       )}
 
-      <Section
-        title={t('revenue.title')}
-        actions={
-          <>
-            <Button variant="quiet" size="sm" href={moreHref('revenue', data)}>
-              {t('more')}
-            </Button>
-            {canExport && (
-              <Button variant="secondary" size="sm" href={`/api/reports/revenue/export?from=${data.week.from}&to=${data.week.to}&format=csv`} external download>
-                {t('export.revenue')}
-              </Button>
-            )}
-          </>
-        }
-      >
+      <DirectorBlock title={t('revenue.title')} moreHref={moreHref('revenue', data)} more={t('more')}>
         {revenueRows.length === 0 ? (
           <EmptyState title={t('revenue.empty')} />
         ) : (
@@ -251,7 +227,15 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
             <Table caption={tr('caption')} captionHidden columns={cols} rows={revenueRows} rowKey={(r) => r.serviceTypeKey} dense stackOnMobile={false} />
           </div>
         )}
-      </Section>
+        {/* Выгрузка — под таблицей: «Подробнее» в шапке каждого блока стоит последним справа и на одной линии */}
+        {canExport && (
+          <div>
+            <Button variant="secondary" size="sm" href={`/api/reports/revenue/export?from=${data.week.from}&to=${data.week.to}&format=csv`} external download>
+              {t('export.revenue')}
+            </Button>
+          </div>
+        )}
+      </DirectorBlock>
     </Page>
   );
 }

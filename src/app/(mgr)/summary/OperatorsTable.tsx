@@ -9,6 +9,11 @@ import type { OperatorRow, OperatorStatus, SummaryData } from './types';
 
 const TONE: Record<OperatorStatus, BadgeTone> = { working: 'success', paused: 'warning', absent: 'neutral' };
 
+// Ноутбук (дефект 8): 12 колонок не должны вылезать за окно. Заголовки переносятся по словам, отступы плотнее;
+// если места всё равно мало, прокручивается обёртка таблицы (overflow-x у kit), а имя оператора остаётся на месте.
+// Числа — tabular-nums (kit: data-numeric). min-w-0: обёртка в сетке экрана не раздувается шире окна.
+const TABLE_FIT = 'k-table-wrap--edge min-w-0 max-w-full [&_table]:text-sm [&_th]:whitespace-normal [&_th]:px-2 [&_th]:align-bottom [&_th]:leading-tight [&_td]:px-2 [&_td:first-child]:pl-3 [&_th:first-child]:pl-3';
+
 /** Таблица операторов за сегодня; на телефоне строки становятся карточками. */
 export function OperatorsTable({ data }: { data: SummaryData }) {
   const t = useTranslations('reports.summary.operators');
@@ -63,9 +68,9 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
       numeric: true,
       // Мягкая цель: число и отметка «ниже нормы», без красного и без блокировок.
       cell: (o) => (
-        <span className="flex flex-wrap items-center justify-end gap-2">
+        <span className="flex flex-col items-end gap-1">
           {o.callsPerHour === null ? t('rateNone') : t('rateValue', { rate: o.callsPerHour })}
-          {o.belowTarget && data.callsPerHourTarget !== null && <Badge tone="neutral">{t('belowTarget', { target: data.callsPerHourTarget })}</Badge>}
+          {o.belowTarget && data.callsPerHourTarget !== null && <Badge tone="neutral" className="whitespace-normal text-right">{t('belowTarget', { target: data.callsPerHourTarget })}</Badge>}
         </span>
       ),
     },
@@ -76,10 +81,10 @@ export function OperatorsTable({ data }: { data: SummaryData }) {
       cell: (o) => (
         <span className="flex flex-col items-end">
           {o.unsent > 0 ? <Badge tone="warning" variant="count">{o.unsent}</Badge> : o.unsent}
-          <span className="text-sm">{o.lastSeenAt === null ? t('neverSeen') : t('lastSeen', { time: formatSeen(o.lastSeenAt, data.generatedAt, data.timeZone) })}</span>
+          <span className="max-w-[7rem] whitespace-normal text-right text-sm leading-tight">{o.lastSeenAt === null ? t('neverSeen') : t('lastSeen', { time: formatSeen(o.lastSeenAt, data.generatedAt, data.timeZone) })}</span>
         </span>
       ),
     },
   ];
-  return <Table caption={t('caption')} columns={columns} rows={data.operators} rowKey={(o) => o.userId} dense stickyFirst captionHidden />;
+  return <Table caption={t('caption')} columns={columns} rows={data.operators} rowKey={(o) => o.userId} dense stickyFirst captionHidden className={TABLE_FIT} />;
 }

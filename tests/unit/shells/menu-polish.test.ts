@@ -121,3 +121,19 @@ test('«Как работать» никогда не становится гл�
   assert.deepEqual(m.items.map((i) => i.id), ['help']);
   assert.equal(m.home, '/account');
 });
+
+test('значки пунктов одной оболочки различаются (дефект 10: «Сводка» и «Доска»)', () => {
+  const nav = readFileSync(join(ROOT, 'src/ui/shells/ShellNav.tsx'), 'utf8');
+  const block = /const ICONS[^{]*\{([\s\S]*?)\n\};/.exec(nav)?.[1] ?? '';
+  const icon: Record<string, string> = {};
+  for (const m of block.matchAll(/(\w+):\s*(\w+)/g)) icon[m[1]!] = m[2]!;
+  assert.notEqual(icon.summary, icon.board);
+  assert.match(icon.board ?? '', /^(Columns3|SquareKanban)$/, 'доска — колонки, не сетка, похожая на сводку');
+  const shells: ShellKind[] = ['operator', 'manager', 'consultant', 'duty'];
+  for (const sh of shells) {
+    const m = buildMenu({ shell: sh, menu: [], can: () => true, spaceReports: true, wideCards: true, isAdmin: true,
+      features: new Set([...BASE, 'OP_BOARD', 'KANBAN', 'BULK_TRANSFER', 'BK_WIZARD']) });
+    const used = m.items.map((i) => icon[i.id]);
+    assert.equal(new Set(used).size, used.length, `${sh}: значки повторяются ${used.join(',')}`);
+  }
+});

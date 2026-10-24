@@ -12,6 +12,11 @@ export function eventShortLabels(eventTypes: readonly EventTypeDoc[]): { group: 
   return { group: name('group'), individual: name('individual') };
 }
 
+/** Короткая подпись каждого вида (`short.ru`); нет её — полная подпись, нет и её — ключ. Для узких колонок отчётов. */
+export function eventTypeShorts(eventTypes: readonly EventTypeDoc[]): Record<string, string> {
+  return Object.fromEntries(eventTypes.map((e) => [e.key, e.short?.ru ?? e.label.ru ?? e.key]));
+}
+
 /** Подписи пространства из активной ревизии; настроек нет (тесты без пресета) — пустые строки. */
 export async function loadEventLabels(spaceId: string): Promise<{ group: string; individual: string }> {
   const active = await getActiveConfigOrNull();

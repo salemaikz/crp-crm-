@@ -408,3 +408,22 @@ test('чужое пространство: ни id, ни текстов, ни н
   await clearToday(U.director);
   await clearToday(U.rop);
 });
+
+test('deals.csv: колонка service_variant_key (D-357) стоит после типа услуги, значение — ключ варианта', async () => {
+  resetLimits();
+  const [deal] = await db.sql<{ id: string; type: string; variant: string }>`SELECT id, service_type_key AS type, service_variant_key AS variant FROM deals WHERE space_id = ${SPACE} ORDER BY id LIMIT 1`;
+  await db.sql`UPDATE deals SET service_variant_key = 'online', service_type_key = 'course' WHERE id = ${deal!.id}`;
+  try {
+    const { files } = await exportAs(U.director);
+    const lines = files.get('deals.csv')!.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l !== '');
+    const header = lines[0]!.split(';');
+    const i = header.indexOf('service_variant_key');
+    assert.ok(i > 0, 'колонка есть');
+    assert.equal(header[i - 1], 'service_type_key');
+    const row = lines.find((l) => l.startsWith(`${deal!.id};`))!.split(';');
+    assert.equal(row[i], 'online');
+    assert.equal(row[i - 1], 'course');
+  } finally {
+    await db.sql`UPDATE deals SET service_variant_key = ${deal!.variant}, service_type_key = ${deal!.type} WHERE id = ${deal!.id}`;
+  }
+});

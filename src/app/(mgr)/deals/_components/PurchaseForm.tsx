@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Alert, Button, Card, Chip, ChipGroup, Field, Input, Select } from '@/ui/kit';
-import type { PurchaseVariant } from './variants';
+import { tileKey, variantKeyOf, type PurchaseVariant } from './variants';
 import { call, newKey } from '@/app/(mgr)/bookings/api';
 
 interface Props {
@@ -41,7 +41,7 @@ export function PurchaseForm({ cardId, deals, defaultDealId, services, today, va
   const problem = (code: string) => setError(t.has(`errors.${code}`) ? t(`errors.${code}`) : t('errors.conflict'));
 
   const pickVariant = (v: PurchaseVariant) => {
-    setVariant(`${v.serviceKey}/${v.variantKey}`);
+    setVariant(tileKey(v.serviceKey, v.variantKey));
     setService(v.serviceKey);
     setAmount(digitsOf(String(v.amountKzt))); // сумму можно поправить вручную (скидка)
   };
@@ -53,6 +53,8 @@ export function PurchaseForm({ cardId, deals, defaultDealId, services, today, va
     if (amount === '') return problem('amount_invalid');
     setBusy(true);
     setError(null);
+    // вариант — только у выбранной плитки; «Другая услуга» и ручная смена услуги идут без него (D-357)
+    const variantKey = variantKeyOf(variant, service);
     const r = await call<{ deal: { id: string } }>('POST', '/api/deals/purchase', {
       requestId,
       cardId,
@@ -60,6 +62,7 @@ export function PurchaseForm({ cardId, deals, defaultDealId, services, today, va
       serviceTypeKey: service,
       amountKzt: Number(amount),
       wonDay: day,
+      ...(variantKey !== undefined ? { variantKey } : {}),
     });
     if (!r.ok) {
       setBusy(false);
@@ -87,7 +90,7 @@ export function PurchaseForm({ cardId, deals, defaultDealId, services, today, va
             <span className="k-field__label">{t('purchase.variantsLabel')}</span>
             <ChipGroup label={t('purchase.variantsLabel')} className="!flex-wrap !overflow-visible" data-testid="purchase-variants">
               {variants.map((v) => (
-                <Chip key={`${v.serviceKey}/${v.variantKey}`} active={variant === `${v.serviceKey}/${v.variantKey}`} onClick={() => pickVariant(v)} data-testid={`purchase-variant-${v.serviceKey}-${v.variantKey}`}>
+                <Chip key={tileKey(v.serviceKey, v.variantKey)} active={variant === tileKey(v.serviceKey, v.variantKey)} onClick={() => pickVariant(v)} data-testid={`purchase-variant-${v.serviceKey}-${v.variantKey}`}>
                   {t('purchase.variantTile', { service: v.serviceLabel, variant: v.variantLabel, price: price(v.amountKzt) })}
                 </Chip>
               ))}

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { directorWeeks, eventShortLabels, parseDirectorWeek } from '../../../src/server/domain/reports/director';
-import { delta, directorTiles, funnelHints, type TileSpec } from '../../../src/app/(mgr)/director/tiles';
+import { delta, directorTiles, funnelHints, reasonLists, type TileSpec } from '../../../src/app/(mgr)/director/tiles';
 import type { DirectorData } from '../../../src/app/(mgr)/director/types';
 
 const data = {
@@ -13,7 +13,7 @@ const data = {
   attendance: { attended: 3, noShow: 1, rate: 75, unmarked: 2 },
   purchases: { count: 2, sumKzt: 100000, prevCount: 1, prevSumKzt: 50000 },
   conversion: { average: 22.5, team: 20, operators: 3, minConnects: 20 },
-  stock: { poolReady: 321, capacityPerDay: 80, days: 4 },
+  stock: { poolReady: 321 },
 } as unknown as DirectorData;
 
 test('delta: рост, падение, ноль, прошлая неделя без данных', () => {
@@ -133,4 +133,24 @@ test('локали сводки и «Операторов»: колонки за
     assert.ok(cols.groupsFallback && cols.consultsFallback);
     assert.doesNotMatch(`${cols.groups}${cols.consults}${cols.groupsFallback}${cols.consultsFallback}`, /Группы|Консультации|БР|БК|разбор/);
   }
+});
+
+test('«В пуле»: плитка — число и «готово к раздаче», запаса в днях нет ни в данных, ни в подписях', () => {
+  const pool = directorTiles(data).find((x) => x.id === 'pool') as TileSpec;
+  assert.equal(pool.value, 321);
+  assert.deepEqual(Object.keys(pool).sort(), ['id', 'value']);
+  const ru = JSON.parse(readFileSync(new URL('../../../messages/ru/reports.json', import.meta.url), 'utf8')) as { director: { tiles: { pool: Record<string, string> } } };
+  assert.deepEqual(Object.keys(ru.director.tiles.pool).sort(), ['hint', 'title']);
+  assert.equal(ru.director.tiles.pool.hint, 'готово к раздаче');
+  assert.ok(!/хватит на/.test(readFileSync(new URL('../../../messages/ru/reports.json', import.meta.url), 'utf8')));
+});
+
+test('причины панели: два списка по порядку «мусор», «перезвон»; нет колонки — нет списка', () => {
+  const block = (key: string) => ({ key, label: key === 'trash' ? 'Мусор' : 'Перезвон', total: 10, top: [] });
+  const both = { reasons: { trash: block('trash'), callback: block('callback') } } as unknown as DirectorData;
+  assert.deepEqual(reasonLists(both).map((l) => l.role), ['trash', 'callback']);
+  assert.equal(reasonLists(both)[1]!.block.label, 'Перезвон');
+  const onlyCb = { reasons: { trash: null, callback: block('callback') } } as unknown as DirectorData;
+  assert.deepEqual(reasonLists(onlyCb).map((l) => l.role), ['callback']);
+  assert.deepEqual(reasonLists({ reasons: { trash: null, callback: null } } as unknown as DirectorData), []);
 });

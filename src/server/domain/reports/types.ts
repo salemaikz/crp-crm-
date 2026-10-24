@@ -70,8 +70,11 @@ export interface Summary {
   callsPerHourTarget: number | null;
   /** Короткие подписи видов записи из настроек (первый групповой и индивидуальный); пусто — вида нет. */
   eventLabels: { group: string; individual: string };
-  /** Доска включена (OP_BOARD): `callbackTab` — ключ колонки роли «перезвон» для ссылок К1. Выключена — null, ссылок нет. */
-  board: { on: boolean; callbackTab: string | null };
+  /**
+   * Доска включена (OP_BOARD): `callbackTab` — ключ колонки роли «перезвон» для ссылок К1. Выключена — null, ссылок нет.
+   * `confirm` — сегодня день обзвона «подтвердить явку» (OP_BOARD, CALLBACK_V2 и окно из настроек): сводка ведёт на `f=confirm`.
+   */
+  board: { on: boolean; callbackTab: string | null; confirm: boolean };
   tiles: SummaryTiles;
   /** Красная плитка: что-то просрочено. */
   alarm: boolean;
@@ -90,6 +93,14 @@ export interface ReportsDeps {
   now: () => number;
   /** Колонки доски ролей «мусор» и «перезвон» для отчёта «Причины»; без подмены — из активных настроек. */
   reasonColumns?: (spaceId: string) => Promise<ReasonColumn[]>;
+  /** Обзвон «подтвердить явку» (`booking.confirmCall`): виды и дни недели; без подмены — из активных настроек. */
+  confirmCall?: (spaceId: string) => Promise<ConfirmCallCfg | null>;
+}
+
+export interface ConfirmCallCfg {
+  eventTypes: readonly string[];
+  /** Дни обзвона, ISO 1–7. */
+  weekdays: readonly number[];
 }
 
 export type GetSummary = (viewer: Viewer) => Promise<Summary>;

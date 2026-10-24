@@ -10,15 +10,9 @@ import { getDb } from '@/server/platform/db';
 import { previousWeek, weekOf } from './period';
 import { DIRECTOR_WEEKS, type DirectorWeek } from './reportTypes';
 import { getSummary } from './summary';
-import type { GetDirectorDashboard, PeriodInput, ReportFilters } from './reportTypes';
+import type { DirectorReasons, GetDirectorDashboard, PeriodInput, ReportFilters } from './reportTypes';
 
 const NO_FILTERS: ReportFilters = { userIds: null, sourceKey: null };
-
-/** Запас в рабочих днях: пул / ёмкость выдачи за день, один знак; ёмкость 0 — null. */
-export function stockDays(poolReady: number, capacityPerDay: number): number | null {
-  if (capacityPerDay <= 0) return null;
-  return Math.round((poolReady / capacityPerDay) * 10) / 10;
-}
 
 export { eventShortLabels, type EventTypeDoc } from './eventLabels';
 
@@ -67,14 +61,16 @@ export const getDirectorDashboard: GetDirectorDashboard = async (viewer, opts = 
     userIds: null,
     sourceKey: null,
   });
-  const trash = reasonsReport.blocks.find((b) => b.role === 'trash');
+  const reasonsOf = (role: 'trash' | 'callback'): DirectorReasons | null => {
+    const b = reasonsReport.blocks.find((x) => x.role === role);
+    return b ? { key: b.key, label: b.label, total: b.total, top: b.rows.slice(0, REASONS_TOP) } : null;
+  };
   const t = ops.totals;
-  const capacityPerDay = summary.tiles.issued.cap;
   const poolReady = summary.tiles.pool.ready;
   return {
     generatedAt: now,
     weekKey,
-    reasons: trash ? { key: trash.key, label: trash.label, total: trash.total, top: trash.rows.slice(0, REASONS_TOP) } : null,
+    reasons: { trash: reasonsOf('trash'), callback: reasonsOf('callback') },
     week: ops.period,
     prevWeek: prevOps.period,
     calls: { outcomes: t.outcomes, connects: t.connects, prevOutcomes: prevOps.totals.outcomes, prevConnects: prevOps.totals.connects },
@@ -93,6 +89,6 @@ export const getDirectorDashboard: GetDirectorDashboard = async (viewer, opts = 
     },
     funnel: funnel.total,
     revenue: revenue.rows,
-    stock: { poolReady, capacityPerDay, days: stockDays(poolReady, capacityPerDay) },
+    stock: { poolReady },
   };
 };

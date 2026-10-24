@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { purchaseVariants } from '../../../src/app/(mgr)/deals/_components/variants';
+import { purchaseVariants, tileKey, variantKeyOf } from '../../../src/app/(mgr)/deals/_components/variants';
 
 test('варианты: порядок настроек, архивные услуги и варианты скрыты, нет ключа — пусто', () => {
   const v = purchaseVariants({
@@ -24,4 +24,14 @@ test('локаль покупки: плитка — шаблон с подста
   const ru = JSON.parse(readFileSync('messages/ru/deals.json', 'utf8')).purchase;
   assert.match(ru.variantTile, /\{service\}.*\{variant\}.*\{price\}/);
   assert.ok(ru.variantsLabel && ru.otherService);
+});
+
+test('variantKeyOf (D-357): ключ выбранной плитки; «Другая услуга» и чужая услуга — без варианта; правка суммы вариант не трогает', () => {
+  assert.equal(variantKeyOf(tileKey('course', 'online'), 'course'), 'online');
+  // вариант с составным ключом сохраняется целиком
+  assert.equal(variantKeyOf(tileKey('course', 'online-2'), 'course'), 'online-2');
+  assert.equal(variantKeyOf(null, 'course'), undefined); // «Другая услуга»
+  assert.equal(variantKeyOf(tileKey('course', 'online'), 'smm'), undefined); // услугу сменили вручную
+  assert.equal(variantKeyOf(tileKey('course', 'online'), ''), undefined);
+  assert.equal(variantKeyOf('course/', 'course'), undefined);
 });

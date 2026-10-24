@@ -36,9 +36,17 @@ function blocksOf(list: readonly ReasonRow[], columns: readonly ReasonColumn[]):
 }
 
 export function buildReasonsReport(period: ResolvedPeriod, rows: readonly ReasonSqlRow[], columns: readonly ReasonColumn[] = []): ReasonsReport {
+  // Один код в разных источниках (итог звонка и выход № 33 делят справочник) — одна строка с суммой
+  const merged = new Map<string, ReasonSqlRow>();
+  for (const r of rows) {
+    const key = `${r.grp}|${r.reasonCode}`;
+    const prev = merged.get(key);
+    merged.set(key, prev ? { ...prev, n: prev.n + r.n } : r);
+  }
+  const sums = [...merged.values()];
   const totals = new Map<string, number>();
-  for (const r of rows) totals.set(r.grp, (totals.get(r.grp) ?? 0) + r.n);
-  const list: ReasonRow[] = rows
+  for (const r of sums) totals.set(r.grp, (totals.get(r.grp) ?? 0) + r.n);
+  const list: ReasonRow[] = sums
     .filter((r): r is ReasonSqlRow & { grp: ReasonGroup } => GROUP_SET.has(r.grp))
     .map((r) => ({ group: r.grp, reasonCode: r.reasonCode, count: r.n, share: rate(r.n, totals.get(r.grp) ?? 0) }));
   list.sort((x, y) => REASON_GROUPS.indexOf(x.group) - REASON_GROUPS.indexOf(y.group) || y.count - x.count || x.reasonCode.localeCompare(y.reasonCode));

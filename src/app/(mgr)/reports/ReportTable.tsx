@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Badge, EmptyState, Segmented, Table, type TableColumn } from '@/ui/kit';
 import { fmtDec, fmtInt, formatDay } from './format';
+import { eventTypeShortOf } from './eventTypeLabel';
 import { useReasonLabel } from './reasonLabel';
 import {
   FUNNEL_KINDS,
@@ -29,7 +30,7 @@ import {
 } from './types';
 
 /** Одна таблица на отчёт, без графиков (PROCESS 10.2). На телефоне прокручивается по горизонтали, первая колонка закреплена. */
-const WRAP = 'min-w-0 [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-[1] [&_td:first-child]:bg-[var(--surface)] [&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-[1] [&_th:first-child]:bg-[var(--surface)]';
+const WRAP = 'min-w-0 [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-normal [&_th]:leading-tight [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-[1] [&_td:first-child]:bg-[var(--surface)] [&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-[1] [&_th:first-child]:bg-[var(--surface)]';
 
 type Props = { reportKey: ReportKey; data: ReportData; labels: ReportLabels };
 
@@ -261,8 +262,17 @@ function AttendanceListTable({ data, labels }: { data: AttendanceListData; label
   const t = useTranslations('reports.attendance');
   const dash = t('list.none');
   const cols: TableColumn<AttendanceListRow>[] = [
-    { key: 'date', header: t('list.cols.date'), primary: true, cell: (r) => <strong>{`${formatDay(r.date)} ${r.startTime}`}</strong> },
-    { key: 'eventType', header: t('list.cols.eventType'), cell: (r) => labels.eventTypes[r.eventTypeKey] ?? r.eventTypeKey },
+    // дата и время — одной строкой (дефект 9); вид — короткой подписью из настроек, полная — в title
+    { key: 'date', header: t('list.cols.date'), primary: true, nowrap: true, cell: (r) => <strong className="whitespace-nowrap" data-testid="attendance-date">{`${formatDay(r.date)} ${r.startTime}`}</strong> },
+    {
+      key: 'eventType',
+      header: t('list.cols.eventType'),
+      nowrap: true,
+      cell: (r) => {
+        const { short, full } = eventTypeShortOf(labels, r.eventTypeKey);
+        return <span title={full} data-testid="attendance-event-type">{short}</span>;
+      },
+    },
     {
       key: 'client',
       header: t('list.cols.client'),
@@ -291,6 +301,11 @@ function AttendanceListTable({ data, labels }: { data: AttendanceListData; label
 
 // ---------------------------------------------------------------------------
 
+// Дефект 9: таблицы блоков «Причины» с одинаковыми колонками: фиксированная раскладка, числовые колонки заданной ширины,
+// «Причина» занимает остаток — у всех блоков границы колонок совпадают
+const BLOCK_NUM_COL = '84px';
+const BLOCK_FIXED = '[&_table]:table-fixed';
+
 function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabels }) {
   const t = useTranslations('reports.reasons');
   const [view, setView] = useState<'blocks' | 'details'>('blocks');
@@ -315,8 +330,8 @@ function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabel
         </span>
       ),
     },
-    { key: 'count', header: t('block.cols.count'), numeric: true, cell: (r) => fmtInt(r.count) },
-    { key: 'share', header: t('block.cols.share'), numeric: true, cell: (r) => <Percent value={r.share} /> },
+    { key: 'count', header: t('block.cols.count'), numeric: true, width: BLOCK_NUM_COL, cell: (r) => fmtInt(r.count) },
+    { key: 'share', header: t('block.cols.share'), numeric: true, width: BLOCK_NUM_COL, cell: (r) => <Percent value={r.share} /> },
   ];
   const details = (
     <div className={WRAP}>
@@ -348,9 +363,14 @@ function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabel
             {b.rows.length === 0 ? (
               <EmptyState title={t('block.empty')} />
             ) : (
-              <div className={WRAP}>
+              <div className={`${WRAP} ${BLOCK_FIXED}`}>
                 <Table caption={b.label ?? t(`blockFallback.${b.role}`)} captionHidden columns={blockCols} rows={b.rows} rowKey={(r) => `${r.group}|${r.reasonCode}`} dense stackOnMobile={false} />
               </div>
+            )}
+            {(b.role === 'callback' || b.role === 'trash') && (
+              <p className="m-0 text-sm" style={{ color: 'var(--text-2)' }} data-testid={`reasons-${b.role}-note`}>
+                {t('block.callbackNote')}
+              </p>
             )}
           </section>
         ))

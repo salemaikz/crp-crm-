@@ -113,6 +113,8 @@ export type ReportLabels = {
   sources: Record<string, string>;
   serviceTypes: Record<string, string>;
   eventTypes: Record<string, string>;
+  /** Короткие подписи видов мероприятий из настроек (`short`); нет — полная подпись. */
+  eventTypeShorts?: Record<string, string>;
   reasons: Record<string, Record<string, string>>;
   /** Короткие подписи видов записи: group, individual. */
   eventKinds: Record<string, string>;

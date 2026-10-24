@@ -8,7 +8,7 @@ export { DAY, MIN, SEED_NOW, SEED_TODAY, SPACE, U };
 export { actAs, closeWorld, openDistributionWorld as openWorld, seedPool, viewerOf } from '../distribution/helpers';
 
 /** Часы и настройки сводки: лимит 40, порог просрочки 60 мин, норма 10 звонков в час. */
-export function enterReportsConfig(clock: Clock, over: { overdueAlertMinutes?: number; callsPerHourTarget?: number | null } = {}): void {
+export function enterReportsConfig(clock: Clock, over: { overdueAlertMinutes?: number; callsPerHourTarget?: number | null; confirmCall?: { eventTypes: string[]; weekdays: number[] } | null } = {}): void {
   // отчёты за период — за FEATURE_REPORTS (D-295); тесты идут как стенд: флаг включён, выключенный проверяется отдельно
   process.env.FEATURE_REPORTS = '1';
   const distribution = testConfig();
@@ -21,6 +21,8 @@ export function enterReportsConfig(clock: Clock, over: { overdueAlertMinutes?: n
       { key: 'callback', label: 'Перезвон', role: 'callback', states: ['retry', 'callback'] },
       { key: 'trash', label: 'Мусор', role: 'trash', states: ['not_interested', 'not_target', 'do_not_call', 'written_off'] },
     ],
+    // обзвон «подтвердить явку» (D-355): без подмены в тестах настроек обзвона нет
+    confirmCall: async () => over.confirmCall ?? null,
   });
 }
 

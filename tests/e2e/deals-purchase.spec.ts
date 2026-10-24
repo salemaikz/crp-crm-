@@ -11,7 +11,6 @@ import { uniquePhone } from './support/phones';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
-const digits = (n: number) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
 const noHScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
 test.beforeAll(() => prepareDb());
@@ -139,8 +138,8 @@ test('вариант услуги: плитка подставляет цену 
 
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/deals/purchase') && r.method() === 'POST');
   await page.getByRole('button', { name: 'Зарегистрировать' }).click();
-  const body = (await sent).postDataJSON() as { requestId: string; amountKzt: number; serviceTypeKey: string };
-  expect([body.serviceTypeKey, body.amountKzt]).toEqual([service!.key, 90_000]);
+  const body = (await sent).postDataJSON() as { requestId: string; amountKzt: number; serviceTypeKey: string; variantKey?: string };
+  expect([body.serviceTypeKey, body.amountKzt, body.variantKey]).toEqual([service!.key, 90_000, variant.key]);
   await page.waitForURL(`**/deals/${dealId}`);
 
   // повтор запроса с тем же requestId: сделка одна, событие покупки одно
@@ -149,8 +148,46 @@ test('вариант услуги: плитка подставляет цену 
     return res.status;
   }, { ...body, cardId, dealId, wonDay: new Date().toISOString().slice(0, 10) });
   expect([200, 201, 409]).toContain(repeat);
-  const deals = await sql<{ id: string; amount: string }[]>`SELECT id, amount_kzt::text AS amount FROM deals WHERE card_id = ${cardId}`;
-  expect(deals.map((d) => [d.id, d.amount])).toEqual([[dealId, '90000']]);
+  const deals = await sql<{ id: string; amount: string; variant: string }[]>`SELECT id, amount_kzt::text AS amount, service_variant_key AS variant FROM deals WHERE card_id = ${cardId}`;
+  // сумма поправлена вручную (скидка), вариант плитки сохранён; сделка одна
+  expect(deals.map((d) => [d.id, d.amount, d.variant])).toEqual([[dealId, '90000', variant.key]]);
   const won = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM client_events WHERE deal_id = ${dealId} AND kind = 'deal.won'`;
   expect(won[0]?.n).toBe(1);
+
+  // РОП правит сумму покупки: вариант остаётся (PATCH без variantKey его не трогает)
+  const ropId = randomUUID();
+  const ropPhone = await uniquePhone(sql);
+  const [space] = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE key = 'sales'`;
+  const now = Date.now();
+  await sql`INSERT INTO users (id, phone_digits, name, password_hash, created_at) VALUES (${ropId}, ${ropPhone}, 'РОП Вариант', ${bcrypt.hashSync(PASSWORD, 4)}, ${now})`;
+  await sql`INSERT INTO memberships (user_id, space_id, role_key, in_distribution, created_at, updated_at) VALUES (${ropId}, ${space!.id}, 'rop', FALSE, ${now}, ${now})`;
+  await loginAs(page, ropPhone);
+  await page.goto(`/deals/${dealId}`);
+  await page.getByRole('button', { name: 'Изменить сумму' }).click();
+  await page.getByLabel('Сумма, ₸').fill('80000');
+  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(page.getByTestId('deal-amount')).toHaveText(/^80\s000 ₸$/);
+  const [edited] = await sql<{ amount: string; variant: string }[]>`SELECT amount_kzt::text AS amount, service_variant_key AS variant FROM deals WHERE id = ${dealId}`;
+  expect([edited?.amount, edited?.variant]).toEqual(['80000', variant.key]);
+});
+
+test('«Другая услуга» после плитки: покупка без варианта (D-357)', async ({ page }) => {
+  const { consultant, cardId, dealId } = await seedPurchase();
+  const preset = JSON.parse(readFileSync('presets/clients/crp/preset.json', 'utf8')) as { spaces: { sales: { serviceTypes: { key: string; variants?: { key: string }[] }[] } } };
+  const service = preset.spaces.sales.serviceTypes.find((x) => (x.variants?.length ?? 0) > 0);
+  test.skip(!service, 'в пресете нет вариантов услуги');
+  await loginAs(page, consultant.phone);
+  await page.goto(`/deals/purchase/${cardId}`);
+  await page.getByTestId(`purchase-variant-${service!.key}-${service!.variants![0]!.key}`).click();
+  await page.getByTestId('purchase-variant-other').click();
+  await expect(page.getByTestId('purchase-variant-other')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByLabel('Услуга').selectOption(service!.key);
+  await page.getByLabel('Сумма, ₸').fill('70000');
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/deals/purchase') && r.method() === 'POST');
+  await page.getByRole('button', { name: 'Зарегистрировать' }).click();
+  const body = (await sent).postDataJSON() as Record<string, unknown>;
+  expect('variantKey' in body).toBe(false);
+  await page.waitForURL(`**/deals/${dealId}`);
+  const [row] = await sql<{ variant: string }[]>`SELECT service_variant_key AS variant FROM deals WHERE id = ${dealId}`;
+  expect(row?.variant).toBe('');
 });

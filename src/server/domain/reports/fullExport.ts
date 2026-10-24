@@ -270,12 +270,12 @@ function tablesOf(viewer: Viewer, ctx: Ctx): Table<{ id: string }>[] {
     t<repo.DealRow>({
       name: 'deals',
       header: [
-        'id', 'pipeline_key', 'stage_key', 'status', 'client_id', 'card_id', 'owner_user_id', 'service_type_key', 'amount_kzt', 'won_at', 'lost_at',
+        'id', 'pipeline_key', 'stage_key', 'status', 'client_id', 'card_id', 'owner_user_id', 'service_type_key', 'service_variant_key', 'amount_kzt', 'won_at', 'lost_at',
         'lost_reason_code', 'lost_reason_text', 'needs_rebook', 'stage_changed_at', 'custom', 'created_by', 'created_at',
       ],
       page: (sql, after) => repo.pageDeals(viewer, sql, a(after)),
       row: (r) => [
-        r.id, r.pipelineKey, r.stageKey, r.status, r.clientId, r.cardId, r.ownerUserId, r.serviceTypeKey, r.amountKzt, at(r.wonAt), at(r.lostAt),
+        r.id, r.pipelineKey, r.stageKey, r.status, r.clientId, r.cardId, r.ownerUserId, r.serviceTypeKey, r.serviceVariantKey, r.amountKzt, at(r.wonAt), at(r.lostAt),
         r.lostReasonCode, r.lostReasonText, flag(r.needsRebook), at(r.stageChangedAt), custom('deal', r.custom), r.createdBy, at(r.createdAt),
       ],
     }),
