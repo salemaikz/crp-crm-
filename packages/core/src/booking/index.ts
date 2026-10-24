@@ -13,3 +13,4 @@ export * from './reminders';
 export * from './series';
 export * from './events';
 export * from './summary';
+export * from './confirmCall';
