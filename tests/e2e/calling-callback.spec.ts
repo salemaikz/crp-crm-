@@ -98,3 +98,45 @@ test('правка поля в карточке обзвона, пока ито�
   await expect(page.getByTestId('field-edit-district')).toContainText('Синтетический район');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+// ---------- Шторка перезвона: срок выбран сразу (ui-polish §9.3, B4) ----------
+
+test('«Перезвонить» → причина: срок по касанию уже выбран, «Сохранить · день» активна без выбора срока', async ({ page }) => {
+  const op = await makeOperator(2);
+  await openCall(page, op);
+  await page.getByTestId('call-button').click();
+  const sheet = page.getByTestId('outcome-sheet');
+  await expect(sheet).toBeVisible();
+  await page.getByTestId('lpr-yes').click();
+  await page.getByTestId('outcome-callback').click();
+
+  const details = page.getByTestId('outcome-details');
+  // Видимые подписи групп: на телефоне aria-label не виден
+  await expect(details.getByText('Причина', { exact: true })).toBeVisible();
+  await expect(details.getByText('Когда перезвонить', { exact: true })).toBeVisible();
+  // Срок выбран до выбора причины; выбор срока стоит выше заметки
+  await expect(page.getByTestId('callback-hint')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('callback-chosen')).toBeVisible();
+  const pickerY = (await page.getByTestId('callback-picker').boundingBox())!.y;
+  const noteY = (await details.locator('textarea').boundingBox())!.y;
+  expect(pickerY).toBeLessThan(noteY);
+
+  // Причины нет - в подвале сказано, чего не хватает; после причины кнопка активна
+  const save = page.getByTestId('sheet-save');
+  await expect(save).toBeDisabled();
+  await expect(page.getByTestId('sheet-missing')).toContainText('Выберите причину');
+  await details.getByRole('button', { name: 'Подумает' }).click();
+  await expect(save).toBeEnabled();
+  await expect(save).toHaveText(/^Сохранить · \S+ \d\d\.\d\d$/);
+  await expect(page.getByTestId('sheet-missing')).toHaveCount(0);
+  const hintText = await page.getByTestId('callback-chosen').textContent();
+
+  await save.click();
+  await expect(sheet).toBeHidden();
+  await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 20_000 }).toBe(1);
+  const [row] = await sql<{ at: string; precision: string }[]>`SELECT next_call_at AS at, next_call_precision AS precision FROM cards WHERE id = ${op.cardIds[0]!}`;
+  // Сохранённый срок — день подсказки (первое касание: через 3 дня, в течение дня)
+  expect(row!.precision).toBe('day');
+  const day = new Date(Number(row!.at)).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty', weekday: 'short', day: '2-digit', month: '2-digit' });
+  expect(hintText ?? '').toContain(day.replace(/\.$/, '').split(', ')[1] ?? day);
+});

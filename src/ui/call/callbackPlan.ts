@@ -59,3 +59,13 @@ export function quickDay(kind: 'tomorrow' | 'week', now: number, tz: string, cal
 export function dueFor(day: LocalDay, time: string | null, windowStart: string, tz: string): { at: number; precision: CallbackPrecision } {
   return time === null ? { at: fromLocal(day, windowStart, tz), precision: 'day' } : { at: fromLocal(day, time, tz), precision: 'time' };
 }
+
+/**
+ * Срок по касанию, выбранный сразу (ui-polish §9.3, B4): подсказка — единственный разумный срок по умолчанию, оператору
+ * остаётся поменять его, а не искать. Нет расписания или флага — null (срок выбирает человек).
+ */
+export function defaultDue(args: { steps: readonly string[] | null; touches: number | undefined; now: number; tz: string; cal: CallCalendar; windowStart: string }): { at: number; precision: CallbackPrecision } | null {
+  if (!args.steps || args.touches === undefined) return null;
+  const hint = scheduleHint({ steps: args.steps, touches: args.touches, now: args.now, tz: args.tz, cal: args.cal });
+  return hint ? dueFor(hint.day, hint.time, args.windowStart, args.tz) : null;
+}

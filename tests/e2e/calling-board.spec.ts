@@ -45,9 +45,11 @@ test.describe('ноутбук', () => {
 
     const sheet = page.getByTestId('outcome-sheet');
     await expect(sheet).toBeVisible();
-    // В окне только «Перезвонить» и «Не берёт»
+    // В окне переноса только «Перезвонить»: «Не берёт» — недозвон, его ставит звонок; заголовок без номера телефона
     await expect(page.getByTestId('outcome-callback')).toBeVisible();
-    await expect(page.getByTestId('outcome-no_answer')).toBeVisible();
+    await expect(page.getByTestId('outcome-no_answer')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'В «Перезвон»' })).toBeVisible();
+    await expect(page.getByRole('dialog')).not.toContainText('+7 709');
     await expect(page.getByTestId('outcome-agreed')).toHaveCount(0);
     await expect(page.getByTestId('outcome-do_not_call')).toHaveCount(0);
 
@@ -86,6 +88,8 @@ test.describe('ноутбук', () => {
     await expect(columnOf(page, 'purchase')).toHaveAttribute('data-drop', 'no');
     await page.mouse.move(to!.x + 40, to!.y + 80, { steps: 10 });
     await page.mouse.up();
+    // Отпустили на запрещённой колонке: тост называет причину, а не молчит
+    await expect(page.getByText('Покупку вносит консультант или РОП')).toBeVisible();
     await expect(page.getByTestId('outcome-sheet')).toHaveCount(0);
     await expect(page.getByTestId('trash-sheet')).toHaveCount(0);
     await expect(columnOf(page, 'new').getByText(op.names[0]!)).toBeVisible();
@@ -93,7 +97,7 @@ test.describe('ноутбук', () => {
     // Обычный клик (без сдвига) — шторка лида с кнопкой «Открыть карточку»
     await tileOf(page, op.names[0]!).getByTestId('tile-open').click();
     await expect(page.getByTestId('lead-drawer')).toBeVisible();
-    await expect(page.getByTestId('drawer-open-card')).toHaveAttribute('href', `/clients/${op.clientIds[0]!}`);
+    await expect(page.getByTestId('drawer-open-card')).toHaveAttribute('href', `/clients/${op.clientIds[0]!}?from=board&tab=new`);
   });
 });
 
@@ -107,8 +111,12 @@ test('телефон: «⋯ → Перенести в…» в «Мусор» с 
   await tile.getByTestId('tile-menu').click();
   const menu = page.getByTestId('move-menu');
   await expect(menu).toBeVisible();
-  // «Договорились», «Покупка» до этапа В недоступны и показаны погашенными
-  await expect(menu.getByTestId('move-to-purchase')).toBeDisabled();
+  // Погашенные цели названы причиной по коду: покупку вносит консультант, запись - через звонок (с кнопкой «Позвонить»)
+  await expect(menu.getByTestId('move-to-purchase')).toHaveAttribute('aria-disabled', 'true');
+  await expect(menu.getByTestId('move-reason-purchase')).toHaveText('Покупку вносит консультант или РОП');
+  await expect(menu.getByTestId('move-reason-br')).toContainText('Запись — через звонок');
+  await expect(menu.getByTestId('move-reason-br')).toContainText('Договорились');
+  await expect(menu.getByTestId('move-call').first()).toBeVisible();
   await menu.getByTestId('move-to-trash').click();
 
   const sheet = page.getByTestId('trash-sheet');
@@ -138,8 +146,11 @@ test('телефон: перенос без сети уходит после в�
   await tileOf(page, op.names[0]!).getByTestId('tile-menu').click();
   await page.getByTestId('move-to-callback').click();
   await expect(page.getByTestId('outcome-sheet')).toBeVisible();
-  // «Не берёт» — одним нажатием
-  await page.getByTestId('outcome-no_answer').click();
+  // «Перезвонить» с причиной; срок по касанию уже выбран
+  await page.getByTestId('lpr-yes').click();
+  await page.getByTestId('outcome-callback').click();
+  await page.getByTestId('outcome-details').getByRole('button', { name: 'Подумает' }).click();
+  await page.getByTestId('sheet-save').click();
   await expect(page.getByTestId('outcome-sheet')).toBeHidden();
   await expect(page.getByTestId('outbox-banner')).toContainText('Не отправлено: 1', { timeout: 15_000 });
   expect(await callsOf(op.id)).toHaveLength(0);
@@ -150,7 +161,7 @@ test('телефон: перенос без сети уходит после в�
   await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 40_000 }).toBe(1);
   await expect(page.getByTestId('outbox-banner')).toBeHidden({ timeout: 20_000 });
   const [row] = await sql<{ state: string; attempts: number }[]>`SELECT state, attempts FROM cards WHERE id = ${op.cardIds[0]!}`;
-  expect(row).toEqual({ state: 'retry', attempts: 1 });
+  expect(row).toEqual({ state: 'callback', attempts: 0 });
   await page.waitForTimeout(1_500);
   expect(await callsOf(op.id)).toHaveLength(1);
 });
@@ -272,7 +283,7 @@ test('доска читается в светлой и тёмной теме: п
   await openBoard(page, op);
   const tile = tileOf(page, op.names[0]!);
   await expect(tile).toHaveAttribute('data-tone', 'success');
-  await expect(tile.getByTestId('tile-toggle-attendedGroup')).toBeVisible();
+  await expect(tile.getByTestId('tile-badge-attended')).toBeVisible();
   const light = await tile.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, text: getComputedStyle(el).color }));
   await testInfo.attach('board-light', { body: await page.screenshot(), contentType: 'image/png' });
 
@@ -284,4 +295,199 @@ test('доска читается в светлой и тёмной теме: п
   const plain = await tileOf(page, op.names[1]!).evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(plain).not.toBe('rgb(255, 255, 255)');
   await testInfo.attach('board-dark', { body: await page.screenshot(), contentType: 'image/png' });
+});
+
+// ---------- Шторка «Мусор» (ui-polish §9.3, B3) ----------
+
+test('«Мусор»: причина без ЛПР - подсказка над кнопкой и обводка, после «Да» кнопка активна; заголовок и кнопка называют колонку', async ({ page }) => {
+  const op = await makeOperator(1);
+  await openBoard(page, op);
+  await tileOf(page, op.names[0]!).getByTestId('tile-menu').click();
+  await page.getByTestId('move-to-trash').click();
+  const sheet = page.getByTestId('trash-sheet');
+  await expect(sheet).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'В «Мусор»: причина' })).toBeVisible();
+  const confirm = page.getByTestId('trash-confirm');
+  await expect(confirm).toHaveText('В «Мусор»');
+  await expect(confirm).toBeDisabled();
+  await expect(page.getByTestId('trash-missing')).toContainText('Выберите причину');
+  await expect(page.getByText('Говорили с ЛПР — лицом, принимающим решение?')).toBeVisible();
+
+  await page.getByTestId('trash-reason-not_interested-no_need').click();
+  // Причина выбрана, ЛПР не отмечен: подсказка над кнопкой, сегмент обведён жёлтым, кнопка погашена нейтрально
+  await expect(page.getByTestId('trash-missing')).toContainText('Отметьте, был ли разговор с ЛПР.');
+  await expect(page.getByTestId('trash-lpr').locator('[data-missing="1"]')).toBeVisible();
+  await expect(confirm).toBeDisabled();
+  const opacity = await confirm.evaluate((el) => getComputedStyle(el).opacity);
+  expect(opacity).toBe('1');
+  await page.getByTestId('trash-lpr-yes').click();
+  await expect(confirm).toBeEnabled();
+  await expect(page.getByTestId('trash-missing')).toHaveCount(0);
+  // «Не отвечает» погашено нейтрально (без opacity), причина названа текстом с подписью из настроек
+  const off = page.getByTestId('trash-reason-written_off-unreachable');
+  await expect(off).toBeDisabled();
+  expect(await off.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  await expect(page.getByTestId('trash-call-first')).toHaveText('«Не отвечает» доступно после недозвона: сначала позвоните');
+});
+
+test('«Мусор»: «Другие причины…» группами с заголовком вида итога и последствием, без голых одинаковых «Другое (текст)»', async ({ page }) => {
+  const op = await makeOperator(1);
+  await openBoard(page, op);
+  await tileOf(page, op.names[0]!).getByTestId('tile-menu').click();
+  await page.getByTestId('move-to-trash').click();
+  await page.getByTestId('trash-more').click();
+  const groups = page.locator('[data-testid^="trash-group-"]');
+  expect(await groups.count()).toBeGreaterThanOrEqual(3);
+  const titles = await groups.evaluateAll((els) => els.map((e) => e.querySelector('h3')?.textContent ?? ''));
+  expect(new Set(titles).size).toBe(titles.length);
+  // «Другое (текст)» есть у нескольких видов, но каждое - под своим заголовком
+  const others = page.getByRole('button', { name: 'Другое (текст)' });
+  expect(await others.count()).toBeGreaterThanOrEqual(3);
+  for (const g of await groups.all()) await expect(g).toContainText(/Закрывается|Номер попадёт|Списывается/);
+  await expect(page.getByTestId('trash-group-do_not_call')).toContainText('стоп-лист');
+});
+
+// ---------- Шторка лида (ui-polish §9.7, B5) ----------
+
+test('шторка лида: «Следующий шаг», «Позвонить» ведёт в шторку итога этой карточки, ссылка на карточку помнит вкладку', async ({ page }) => {
+  const op = await makeOperator(2);
+  await sql`UPDATE cards SET state = 'callback', callback_reason = 'think', callback_touches = 1, next_call_precision = 'day', next_call_at = ${Date.now() + 86_400_000} WHERE id = ${op.cardIds[0]!}`;
+  await openBoard(page, op);
+  await page.getByTestId('tab-callback').click();
+  await tileOf(page, op.names[0]!).getByTestId('tile-open').click();
+  const drawer = page.getByTestId('lead-drawer');
+  await expect(drawer).toBeVisible();
+  await expect(page.getByTestId('drawer-next-step')).toContainText('Следующий шаг');
+  await expect(page.getByTestId('drawer-next-step')).toContainText('Подумает');
+  await expect(page.getByTestId('drawer-history')).toBeVisible();
+  await expect(page.getByTestId('drawer-whatsapp')).toBeVisible();
+  await expect(page.getByTestId('drawer-move')).toBeVisible();
+  // Открыть карточку - вторичная, с адресом возврата на вкладку (К3)
+  await expect(page.getByTestId('drawer-open-card')).toHaveAttribute('href', `/clients/${op.clientIds[0]!}?from=board&tab=callback`);
+  await expect(page.getByTestId('drawer-open-card')).toHaveClass(/k-btn--secondary/);
+
+  await page.getByTestId('drawer-call').click();
+  const sheet = page.getByTestId('outcome-sheet');
+  await expect(sheet).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('lead-drawer')).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toContainText(op.names[0]!);
+  await page.getByTestId('outcome-no_answer').click();
+  await expect(sheet).toBeHidden();
+  await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 30_000 }).toBe(1);
+  expect((await callsOf(op.id))[0]!.via).toBe('ui');
+});
+
+test('шторка лида: «Перенести в…» открывает список целей, а поля идут по шесть и «Ещё N полей» раскрывает остаток', async ({ page }) => {
+  const op = await makeOperator(1);
+  await openBoard(page, op);
+  await tileOf(page, op.names[0]!).getByTestId('tile-open').click();
+  await expect(page.getByTestId('lead-drawer')).toBeVisible();
+  const rows = page.getByTestId('drawer-fields').locator('> *');
+  await expect(page.getByTestId('drawer-fields')).toBeVisible();
+  const more = page.getByTestId('drawer-more-fields');
+  if (await more.count()) {
+    const before = await rows.count();
+    expect(before).toBe(6);
+    await more.click();
+    expect(await rows.count()).toBeGreaterThan(before);
+  }
+  await page.getByTestId('drawer-move').click();
+  await expect(page.getByTestId('move-menu')).toBeVisible();
+  await expect(page.getByTestId('lead-drawer')).toHaveCount(0);
+});
+
+// ---------- Перенос: причины погашенных целей (B8) ----------
+
+test('«Перенести в…»: «Позвонить» у цели записи ведёт к звонку этой карточки; в «Перезвон» нет системных причин нового лида', async ({ page }) => {
+  const op = await makeOperator(2);
+  await openBoard(page, op);
+  await tileOf(page, op.names[0]!).getByTestId('tile-menu').click();
+  const menu = page.getByTestId('move-menu');
+  await expect(menu.getByTestId('move-reason-br')).toContainText('Запись — через звонок');
+  await expect(menu.getByTestId('move-to-br')).toHaveCSS('text-align', 'left');
+  await menu.getByTestId('move-call').first().click();
+  await expect(page.getByTestId('outcome-sheet')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('move-menu')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // Перенос второй карточки в «Перезвон»: заголовок без номера, у нового лида нет «Пришёл, не купил» и «Не пришёл»
+  await page.getByTestId('call-resume').click();
+  await page.getByTestId('outcome-no_answer').click();
+  await tileOf(page, op.names[1]!).getByTestId('tile-menu').click();
+  await page.getByTestId('move-to-callback').click();
+  await page.getByTestId('outcome-callback').click();
+  const details = page.getByTestId('outcome-details');
+  await expect(details.getByRole('button', { name: 'Подумает' })).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Пришёл, не купил — дожать' })).toHaveCount(0);
+  await expect(details.getByRole('button', { name: /^Не пришёл/ })).toHaveCount(0);
+  await expect(details.getByRole('button', { name: /^Не придёт/ })).toHaveCount(0);
+  // Причины сеткой в две колонки
+  const xs = await details.getByRole('button', { name: /Подумает|Пока не нужно/ }).evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+  expect(new Set(xs).size).toBe(2);
+});
+
+// ---------- Вид доски в адресе (ui-polish §9.6, контракт К1, B7) ----------
+
+test('телефон: РОП ставит сотрудника и фильтр → открывает карточку → «Назад» возвращает тот же вид', async ({ page }) => {
+  const rop = await makeOperator(0, { role: 'rop' });
+  const op = await makeOperator(2);
+  await sql`UPDATE cards SET last_no_show_at = ${Date.now() - 3_600_000} WHERE id = ${op.cardIds[0]!}`;
+  await login(page, rop);
+  await page.goto('/deals/calling');
+  await expect(page.getByTestId('board-screen')).toBeVisible();
+  // На телефоне одна строка: поиск и две кнопки-значка; «Звонить подряд» с доски убран
+  await expect(page.getByTestId('board-search')).toBeVisible();
+  await expect(page.getByTestId('board-filters-open')).toBeVisible();
+  await expect(page.getByTestId('board-call-next')).toHaveCount(0);
+
+  await page.getByTestId('board-filters-open').click();
+  await page.getByTestId('filter-owner').selectOption(op.id);
+  await page.getByTestId('filter-noShow').click();
+  await page.getByTestId('filters-done').click();
+  await expect(page.getByTestId('board-filters-open')).toHaveAccessibleName('Фильтры · 2');
+  await expect(tileOf(page, op.names[0]!)).toBeVisible();
+  await expect(tileOf(page, op.names[1]!)).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`f=noShow.*owner=${op.id}|owner=${op.id}.*f=noShow`));
+
+  await tileOf(page, op.names[0]!).getByTestId('tile-open').click();
+  await page.getByTestId('drawer-open-card').click();
+  await page.waitForURL(`**/clients/${op.clientIds[0]!}**`);
+  await page.goBack();
+  await expect(page.getByTestId('board-screen')).toBeVisible();
+  await expect(tileOf(page, op.names[0]!)).toBeVisible();
+  await expect(tileOf(page, op.names[1]!)).toHaveCount(0);
+  await page.getByTestId('board-filters-open').click();
+  await expect(page.getByTestId('filter-noShow')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('filter-owner')).toHaveValue(op.id);
+  await page.getByTestId('filters-reset').click();
+  // В общей базе копятся карточки прошлых прогонов, поэтому проверяем вид, а не плитку: адрес чист, счётчика нет
+  await expect(page).not.toHaveURL(/owner=|f=/);
+  await expect(page.getByTestId('filter-noShow')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('filter-owner')).toHaveValue('');
+});
+
+test('телефон: адрес с вкладкой открывает нужную колонку, мусор в адресе отбрасывается', async ({ page }) => {
+  const op = await makeOperator(1);
+  await sql`UPDATE cards SET state = 'callback', callback_reason = 'think', callback_touches = 1, next_call_precision = 'day', next_call_at = ${Date.now() + 86_400_000} WHERE id = ${op.cardIds[0]!}`;
+  await login(page, op);
+  await page.goto('/board?tab=callback&f=hack,today&sort=zzz&owner=u-1');
+  await expect(page.getByTestId('board-screen')).toBeVisible();
+  await expect(page.getByTestId('tab-callback')).toHaveAttribute('aria-selected', 'true');
+  // Неизвестные значения молча отброшены: сортировка по умолчанию, чужого сотрудника нет, фильтр «Сегодня» действует
+  await expect(page.getByTestId('board-filters-open')).toHaveAccessibleName('Фильтры · 1');
+  expect(new URL(page.url()).searchParams.get('owner')).toBeNull();
+  expect(new URL(page.url()).searchParams.get('f')).toBe('today');
+  await page.getByTestId('tab-new').click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBeNull();
+});
+
+test('сортировка: на телефоне кнопка со шторкой только на вкладках рабочих колонок', async ({ page }) => {
+  const op = await makeOperator(2);
+  await openBoard(page, op);
+  await expect(page.getByTestId('board-sort-open')).toBeVisible();
+  await page.getByTestId('board-sort-open').click();
+  await page.getByTestId('sort-due').click();
+  await expect(page).toHaveURL(/sort=due/);
+  await page.getByTestId('tab-purchase').click();
+  await expect(page.getByTestId('board-sort-open')).toHaveCount(0);
 });

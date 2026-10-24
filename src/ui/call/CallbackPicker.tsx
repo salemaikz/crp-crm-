@@ -64,7 +64,7 @@ export function CallbackPicker({ config, draft, touches, openedAt, onChange }: P
 
   return (
     <div className="flex flex-col gap-2" data-testid="callback-picker">
-      <ChipGroup label={t('sheet.callbackAt')} className="flex-wrap">
+      <ChipGroup label={t('sheet.callbackAt')} showLabel className="flex-wrap">
         {hint && (
           <Chip
             active={picked === 'hint'}

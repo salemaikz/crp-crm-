@@ -8,7 +8,11 @@ import { EMPTY_DRAFT, type CallConfig, type OutcomeButton, type OutcomeKind, typ
 import type { BoardCardDto, BoardColumnConfig, BoardConfig, BoardReason } from './types';
 
 export type MoveAction = 'callback' | 'trash' | 'agreedCallback' | 'agreedTrash';
-export type MoveBlocked = 'same' | 'later' | 'viewer' | 'manual' | 'offline';
+/**
+ * Почему цель недоступна (ui-polish §9.3, B8): `book` — запись только через звонок, `purchase` — покупку вносит
+ * консультант или РОП, `later` — всё прочее открывается в карточке клиента.
+ */
+export type MoveBlocked = 'same' | 'later' | 'viewer' | 'manual' | 'offline' | 'book' | 'purchase';
 
 /** Условия переноса, зависящие от устройства и настроек: выход из «Договорились» (№ 33) работает только онлайн. */
 export interface MoveContext {
@@ -26,8 +30,11 @@ export interface MoveTarget {
   blocked: MoveBlocked | null;
 }
 
-/** Виды итога окна «Перезвон»: «Перезвонить» и «Не берёт» (§3.4). */
-export const CALLBACK_KINDS: readonly OutcomeKind[] = ['callback', 'no_answer'];
+/**
+ * Виды итога окна переноса в «Перезвон»: только «Перезвонить» (ui-polish §9.3, B8). «Не берёт» переносом не ставится:
+ * это недозвон, а не решение клиента, его ставит звонок.
+ */
+export const CALLBACK_KINDS: readonly OutcomeKind[] = ['callback'];
 
 /** Цели переноса плитки. Пусто, если переносить нельзя вовсе (директор, нет права, плитка не из рабочих колонок). */
 export function moveTargets(card: BoardCardDto, columns: readonly BoardColumnConfig[], canMove: boolean, scope: BoardConfig['scope'] = 'own', ctx: MoveContext = {}): MoveTarget[] {
@@ -40,6 +47,9 @@ export function moveTargets(card: BoardCardDto, columns: readonly BoardColumnCon
       if (ctx.online === false) return { column: col.key, available: false, action: null, blocked: 'offline' };
       return { column: col.key, available: true, action: col.role === 'callback' ? 'agreedCallback' : 'agreedTrash', blocked: null };
     }
+    // «Покупка» вносится не переносом, из какой бы колонки ни тащили; запись на мероприятие - только через звонок
+    if (col.role === 'client') return { column: col.key, available: false, action: null, blocked: 'purchase' };
+    if (col.role === 'agreed' && isWorkingRole(from.role)) return { column: col.key, available: false, action: null, blocked: 'book' };
     // Откуда: только «Новые» и «Перезвон»; остальные колонки открываются через карточку клиента
     if (!isWorkingRole(from.role)) return { column: col.key, available: false, action: null, blocked: 'later' };
     // Итог с доски (`via = board`) принимает сервер только при охвате own; РОП вносит итог за оператора в карточке клиента
@@ -106,6 +116,34 @@ export function moreTrash(column: BoardColumnConfig, call: CallConfig, writeOff:
   }
   for (const r of writeOff) if (!r.needsText && !quick.has(`written_off:${r.key}`)) out.push({ kind: 'write_off', reason: r.key, label: r.label, needsText: false, blocked: writeOffBlocked(card, scope) });
   return out;
+}
+
+export interface TrashGroup {
+  /** Вид итога или списание: по нему выбираются заголовок и строка последствия. */
+  id: OutcomeKind | 'written_off';
+  /** Подпись вида итога из настроек; у списания её нет (заголовок — из локали). */
+  outcomeLabel: string | null;
+  items: TrashChoice[];
+}
+
+/**
+ * «Другие причины…» группами по виду итога (ui-polish §9.3, B3): у разных видов бывают причины с одной подписью
+ * («Другое (текст)»), а последствия у них разные (возврат через N дней, закрытие, стоп-лист). Без заголовка группы
+ * такие чипы неотличимы. Порядок групп — как у видов итога «Мусора», списание последним.
+ */
+export function groupTrash(choices: readonly TrashChoice[], call: CallConfig): TrashGroup[] {
+  const groups: TrashGroup[] = [];
+  for (const c of choices) {
+    const id: TrashGroup['id'] = c.kind === 'outcome' ? c.outcomeKind : 'written_off';
+    let g = groups.find((x) => x.id === id);
+    if (!g) {
+      g = { id, outcomeLabel: c.kind === 'outcome' ? (call.outcomes.find((o) => o.kind === id)?.label ?? null) : null, items: [] };
+      groups.push(g);
+    }
+    g.items.push(c);
+  }
+  const rank = (id: TrashGroup['id']) => (id === 'written_off' ? OUTCOME_TRASH.length : OUTCOME_TRASH.indexOf(id));
+  return groups.sort((a, b) => rank(a.id) - rank(b.id));
 }
 
 // ---------- Запрос итога ----------
@@ -204,4 +242,34 @@ export function planFor(card: BoardCardDto, def: Pick<OutcomeButton, 'kind'>, dr
     default:
       return null;
   }
+}
+
+// ---------- Причины перезвона по карточке (B8) ----------
+
+/**
+ * Правило показа причины перезвона в окне переноса. Причины без правила (ручные, «Подумает») видны всегда; остальные
+ * только когда они имеют смысл для карточки: нового лида нельзя «не пришёл» и «пришёл, не купил».
+ */
+export interface ReasonRule {
+  /** `no_show` — после неявки; `attended_no_purchase` — после явки; `decline` — отказ от записи (`booking.confirmCall.declineReason`). */
+  kind: 'no_show' | 'attended_no_purchase' | 'decline';
+  /** Виды записи, к которым причина относится; пусто — к любому. */
+  eventTypes: readonly string[];
+}
+
+export function callbackReasonsFor<R extends { key: string }>(
+  card: BoardCardDto,
+  reasons: readonly R[],
+  rules: Readonly<Record<string, ReasonRule>>,
+  attended: boolean,
+  now: number,
+): R[] {
+  const typeOk = (r: ReasonRule) => r.eventTypes.length === 0 || (card.event !== null && r.eventTypes.includes(card.event.type));
+  return reasons.filter((r) => {
+    const rule = Object.hasOwn(rules, r.key) ? rules[r.key] : undefined;
+    if (!rule) return true;
+    if (rule.kind === 'no_show') return card.flags.noShow || (card.event !== null && typeOk(rule));
+    if (rule.kind === 'attended_no_purchase') return attended;
+    return card.event !== null && card.event.startsAt > now && typeOk(rule);
+  });
 }

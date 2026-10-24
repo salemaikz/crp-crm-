@@ -4,7 +4,7 @@
 // вызывается onDrop. Только `pointerType === 'mouse'` и главная кнопка. Esc отменяет. Клик, которым закончилось
 // перетаскивание, плитка не получает (иначе открылась бы шторка).
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
-import { edgeScroll, hitColumn, movedEnough, type ColumnRect, type Point } from './dnd';
+import { edgeScroll, edgeScrollY, hitColumn, movedEnough, type ColumnRect, type Point } from './dnd';
 
 export interface DragState {
   cardId: string;
@@ -21,6 +21,8 @@ export function useMouseDrag(opts: {
   /** Можно ли отпустить плитку в колонку. */
   canDrop: (cardId: string, column: string) => boolean;
   onDrop: (cardId: string, column: string) => void;
+  /** Отпустили на запрещённой колонке или вкладке: пользователю нужно сказать, почему нельзя (ui-polish §9.3). */
+  onReject?: (cardId: string, column: string) => void;
 }) {
   const [drag, setDrag] = useState<DragState | null>(null);
   const optsRef = useRef(opts);
@@ -60,6 +62,14 @@ export function useMouseDrag(opts: {
         const box = root.getBoundingClientRect();
         const step = edgeScroll(last.x, box);
         if (step !== 0) root.scrollLeft += step;
+        // Колонка под указателем прокручивается сама у верхнего и нижнего края (колонка выше окна, ui-polish §9.2)
+        const key = hitColumn(last, rects());
+        const col = key === null ? null : root.querySelector<HTMLElement>(`[data-column-key="${CSS.escape(key)}"]`);
+        if (col && dragRef.current) {
+          const r = col.getBoundingClientRect();
+          const dy = edgeScrollY(last.y, r);
+          if (dy !== 0) col.scrollTop += dy;
+        }
       }
       raf = requestAnimationFrame(loop);
     };
@@ -85,7 +95,9 @@ export function useMouseDrag(opts: {
       suppressClick.current = true;
       setTimeout(() => (suppressClick.current = false), 0);
       const key = hitColumn({ x: e.clientX, y: e.clientY }, rects());
-      if (key !== null && optsRef.current.canDrop(s.cardId, key)) optsRef.current.onDrop(s.cardId, key);
+      if (key === null) return;
+      if (optsRef.current.canDrop(s.cardId, key)) optsRef.current.onDrop(s.cardId, key);
+      else optsRef.current.onReject?.(s.cardId, key);
     };
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || !startRef.current) return;

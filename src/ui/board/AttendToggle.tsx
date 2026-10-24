@@ -19,7 +19,7 @@ export function AttendToggle({ view, event, busy, onToggle }: { view: ToggleView
       title={hint || undefined}
       disabled={!view.interactive || busy}
       onClick={onToggle}
-      className="k-chip relative z-10"
+      className="k-chip relative z-10 min-h-9 py-1 text-sm"
       data-no-drag
       data-testid={`tile-toggle-${view.kind}`}
       data-on={view.on ? '1' : '0'}

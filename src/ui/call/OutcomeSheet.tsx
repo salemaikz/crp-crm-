@@ -10,6 +10,7 @@ import type { BookingWizardProps } from '@/app/(op)/bookings/_wizard/BookingWiza
 import { BookingPanel } from './BookingPanel';
 import { CallbackPicker } from './CallbackPicker';
 import { resolvePreset } from './callback';
+import { chooseDraftPatch } from './outcomeDraft';
 import { missingFor, oneTap, type Missing } from './validate';
 import type { PendingState } from './pending';
 import type { CallConfig, OutcomeButton, OutcomeKind, SheetDraft } from './types';
@@ -41,9 +42,11 @@ type Props = {
   onBooked: NonNullable<BookingWizardProps['onDone']>;
   /** Доска оператора (перенос плитки в «Перезвон»): показываются только эти виды итога, остальные скрыты. */
   lockedKinds?: readonly OutcomeKind[];
+  /** Свой заголовок (доска: «В «{column}»»); с ним номер телефона в подписи не показывается: переносят карточку, а не звонят. */
+  heading?: string;
 };
 
-export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSubmit, hasContact, touches, booking, onBookingOpen, onBookingBack, onLater, submitBooking, onBooked, lockedKinds }: Props) {
+export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSubmit, hasContact, touches, booking, onBookingOpen, onBookingBack, onLater, submitBooking, onBooked, lockedKinds, heading }: Props) {
   const t = useTranslations('call');
   const f = useFormatter();
   const d = pending.draft;
@@ -58,8 +61,9 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
 
   const choose = (def: OutcomeButton) => {
     if (oneTap(def, d, config)) return onSubmit(def, {});
-    if (def.key !== d.outcomeKey) {
-      onChange({ outcomeKey: def.key, reasonCode: '', callbackAt: null, ...(config.callbackV2 ? { callbackPrecision: 'time' as const } : {}), alsoDncPhoneIds: [], phoneId: d.phoneId ?? phones[0]?.id ?? null });
+    const patch = chooseDraftPatch(def, d, config, phones, touches, openedAt);
+    if (patch) {
+      onChange(patch);
       setPresetIdx(null);
     }
   };
@@ -73,14 +77,16 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
   };
 
   const hint = (m: Missing): string => t(`sheet.missing.${m}`);
+  // «вт 27.10» на кнопке: день срока в поясе установки, чтобы оператор видел, на какое число ставит перезвон
+  const dayText = (at: number) => `${f.dateTime(at, { weekday: 'short', timeZone: config.timeZone })} ${f.dateTime(at, { day: '2-digit', month: '2-digit', timeZone: config.timeZone })}`;
 
   return (
     <BottomSheet
       open
       onClose={onClose}
       closeLabel={t('sheet.close')}
-      title={booking ? t('booking.title') : t('sheet.title')}
-      description={`${pending.call.title} · ${pending.call.phoneMasked}`}
+      title={booking ? t('booking.title') : (heading ?? t('sheet.title'))}
+      description={heading !== undefined ? pending.call.title : `${pending.call.title} · ${pending.call.phoneMasked}`}
       back={
         booking && selected ? (
           <Button variant="quiet" size="sm" flush onClick={onBookingBack} data-testid="booking-back">
@@ -91,21 +97,32 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
       }
       footer={
         selected &&
-        !booking &&
-        (selected.kind === 'agreed' ? (
+        !booking && (
           <div className="flex flex-col gap-2">
-            <Button size="lg" block disabled={missing.length > 0} onClick={() => onBookingOpen(selected, fieldValues)} data-testid="sheet-book">
-              {t('sheet.book')}
-            </Button>
-            <Button variant="secondary" block disabled={missing.length > 0} onClick={() => onLater(selected, fieldValues)} data-testid="sheet-later">
-              {t('sheet.later')}
-            </Button>
+            {/* Воронка v2: чего не хватает, написано над кнопкой, а не серой кнопкой без объяснения (ui-polish §9.5) */}
+            {config.callbackV2 && missing.length > 0 && (
+              <ul className="text-sm" role="status" style={{ color: 'var(--text-2)' }} data-testid="sheet-missing">
+                {[...new Set(missing)].map((m) => (
+                  <li key={m}>{hint(m)}</li>
+                ))}
+              </ul>
+            )}
+            {selected.kind === 'agreed' ? (
+              <>
+                <Button size="lg" block disabled={missing.length > 0} onClick={() => onBookingOpen(selected, fieldValues)} data-testid="sheet-book">
+                  {t('sheet.book')}
+                </Button>
+                <Button variant="secondary" block disabled={missing.length > 0} onClick={() => onLater(selected, fieldValues)} data-testid="sheet-later">
+                  {t('sheet.later')}
+                </Button>
+              </>
+            ) : (
+              <Button size="lg" block disabled={missing.length > 0} onClick={() => onSubmit(selected, fieldValues)} data-testid="sheet-save">
+                {config.callbackV2 && selected.kind === 'callback' && d.callbackAt !== null ? t('sheet.saveDay', { day: dayText(d.callbackAt) }) : t('sheet.save')}
+              </Button>
+            )}
           </div>
-        ) : (
-          <Button size="lg" block disabled={missing.length > 0} onClick={() => onSubmit(selected, fieldValues)} data-testid="sheet-save">
-            {t('sheet.save')}
-          </Button>
-        ))
+        )
       }
     >
       {booking && selected ? (
@@ -162,9 +179,10 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
           {selected && (
             <div className="flex flex-col gap-3" data-testid="outcome-details">
               {selected.reasons.length > 0 && (
-                <ChipGroup label={t('sheet.reason')} className="flex-wrap">
+                <ChipGroup label={t('sheet.reason')} showLabel={config.callbackV2} className={config.callbackV2 ? 'grid grid-cols-2 gap-2' : 'flex-wrap'}>
                   {selected.reasons.map((r) => (
-                    <Chip key={r.key} active={d.reasonCode === r.key} onClick={() => onChange({ reasonCode: r.key })}>
+                    // Воронка v2: причины сеткой в две колонки, длинная подпись переносится (ui-polish §9.3)
+                    <Chip key={r.key} active={d.reasonCode === r.key} onClick={() => onChange({ reasonCode: r.key })} className={config.callbackV2 ? 'justify-start rounded-2xl py-2 text-left whitespace-normal' : undefined}>
                       {r.label}
                     </Chip>
                   ))}
@@ -279,7 +297,7 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
                 <Textarea rows={2} maxLength={2000} value={d.note} onChange={(e) => onChange({ note: e.target.value })} />
               </Field>
 
-              {missing.length > 0 && (
+              {!config.callbackV2 && missing.length > 0 && (
                 <ul className="text-sm" role="status" style={{ color: 'var(--text-2)' }}>
                   {[...new Set(missing)].filter((m) => m !== 'lpr').map((m) => (
                     <li key={m}>{hint(m)}</li>

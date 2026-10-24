@@ -1,40 +1,40 @@
 'use client';
 
-// Плитка лида (pipeline-v2 §9.3), не больше четырёх строк:
-// 1. огонёк · название · значки признаков; 2. чип причины или состояния и срок; 3. ЛПР и закрытый номер;
-// 4. «Позвонить» (крупная зелёная), WhatsApp, «⋯». Нажатие вне кнопок открывает шторку лида.
-// Цвет тона (§5.3) не единственный носитель смысла: у плитки с тоном есть значок и текст признака.
-import { Ellipsis, Flame, MessageCircle, Phone } from 'lucide-react';
+// Плитка лида (pipeline-v2 §9.3, ui-polish §9.3–9.4), не больше четырёх строк; строка, которой нечего показать, не
+// выводится. Телефон: 1) огонёк · название · «⋯»; 2) чип причины или записи и срок; 3) ЛПР · закрытый номер · явка;
+// 4) «Позвонить» и WhatsApp. Ноутбук: «Позвонить» — круглая кнопка в первой строке, четвёртой строки нет.
+// Конечные колонки («Покупка», «Мусор») — компактные: название и «сумма · дата» или «причина · дата», без кнопок.
+// Цвет тона не единственный носитель смысла: у плитки с тоном есть значок и текст признака («✓ Был: …»).
+import { Check, Ellipsis, Flame, MessageCircle, Phone } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent } from 'react';
 import { chatAction } from '@/ui/messenger/openChat';
 import { useChannelModes } from '@/ui/channels';
 import { dialAction } from '@/ui/call/dial';
-import { Badge, Button, type BadgeTone } from '@/ui/kit';
+import { Avatar, Badge, Button } from '@/ui/kit';
 import { AttendToggle } from './AttendToggle';
-import { toggleViews, type AttendKind } from './attend';
-import { badgesOf, chipOf, dueOf, hasFire, overdueParts, reasonLabel, toneOf, type BadgeId, type Tone } from './tile';
-import type { BoardCardDto, BoardConfig } from './types';
+import { attendControls, type AttendKind } from './attend';
+import { isEndRole } from './columns';
+import { formatKzt } from './money';
+import { closeReasonLabel, hasFire, tileBadge, tileRows, tileValues, toneOf, type Tone } from './tile';
+import { useCardTexts } from './useCardTexts';
+import type { BoardCardDto, BoardConfig, ColumnRole } from './types';
 
-const BADGE_TONE: Record<BadgeId, BadgeTone> = { attendedGroup: 'success', attendedIndividual: 'warning', purchased: 'brand', noShow: 'danger' };
-
-/** Тон плитки → переменные темы (тёмная тема подменяет их сама). */
+/** Тон плитки → переменные темы (тёмная тема подменяет их сама): заливка `--{tone}-tile` и полоса 6 px `--{tone}`. */
 function toneStyle(tone: Tone | null): CSSProperties {
-  if (!tone) return { background: 'var(--surface)', borderLeftColor: 'var(--border-strong)' };
-  if (tone === 'neutral') return { background: 'var(--canvas)', borderLeftColor: 'var(--border-strong)' };
-  return { background: `var(--${tone}-tint)`, borderLeftColor: `var(--${tone})` };
+  // Без тона — обычная рамка 1 px без цветной полосы: так тон не тонет среди одинаковых полос
+  if (!tone) return { background: 'var(--surface)', borderLeftColor: 'var(--border)', borderLeftWidth: 1 };
+  if (tone === 'neutral') return { background: 'var(--canvas)', borderLeftColor: 'var(--border-strong)', borderLeftWidth: 6 };
+  return { background: `var(--${tone}-tile)`, borderLeftColor: `var(--${tone})`, borderLeftWidth: 6 };
 }
 
 export interface LeadTileProps {
   card: BoardCardDto;
+  /** Роль колонки: конечные роли рисуются компактно. */
+  role: ColumnRole;
+  config: Pick<BoardConfig, 'call' | 'scope' | 'canMove' | 'canAttend' | 'eventBehaviors' | 'agreedExit' | 'reasonLabels' | 'eventLabels' | 'attendLabels' | 'tileFields' | 'writeOffReasons'>;
   tones: readonly { when: string; tone: string }[];
   now: number;
-  /** Подписи причин перезвона и видов записи из настроек. */
-  reasonLabels: Record<string, string>;
-  eventLabels: Record<string, string>;
-  attendLabels: { attendedGroup: string; attendedIndividual: string };
-  /** Право и виды записи для тумблеров «Был на …». */
-  attend: Pick<BoardConfig, 'canAttend' | 'eventBehaviors'>;
   /** Отметка явки по тумблеру: запрос уходит из экрана. */
   onAttend: (card: BoardCardDto, kind: AttendKind) => void;
   /** Отметка явки этой плитки отправляется. */
@@ -43,8 +43,6 @@ export interface LeadTileProps {
   locked: boolean;
   /** Найдена поиском. */
   highlighted?: boolean;
-  /** Звонок с плитки разрешён (свои карточки, есть номер). */
-  canCall: boolean;
   /** На устройстве висит намерение звонка другой карточки: «Позвонить» погашено, пока итог не внесён. */
   callBlocked?: boolean;
   /** Есть куда переносить («⋯ → Перенести в…»). */
@@ -63,60 +61,55 @@ export interface LeadTileProps {
 }
 
 export function LeadTile(p: LeadTileProps) {
-  const { card } = p;
+  const { card, config } = p;
   const t = useTranslations('board');
   const f = useFormatter();
   const modes = useChannelModes();
-  const tone = toneOf(card, p.tones);
-  // «Был на …» — тумблеры (показ или отметка), остальные признаки — значки
-  const badges = badgesOf(card).filter((b) => b !== 'attendedGroup' && b !== 'attendedIndividual');
-  const toggles = toggleViews(card, p.attend, p.now);
-  const chip = chipOf(card);
-  const due = dueOf(card, p.now);
+  const tone = toneOf(card, p.tones, config.eventBehaviors);
+  const end = isEndRole(p.role);
+  const canCall = config.scope === 'own' && config.canMove;
   const fire = hasFire(card);
   const digits = card.phone?.digits ?? '';
+  const controls = attendControls(card, config, p.now);
+  const badge = tileBadge(card, controls, Object.values(config.agreedExit.noShowReasons));
+  const toggles = controls.filter((c) => c.mode === 'toggle');
+  const closeLabel = (c: BoardCardDto) => closeReasonLabel(c, config.call.outcomes, config.writeOffReasons);
+  const ctx = { role: p.role, scope: config.scope, canCall, config, now: p.now, tileFields: config.tileFields, closeLabel };
+  const rows = tileRows(card, ctx, 'phone');
+  const rowsLaptop = tileRows(card, ctx, 'laptop');
 
-  const time = (ms: number) => f.dateTime(ms, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-  const day = (ms: number) => f.dateTime(ms, { weekday: 'short', day: '2-digit', month: '2-digit' });
-  const dueText = (() => {
-    if (due.kind === 'none') return '';
-    if (due.kind === 'overdue') {
-      const o = overdueParts(due.minutes);
-      const ago = t(`due.ago.${o.unit}`, { n: o.n });
-      // Срок «в течение дня» прошлых суток: говорим датой, а не часами
-      return due.precision === 'day' ? t('due.overdueDay', { day: day(due.at) }) : t('due.overdue', { ago });
-    }
-    if (due.kind === 'today') return due.precision === 'time' ? t('due.todayAt', { time: time(due.at) }) : t('due.todayDay');
-    return due.precision === 'time' ? t('due.at', { day: day(due.at), time: time(due.at) }) : t('due.day', { day: day(due.at) });
-  })();
+  const { chipText, chipTone, dueText, overdue, shortDate } = useCardTexts(card, config, p.now);
+  const values = p.role === 'new' ? tileValues(card, config.tileFields) : [];
 
-  const chipText = (() => {
-    if (chip.kind === 'reason') {
-      const label = reasonLabel(p.reasonLabels, chip.reason) ?? t('chip.reasonOther');
-      return chip.touches > 0 ? t('chip.reasonTouch', { reason: label, n: chip.touches }) : label;
+  // Конечные колонки: «сумма · дата» последней покупки и «причина · дата» закрытия
+  const endText = (() => {
+    if (p.role === 'client') {
+      const pr = card.purchases;
+      if (!pr) return '';
+      return [pr.lastAmountKzt !== null ? formatKzt(f, pr.lastAmountKzt) : '', pr.lastAt !== null ? shortDate(pr.lastAt) : ''].filter((x) => x !== '').join(' · ');
     }
-    if (chip.kind === 'attempts') return t('chip.attempts', { n: chip.n });
-    if (chip.kind === 'event') {
-      const label = p.eventLabels[chip.type] ?? t('chip.eventUnknown');
-      return t('chip.event', { event: label, day: day(chip.startsAt), time: time(chip.startsAt) });
-    }
-    if (chip.kind === 'state') return t(`state.${chip.state}`);
-    return '';
+    return [closeLabel(card), card.closedAt !== null ? shortDate(card.closedAt) : ''].filter((x) => x !== '').join(' · ');
   })();
 
   const dial = canDial();
   function canDial() {
-    if (!p.canCall || digits === '') return null;
+    if (!canCall || digits === '') return null;
     // Заблокированная плитка: ссылку убираем, остаётся неактивная кнопка (у ссылки нет disabled)
     if (p.locked || p.callBlocked) return {};
     const a = dialAction(digits, modes);
     return a.kind === 'tel' ? { href: a.href, external: true as const } : {};
   }
-  const chat = p.canCall && digits !== '' ? chatAction(digits, '', modes) : null;
+  // WhatsApp — только для мобильного номера (как на карточке клиента)
+  const chat = canCall && digits !== '' && card.phone?.kind === 'mobile' ? chatAction(digits, '', modes) : null;
+  const showActions = !end && canCall && card.phone !== null;
+
+  // У доски пространства вместо ЛПР — ответственный
+  const contactText = config.scope === 'own' && card.lprName !== '' ? t('lpr', { name: card.lprName }) : '';
+  const owner = card.ownerName;
 
   return (
     <article
-      className="relative flex min-w-0 flex-col gap-2 rounded-[var(--radius-card)] border border-l-4 p-3 select-none"
+      className="relative isolate grid min-w-0 grid-cols-[minmax(0,1fr)_auto] content-start gap-x-2 gap-y-1.5 rounded-[var(--radius-card)] border p-3 select-none md:grid-cols-[minmax(0,1fr)_auto_auto] md:gap-y-1 md:p-2.5"
       style={{
         borderColor: 'var(--border)',
         ...toneStyle(tone),
@@ -132,21 +125,24 @@ export function LeadTile(p: LeadTileProps) {
       data-card-id={card.id}
       data-locked={p.locked ? '1' : undefined}
       data-tone={tone ?? undefined}
+      data-rows={rows.count}
+      data-rows-laptop={rowsLaptop.count}
       onPointerDown={p.onPointerDown ? (e) => p.onPointerDown!(card, e) : undefined}
       onTouchStart={p.onTouchStart ? (e) => p.onTouchStart!(card, e) : undefined}
     >
-      <div className="flex min-w-0 items-start gap-2">
+      {/* Строка 1: огонёк · название (до двух строк) */}
+      <div className="col-start-1 row-start-1 flex min-w-0 items-start gap-2">
         {fire && (
           <span className="mt-0.5 shrink-0" style={{ color: card.fire === 'overdue' ? 'var(--danger)' : 'var(--warning)' }} data-testid="tile-fire">
             <Flame size={18} aria-hidden="true" />
             <span className="sr-only">{card.fire === 'overdue' ? t('fire.overdue') : t('fire.today')}</span>
           </span>
         )}
-        <h3 className="min-w-0 flex-1 text-base font-semibold break-words" style={{ fontFamily: 'var(--font-display)' }}>
+        <h3 className="min-w-0 flex-1 text-base leading-snug font-semibold break-words" style={{ fontFamily: 'var(--font-display)' }}>
           {/* Растянутая кнопка: вся плитка открывает шторку, кнопки действий лежат над ней */}
           <button
             type="button"
-            className="text-left after:absolute after:inset-0 after:content-['']"
+            className="line-clamp-2 text-left after:absolute after:inset-0 after:content-['']"
             onClick={() => {
               if (p.consumeClick?.()) return;
               p.onOpen(card);
@@ -158,82 +154,130 @@ export function LeadTile(p: LeadTileProps) {
         </h3>
       </div>
 
-      {(toggles.length > 0 || badges.length > 0 || chipText !== '' || dueText !== '') && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          {toggles.map((v) => (
-            <AttendToggle key={v.kind} view={v} event={p.attendLabels[v.kind]} {...(p.attendBusy ? { busy: true } : {})} onToggle={() => p.onAttend(card, v.kind)} />
-          ))}
-          {badges.map((b) => (
-            <Badge key={b} tone={BADGE_TONE[b]} data-testid={`tile-badge-${b}`}>
-              {t(`badge.${b}`, { event: t('chip.eventUnknown') })}
-            </Badge>
-          ))}
-          {chipText !== '' && (
-            <Badge tone="neutral" data-testid="tile-chip">
-              {chipText}
-            </Badge>
-          )}
-          {dueText !== '' && (
-            <span className="text-sm font-medium" style={{ color: due.kind === 'overdue' ? 'var(--danger)' : 'var(--text-2)' }} data-testid="tile-due">
-              {dueText}
+      {/* «⋯»: на телефоне 44 px, на ноутбуке 32 px; справа в первой строке */}
+      {p.canMenu && (
+        <Button
+          variant="quiet"
+          iconOnly
+          disabled={p.locked}
+          aria-label={t('menu.aria', { name: card.name })}
+          onClick={() => p.onMenu(card)}
+          className="relative z-10 col-start-2 row-start-1 -my-3 md:my-0 md:col-start-3 md:size-8 md:min-h-0 md:min-w-0"
+          data-no-drag
+          data-testid="tile-menu"
+        >
+          <Ellipsis aria-hidden="true" />
+        </Button>
+      )}
+
+      {/* Строка 2 */}
+      {rows.meta && (
+        <div className="col-span-full flex min-w-0 items-center gap-x-2 text-sm" data-testid="tile-meta">
+          {end ? (
+            <span className="min-w-0 truncate font-medium" style={{ color: 'var(--text-2)' }} data-testid="tile-end">
+              {endText}
             </span>
+          ) : (
+            <>
+              {chipText !== '' && (
+                <Badge tone={chipTone} className="min-w-0 shrink" data-testid="tile-chip">
+                  <span className="truncate">{chipText}</span>
+                </Badge>
+              )}
+              {chipText === '' && values.length > 0 && (
+                <span className="min-w-0 truncate" style={{ color: 'var(--text-2)' }} data-testid="tile-values">
+                  {values.join(' · ')}
+                </span>
+              )}
+              {dueText !== '' && (
+                <span className="shrink-0 font-medium whitespace-nowrap" style={{ color: overdue ? 'var(--danger)' : 'var(--text-2)' }} data-testid="tile-due">
+                  {dueText}
+                </span>
+              )}
+            </>
           )}
         </div>
       )}
 
-      {(card.lprName !== '' || card.phone) && (
-        <p className="text-sm break-words" style={{ color: 'var(--text-2)' }} data-testid="tile-contact">
-          {[card.lprName !== '' ? t('lpr', { name: card.lprName }) : '', card.phone?.masked ?? ''].filter((x) => x !== '').join(' · ')}
-        </p>
+      {/* Строка 3: ЛПР (у доски пространства — ответственный) · закрытый номер · явка */}
+      {rows.contact && (
+        <div className="col-span-full flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm" style={{ color: 'var(--text-2)' }} data-testid="tile-contact">
+          <span className="flex min-w-0 flex-1 basis-32 items-center gap-1.5">
+            {owner !== undefined ? (
+              <span className="flex min-w-0 items-center gap-1.5" data-testid="tile-owner" title={t('tile.owner', { name: owner })}>
+                <Avatar name={owner} size="sm" />
+                <span className="truncate">{owner}</span>
+              </span>
+            ) : contactText !== '' ? (
+              <span className="truncate">{contactText}</span>
+            ) : null}
+            {card.phone ? (
+              <span className="shrink-0 whitespace-nowrap">{(owner !== undefined || contactText !== '' ? '· ' : '') + card.phone.masked}</span>
+            ) : canCall ? (
+              <span className="truncate" style={{ color: 'var(--text-3)' }}>
+                {t('call.noPhone')}
+              </span>
+            ) : null}
+          </span>
+          {toggles.map((c) => (
+            <AttendToggle key={c.kind} view={c.view} event={config.attendLabels[c.kind]} {...(p.attendBusy ? { busy: true } : {})} onToggle={() => p.onAttend(card, c.kind)} />
+          ))}
+          {badge && (
+            <Badge
+              tone={badge.id === 'noShow' ? 'danger' : badge.id === 'purchased' ? 'brand' : tone === 'warning' ? 'warning' : 'success'}
+              {...(badge.id === 'attended' ? { icon: <Check aria-hidden="true" /> } : {})}
+              className="shrink-0"
+              data-testid={`tile-badge-${badge.id}`}
+            >
+              {badge.id === 'attended' ? t('badge.attended', { events: badge.kinds.map((k) => config.attendLabels[k] || t('chip.eventUnknown')).join(' · ') }) : t(`badge.${badge.id}`)}
+            </Badge>
+          )}
+        </div>
       )}
 
-      <div className="relative z-10 flex items-center gap-2" data-no-drag>
-        {dial ? (
-          <Button
-            {...dial}
-            size="md"
-            className="min-w-0 flex-1 bg-success text-on-success"
-            {...(p.locked || p.callBlocked ? { disabled: true } : {})}
-            aria-label={t('call.aria', { name: card.name })}
-            onClick={() => p.onCall(card)}
-            data-testid="tile-call"
-          >
-            <Phone aria-hidden="true" />
-            <span>{t('call.button')}</span>
-          </Button>
-        ) : (
-          <span className="min-w-0 flex-1 text-sm" style={{ color: 'var(--text-3)' }}>
-            {card.phone ? '' : t('call.noPhone')}
-          </span>
-        )}
-        {chat &&
-          (chat.kind === 'link' ? (
+      {/* Строка 4 (телефон): «Позвонить» и WhatsApp. На ноутбуке обёртка исчезает, «Позвонить» — круглая в первой строке */}
+      {showActions && (
+        <div className="relative z-10 col-span-full flex items-center gap-2 md:contents" data-no-drag>
+          {dial ? (
             <Button
-              href={chat.href}
-              external
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="secondary"
-              iconOnly
-              aria-label={t('whatsapp.aria', { name: card.name })}
-              onClick={() => p.onChatOpened(card)}
-              data-testid="tile-whatsapp"
+              {...dial}
+              size="md"
+              className="min-h-[var(--tap-min)] min-w-0 flex-1 bg-success text-on-success md:col-start-2 md:row-start-1 md:size-9 md:min-h-0 md:min-w-0 md:flex-none md:rounded-full md:p-0"
+              {...(p.locked || p.callBlocked ? { disabled: true } : {})}
+              aria-label={t('call.aria', { name: card.name })}
+              title={t('call.button')}
+              onClick={() => p.onCall(card)}
+              data-testid="tile-call"
             >
-              <MessageCircle aria-hidden="true" />
+              <Phone aria-hidden="true" />
+              <span className="md:sr-only">{t('call.button')}</span>
             </Button>
-          ) : (
-            <Button href={`/clients/${card.clientId}`} variant="secondary" iconOnly aria-label={t('whatsapp.aria', { name: card.name })} data-testid="tile-whatsapp">
-              <MessageCircle aria-hidden="true" />
-            </Button>
-          ))}
-        {p.canMenu && (
-          <Button variant="quiet" iconOnly disabled={p.locked} aria-label={t('menu.aria', { name: card.name })} onClick={() => p.onMenu(card)} data-testid="tile-menu">
-            <Ellipsis aria-hidden="true" />
-          </Button>
-        )}
-      </div>
+          ) : null}
+          {chat &&
+            (chat.kind === 'link' ? (
+              <Button
+                href={chat.href}
+                external
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="secondary"
+                iconOnly
+                className="md:hidden"
+                aria-label={t('whatsapp.aria', { name: card.name })}
+                onClick={() => p.onChatOpened(card)}
+                data-testid="tile-whatsapp"
+              >
+                <MessageCircle aria-hidden="true" />
+              </Button>
+            ) : (
+              <Button href={`/clients/${card.clientId}`} variant="secondary" iconOnly className="md:hidden" aria-label={t('whatsapp.aria', { name: card.name })} data-testid="tile-whatsapp">
+                <MessageCircle aria-hidden="true" />
+              </Button>
+            ))}
+        </div>
+      )}
       {p.locked && (
-        <p className="text-xs" style={{ color: 'var(--text-3)' }} role="status" data-testid="tile-waiting">
+        <p className="col-span-full text-xs" style={{ color: 'var(--text-3)' }} role="status" data-testid="tile-waiting">
           {t('tile.waiting')}
         </p>
       )}

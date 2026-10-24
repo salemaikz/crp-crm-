@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, PASSWORD, callsOf, login, makeOperator, prepareDb, seedGroupEvents, sql, type Operator } from './support/calling';
 import { makeConsultant, pretty } from './support/consult';
+import { pickOwner } from './support/board';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 test.skip(process.env.FEATURE_OP_BOARD !== '1' || process.env.FEATURE_CALLBACK_V2 !== '1', 'нужен запуск с FEATURE_OP_BOARD=1 и FEATURE_CALLBACK_V2=1 (стенд)');
@@ -143,8 +144,9 @@ test('сквозной путь: перезвон без времени → ог
   await page.reload();
   await page.getByTestId('tab-br').click();
   await expect(tileOf(page, name)).toBeVisible();
-  // Оператор явку не отмечает: тумблер только показывает признак
-  await expect(tileOf(page, name).getByTestId('tile-toggle-attendedGroup')).toBeDisabled();
+  // Оператор явку не отмечает: переключателя нет вовсе, а запись видна чипом со статусом
+  await expect(tileOf(page, name).getByRole('switch')).toHaveCount(0);
+  await expect(tileOf(page, name).getByTestId('tile-chip')).toContainText('Не подтвердил');
   expect(await noHScroll(page)).toBe(true);
 
   await startMeeting(cardId);
@@ -156,8 +158,7 @@ test('сквозной путь: перезвон без времени → ог
   try {
     await login(ropPage, rop);
     await ropPage.goto('/deals/calling');
-    await expect(ropPage.getByTestId('board-manager-filters')).toBeVisible();
-    await ropPage.getByTestId('filter-owner').selectOption(op.id);
+    await pickOwner(ropPage, op.id);
     await ropPage.getByTestId('tab-br').click();
     await tileOf(ropPage, name).getByTestId('tile-menu').click();
     await ropPage.getByTestId('move-to-callback').click();
@@ -180,7 +181,9 @@ test('сквозной путь: перезвон без времени → ог
   await page.reload();
   await page.getByTestId('tab-callback').click();
   await expect(tileOf(page, name)).toBeVisible();
-  await expect(tileOf(page, name).getByTestId('tile-badge-noShow')).toBeVisible();
+  // Неявка уже сказана причиной в чипе, отдельного значка «Не пришёл» нет
+  await expect(tileOf(page, name).getByTestId('tile-chip')).toContainText('Не пришёл');
+  await expect(tileOf(page, name).getByTestId('tile-badge-noShow')).toHaveCount(0);
   await expect(tileOf(page, name).getByTestId('tile-fire')).toContainText('Перезвон просрочен');
 
   // 7. Повторная запись: новая встреча, прежняя запись остаётся «не пришёл»

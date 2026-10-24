@@ -27,7 +27,7 @@ const center = async (page: Page, testId: string) => {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 };
 
-test('долгое нажатие переносит плитку на вкладку «Перезвон»: вкладки - цели, окно с видами «Перезвонить» и «Не берёт»', async ({ page, browserName }) => {
+test('долгое нажатие переносит плитку на вкладку «Перезвон»: вкладки - цели, в окне только «Перезвонить»', async ({ page, browserName }) => {
   const op = await makeOperator(2);
   await openBoard(page, op);
   const name = op.names[0]!;
@@ -47,7 +47,7 @@ test('долгое нажатие переносит плитку на вкла�
   const sheet = page.getByTestId('outcome-sheet');
   await expect(sheet).toBeVisible();
   await expect(page.getByTestId('outcome-callback')).toBeVisible();
-  await expect(page.getByTestId('outcome-no_answer')).toBeVisible();
+  await expect(page.getByTestId('outcome-no_answer')).toHaveCount(0);
   await expect(page.getByTestId('outcome-agreed')).toHaveCount(0);
   // Шторка лида клик после жеста не открыла
   await expect(page.getByTestId('lead-drawer')).toHaveCount(0);
@@ -156,23 +156,30 @@ test('№ 33 у оператора: явка только для чтения; �
   expect(b!.status).not.toBe('attended');
 });
 
-test('тумблер «Был на …» у оператора только показывает признак и не нажимается', async ({ page }) => {
+test('оператор без права явки: переключателя нет вовсе; запись видна чипом со статусом, признак явки - значком', async ({ page }) => {
   const op = await makeOperator(0);
   const [c] = await makeAgreed(op, 1);
   await openBoard(page, op, 'br');
-  const toggle = tileOf(page, c!.name).getByTestId('tile-toggle-attendedGroup');
-  await expect(toggle).toBeVisible();
-  await expect(toggle).toBeDisabled();
-  await expect(toggle).toHaveAttribute('aria-checked', 'false');
-  await toggle.click({ force: true });
-  await page.waitForTimeout(500);
+  const tile = tileOf(page, c!.name);
+  // Признака нет и записи не подтверждали: ни переключателя, ни значка, в чипе - статус записи
+  await expect(tile.getByRole('switch')).toHaveCount(0);
+  await expect(tile.getByTestId('tile-badge-attended')).toHaveCount(0);
+  await expect(tile.getByTestId('tile-chip')).toContainText('Не подтвердил');
+  await tile.getByTestId('tile-open').click();
+  await expect(page.getByTestId('lead-drawer')).toBeVisible();
+  await expect(page.getByTestId('drawer-toggles')).toHaveCount(0);
+  await expect(page.getByRole('switch')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // Явка отмечена консультантом: значок «Был …» вместо переключателя, плитка зелёная
+  await sql`UPDATE cards SET attended_group_at = ${Date.now() - 3_600_000} WHERE id = ${c!.cardId}`;
+  await page.reload();
+  await page.getByTestId('tab-br').click();
+  await expect(tileOf(page, c!.name).getByTestId('tile-badge-attended')).toContainText('Был:');
+  await expect(tileOf(page, c!.name).getByRole('switch')).toHaveCount(0);
+  await expect(tileOf(page, c!.name)).toHaveAttribute('data-tone', 'success');
   const [b] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id = ${c!.bookingId}`;
   expect(b!.status).toBe('registered');
-  // В шторке лида - тот же показ с подсказкой, оба вида
-  await tileOf(page, c!.name).getByTestId('tile-open').click();
-  await expect(page.getByTestId('drawer-toggles')).toBeVisible();
-  await expect(page.getByTestId('drawer-toggles').getByTestId('tile-toggle-attendedIndividual')).toBeDisabled();
-  await expect(page.getByTestId('drawer-toggle-hint')).toBeVisible();
 });
 
 test('РОП отмечает тумблером «Был на …»: запись «пришёл», плитка становится зелёной', async ({ page }) => {
@@ -196,8 +203,23 @@ test('цвета плиток: консультация - жёлтая, груп
   await openBoard(page, op);
   await expect(tileOf(page, op.names[0]!)).toHaveAttribute('data-tone', 'warning');
   await expect(tileOf(page, op.names[1]!)).toHaveAttribute('data-tone', 'success');
-  await expect(tileOf(page, op.names[1]!).getByTestId('tile-toggle-attendedGroup')).toHaveAttribute('aria-checked', 'true');
-  await expect(tileOf(page, op.names[0]!).getByTestId('tile-toggle-attendedIndividual')).toHaveAttribute('aria-checked', 'true');
+  await expect(tileOf(page, op.names[1]!).getByTestId('tile-badge-attended')).toContainText('Был:');
+  await expect(tileOf(page, op.names[0]!).getByTestId('tile-badge-attended')).toContainText('Был:');
+  // Тон виден заливкой и полосой 6 px: фон плитки = токен темы, а не белый
+  for (const [name, tone] of [[op.names[0]!, 'warning'], [op.names[1]!, 'success']] as const) {
+    const look = await tileOf(page, name).evaluate((el, t) => {
+      const probe = document.createElement('span');
+      probe.style.background = `var(--${t}-tile)`;
+      document.body.append(probe);
+      const want = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      const cs = getComputedStyle(el);
+      return { bg: cs.backgroundColor, want, stripe: cs.borderLeftWidth };
+    }, tone);
+    expect(look.bg).toBe(look.want);
+    expect(look.stripe).toBe('6px');
+  }
+
 });
 
 test('WhatsApp на плитке: ссылка wa.me с номером клиента, отметка в ленту', async ({ page }) => {
@@ -221,4 +243,78 @@ test('«Мои покупки»: итог месяца в шапке «Поку�
   await expect(row).toBeVisible();
   await expect(page.getByTestId('purchases-list')).toContainText('150');
   await expect(page.getByTestId('purchases-month-total')).toContainText('150');
+});
+
+// Слои доски (ui-polish §9.1, B1): липкие вкладки выше кнопок плиток, нажатие на вкладку не звонит не тому клиенту.
+for (const scheme of ['light', 'dark'] as const) {
+  test.describe(`вкладки над плитками, ${scheme === 'light' ? 'светлая' : 'тёмная'} тема`, () => {
+    test.use({ colorScheme: scheme });
+
+    test('после прокрутки на 700 px в центре каждой вкладки лежит сама вкладка, нажатие открывает колонку без намерения звонка', async ({ page }) => {
+      const op = await makeOperator(14);
+      await sql`UPDATE cards SET state = 'callback', callback_reason = 'think', callback_touches = 1, next_call_precision = 'day', next_call_at = ${Date.now() + 86_400_000} WHERE owner_user_id = ${op.id}`;
+      await openBoard(page, op, 'callback');
+      await page.evaluate(() => window.scrollBy(0, 700));
+      await page.waitForTimeout(300);
+
+      const keys = await page.getByRole('tab').evaluateAll((els) => els.map((e) => e.getAttribute('data-tab-key') ?? ''));
+      expect(keys.length).toBeGreaterThanOrEqual(5);
+      for (const key of keys) {
+        const tab = page.getByTestId(`tab-${key}`);
+        await tab.evaluate((el) => el.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+        const hit = await tab.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return top === el || !!top?.closest('[role="tab"]')?.isSameNode(el);
+        });
+        expect(hit, `в центре вкладки ${key} лежит чужой элемент`).toBe(true);
+      }
+
+      await page.getByTestId('tab-br').click();
+      await expect(page.getByTestId('tab-br')).toHaveAttribute('aria-selected', 'true');
+      // Намерения звонка нет: окно итога не открыто, «Позвонить» на плитках не погашены
+      await expect(page.getByTestId('outcome-sheet')).toHaveCount(0);
+      await page.getByTestId('tab-callback').click();
+      const calls = page.getByTestId('tile-call');
+      const n = await calls.count();
+      expect(n).toBeGreaterThan(0);
+      for (let i = 0; i < n; i++) await expect(calls.nth(i)).toBeEnabled();
+    });
+  });
+}
+
+// ---------- Плотность плитки на телефоне (ui-polish §9.3, B6/B7) ----------
+
+/** Плитки колонки, которые видны целиком между вкладками и нижним меню. */
+async function fullyVisibleTiles(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const tabs = document.querySelector('[data-testid="column-tabs"]')!.getBoundingClientRect();
+    const nav = [...document.querySelectorAll('nav')].find((n) => getComputedStyle(n).position === 'fixed');
+    const bottom = nav ? nav.getBoundingClientRect().top : window.innerHeight;
+    return [...document.querySelectorAll('[data-column-key="new"] [data-testid="lead-tile"]')].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.top >= tabs.bottom - 1 && r.bottom <= bottom + 1 && r.left >= 0 && r.right <= window.innerWidth;
+    }).length;
+  });
+}
+
+test('Pixel 7: на первом экране не меньше четырёх плиток «Новых» целиком, строк не больше четырёх', async ({ page }) => {
+  const op = await makeOperator(8);
+  await openBoard(page, op);
+  await expect(page.getByTestId('lead-tile').first()).toBeVisible();
+  expect(await fullyVisibleTiles(page)).toBeGreaterThanOrEqual(4);
+  const rows = await page.getByTestId('lead-tile').evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-rows'))));
+  expect(Math.max(...rows)).toBeLessThanOrEqual(4);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test.describe('Galaxy S8', () => {
+  test.use({ viewport: { width: 360, height: 740 } });
+  test('на первом экране не меньше трёх плиток «Новых» целиком', async ({ page }) => {
+    const op = await makeOperator(8);
+    await openBoard(page, op);
+    await expect(page.getByTestId('lead-tile').first()).toBeVisible();
+    expect(await fullyVisibleTiles(page)).toBeGreaterThanOrEqual(3);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
 });

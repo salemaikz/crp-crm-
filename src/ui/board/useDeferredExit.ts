@@ -28,8 +28,8 @@ interface Deferred {
   send: (keepalive: boolean) => Promise<void>;
 }
 
-export function useDeferredExit(deps: { config: Pick<BoardConfig, 'columns' | 'undoMs'>; runtime: Runtime; data: Data }) {
-  const { config, runtime, data } = deps;
+export function useDeferredExit(deps: { config: Pick<BoardConfig, 'columns' | 'undoMs'>; runtime: Runtime; data: Data; columnTitle: (key: string | null) => string }) {
+  const { config, runtime, data, columnTitle } = deps;
   const t = useTranslations('board');
   const toast = useToast();
   const [ids, setIds] = useState<string[]>([]);
@@ -87,7 +87,7 @@ export function useDeferredExit(deps: { config: Pick<BoardConfig, 'columns' | 'u
       const timer = setTimeout(() => void send(false), config.undoMs);
       deferred.current.set(card.id, { timer, send });
       toast.show({
-        message: t('toast.moved', { name: card.name }),
+        message: plan ? t('toast.moved', { column: columnTitle(plan.column), name: card.name }) : t('toast.movedManual', { name: card.name }),
         tone: 'success',
         ...(config.undoMs > 0
           ? {
@@ -109,7 +109,7 @@ export function useDeferredExit(deps: { config: Pick<BoardConfig, 'columns' | 'u
       });
       return true;
     },
-    [runtime, config.columns, config.undoMs, data, toast, t],
+    [runtime, config.columns, config.undoMs, data, toast, t, columnTitle],
   );
 
   // Уход со страницы: отложенные выходы отправляются сразу (keepalive)

@@ -120,3 +120,22 @@ export async function touchGesture(page: Page, browserName: string, steps: Array
     );
   }
 }
+
+/** Шторка «Фильтры» на телефоне открыта (на ноутбуке фильтры стоят в шапке и шторки нет). */
+export async function openFilters(page: Page): Promise<void> {
+  const open = page.getByTestId('board-filters-open');
+  if (await open.count()) await open.click();
+}
+
+/** Закрыть шторку «Фильтры» кнопкой «Готово»; на ноутбуке ничего не делает. */
+export async function closeFilters(page: Page): Promise<void> {
+  const done = page.getByTestId('filters-done');
+  if (await done.count()) await done.click();
+}
+
+/** Выбрать сотрудника на доске пространства (РОП, директор): через шторку на телефоне и из шапки на ноутбуке. */
+export async function pickOwner(page: Page, userId: string): Promise<void> {
+  await openFilters(page);
+  await page.getByTestId('filter-owner').selectOption(userId);
+  await closeFilters(page);
+}

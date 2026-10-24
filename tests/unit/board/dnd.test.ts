@@ -1,7 +1,7 @@
 // Геометрия перетаскивания мышью (pipeline-v2 §9.2).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DRAG_THRESHOLD, LONG_PRESS_MS, TOUCH_SLOP, edgeScroll, hitColumn, hitTarget, movedEnough, scrolledAway } from '@/ui/board/dnd';
+import { DRAG_THRESHOLD, LONG_PRESS_MS, TOUCH_SLOP, edgeScroll, edgeScrollY, hitColumn, hitTarget, movedEnough, scrolledAway } from '@/ui/board/dnd';
 
 const RECTS = [
   { key: 'a', left: 0, top: 0, right: 100, bottom: 400 },
@@ -40,4 +40,21 @@ test('цель под пальцем: вкладка важнее колонки
   assert.equal(hitTarget({ x: 10, y: 10 }, tabs, columns), 'tab-a');
   assert.equal(hitTarget({ x: 100, y: 100 }, tabs, columns), 'col-b');
   assert.equal(hitTarget({ x: 400, y: 100 }, tabs, columns), null);
+});
+
+test('вертикальная автопрокрутка колонки: у верха — вверх, у низа — вниз, в середине — нет, сильнее у самого края', () => {
+  const box = { top: 100, bottom: 700 };
+  assert.ok(edgeScrollY(105, box) < 0);
+  assert.ok(edgeScrollY(695, box) > 0);
+  assert.equal(edgeScrollY(400, box), 0);
+  assert.ok(Math.abs(edgeScrollY(100, box)) >= Math.abs(edgeScrollY(150, box)));
+  assert.ok(Math.abs(edgeScrollY(700, box)) >= Math.abs(edgeScrollY(650, box)));
+});
+
+test('вертикальная автопрокрутка: зоны низкой колонки не перекрываются, нулевая высота — без прокрутки', () => {
+  const low = { top: 0, bottom: 60 };
+  assert.ok(edgeScrollY(2, low) < 0);
+  assert.ok(edgeScrollY(58, low) > 0);
+  assert.equal(edgeScrollY(30, low), 0);
+  assert.equal(edgeScrollY(5, { top: 10, bottom: 10 }), 0);
 });

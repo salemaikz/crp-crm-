@@ -112,7 +112,8 @@
       "timeLabel": "Время перезвона",
       "anyTime": "в течение дня",
       "chosen": "Перезвон: {date}, {time}"
-    }
+    },
+    "saveDay": "Сохранить · {day}"
   },
   "presets": {
     "minutes": "Через {n} мин",

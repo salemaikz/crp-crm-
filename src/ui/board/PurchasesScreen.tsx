@@ -3,13 +3,14 @@
 // Вознаграждение CRM не считает: сумма сделки как есть.
 import Link from 'next/link';
 import { useFormatter, useTranslations } from 'next-intl';
+import { formatKzt } from './money';
 import { Badge, EmptyState, List, ListItem, Page, buttonClass } from '@/ui/kit';
 import type { MyPurchases } from '@/server/domain/deals';
 
 export function PurchasesScreen({ data, serviceLabels, timeZone }: { data: MyPurchases; serviceLabels: Record<string, string>; timeZone: string }) {
   const t = useTranslations('board');
   const f = useFormatter();
-  const money = (n: number) => f.number(n, { style: 'currency', currency: 'KZT', maximumFractionDigits: 0 });
+  const money = (n: number) => formatKzt(f, n);
   return (
     <Page width="list" data-testid="purchases-screen">
       <p className="mb-2 text-sm">

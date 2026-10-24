@@ -1,7 +1,7 @@
 // Поля в шторке лида: правка на месте только при праве, типе и флаге (pipeline-v2 §9.6).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { drawerRows } from '@/ui/board/drawerFields';
+import { FIRST_ROWS, drawerRows, splitRows } from '@/ui/board/drawerFields';
 
 type Dto = Parameters<typeof drawerRows>[0];
 const field = (key: string, over: Record<string, unknown> = {}) => ({
@@ -31,12 +31,25 @@ test('нет права на объект, доступ «только чтен�
   assert.deepEqual(rows.map((r) => [r.field.key, r.field.editable]), [['a', false], ['b', false], ['c', false]]);
 });
 
-test('поля карточки идут раньше полей клиента, архивные и не для карточки пропускаются, строк не больше шести', () => {
+test('поля плитки идут первыми, затем поля карточки; архивные и скрытые везде пропускаются, ничего не отрезается', () => {
   const many = Array.from({ length: 9 }, (_, i) => field(`f${i}`));
-  const rows = drawerRows(dto([field('hidden', { showOn: { card: false, kanban: true, list: false } }), field('old', { archived: true }), ...many], [field('cardfield')]), true);
-  assert.equal(rows.length, 6);
-  assert.equal(rows[0]?.field.object, 'card');
-  assert.ok(!rows.some((r) => r.field.key === 'hidden' || r.field.key === 'old'));
+  const kanbanOnly = field('onTile', { showOn: { card: false, kanban: true, list: false } });
+  const nowhere = field('nowhere', { showOn: { card: false, kanban: false, list: true } });
+  const rows = drawerRows(dto([nowhere, field('old', { archived: true }), ...many, kanbanOnly], [field('cardfield')]), true);
+  assert.equal(rows[0]?.field.key, 'onTile', 'поле плитки первым, хотя заведено последним');
+  assert.equal(rows[1]?.field.object, 'card', 'дальше поля карточки раньше полей клиента');
+  assert.equal(rows.length, 11, 'все поля на месте: 9 клиента + карточка + плитка');
+  assert.ok(!rows.some((r) => r.field.key === 'nowhere' || r.field.key === 'old'));
+});
+
+test('«Ещё N полей»: шесть сразу и остаток; вместе они дают все поля в прежнем порядке', () => {
+  const many = Array.from({ length: 9 }, (_, i) => field(`f${i}`));
+  const rows = drawerRows(dto(many, []), true);
+  const { first, rest } = splitRows(rows);
+  assert.equal(first.length, FIRST_ROWS);
+  assert.equal(rest.length, 3);
+  assert.deepEqual([...first, ...rest].map((r) => r.field.key), rows.map((r) => r.field.key));
+  assert.deepEqual(splitRows(rows.slice(0, 4)), { first: rows.slice(0, 4), rest: [] });
 });
 
 test('варианты списка: подписи по ключу, архивные не предлагаются', () => {

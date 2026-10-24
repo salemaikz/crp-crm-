@@ -3,9 +3,12 @@
 import type { Viewer } from '@/server/access';
 import { loadBoardSettings } from '@/server/domain/cards/boardSettings';
 import { getActiveConfig } from '@/server/platform/config/active';
+import type { ReasonRule } from '@/ui/board/moves';
 import type { AgreedExitConfig, BoardConfig, BoardDrop, BoardReason } from '@/ui/board/types';
 import type { CallbackPreset } from '@/ui/call/types';
 import { roleOfStates } from '@/ui/board/columns';
+import { loadClientsConfig } from '@/server/domain/clients';
+import { ConfigMissingError } from '@/server/platform/config/active';
 import { loadCallConfig } from '../call/loadCallConfig';
 import { config as coreConfig } from '@crm/core';
 
@@ -27,6 +30,15 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
   // Подписи причин перезвона нужны и системным (на плитке стоит «Не пришёл …»), поэтому берутся все, включая архивные
   const reasonLabels = Object.fromEntries(((doc.reasons as Record<string, Reason[] | undefined>).callback ?? []).map((r) => [r.key, r.label.ru]));
   const eventLabels = Object.fromEntries((doc.booking?.eventTypes ?? []).map((e) => [e.key, e.short?.ru ?? e.label.ru]));
+
+  // Поля плитки: что настройки показывают на доске (showOn.kanban); значения сервер присылает уже по правам зрителя
+  const clientsCfg = await loadClientsConfig(viewer).catch((e: unknown) => {
+    if (e instanceof ConfigMissingError) return null;
+    throw e;
+  });
+  const tileFields = (clientsCfg?.fields ?? [])
+    .filter((fl) => fl.showOn.kanban && !fl.archived && (fl.object === 'client' || fl.object === 'card'))
+    .map((fl) => ({ key: fl.key, label: fl.label.ru, options: Object.fromEntries(fl.options.map((o) => [o.key, o.label.ru])) }));
 
   const eventTypes = doc.booking?.eventTypes ?? [];
   const attendOf = (behavior: string): string => {
@@ -59,6 +71,15 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     noShowCallback,
   };
 
+  // Правила показа причин перезвона: «не пришёл», «пришёл, не купил» и «не придёт» уместны не каждой карточке
+  const callbackReasonRules: Record<string, ReasonRule> = {};
+  for (const r of callbackReasons) {
+    if (r.system === 'no_show') callbackReasonRules[r.key] = { kind: 'no_show', eventTypes: [...(r.eventTypes ?? [])] };
+    else if (r.system === 'attended_no_purchase') callbackReasonRules[r.key] = { kind: 'attended_no_purchase', eventTypes: [] };
+  }
+  const confirm = doc.booking?.confirmCall;
+  if (confirm && callbackReasons.some((r) => r.key === confirm.declineReason)) callbackReasonRules[confirm.declineReason] = { kind: 'decline', eventTypes: [...confirm.eventTypes] };
+
   const scope = viewer.grants.get('card.read');
   return {
     call,
@@ -67,12 +88,15 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     reasonLabels,
     eventLabels,
     attendLabels: { attendedGroup: attendOf('group'), attendedIndividual: attendOf('individual') },
+    tileFields,
     canMove: viewer.grants.has('card.outcome') && !viewer.readOnly,
     scope: scope === 'own' ? 'own' : 'wide',
     canPurchases: viewer.grants.has('deal.read'),
     undoMs: call.undoMs,
     canAttend: viewer.grants.has('booking.attend') && !viewer.readOnly,
     eventBehaviors,
+    notInterestedReturnDays: doc.calling?.returnDays?.not_interested ?? null,
+    callbackReasonRules,
     agreedExit,
   };
 }

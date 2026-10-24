@@ -1,7 +1,7 @@
 // Куда можно перенести плитку, какой канал у итога, блокировка плиток из очереди устройства (pipeline-v2 §3).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMoveRequest, callBlockedBy, canMoveAnywhere, errorCodeOf, keepsCallSheet, lockedIds, moreTrash, restoredCallSheet, moveTargets, planFor, quickTrash, viaFor, writeOffBlocked } from '@/ui/board/moves';
+import { CALLBACK_KINDS, buildMoveRequest, callBlockedBy, callbackReasonsFor, canMoveAnywhere, errorCodeOf, groupTrash, keepsCallSheet, lockedIds, moreTrash, restoredCallSheet, moveTargets, planFor, quickTrash, viaFor, writeOffBlocked } from '@/ui/board/moves';
 import { EMPTY_DRAFT } from '@/ui/call/types';
 import { CALL, COLUMNS, CONFIG, OUTCOMES, card } from './fixtures';
 
@@ -15,8 +15,9 @@ test('из «Новые»: в «Перезвон» и «Мусор» можно,
   assert.equal(t.trash?.available, true);
   assert.equal(t.trash?.action, 'trash');
   assert.equal(t.meet?.available, false);
-  assert.equal(t.meet?.blocked, 'later');
+  assert.equal(t.meet?.blocked, 'book', 'запись только через звонок');
   assert.equal(t.paid?.available, false);
+  assert.equal(t.paid?.blocked, 'purchase', 'покупку вносит консультант или РОП');
   assert.equal(t.new?.blocked, 'same');
 });
 
@@ -212,4 +213,80 @@ test('№ 33 доступен и РОП (охват wide): итог без зв�
 test('из «Покупки» выхода нет (клиент вернётся сам, № 34)', () => {
   const t = moveTargets(card({ column: 'paid', state: 'client' }), COLUMNS, true, 'own', { agreedExit: true, online: true });
   assert.equal(canMoveAnywhere(t), false);
+});
+
+// ---------- «Другие причины…» группами (B3) ----------
+
+const other = (kind: string, label: string) => ({ key: 'other', kind: kind as 'not_interested', label, color: 'x', requires: { lpr: false, reason: true, callbackAt: false, contact: false, agreement: false, fields: [] as string[] }, reasons: [{ key: 'other', label: 'Другое (текст)', needsText: true }, { key: 'asked', label: 'Просил', needsText: false }] });
+const CALL_DUP = { ...CALL, outcomes: [...CALL.outcomes.filter((o) => !['not_interested', 'not_target'].includes(o.kind)), other('not_interested', 'Не интересует'), other('not_target', 'Не целевой'), other('do_not_call', 'Полный отказ')] };
+
+test('«Другие причины…»: у разных видов итога одинаковые подписи разведены заголовками групп', () => {
+  const more = moreTrash({ ...trash, drop: [] }, CALL_DUP, [{ key: 'unreachable', label: 'Не отвечает', needsText: false }], card({ attempts: 1 }), 'own');
+  const groups = groupTrash(more, CALL_DUP);
+  // Голых дублей нет: любые два чипа с одной подписью лежат в группах с разными заголовками
+  const flat = groups.flatMap((g) => g.items.map((c) => ({ label: c.label, title: g.outcomeLabel ?? g.id })));
+  for (const a of flat) for (const b of flat) if (a !== b && a.label === b.label) assert.notEqual(a.title, b.title, a.label);
+  assert.ok(flat.filter((x) => x.label === 'Другое (текст)').length >= 3, 'три «Другое (текст)» есть, но каждое под своим заголовком');
+  assert.equal(new Set(groups.map((g) => g.outcomeLabel ?? g.id)).size, groups.length, 'заголовки групп различны');
+});
+
+test('группы идут в порядке видов «Мусора», списание последним, чипы внутри — в порядке причин', () => {
+  const more = moreTrash({ ...trash, drop: [] }, CALL_DUP, [{ key: 'unreachable', label: 'Не отвечает', needsText: false }], card({ attempts: 1 }), 'own');
+  const groups = groupTrash([...more].reverse(), CALL_DUP);
+  assert.deepEqual(groups.map((g) => g.id), ['not_interested', 'not_target', 'do_not_call', 'written_off']);
+  assert.equal(groups.find((g) => g.id === 'written_off')!.outcomeLabel, null);
+  assert.equal(groups.find((g) => g.id === 'not_interested')!.outcomeLabel, 'Не интересует');
+});
+
+test('пустой список — нет групп', () => {
+  assert.deepEqual(groupTrash([], CALL), []);
+});
+
+// ---------- Причины погашенных целей и «Перезвон» (B8) ----------
+
+test('причина погашенной цели называется по коду: запись — через звонок, покупка — консультант, прочее — карточка', () => {
+  const fromNew = byKey(moveTargets(card({ column: 'new' }), COLUMNS, true));
+  assert.equal(fromNew.meet?.blocked, 'book');
+  assert.equal(fromNew.paid?.blocked, 'purchase');
+  // из «Мусора»/«Покупки»/«Договорились» остальные цели открываются через карточку; «Покупка» остаётся покупкой
+  const fromTrash = byKey(moveTargets(card({ column: 'trash', state: 'not_interested' }), COLUMNS, true));
+  assert.equal(fromTrash.callback?.blocked, 'later');
+  assert.equal(fromTrash.meet?.blocked, 'later', 'из «Мусора» запись через звонок не предлагается');
+  assert.equal(fromTrash.paid?.blocked, 'purchase');
+  const fromMeet = byKey(moveTargets(card({ column: 'meet', state: 'agreed' }), COLUMNS, true, 'own', { agreedExit: false }));
+  assert.equal(fromMeet.paid?.blocked, 'purchase');
+  assert.equal(fromMeet.callback?.blocked, 'later');
+});
+
+test('в «Перезвон» переносом ставится только «Перезвонить»: «Не берёт» — недозвон, его ставит звонок', () => {
+  assert.deepEqual(CALLBACK_KINDS, ['callback']);
+});
+
+const REASONS = ['think', 'no_show_br', 'attended_no_buy', 'wont_come_br', 'other'].map((key) => ({ key }));
+const RULES = {
+  no_show_br: { kind: 'no_show', eventTypes: ['br'] },
+  attended_no_buy: { kind: 'attended_no_purchase', eventTypes: [] },
+  wont_come_br: { kind: 'decline', eventTypes: ['br'] },
+} as const;
+const keysOf = (xs: readonly { key: string }[]) => xs.map((x) => x.key);
+const NOW = 1_000_000;
+const booking = (over: Record<string, unknown> = {}) => ({ type: 'br', status: 'registered', startsAt: NOW + 3_600_000, bookingId: 'b', bookingVersion: 0, ...over });
+
+test('причины по карточке: у нового лида системных нет, остаются ручные', () => {
+  assert.deepEqual(keysOf(callbackReasonsFor(card(), REASONS, RULES, false, NOW)), ['think', 'other']);
+});
+
+test('причины по карточке: «не пришёл» — при записи или признаке неявки, «пришёл, не купил» — при явке, «не придёт» — при будущей записи', () => {
+  const future = card({ state: 'agreed', event: booking() });
+  assert.deepEqual(keysOf(callbackReasonsFor(future, REASONS, RULES, false, NOW)), ['think', 'no_show_br', 'wont_come_br', 'other']);
+  const past = card({ state: 'agreed', event: booking({ startsAt: NOW - 1000 }) });
+  assert.deepEqual(keysOf(callbackReasonsFor(past, REASONS, RULES, false, NOW)), ['think', 'no_show_br', 'other'], 'отказ от записи - только до её начала');
+  const noShow = card({ flags: { attendedGroup: false, attendedIndividual: false, noShow: true } });
+  assert.deepEqual(keysOf(callbackReasonsFor(noShow, REASONS, RULES, false, NOW)), ['think', 'no_show_br', 'other']);
+  assert.deepEqual(keysOf(callbackReasonsFor(card(), REASONS, RULES, true, NOW)), ['think', 'attended_no_buy', 'other']);
+});
+
+test('причины по карточке: запись другого вида не открывает причину своего вида', () => {
+  const other = card({ state: 'agreed', event: booking({ type: 'consult' }) });
+  assert.deepEqual(keysOf(callbackReasonsFor(other, REASONS, RULES, false, NOW)), ['think', 'other']);
 });

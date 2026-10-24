@@ -1,13 +1,19 @@
 'use client';
 
-// Колонка доски: шапка (подпись из пресета и число), плитки, «Ещё». На ноутбуке — 18 rem в ряду, на телефоне — вся
-// ширина экрана, одна на вкладку (scroll-snap). Цель переноса подсвечивается пунктиром, запрещённая гаснет.
+// Колонка доски: шапка (подпись из пресета и число), плитки, «Ещё». На ноутбуке — дорожка сетки ряда (BoardScreen), своя
+// вертикальная прокрутка и липкая шапка (ui-polish §9.2); на телефоне — вся ширина экрана, одна на вкладку
+// (scroll-snap). Цель переноса подсвечивается пунктиром, запрещённая гаснет.
 import { useTranslations } from 'next-intl';
 import type { ReactNode } from 'react';
 import { Button } from '@/ui/kit';
+import type { ColumnRole } from './types';
 
 export interface BoardColumnProps {
   columnKey: string;
+  /** Роль колонки: текст пустой колонки зависит от неё. */
+  role: ColumnRole;
+  /** Подпись вида записи из настроек для текста пустой колонки «Договорились». */
+  event: string;
   title: string;
   count: number;
   hasMore: boolean;
@@ -33,7 +39,7 @@ export function BoardColumn(p: BoardColumnProps) {
       data-column-key={p.columnKey}
       data-drop={p.dropState}
       aria-labelledby={`col-${p.columnKey}`}
-      className="flex w-full shrink-0 snap-center flex-col gap-3 rounded-[var(--radius-card)] p-2 md:w-72 md:snap-align-none"
+      className="relative flex min-w-0 w-full shrink-0 snap-center flex-col gap-3 rounded-[var(--radius-card)] p-2 md:min-h-0 md:w-auto md:snap-align-none md:gap-0 md:overflow-y-auto md:p-0"
       style={{
         background: 'var(--canvas)',
         outline: p.dropState === 'ok' ? `2px dashed var(--brand)` : undefined,
@@ -43,31 +49,37 @@ export function BoardColumn(p: BoardColumnProps) {
       }}
       data-testid={`column-${p.columnKey}`}
     >
-      <header className="flex items-baseline justify-between gap-2 px-1">
-        <h2 id={`col-${p.columnKey}`} className="text-base font-semibold">
+      <header
+        className="flex items-baseline justify-between gap-2 px-1 max-md:sr-only md:sticky md:top-0 md:z-[var(--z-sticky)] md:px-3 md:py-2"
+        style={{ background: 'var(--canvas)', borderBottom: '1px solid var(--border)' }}
+        data-testid={`column-header-${p.columnKey}`}
+      >
+        <h2 id={`col-${p.columnKey}`} className="min-w-0 text-base font-semibold break-words">
           {p.title}
         </h2>
-        <span className="text-sm" style={{ color: 'var(--text-2)' }} data-testid={`column-count-${p.columnKey}`}>
+        <span className="shrink-0 text-sm" style={{ color: 'var(--text-2)' }} data-testid={`column-count-${p.columnKey}`}>
           {p.hasMore ? t('column.countMore', { n: p.count }) : p.count}
         </span>
       </header>
-      {p.summary}
-      <div className="flex flex-col gap-2">{p.children}</div>
-      {p.empty && (
-        <p className="px-1 py-4 text-center text-sm" style={{ color: 'var(--text-3)' }}>
-          {t('column.empty')}
-        </p>
-      )}
-      {p.hasMore && p.limited && (
-        <p className="px-1 py-2 text-center text-sm" style={{ color: 'var(--text-2)' }} data-testid={`column-limit-${p.columnKey}`}>
-          {t('column.limit', { n: p.limit ?? 0 })}
-        </p>
-      )}
-      {p.hasMore && !p.limited && (
-        <Button variant="secondary" block disabled={p.loadingMore} onClick={p.onMore} data-testid={`column-more-${p.columnKey}`}>
-          {p.loadingMore ? t('column.loading') : t('column.more')}
-        </Button>
-      )}
+      <div className="flex flex-col gap-3 md:gap-2 md:p-2">
+        {p.summary}
+        <div className="flex flex-col gap-2">{p.children}</div>
+        {p.empty && (
+          <p className="px-1 py-4 text-center text-sm" style={{ color: 'var(--text-3)' }} data-testid={`column-empty-${p.columnKey}`}>
+            {t(`column.emptyByRole.${p.role === 'other' ? 'new' : p.role}`, { event: p.event })}
+          </p>
+        )}
+        {p.hasMore && p.limited && (
+          <p className="px-1 py-2 text-center text-sm" style={{ color: 'var(--text-2)' }} data-testid={`column-limit-${p.columnKey}`}>
+            {t('column.limit', { n: p.limit ?? 0 })}
+          </p>
+        )}
+        {p.hasMore && !p.limited && (
+          <Button variant="secondary" block disabled={p.loadingMore} onClick={p.onMore} data-testid={`column-more-${p.columnKey}`}>
+            {p.loadingMore ? t('column.loading') : t('column.more')}
+          </Button>
+        )}
+      </div>
     </section>
   );
 }

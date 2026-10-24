@@ -22,12 +22,15 @@ export interface AgreedExitSubmit {
 export function AgreedExitSheet({
   card,
   config,
+  columnTitle,
   now,
   onSubmit,
   onClose,
 }: {
   card: BoardCardDto;
   config: Pick<BoardConfig, 'call' | 'canAttend' | 'agreedExit' | 'eventLabels'>;
+  /** Подпись колонки «Перезвон» из настроек: в заголовке. */
+  columnTitle: string;
   now: number;
   onSubmit: (r: AgreedExitSubmit) => void;
   onClose: () => void;
@@ -74,7 +77,7 @@ export function AgreedExitSheet({
       open
       onClose={onClose}
       closeLabel={t('sheet.close')}
-      title={t('exit.title')}
+      title={t('exit.title', { column: columnTitle })}
       description={card.name}
       footer={
         <Button size="lg" block disabled={!ready} onClick={submit} data-testid="exit-confirm">

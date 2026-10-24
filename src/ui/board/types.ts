@@ -1,6 +1,7 @@
 // Типы доски оператора: ответ сервера (контракт C5, src/server/domain/cards/board.ts) и настройки страницы.
 // Только типы и константы: файл безопасен и для браузера, и для тестов.
 import type { CallConfig, CallbackPreset } from '@/ui/call/types';
+import type { ReasonRule } from './moves';
 
 export type { BoardCardDto, BoardColumnDto, BoardColumnPage, BoardDto } from '@/server/domain/cards';
 
@@ -49,6 +50,8 @@ export interface BoardConfig {
   eventLabels: Record<string, string>;
   /** Короткие подписи видов записи «групповая» и «индивидуальная» из пресета (значки «Был: …» и фильтры). */
   attendLabels: { attendedGroup: string; attendedIndividual: string };
+  /** Поля плитки (`showOn.kanban`) в порядке настроек: подписи вариантов для строки значений «Новых». */
+  tileFields: Array<{ key: string; label: string; options: Record<string, string> }>;
   /** Есть `card.outcome` и зритель не только читает: переносить можно. */
   canMove: boolean;
   /** Охват карточек зрителя: у оператора `own`; цифры номеров и звонок с плитки — только при `own`, `wide` — РОП и шире. */
@@ -64,6 +67,10 @@ export interface BoardConfig {
   canAttend: boolean;
   /** Поведение вида записи по ключу: связывает запись плитки с тумблером «групповая» / «индивидуальная». */
   eventBehaviors: Record<string, 'group' | 'individual'>;
+  /** Через сколько дней карточка «Не интересует» вернётся в работу (`calling.returnDays.not_interested`); null — не вернётся. */
+  notInterestedReturnDays: number | null;
+  /** Правила показа системных причин перезвона по ключу причины (окно переноса в «Перезвон»): `moves.callbackReasonsFor`. */
+  callbackReasonRules: Record<string, ReasonRule>;
   /** Окно № 33 (выход из «Договорились»): системные причины и срок после неявки из настроек. */
   agreedExit: AgreedExitConfig;
   /**

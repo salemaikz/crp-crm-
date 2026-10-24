@@ -15,3 +15,11 @@ export function roleOfStates(states: readonly string[]): ColumnRole {
 
 /** Колонки, где работают сортировка и перенос «из рабочих» (§9.4): «Новые» и «Перезвон». */
 export const isWorkingRole = (r: ColumnRole): boolean => r === 'new' || r === 'callback';
+
+/** Конечные роли: «Клиент» и закрытые; их колонки уже рабочих (ui-polish §9.2). */
+export const isEndRole = (r: ColumnRole): boolean => r === 'client' || r === 'trash';
+
+/** Дорожки сетки ряда на ноутбуке: по одной на колонку в порядке пресета; ширина — только из токенов доски. */
+export function trackTemplate(roles: readonly ColumnRole[]): string {
+  return roles.map((r) => (isEndRole(r) ? 'minmax(var(--board-col-end),0.75fr)' : 'minmax(var(--board-col),1fr)')).join(' ');
+}

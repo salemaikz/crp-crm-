@@ -42,8 +42,8 @@ export interface MoveSheetState {
   intent: PendingState | null;
 }
 
-export function useBoardMoves(deps: { config: BoardConfig; userId: string; runtime: Runtime; data: Data; findCard: (id: string) => BoardCardDto | undefined }) {
-  const { config, userId, runtime, data, findCard } = deps;
+export function useBoardMoves(deps: { config: BoardConfig; userId: string; runtime: Runtime; data: Data; findCard: (id: string) => BoardCardDto | undefined; columnTitle: (key: string | null) => string }) {
+  const { config, userId, runtime, data, findCard, columnTitle } = deps;
   const t = useTranslations('board');
   const toast = useToast();
   const router = useRouter();
@@ -57,7 +57,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
   // № 33: выход из «Договорились» (окно явки и причина; «Мусор» - тот же лист причин)
   const [exitFor, setExitFor] = useState<BoardCardDto | null>(null);
   const [exitTrashFor, setExitTrashFor] = useState<BoardCardDto | null>(null);
-  const exit = useDeferredExit({ config, runtime, data });
+  const exit = useDeferredExit({ config, runtime, data, columnTitle });
   const deferred = useRef(new Map<string, Deferred>());
   const awayRef = useRef(false);
   // Намерение звонка, чья карточка не на загруженной доске: пока оно висит, «Позвонить» на других плитках погашено
@@ -122,10 +122,12 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
         }
         toast.show({ message: t('toast.undone'), tone: 'neutral' });
       };
-      toast.show({ message: t('toast.moved', { name: card.name }), tone: 'success', ...(config.undoMs > 0 ? { undo: { label: t('toast.undo'), onUndo: () => void undo() }, durationMs: config.undoMs } : {}) });
+      // Куда переехала плитка — подписью колонки из настроек; плитка осталась на месте — просто «итог внесён»
+      const message = plan ? t('toast.moved', { column: columnTitle(plan.column), name: card.name }) : t('toast.movedManual', { name: card.name });
+      toast.show({ message, tone: 'success', ...(config.undoMs > 0 ? { undo: { label: t('toast.undo'), onUndo: () => void undo() }, durationMs: config.undoMs } : {}) });
       return true;
     },
-    [runtime, call, config.undoMs, config.columns, data, toast, t, userId],
+    [runtime, call, config.undoMs, config.columns, data, toast, t, userId, columnTitle],
   );
 
   // ---- перенос в «Перезвон» --------------------------------------------------------------------------------------
@@ -283,7 +285,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
           });
           if (res.ok) {
             data.unplaceOps([opId]);
-            toast.show({ message: t('toast.writtenOff', { name: card.name }), tone: 'success' });
+            toast.show({ message: t('toast.writtenOff', { column: columnTitle(trashColumn?.key ?? null), name: card.name }), tone: 'success' });
           } else if (res.status === 404) {
             data.unplaceOps([opId]);
             data.drop(card.id);
@@ -294,7 +296,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
           } else if (res.status === 409) {
             data.unplaceOps([opId]);
             const body = (await res.json().catch(() => null)) as unknown;
-            toast.show({ message: errorCodeOf(body) === 'write_off_needs_no_answer' ? t('trash.callFirst') : t('toast.changed'), tone: 'danger' });
+            toast.show({ message: errorCodeOf(body) === 'write_off_needs_no_answer' ? t('trash.callFirst', { reason: config.writeOffReasons.find((r) => r.key === reason)?.label ?? '' }) : t('toast.changed'), tone: 'danger' });
           } else {
             data.unplaceOps([opId]);
             toast.show({ message: t('toast.failed'), tone: 'danger' });
@@ -310,7 +312,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
       const timer = setTimeout(() => void send(false), config.undoMs);
       deferred.current.set(card.id, { timer, send });
       toast.show({
-        message: t('toast.moved', { name: card.name }),
+        message: t('toast.moved', { column: columnTitle(trashColumn?.key ?? null), name: card.name }),
         tone: 'success',
         ...(config.undoMs > 0
           ? {
@@ -330,7 +332,7 @@ export function useBoardMoves(deps: { config: BoardConfig; userId: string; runti
           : {}),
       });
     },
-    [trashColumn, data, toast, t, config.undoMs, runtime],
+    [trashColumn, data, toast, t, config.undoMs, config.writeOffReasons, runtime, columnTitle],
   );
 
   // Уход со страницы: отложенные списания отправляются сразу (keepalive), как useDeferredMove на доске РОП

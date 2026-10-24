@@ -30,11 +30,20 @@ export function eventKindOf(card: BoardCardDto, behaviors: BoardConfig['eventBeh
 }
 
 /**
+ * Был ли клиент на мероприятии вида `kind`: признак карточки либо запись этого вида открытой сделки со статусом
+ * «пришёл». Тон плитки, значок и тумблер берут признак отсюда, чтобы «галочка есть, плитка белая» не случалось
+ * (ui-polish §9.4).
+ */
+export function attendedOf(card: BoardCardDto, kind: AttendKind, behaviors: BoardConfig['eventBehaviors']): boolean {
+  return card.flags[kind] || (card.event?.status === 'attended' && eventKindOf(card, behaviors) === kind);
+}
+
+/**
  * Состояние тумблера `kind`. Нажать можно, если есть право, у карточки открытая запись этого вида, мероприятие
  * началось и запись не отмечена «пришёл». Прочее — погашено с подсказкой.
  */
 export function toggleView(card: BoardCardDto, kind: AttendKind, config: Pick<BoardConfig, 'canAttend' | 'eventBehaviors'>, now: number): ToggleView {
-  const on = card.flags[kind];
+  const on = attendedOf(card, kind, config.eventBehaviors);
   const ev = card.event;
   const evKind = eventKindOf(card, config.eventBehaviors);
   if (!ev || evKind !== kind) return { kind, on, interactive: false, hint: 'noBooking' };
@@ -51,7 +60,25 @@ export function toggleView(card: BoardCardDto, kind: AttendKind, config: Pick<Bo
  */
 export function toggleViews(card: BoardCardDto, config: Pick<BoardConfig, 'canAttend' | 'eventBehaviors'>, now: number, all = false): ToggleView[] {
   const evKind = eventKindOf(card, config.eventBehaviors);
-  return ATTEND_KINDS.filter((k) => all || card.flags[k] || evKind === k).map((k) => toggleView(card, k, config, now));
+  return ATTEND_KINDS.filter((k) => all || attendedOf(card, k, config.eventBehaviors) || evKind === k).map((k) => toggleView(card, k, config, now));
+}
+
+/** Что показать вместо тумблера: кнопка-переключатель (есть право отмечать) или значок только для чтения. */
+export interface AttendControl {
+  kind: AttendKind;
+  mode: 'toggle' | 'badge';
+  view: ToggleView;
+}
+
+/**
+ * Явка на плитке и в шторке (ui-polish §9.5): кто вправе отмечать явку, получает переключатель — у вида с записью или
+ * признаком; без права выключенный переключатель не рисуется. Признак есть — значок без рамки кнопки; признака нет —
+ * ничего.
+ */
+export function attendControls(card: BoardCardDto, config: Pick<BoardConfig, 'canAttend' | 'eventBehaviors'>, now: number): AttendControl[] {
+  const views = toggleViews(card, config, now);
+  if (config.canAttend) return views.map((view) => ({ kind: view.kind, mode: 'toggle', view }));
+  return views.filter((v) => v.on).map((view) => ({ kind: view.kind, mode: 'badge', view }));
 }
 
 /** Запрос отметки явки (`POST /api/bookings/[id]/attendance`); `null`, если у плитки нет записи. */

@@ -21,6 +21,8 @@ export function useTouchDrag(opts: {
   canDrag: (cardId: string) => boolean;
   canDrop: (cardId: string, column: string) => boolean;
   onDrop: (cardId: string, column: string) => void;
+  /** Отпустили на запрещённой колонке или вкладке: пользователю нужно сказать, почему нельзя (ui-polish §9.3). */
+  onReject?: (cardId: string, column: string) => void;
 }) {
   const [drag, setDrag] = useState<DragState | null>(null);
   const optsRef = useRef(opts);
@@ -105,7 +107,9 @@ export function useTouchDrag(opts: {
       setTimeout(() => (suppressClick.current = false), 400);
       if (e.cancelable) e.preventDefault();
       const key = t ? targetAt({ x: t.clientX, y: t.clientY }) : null;
-      if (key !== null && optsRef.current.canDrop(s.cardId, key)) optsRef.current.onDrop(s.cardId, key);
+      if (key === null) return;
+      if (optsRef.current.canDrop(s.cardId, key)) optsRef.current.onDrop(s.cardId, key);
+      else optsRef.current.onReject?.(s.cardId, key);
     };
     const cancel = () => reset();
     // Долгое нажатие на Android вызывает меню браузера: пока жест наш, его подавляем

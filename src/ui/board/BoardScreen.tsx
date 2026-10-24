@@ -1,28 +1,33 @@
 'use client';
 
-// Доска оператора (pipeline-v2 §9.1–§9.4, этап Б). Ноутбук: колонки по 18 rem в ряд, перетаскивание мышью. Телефон: липкие
+// Доска оператора (pipeline-v2 §9.1–§9.4, этап Б). Ноутбук: сетка колонок по ролям до низа окна, у каждой своя прокрутка,
+// перетаскивание мышью (ui-polish §9.2). Телефон: липкие
 // вкладки колонок, свайп (scroll-snap), перенос через «⋯ → Перенести в…». Над доской — поиск, сортировка, фильтры.
 // Охват карточек проверяет сервер в SQL каждого запроса; данные доски нигде не кэшируются.
 import { WifiOff } from 'lucide-react';
 import Link from 'next/link';
 import { useFormatter, useTranslations } from 'next-intl';
-import { useRouter } from 'next/navigation';
+import { formatKzt } from './money';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatKzPhone } from '@/shared/tel';
 import { OutcomeSheet } from '@/ui/call/OutcomeSheet';
-import { Alert, Button, EmptyState, Page, ToastProvider } from '@/ui/kit';
+import { Alert, Button, EmptyState, Page, ToastProvider, useToast } from '@/ui/kit';
 import { AgreedExitSheet } from './AgreedExitSheet';
 import { BoardColumn } from './BoardColumn';
 import { BoardControls } from './BoardControls';
 import { ColumnTabs, type TabDrop } from './ColumnTabs';
-import { LeadDrawer } from './LeadDrawer';
+import { LeadDrawer, cardHref } from './LeadDrawer';
 import { LeadTile } from './LeadTile';
-import { MoveMenu } from './MoveMenu';
+import { MoveMenu, useBlockedText } from './MoveMenu';
+import { ATTEND_KINDS, attendedOf } from './attend';
 import { SearchResults } from './SearchResults';
 import { TrashSheet } from './TrashSheet';
-import { CALLBACK_KINDS, callBlockedBy, canMoveAnywhere } from './moves';
-import { isWorkingRole } from './columns';
-import { SORT_LIMIT, sortCards, sortLimited } from './order';
+import { CALLBACK_KINDS, callBlockedBy, callbackReasonsFor, canMoveAnywhere } from './moves';
+import { isWorkingRole, trackTemplate } from './columns';
+import { useFillHeight } from './useFillHeight';
+import { activeCount, parseView, writeView, type ViewLimits } from './boardQuery';
+import { SORT_LIMIT, availableFilters, sortCards, sortLimited } from './order';
 import { useBoardData } from './useBoardData';
 import { useBoardMoves } from './useBoardMoves';
 import { useBoardRuntime } from './useBoardRuntime';
@@ -48,14 +53,28 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   const t = useTranslations('board');
   const f = useFormatter();
   const router = useRouter();
-  const [q, setQ] = useState('');
-  const [sort, setSort] = useState<BoardSort>('heat');
-  const [filters, setFilters] = useState<BoardFilter[]>([]);
-  const [extra, setExtra] = useState<BoardExtra>(NO_EXTRA);
+  // Вид доски живёт в адресе (контракт К1): «Назад» из карточки и ссылки из сводки открывают тот же вид
+  const searchParams = useSearchParams();
+  const limits = useMemo<ViewLimits>(
+    () => ({
+      tabs: config.columns.map((c) => c.key),
+      filters: availableFilters(config.canPurchases),
+      owners: config.manager ? config.manager.owners.map((o) => o.userId) : null,
+      reasons: config.manager ? Object.keys(config.reasonLabels) : null,
+    }),
+    [config.columns, config.canPurchases, config.manager, config.reasonLabels],
+  );
+  const [initial] = useState(() => parseView(searchParams, limits));
+  const [q, setQ] = useState(initial.q);
+  const [sort, setSort] = useState<BoardSort>(initial.sort);
+  const [filters, setFilters] = useState<BoardFilter[]>(initial.filters);
+  const [extra, setExtra] = useState<BoardExtra>(initial.extra);
   const [now, setNow] = useState(() => Date.now());
   const [drawerFor, setDrawerFor] = useState<BoardCardDto | null>(null);
-  const [activeTab, setActiveTab] = useState(config.columns[0]?.key ?? '');
+  const [activeTab, setActiveTab] = useState(initial.tab);
   const scroller = useRef<HTMLDivElement>(null);
+  // Справа за краем ряда есть ещё колонки: затухание 24 px (ui-polish §9.2)
+  const [moreRight, setMoreRight] = useState(false);
   const reloadRef = useRef<() => void>(noop);
   const dropOpsRef = useRef<(ops: readonly string[]) => void>(noop);
 
@@ -101,16 +120,34 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
     },
     [safeFetch],
   );
-  const moves = useBoardMoves({ config, userId, runtime, data, findCard: cardOf });
-  const attendance = useAttendance({ config, runtime, data });
-  const month = useMonthPurchases(config.canPurchases && config.scope === 'own', runtime.safeFetch);
   const titleOf = useCallback((c: BoardColumnConfig) => (c.label !== '' ? c.label : t(`state.${c.states[0] ?? 'new'}`)), [t]);
-  const titleOfKey = (key: string | null) => {
-    const c = config.columns.find((x) => x.key === key);
+  const titleOfKey = useCallback(
+    (key: string | null) => {
+      const c = config.columns.find((x) => x.key === key);
+      return c ? titleOf(c) : '';
+    },
+    [config.columns, titleOf],
+  );
+  const titleOfRole = (role: BoardColumnConfig['role']) => {
+    const c = config.columns.find((x) => x.role === role);
     return c ? titleOf(c) : '';
   };
+  const toast = useToast();
+  const agreedLabel = config.call.outcomes.find((o) => o.kind === 'agreed')?.label ?? '';
+  const blockedText = useBlockedText(agreedLabel);
+  const moves = useBoardMoves({ config, userId, runtime, data, findCard: cardOf, columnTitle: titleOfKey });
+  const attendance = useAttendance({ config, runtime, data });
+  const month = useMonthPurchases(config.canPurchases && config.scope === 'own', runtime.safeFetch);
 
   const matchIds = useMemo(() => new Set(data.board?.search?.matches.map((m) => m.id) ?? []), [data.board]);
+
+  // Отпустили плитку на запрещённой колонке или вкладке: тост с той же причиной, что и в «Перенести в…»
+  const rejectDrop = (id: string, col: string) => {
+    const c = cardOf(id);
+    const tg = c ? moves.targetsOf(c).find((x) => x.column === col) : undefined;
+    if (!tg || tg.available || !tg.blocked || tg.blocked === 'same') return;
+    toast.show({ message: blockedText(tg.blocked), tone: 'info' });
+  };
 
   const drag = useMouseDrag({
     enabled: config.canMove,
@@ -127,6 +164,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
       const c = cardOf(id);
       if (c) moves.startMove(c, col);
     },
+    onReject: (id, col) => rejectDrop(id, col),
   });
 
   // Телефон: долгое нажатие поднимает плитку, вкладки колонок становятся целями (§9.2, этап В)
@@ -145,6 +183,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
       const c = cardOf(id);
       if (c) moves.startMove(c, col);
     },
+    onReject: (id, col) => rejectDrop(id, col),
   });
   const active = touch.drag ?? drag.drag;
   const consumeClick = () => touch.consumeClick() || drag.consumeClick();
@@ -176,6 +215,37 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
     if (el && i >= 0 && el.clientWidth <= 767) el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
   };
 
+  // Адрес без новой записи истории: replaceState встроен в роутер Next и не делает запрос к серверу
+  useEffect(() => {
+    const qs = writeView({ tab: activeTab, q, sort, filters, extra }, limits);
+    if (qs === window.location.search.replace(/^\?/, '')) return;
+    window.history.replaceState(null, '', qs === '' ? window.location.pathname : `?${qs}`);
+  }, [activeTab, q, sort, filters, extra, limits]);
+  // Открыли по адресу с вкладкой: колонка выезжает на экран (телефон) или в видимую часть ряда (ноутбук), один раз
+  const scrolledToTab = useRef(false);
+  useEffect(() => {
+    const el = scroller.current;
+    if (scrolledToTab.current || !el || data.phase !== 'ready') return;
+    scrolledToTab.current = true;
+    const i = config.columns.findIndex((c) => c.key === activeTab);
+    if (i <= 0) return;
+    if (el.clientWidth <= 767) el.scrollTo({ left: i * el.clientWidth });
+    else el.querySelector<HTMLElement>(`[data-column-key="${CSS.escape(activeTab)}"]`)?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [data.phase, activeTab, config.columns]);
+  useFillHeight(scroller, [data.phase, runtime.rejected.length, q]);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const check = () => setMoreRight(el.clientWidth > 767 && el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    window.addEventListener('resize', check);
+    return () => {
+      el.removeEventListener('scroll', check);
+      window.removeEventListener('resize', check);
+    };
+  }, [data.phase, config.columns]);
+
   if (runtime.locked) return null;
 
   const waiting = runtime.rt ? runtime.rt.outbox.list().length : 0;
@@ -188,14 +258,21 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   const tabDrops: Record<string, TabDrop> = Object.fromEntries(
     config.columns.map((c) => [c.key, { state: !active ? 'idle' : dragTargets.find((x) => x.column === c.key)?.available ? 'ok' : 'no', over: active?.over === c.key } satisfies TabDrop]),
   );
-  const money = (n: number) => f.number(n, { style: 'currency', currency: 'KZT', maximumFractionDigits: 0 });
+  const money = (n: number) => formatKzt(f, n);
   const tabs = config.columns.map((c) => ({ key: c.key, title: titleOf(c), count: sorted[c.key]?.length ?? 0, more: data.cols[c.key]?.next != null }));
   const emptyBoard = data.phase === 'ready' && tabs.every((x) => x.count === 0) && !q && filters.length === 0 && extra.owner === '' && extra.callbackReason === '';
 
   const callSheetCard = moves.callSheet?.card;
+  // В окне переноса «Перезвон» — только причины, уместные карточке: новому лиду не «не пришёл» и не «пришёл, не купил»
+  const moveCall = (() => {
+    const card = moves.moveSheet?.card;
+    if (!card) return config.call;
+    const attended = ATTEND_KINDS.some((k) => attendedOf(card, k, config.eventBehaviors));
+    return { ...config.call, outcomes: config.call.outcomes.map((o) => (o.kind === 'callback' ? { ...o, reasons: callbackReasonsFor(card, o.reasons, config.callbackReasonRules, attended, now) } : o)) };
+  })();
 
   return (
-    <Page width="full" data-testid="board-screen">
+    <Page width="full" className="max-md:gap-3" data-testid="board-screen">
       <h1 className="sr-only">{t('title')}</h1>
       {header}
       <BoardControls
@@ -211,6 +288,13 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
         extra={extra}
         onExtra={setExtra}
         reasonLabels={config.reasonLabels}
+        active={activeCount({ q, filters, extra })}
+        onReset={() => {
+          setQ('');
+          setFilters([]);
+          setExtra(NO_EXTRA);
+        }}
+        sortApplies={isWorkingRole(config.columns.find((c) => c.key === activeTab)?.role ?? 'other')}
       />
 
       {runtime.rejected.map((r) => (
@@ -273,7 +357,11 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
           {emptyBoard && <EmptyState title={t('state.emptyTitle')} description={t('state.emptyText')} />}
           <div
             ref={scroller}
-            className="-mx-[var(--gutter)] flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-[var(--gutter)] pb-4 md:snap-none md:gap-4"
+            className="-mx-[var(--gutter)] flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-[var(--gutter)] pb-4 md:grid md:h-[calc(100dvh_-_var(--board-top,0px)_-_var(--space-section)_-_var(--bottom-nav-h))] md:snap-none md:items-stretch md:gap-[var(--board-gap)] md:overflow-y-hidden md:pb-0 md:[grid-template-columns:var(--board-tracks)] md:[grid-template-rows:minmax(0,1fr)]"
+            style={{
+              ['--board-tracks' as string]: trackTemplate(config.columns.map((c) => c.role)),
+              ...(moreRight ? { maskImage: 'linear-gradient(to right, black calc(100% - 24px), transparent)', WebkitMaskImage: 'linear-gradient(to right, black calc(100% - 24px), transparent)' } : {}),
+            }}
             data-testid="board-columns"
           >
             {config.columns.map((col) => {
@@ -284,6 +372,8 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
                 <BoardColumn
                   key={col.key}
                   columnKey={col.key}
+                  role={col.role}
+                  event={config.attendLabels.attendedGroup || t('chip.eventUnknown')}
                   title={titleOf(col)}
                   count={cards.length}
                   hasMore={state?.next != null}
@@ -294,7 +384,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
                   over={active?.over === col.key}
                   summary={
                     col.role === 'client' && month ? (
-                      <div className="flex items-baseline justify-between gap-2 px-1 text-sm" data-testid="purchases-summary">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 px-1 text-sm" data-testid="purchases-summary">
                         <span style={{ color: 'var(--text-2)' }} data-testid="purchases-month">
                           {t('purchases.month', { count: month.count, sum: money(month.sumKzt) })}
                         </span>
@@ -313,18 +403,15 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
                       <LeadTile
                         key={card.id}
                         card={card}
+                        role={col.role}
+                        config={config}
                         tones={data.board?.tones ?? []}
                         now={now}
-                        reasonLabels={config.reasonLabels}
-                        eventLabels={config.eventLabels}
-                        attendLabels={config.attendLabels}
                         locked={moves.locked.has(card.id)}
                         highlighted={matchIds.has(card.id)}
-                        canCall={config.scope === 'own' && config.canMove}
                         callBlocked={callBlockedBy(moves.pendingCardId, card.id)}
                         canMenu={canMoveAnywhere(targets)}
                         dragging={active?.cardId === card.id}
-                        attend={config}
                         attendBusy={attendance.busy.includes(card.id)}
                         onAttend={(c, kind) => void attendance.mark(c, kind)}
                         onOpen={setDrawerFor}
@@ -354,11 +441,28 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
         </div>
       )}
 
-      {moves.menuFor && <MoveMenu card={moves.menuFor} columns={config.columns} titleOf={titleOf} targets={moves.targetsOf(moves.menuFor)} onPick={(tg) => moves.startMove(moves.menuFor!, tg.column)} onClose={moves.closeMenu} />}
+      {moves.menuFor && (
+        <MoveMenu
+          card={moves.menuFor}
+          columns={config.columns}
+          titleOf={titleOf}
+          targets={moves.targetsOf(moves.menuFor)}
+          outcomeLabel={agreedLabel}
+          canCall={config.scope === 'own' && config.canMove && moves.menuFor.phone !== null && !moves.locked.has(moves.menuFor.id) && !callBlockedBy(moves.pendingCardId, moves.menuFor.id)}
+          cardHref={cardHref(moves.menuFor, config.scope)}
+          onPick={(tg) => moves.startMove(moves.menuFor!, tg.column)}
+          onCall={(c) => {
+            moves.closeMenu();
+            moves.startCall(c);
+          }}
+          onClose={moves.closeMenu}
+        />
+      )}
 
       {moves.moveSheet && (
         <OutcomeSheet
-          config={config.call}
+          config={moveCall}
+          heading={t('move.toTitle', { column: titleOfRole('callback') })}
           pending={moves.moveSheet.pending}
           phones={moves.moveSheet.pending.call.phones.map((p) => ({ id: p.id, label: p.masked }))}
           onChange={moves.patchMoveDraft}
@@ -380,18 +484,22 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
         <TrashSheet
           card={moves.trashFor}
           call={config.call}
+          columnTitle={titleOfRole('trash')}
+          returnDays={config.notInterestedReturnDays}
           {...moves.trashChoices(moves.trashFor)}
           onPick={(pick) => void moves.pickTrash(moves.trashFor!, pick)}
           onClose={moves.closeTrash}
         />
       )}
 
-      {moves.exitFor && <AgreedExitSheet card={moves.exitFor} config={config} now={now} onSubmit={(r) => moves.submitExitCallback(moves.exitFor!, r)} onClose={moves.closeExit} />}
+      {moves.exitFor && <AgreedExitSheet card={moves.exitFor} config={config} columnTitle={titleOfRole('callback')} now={now} onSubmit={(r) => moves.submitExitCallback(moves.exitFor!, r)} onClose={moves.closeExit} />}
 
       {moves.exitTrashFor && (
         <TrashSheet
           card={moves.exitTrashFor}
           call={exitCallConfig(config.call)}
+          columnTitle={titleOfRole('trash')}
+          returnDays={config.notInterestedReturnDays}
           {...moves.exitTrashChoices()}
           onPick={(pick) => moves.pickExitTrash(moves.exitTrashFor!, pick)}
           onClose={moves.closeExitTrash}
@@ -420,15 +528,26 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
       {drawerFor && (
         <LeadDrawer
           card={cardOf(drawerFor.id) ?? drawerFor}
+          config={config}
           inlineEdit={config.call.callbackV2}
           columnTitle={drawerFor.column ? titleOfKey(drawerFor.column) : ''}
           fetchFn={runtime.safeFetch}
           onClose={() => setDrawerFor(null)}
-          attend={config}
-          attendLabels={config.attendLabels}
           now={now}
           attendBusy={attendance.busy.includes(drawerFor.id)}
           onAttend={(c, kind) => void attendance.mark(c, kind)}
+          locked={moves.locked.has(drawerFor.id)}
+          callBlocked={callBlockedBy(moves.pendingCardId, drawerFor.id)}
+          canMenu={canMoveAnywhere(moves.targetsOf(cardOf(drawerFor.id) ?? drawerFor))}
+          onCall={(c) => {
+            setDrawerFor(null);
+            moves.startCall(c);
+          }}
+          onMove={(c) => {
+            setDrawerFor(null);
+            moves.openMenu(c);
+          }}
+          onChatOpened={reportOpened}
         />
       )}
     </Page>
