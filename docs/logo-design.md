@@ -31,7 +31,7 @@ v1 до выпуска). `CONFIG_SCHEMA_VERSION` не меняется.
 | Пресет | `theme.brandMark` | `theme.logo` | Что видно |
 |---|---|---|---|
 | `base` | `"name"` (явно, D-061: умолчания — в base) | `logo.svg` | текст `org.productName` |
-| `clients/crp` | `"logo"` | `crp-logo.svg` | логотип, `alt` = `org.productName` |
+| `clients/crp` | `"logo"` | `crp-logo.png` (прозрачный фон; в тёмной теме без плашки — `theme.dark.logoPlate: false`) | логотип, `alt` = `org.productName` |
 
 `'logo'` без файла (каталог не задан, файла нет, файл не прошёл проверку) работает как `'name'`: показывается текст.
 Логотип рядом с текстом не показываем: в шапке либо одно, либо другое.
@@ -239,7 +239,7 @@ export const GET = publicRoute({ reason: 'asset', origin: 'check' }, async ({ re
      `img` с `alt` = `productName`, `naturalWidth > 0`, высота 28 ± 1 px, отношение ширины к высоте равно
      `naturalWidth / naturalHeight` ± 1 % (без искажения); иначе текст, как сейчас;
    - `/login`: `img` с тем же `alt`, высота 40 ± 1 px;
-   - `request.get(src)` → 200, `image/svg+xml`, `nosniff`, CSP с `sandbox`, `ETag`, `immutable`;
+   - `request.get(src)` → 200, тип по расширению логотипа (`image/svg+xml`, `image/png`, `image/webp`), `nosniff`, CSP с `sandbox`, `ETag`, `immutable`;
      `request.get('/api/brand/logo')` с `If-None-Match` → 304;
    - отказ загрузки: `page.route('**/api/brand/logo**', r => r.abort())` → в `shell-brand` текст `productName`;
    - вне сида — на стенде Vercel ручная проверка снимком 01 и 12 (логотип виден).

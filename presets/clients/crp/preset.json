@@ -510,14 +510,15 @@
       "fontPreset": "geologica_onest",
       "radius": "md",
       "density": "normal",
-      "logo": "crp-logo.svg",
+      "logo": "crp-logo.png",
       "brandMark": "logo",
       "statusStyle": "color_text_icon",
       "defaultMode": "system",
       "dark": {
         "canvas": "#0d1424",
         "surface": "#141d31",
-        "accentColor": "#e8edf7"
+        "accentColor": "#e8edf7",
+        "logoPlate": false
       }
     },
     "fields": [

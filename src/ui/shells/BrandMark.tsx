@@ -32,7 +32,7 @@ export function BrandMark({ name, logoSrc, size }: Props) {
   }
   return (
     <span className="flex min-w-0" data-testid="shell-brand">
-      {/* eslint-disable-next-line @next/next/no-img-element -- SVG из тома ассетов; next/image с dangerouslyAllowSVG не используем */}
+      {/* eslint-disable-next-line @next/next/no-img-element -- файл из тома ассетов (SVG, PNG, WebP); next/image с dangerouslyAllowSVG не используем */}
       <img
         ref={img}
         src={logoSrc}

@@ -435,11 +435,11 @@ PROCESS 8.2; её переводит в `grants` architect при сборке �
 | `theme.brandColor`, `theme.accentColor` | hex | нейтральные | токены бренда ЦРП (`docs/brand` crp-kz) | Администратор |
 | `theme.fontPreset` | ключ пресета шрифтов (с `cyrillic-ext`) | `system` | шрифты бренда ЦРП | CLI |
 | `theme.radius`, `theme.density` | `sm\|md\|lg`, `compact\|normal` | `md`, `normal` | по бренду | CLI |
-| `theme.logo` | ключ ассета (`.svg`/`.png`/`.webp`) из каталога `assets/` любого слоя; `config apply` копирует ассеты слоёв в том `crm_assets` (`CRM_ASSETS_DIR`), app отдаёт только этот файл по `GET /api/brand/logo` — имя из настроек, не из запроса (D-061, D-333) | `logo.svg` (нейтральный значок) | логотип ЦРП без перерисовки | CLI (загрузка файла в UI — после 1.11, через architect) |
+| `theme.logo` | ключ ассета (`.svg`/`.png`/`.webp`) из каталога `assets/` любого слоя; `config apply` копирует ассеты слоёв в том `crm_assets` (`CRM_ASSETS_DIR`), app отдаёт только этот файл по `GET /api/brand/logo` — имя из настроек, не из запроса (D-061, D-333) | `logo.svg` (нейтральный значок) | `crp-logo.png` — логотип ЦРП из брендбука без перерисовки, прозрачный фон (D-354) | CLI (загрузка файла в UI — после 1.11, через architect) |
 | `theme.brandMark` | `name\|logo`, необязательный; нет ключа = `name` | `name` — в шапке текст `org.productName` | `logo` — в шапке и на входе логотип `theme.logo` вместо текста, `alt` = `org.productName`; файла нет или не загрузился — текст (D-333, `docs/logo-design.md`) | CLI |
 | `theme.statusStyle` | `color\|color_text_icon` | `color_text_icon` | `color_text_icon` (красный бренда не путается с «Не целевой») | CLI |
 | `theme.defaultMode` | `system\|light\|dark`, необязательный | нет ключа = как задаёт код (воронка v2 §8.1) | — | CLI |
-| `theme.dark` | `{canvas?, surface?, brandColor?, accentColor?}` hex, необязательный | нейтральная тёмная палитра кода | — | CLI |
+| `theme.dark` | `{canvas?, surface?, brandColor?, accentColor?}` hex и `logoPlate?: boolean`, необязательный | нейтральная тёмная палитра кода; нет `logoPlate` = `true` — в тёмной теме логотип на светлой плашке, `false` — без плашки (D-354) | палитра — пресет ЦРП; `logoPlate: false` (прозрачный PNG) | CLI |
 
 ### 6.15. Пространства (`global.spaces`)
 

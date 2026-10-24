@@ -121,7 +121,7 @@ test('доска §8.2: шесть колонок, «Мусор» с быстр�
 
 test('тема: тёмная в стиле сайта, по умолчанию — как в системе (ВП-12)', () => {
   const { g } = crp();
-  assert.deepEqual(g.theme.dark, { canvas: '#0d1424', surface: '#141d31', accentColor: '#e8edf7' });
+  assert.deepEqual(g.theme.dark, { canvas: '#0d1424', surface: '#141d31', accentColor: '#e8edf7', logoPlate: false });
   assert.equal(g.theme.defaultMode, 'system');
 });
 

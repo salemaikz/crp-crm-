@@ -162,3 +162,19 @@ test('оболочка: переключатель выводится тольк
   const shell = JSON.parse(readFileSync(join(ROOT, 'messages/ru/shell.json'), 'utf8')) as { theme: Record<string, string> };
   assert.deepEqual(Object.keys(shell.theme).sort(), ['dark', 'label', 'light', 'system']);
 });
+
+test('плашка логотипа: в тёмной теме по умолчанию есть, theme.dark.logoPlate=false убирает; в светлой её нет', () => {
+  const plate = (settings: Record<string, unknown>, variant: 'light' | 'dark') => computeTheme(settings, variant).vars['--logo-plate'];
+  assert.notEqual(plate({}, 'dark'), 'transparent');
+  assert.equal(plate({ dark: { logoPlate: false } }, 'dark'), 'transparent');
+  assert.equal(computeTheme({ dark: { logoPlate: false } }, 'dark').vars['--logo-pad'], '0px');
+  assert.equal(plate({}, 'light'), 'transparent');
+  assert.equal(plate({ dark: { logoPlate: true } }, 'light'), 'transparent');
+  const bad = computeTheme({ dark: { logoPlate: 'no' } }, 'dark');
+  assert.notEqual(bad.vars['--logo-plate'], 'transparent');
+  assert.ok(bad.warnings.includes('invalid-setting'));
+});
+
+test('пресет ЦРП: логотип с прозрачным фоном стоит в тёмной теме без плашки', () => {
+  assert.equal(computeTheme(crpTheme, 'dark').vars['--logo-plate'], 'transparent');
+});

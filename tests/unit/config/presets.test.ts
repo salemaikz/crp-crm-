@@ -227,12 +227,12 @@ test('снимок ЦРП: тема бренда и поля', () => {
     fontPreset: 'geologica_onest',
     radius: 'md',
     density: 'normal',
-    logo: 'crp-logo.svg',
+    logo: 'crp-logo.png',
     brandMark: 'logo',
     statusStyle: 'color_text_icon',
     // тёмная тема и выбор по умолчанию — воронка v2 (D-342, ВП-12)
     defaultMode: 'system',
-    dark: { canvas: '#0d1424', surface: '#141d31', accentColor: '#e8edf7' },
+    dark: { canvas: '#0d1424', surface: '#141d31', accentColor: '#e8edf7', logoPlate: false },
   });
   assert.deepEqual(g.security, { sessionDays: 30, inviteTtlHours: 72, loginAttempts: { perPhone: 5, perIp: 20, windowMin: 15 }, phoneProbesPerDay: 20 });
   assert.equal(g.team.fallbackOwnerRole, 'rop');
@@ -245,7 +245,8 @@ test('снимок ЦРП: тема бренда и поля', () => {
 });
 
 test('логотип темы ЦРП лежит в ассетах накладки, логотип base — в ассетах base', () => {
-  const crpLogo = walk('presets/clients/crp/assets', ['.svg']);
-  assert.deepEqual(crpLogo, ['presets/clients/crp/assets/crp-logo.svg']);
+  // PNG с прозрачным фоном: в тёмной теме логотип стоит без плашки (theme.dark.logoPlate: false)
+  const crpLogo = walk('presets/clients/crp/assets', ['.svg', '.png']);
+  assert.deepEqual(crpLogo, ['presets/clients/crp/assets/crp-logo.png']);
   assert.deepEqual(walk('presets/base/assets', ['.svg']), ['presets/base/assets/logo.svg']);
 });

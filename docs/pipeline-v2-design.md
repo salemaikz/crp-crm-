@@ -786,7 +786,7 @@ v1 в 0.9.1 или 0.9.2, то ревизия ЦРП с этим ключом н
 | `board.agreedFallback` | ключ колонки | единственная колонка с `agreed` | — | `br` |
 | `board.tones[]` | `{when, tone}` | без цвета | нет | §5.3 |
 | `theme.defaultMode` | `system\|light\|dark` | `light` при выключенном `THEME_DARK`, иначе `system` | нет | `system` (ВП-12) |
-| `theme.dark` | `{canvas?, surface?, brandColor?, accentColor?}` hex | нейтральная тёмная палитра кода | нет | §10 |
+| `theme.dark` | `{canvas?, surface?, brandColor?, accentColor?}` hex, `logoPlate?: boolean` | нейтральная тёмная палитра кода; `logoPlate` = `true` (плашка под логотипом) | нет | §10; `logoPlate: false` (D-354) |
 
 Порядок резки **внутри F0**, если к 26.10 10:00 не успевает всё: схема ключей и
 ссылочные проверки не режутся (без них нужна v2). Режутся тесты ссылочных проверок

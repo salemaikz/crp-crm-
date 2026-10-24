@@ -8,12 +8,12 @@ import { DB_URL, login, makeOperator, prepareDb, sql } from './support/calling';
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 test.beforeAll(() => prepareDb());
 
-async function brandSettings(): Promise<{ name: string; mark: string | null }> {
-  const [row] = await sql<{ name: string; mark: string | null }[]>`
-    SELECT doc->'org'->'productName'->>'ru' AS name, doc->'theme'->>'brandMark' AS mark
+async function brandSettings(): Promise<{ name: string; mark: string | null; logo: string }> {
+  const [row] = await sql<{ name: string; mark: string | null; logo: string }[]>`
+    SELECT doc->'org'->'productName'->>'ru' AS name, doc->'theme'->>'brandMark' AS mark, doc->'theme'->>'logo' AS logo
     FROM config_revisions WHERE scope = 'global' ORDER BY rev DESC LIMIT 1`;
   expect(row?.mark, 'сид e2e не тот: нужна накладка клиента с theme.brandMark = "logo" (слои base, kz, consulting-sales, clients/crp), иначе проверять нечего').toBe('logo');
-  return { name: row!.name.trim(), mark: row!.mark };
+  return { name: row!.name.trim(), mark: row!.mark, logo: row!.logo };
 }
 
 /** Размер картинки в странице: высота на экране и естественные размеры. */
@@ -65,13 +65,15 @@ test('экран входа: тот же логотип, высота 40 px', as
 });
 
 test('ответ маршрута: заголовки, immutable по адресу из страницы, 304 по ETag', async ({ page, request }) => {
-  await brandSettings();
+  const { logo } = await brandSettings();
   await page.goto('/login');
   const { src } = await imgMetrics(page, 'shell-brand');
   const r = await request.get(src);
   expect(r.status()).toBe(200);
   const h = r.headers();
-  expect(h['content-type']).toBe('image/svg+xml');
+  // тип — по расширению файла логотипа в теме (svg, png, webp)
+  const ext = logo.slice(logo.lastIndexOf('.') + 1);
+  expect(h['content-type']).toBe({ svg: 'image/svg+xml', png: 'image/png', webp: 'image/webp' }[ext]);
   expect(h['x-content-type-options']).toBe('nosniff');
   expect(h['content-security-policy']).toContain('sandbox');
   expect(h['cache-control']).toContain('immutable');

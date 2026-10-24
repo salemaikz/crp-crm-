@@ -42,7 +42,14 @@ import {
 export type StatusStyle = 'color' | 'color_text_icon';
 
 /** Тёмная тема клиента (theme.dark): всё необязательно, недостающее — нейтральная палитра продукта. */
-export type DarkSettings = { canvas: string | null; surface: string | null; brandColor: string | null; accentColor: string | null };
+export type DarkSettings = {
+  canvas: string | null;
+  surface: string | null;
+  brandColor: string | null;
+  accentColor: string | null;
+  /** Светлая плашка под логотипом в тёмной теме; false — логотип с прозрачным фоном рассчитан на тёмный фон. */
+  logoPlate: boolean;
+};
 
 export type ThemeSettings = {
   /** Вид по умолчанию, пока сотрудник не выбрал сам; не задан — «как в системе» при включённом флаге. */
@@ -70,7 +77,7 @@ export type Theme = {
 
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   defaultMode: null,
-  dark: { canvas: null, surface: null, brandColor: null, accentColor: null },
+  dark: { canvas: null, surface: null, brandColor: null, accentColor: null, logoPlate: true },
   brandColor: DEFAULT_BRAND,
   accentColor: null,
   fontPreset: DEFAULT_FONT_PRESET,
@@ -99,16 +106,29 @@ export function parseThemeSettings(raw: unknown): { settings: ThemeSettings; inv
   const d = DEFAULT_THEME_SETTINGS;
   const darkRaw = src.dark && typeof src.dark === 'object' && !Array.isArray(src.dark) ? (src.dark as Record<string, unknown>) : {};
   if (src.dark !== undefined && src.dark !== null && darkRaw !== src.dark) invalid.push('dark');
-  const pickDark = (key: keyof DarkSettings): string | null => {
+  const pickDark = (key: 'canvas' | 'surface' | 'brandColor' | 'accentColor'): string | null => {
     const v = darkRaw[key];
     if (v === undefined || v === null) return null;
     if (isHex(v)) return normalizeHex(v);
     invalid.push(`dark.${key}`);
     return null;
   };
+  const pickPlate = (): boolean => {
+    const v = darkRaw.logoPlate;
+    if (v === undefined || v === null) return true;
+    if (typeof v === 'boolean') return v;
+    invalid.push('dark.logoPlate');
+    return true;
+  };
   const settings: ThemeSettings = {
     defaultMode: pick<ThemeMode | null>('defaultMode', (v): v is ThemeMode => v === 'light' || v === 'dark' || v === 'system', null),
-    dark: { canvas: pickDark('canvas'), surface: pickDark('surface'), brandColor: pickDark('brandColor'), accentColor: pickDark('accentColor') },
+    dark: {
+      canvas: pickDark('canvas'),
+      surface: pickDark('surface'),
+      brandColor: pickDark('brandColor'),
+      accentColor: pickDark('accentColor'),
+      logoPlate: pickPlate(),
+    },
     brandColor: normalizeHex(pick('brandColor', isHex, d.brandColor)),
     accentColor: ((a) => (a ? normalizeHex(a) : null))(pick<string | null>('accentColor', isHex, null)),
     fontPreset: pick('fontPreset', (v): v is string => typeof v === 'string' && v.length > 0, d.fontPreset),
@@ -205,6 +225,7 @@ export function computeTheme(raw: unknown, variant: ThemeVariant = 'light'): The
   if (invalidKeys.length > 0) warnings.push('invalid-setting');
 
   const dark = variant === 'dark';
+  const plate = dark && settings.dark.logoPlate;
   const N = dark ? NEUTRALS_DARK : NEUTRALS;
   // Фон и поверхность клиента для тёмной темы: текст продукта обязан читаться на них (AA), иначе — палитра продукта
   let canvas: string = N.canvas;
@@ -262,9 +283,9 @@ export function computeTheme(raw: unknown, variant: ThemeVariant = 'light'): The
     '--border': N.border,
     '--border-strong': N.borderStrong,
     '--overlay': dark ? OVERLAY.dark : OVERLAY.light,
-    // Логотип клиента не перекрашиваем: на тёмной теме он стоит на светлой плашке
-    '--logo-plate': dark ? N.text : 'transparent',
-    '--logo-pad': dark ? '3px 8px' : '0px',
+    // Логотип клиента не перекрашиваем: на тёмной теме он стоит на светлой плашке, если пресет её не выключил
+    '--logo-plate': plate ? N.text : 'transparent',
+    '--logo-pad': plate ? '3px 8px' : '0px',
     '--shadow-float': dark ? SHADOW_FLOAT.dark : SHADOW_FLOAT.light,
     // Форма и плотность
     '--radius-control': px(r.control),

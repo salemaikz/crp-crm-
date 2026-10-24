@@ -69,6 +69,9 @@ export const ThemeDark = obj({
   surface: HexColor.optional(),
   brandColor: HexColor.optional(),
   accentColor: HexColor.optional(),
+  // Светлая плашка под логотипом в тёмной теме: по умолчанию есть (тёмный логотип не пропадёт на тёмном фоне);
+  // false — логотип с прозрачным фоном, рассчитанный на тёмный фон, стоит без плашки.
+  logoPlate: z.boolean().optional(),
 });
 export const themeExtra = {
   defaultMode: z.enum(['system', 'light', 'dark']).optional(),

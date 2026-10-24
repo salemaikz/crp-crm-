@@ -137,4 +137,6 @@ test('theme.defaultMode и theme.dark', () => {
   bad((_, g) => { g.theme.defaultMode = 'auto'; }, 'defaultMode');
   bad((_, g) => { g.theme.dark = { canvas: 'red' }; }, 'canvas');
   bad((_, g) => { g.theme.dark = { foo: '#101010' }; }, 'foo');
+  ok((_, g) => { g.theme.dark = { logoPlate: false }; });
+  bad((_, g) => { g.theme.dark = { logoPlate: 'no' }; }, 'logoPlate');
 });
