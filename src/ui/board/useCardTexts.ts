@@ -48,7 +48,8 @@ export function useCardTexts(card: BoardCardDto, config: Pick<BoardConfig, 'reas
     if (chip.kind === 'state') return t(`state.${chip.state}`);
     return '';
   })();
-  const chipTone: BadgeTone = chip.kind === 'event' ? (STATUS_TONE[chip.status] ?? 'neutral') : 'neutral';
+  // Плитка обзвона: ответ «✓ Придёт» уже зелёный, чип записи рядом нейтральный (D-358 п. 7)
+  const chipTone: BadgeTone = chip.kind === 'event' && !card.confirm ? (STATUS_TONE[chip.status] ?? 'neutral') : 'neutral';
 
   return { chip, due, chipText, chipTone, dueText, overdue: due.kind === 'overdue', shortDate };
 }

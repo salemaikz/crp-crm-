@@ -66,6 +66,11 @@ export function LeadTile(p: LeadTileProps) {
   const fire = hasFire(card);
   const digits = card.phone?.digits ?? '';
   const controls = attendControls(card, config, p.now);
+  // «Подтвердил: имя, 11:20» — РОП видит, кто и когда подтвердил (D-355)
+  const confirmBy = (c: NonNullable<BoardCardDto['confirm']>) =>
+    c.confirmedAt === null
+      ? t('confirm.by', { name: c.confirmedBy ?? '' })
+      : t('confirm.byAt', { name: c.confirmedBy ?? '', time: f.dateTime(c.confirmedAt, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: config.call.timeZone }) });
   const badge = tileBadge(card, controls, Object.values(config.agreedExit.noShowReasons));
   const toggles = controls.filter((c) => c.mode === 'toggle');
   const closeLabel = (c: BoardCardDto) => closeReasonLabel(c, config.call.outcomes, config.writeOffReasons);
@@ -216,7 +221,7 @@ export function LeadTile(p: LeadTileProps) {
                   >
                     {card.confirm.mark === 'confirmed' ? t('confirm.mark.confirmed') : t('confirm.mark.todo')}
                     {card.confirm.mark === 'confirmed' && card.confirm.confirmedBy !== undefined && (
-                      <span className="relative z-10" title={t('confirm.by', { name: card.confirm.confirmedBy })} data-testid="tile-confirm-by">
+                      <span className="relative z-10" title={confirmBy(card.confirm)} aria-label={confirmBy(card.confirm)} data-testid="tile-confirm-by">
                         {' '}
                         · {initials(card.confirm.confirmedBy)}
                       </span>

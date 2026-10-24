@@ -52,8 +52,8 @@ test('booking.confirmCall: виды мероприятий, дни недели,
   bad((sp) => { sp.booking.confirmCall = cc({ eventTypes: [] }); }, 'eventTypes');
   bad((sp) => { sp.booking.confirmCall = cc({ extra: 1 }); }, 'extra');
   bad((sp) => { sp.booking.confirmCall = cc({ eventTypes: ['nope'] }); }, 'типа мероприятия «nope»');
-  // консультация (individual) в обзвон не попадает — администратор должен узнать об этом при сохранении
-  bad((sp) => { sp.booking.eventTypes.push({ ...evt('solo'), behavior: 'individual' }); sp.booking.confirmCall = cc({ eventTypes: ['ev', 'solo'] }); }, 'behavior ≠ group');
+  // консультация (individual) в конфиге принимается (D-349): доска пропускает её с invalid-setting, чтение настроек не падает
+  ok((sp) => { sp.booking.eventTypes.push({ ...evt('solo'), behavior: 'individual', capacity: null }); sp.booking.confirmCall = cc({ eventTypes: ['ev', 'solo'] }); });
   bad((sp) => { sp.booking.confirmCall = cc({ declineReason: 'nope' }); }, 'нет причины «nope» в группе «callback»');
   bad((sp) => { sp.booking.confirmCall = cc({ declineReason: 'auto' }); }, 'ручной');
   bad((sp) => { sp.reasons.callback[1].archived = true; sp.booking.confirmCall = cc(); }, 'архив');

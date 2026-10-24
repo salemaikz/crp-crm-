@@ -395,7 +395,7 @@ test('шторка лида: «Перенести в…» открывает с�
   const more = page.getByTestId('drawer-more-fields');
   if (await more.count()) {
     const before = await rows.count();
-    expect(before).toBeLessThanOrEqual(6);
+    expect(before).toBe(6);
     await more.click();
     expect(await rows.count()).toBeGreaterThan(before);
   }

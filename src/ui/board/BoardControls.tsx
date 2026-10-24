@@ -8,11 +8,35 @@
 // справа «Звонить подряд» (оператору) и «?» со ссылкой на раздел справки о доске.
 import { ArrowUpDown, ChevronLeft, ChevronRight, CircleHelp, ListFilter, Phone, Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { BottomSheet, Button, Chip, ChipGroup, Input, Segmented, Select } from '@/ui/kit';
 import { availableFilters } from './order';
+import { fadeMask, metricsOf, rowEdges } from './rowScroll';
 import { useWide } from './useWide';
 import { BOARD_SORTS, type BoardExtra, type BoardFilter, type BoardSort } from './types';
+
+/** Затухание у края ряда чипов, где есть ещё чипы: скрытая полоса прокрутки иначе не подсказывает, что ряд длиннее окна. */
+function useChipFade() {
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const [style, setStyle] = useState<CSSProperties | undefined>(undefined);
+  useEffect(() => {
+    const el = box?.querySelector<HTMLElement>('.k-chips');
+    if (!el) return;
+    const update = () => {
+      const mask = fadeMask(rowEdges(metricsOf(el)));
+      setStyle((prev) => (prev?.maskImage === mask ? prev : mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined));
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro?.disconnect();
+    };
+  }, [box]);
+  return { setBox, style };
+}
 
 export function BoardControls({
   q,
@@ -58,6 +82,7 @@ export function BoardControls({
 }) {
   const t = useTranslations('board');
   const wide = useWide();
+  const { setBox: setFadeBox, style: fadeStyle } = useChipFade();
   const [sheet, setSheet] = useState<'sort' | 'filters' | null>(null);
 
   const filterLabel = (f: BoardFilter) =>
@@ -172,7 +197,7 @@ export function BoardControls({
   return (
     <div className="flex flex-col gap-2" data-testid="board-controls">
       {/* Строка 1: поиск, сортировка, сотрудник и причина (РОП); справа «Звонить подряд» и «?» */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {search}
         <Select aria-label={t('sort.label')} value={sort} onChange={(e) => onSort(e.target.value as BoardSort)} className="w-auto min-w-40 shrink-0" data-testid="sort-select">
           {BOARD_SORTS.map((s) => (
@@ -200,9 +225,9 @@ export function BoardControls({
       </div>
       {/* Строка 2: чипы одной строкой с горизонтальной прокруткой, «Сбросить (N)»; справа «‹ ›» ряда колонок */}
       <div className="flex items-center gap-2">
-        <ChipGroup label={t('filters.label')} className="min-w-0 flex-1">
-          {chips()}
-        </ChipGroup>
+        <div className="min-w-0 flex-1" ref={setFadeBox} style={fadeStyle}>
+          <ChipGroup label={t('filters.label')}>{chips()}</ChipGroup>
+        </div>
         {active > 0 && (
           <Button variant="quiet" onClick={onReset} className="shrink-0" data-testid="filters-reset">
             {t('filters.resetCount', { n: active })}

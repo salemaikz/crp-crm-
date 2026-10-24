@@ -28,14 +28,12 @@ export function checkPipelineV2(
     }
   }
 
-  // обзвон подтверждения явки (D-349): виды мероприятий и ручная живая причина перезвона
+  // обзвон подтверждения явки (D-349): виды мероприятий и ручная живая причина перезвона.
+  // Не-групповой вид здесь допустим: доска пропускает его с invalid-setting (pv2-round3 §1.1), закрытая проверка положила бы установку.
   const cc = sp.booking.confirmCall;
   if (cc !== undefined) {
-    const behavior = new Map(sp.booking.eventTypes.map((e) => [e.key, e.behavior]));
     cc.eventTypes.forEach((e, j) => {
       ref(at('booking', 'confirmCall', 'eventTypes', j), e, eventTypes, 'типа мероприятия');
-      // индивидуальные виды (консультации) в обзвон не попадают — молча выпадали бы
-      if (behavior.has(e) && behavior.get(e) !== 'group') issue(at('booking', 'confirmCall', 'eventTypes', j), `вид «${e}» не групповой (behavior ≠ group): в обзвон не попадёт`);
     });
     const group = sp.reasons.callback;
     const r = group?.find((x) => x.key === cc.declineReason);

@@ -170,7 +170,10 @@ for (const [label, viewport, mobile] of [['Pixel 7', { width: 412, height: 915 }
       await expect(page.getByTestId('confirm-line')).toContainText('придут');
       const done = tileOf(page, agreed[0]!.name);
       await expect(done.getByTestId('tile-confirm-by')).toHaveText(/· АС/);
-      await expect(done.getByTestId('tile-confirm-by')).toHaveAttribute('title', /Айгерим Синтетик/);
+      await expect(done.getByTestId('tile-confirm-by')).toHaveAttribute('title', /Айгерим Синтетик, \d\d:\d\d/);
+      await expect(done.getByTestId('tile-confirm-by')).toHaveAttribute('aria-label', /Айгерим Синтетик, \d\d:\d\d/);
+      // Чип записи рядом с ответом нейтральный: два зелёных ✓ — шум (D-358 п. 7)
+      await expect(done.getByTestId('tile-chip')).not.toHaveClass(/success/);
       await expect(done.getByTestId('tile-call')).toHaveCount(0);
       await testInfo.attach('rop-confirm', { body: await page.screenshot(), contentType: 'image/png' });
       if (!mobile) {
@@ -183,6 +186,27 @@ for (const [label, viewport, mobile] of [['Pixel 7', { width: 412, height: 915 }
         await page.getByTestId('filters-done').click();
         await expect(page.getByTestId('tab-br')).toHaveAttribute('aria-selected', 'true');
       }
+    });
+  });
+}
+
+// Панель РОП на узком ноутбуке: страница не уезжает вбок, «Подтвердить явку» целиком в окне (ряд 1 переносится, ряд чипов с затуханием)
+for (const width of [1024, 1280]) {
+  test.describe(`панель РОП, ${width}`, () => {
+    test.skip(!ON, 'нужен запуск с FEATURE_OP_BOARD=1 и FEATURE_CALLBACK_V2=1 (стенд)');
+    test.use({ viewport: { width, height: 800 }, isMobile: false, hasTouch: false });
+
+    test('нет горизонтальной прокрутки страницы, фильтр «Подтвердить явку» виден целиком', async ({ page }) => {
+      const rop = await makeOperator(0, { role: 'rop' });
+      const op = await makeOperator(0);
+      await makeAgreed(op, 1, { startedAgoMs: SOON });
+      await open(page, rop, '/deals/calling');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const chip = page.getByTestId('filter-confirm');
+      await chip.scrollIntoViewIfNeeded();
+      const box = (await chip.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
     });
   });
 }

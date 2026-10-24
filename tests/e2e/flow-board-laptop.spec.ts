@@ -250,7 +250,7 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
 
   for (const who of ['operator', 'rop'] as const) {
     test(`${who}: ширина колонок ≥ 272/240, суммы и причины не обрезаны, плейсхолдер целиком, панель в двух строках`, async ({ page, browser, baseURL }) => {
-      const op = await seedWide(page, browser, baseURL!, who);
+      await seedWide(page, browser, baseURL!, who);
       await page.goto(who === 'rop' ? '/deals/calling' : '/board');
       await expect(page.getByTestId('board-screen')).toBeVisible();
       await expect(page.getByTestId('lead-tile').first()).toBeVisible();
@@ -292,7 +292,7 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
     });
 
     test(`${who}: ряд прокручивается с видимой полосой, «›» двигает ряд, «Мусор» после прокрутки в окне`, async ({ page, browser, baseURL }) => {
-      const op = await seedWide(page, browser, baseURL!, who);
+      await seedWide(page, browser, baseURL!, who);
       await page.goto(who === 'rop' ? '/deals/calling' : '/board');
       await expect(page.getByTestId('lead-tile').first()).toBeVisible();
       const row = page.getByTestId('board-columns');
