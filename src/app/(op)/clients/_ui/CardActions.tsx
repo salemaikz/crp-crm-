@@ -1,5 +1,5 @@
 import { getTranslations } from 'next-intl/server';
-import { CalendarPlus } from 'lucide-react';
+import { CalendarPlus, ShoppingCart } from 'lucide-react';
 import type { Viewer } from '@/server/access';
 import { closeReasonOptions, reopenRecipients } from '@/server/domain/cards';
 import type { ClientCardDto } from '@/server/domain/clients';
@@ -19,17 +19,30 @@ export async function CardActions({ card, viewer }: Props) {
   if (!head) return null;
   const can = card.can;
   const menu = can.closeFromMenu || can.reopen || can.unblock;
-  if (!can.book && !menu && !can.transfer) return null;
+  if (!can.book && !can.purchase && !menu && !can.transfer) return null;
   const reasons = menu ? await closeReasonOptions(viewer) : { not_target: [], do_not_call: [] };
   const recipients = can.reopen ? await reopenRecipients(viewer) : [];
   return (
     <div className="flex flex-col gap-2">
-      {can.book && (
+      {(can.book || can.purchase) && (
         <div className="flex flex-wrap gap-2" role="group" aria-label={t('actions.title')}>
-          <Button href={`/bookings/new/${head.id}`} variant="secondary" block className="sm:w-auto">
-            <CalendarPlus aria-hidden="true" />
-            {t('actions.book')}
-          </Button>
+          {can.book && (
+            <Button href={`/bookings/new/${head.id}`} variant="secondary" block className="sm:w-auto">
+              <CalendarPlus aria-hidden="true" />
+              {t('actions.book')}
+            </Button>
+          )}
+          {can.purchase && (
+            <Button href={`/deals/purchase/${encodeURIComponent(head.id)}`} variant="secondary" block className="sm:w-auto" data-testid="card-purchase">
+              <ShoppingCart aria-hidden="true" />
+              {t('actions.purchase')}
+            </Button>
+          )}
+        </div>
+      )}
+      {can.transfer && (
+        <div>
+          <TransferButton cardId={head.id} version={head.version} ownerUserId={head.ownerUserId} />
         </div>
       )}
       {menu && (
@@ -41,11 +54,6 @@ export async function CardActions({ card, viewer }: Props) {
           reasons={reasons}
           recipients={recipients}
         />
-      )}
-      {can.transfer && (
-        <div>
-          <TransferButton cardId={head.id} version={head.version} ownerUserId={head.ownerUserId} />
-        </div>
       )}
     </div>
   );

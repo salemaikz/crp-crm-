@@ -117,3 +117,22 @@ test('правка через сервис попадает в ленту тог
   assert.equal(e?.at, SEED_NOW);
   assert.deepEqual(e?.data, { obj: 'client', sys: true, field: 'region', before: null, after: 'Караганда' });
 });
+
+test('limit=3 отдаёт три последних события со следующей страницей; мусорный limit — 400; чужой клиент — 404 с тем же телом', async () => {
+  const id = clientOf('a', 64);
+  for (let i = 0; i < 6; i++) await addEvent(`fl-${i}`, id, 'call', 7000 + i);
+  const v = await viewerOf(U.opA);
+  const page = await getClientFeed(v, id, { cursor: null, groups: 'calls', limit: '3' });
+  assert.deepEqual(page.items.map((x) => x.id), ['fl-5', 'fl-4', 'fl-3']);
+  assert.ok(page.next);
+  const rest = await getClientFeed(v, id, { cursor: page.next, groups: 'calls', limit: '3' });
+  assert.deepEqual(rest.items.map((x) => x.id), ['fl-2', 'fl-1', 'fl-0']);
+  await assert.rejects(getClientFeed(v, id, { cursor: null, groups: null, limit: '21' }), { code: 'bad_request' });
+  await assert.rejects(getClientFeed(v, id, { cursor: null, groups: null, limit: '0' }), { code: 'bad_request' });
+  const other = await viewerOf(U.opB);
+  const foreign = await getClientFeed(other, id, { cursor: null, groups: null, limit: '3' }).catch((e: unknown) => e as Error & { code: string });
+  const missing = await getClientFeed(other, 'no-such-client', { cursor: null, groups: null, limit: '3' }).catch((e: unknown) => e as Error & { code: string });
+  assert.equal((foreign as { code: string }).code, 'not_found');
+  assert.equal((foreign as Error).message, (missing as Error).message);
+  assert.equal((foreign as { code: string }).code, (missing as { code: string }).code);
+});

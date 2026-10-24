@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EVENT_KINDS, FEED_GROUPS, groupOf, isKnownKind, kindsOfGroups, pickData } from '../../../src/server/domain/timeline/kinds';
-import { DESCRIBED_KINDS } from '../../../src/app/(op)/clients/_ui/feedLabels';
+import { DESCRIBED_KINDS, isFoldedEvent } from '../../../src/app/(op)/clients/_ui/feedLabels';
 
 test('у каждого вида есть известная группа и подпись интерфейса', () => {
   const messages = JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', '..', 'messages', 'ru', 'clients.json'), 'utf8')) as {
@@ -53,4 +53,14 @@ test('import.row: сырой текст ячейки (answerRaw) и служеб
   const data = { importId: 'i1', rowNo: 3, rowKey: 'ext-1', stateKey: 'abc', action: 'create', outcomeKey: 'callback', answerRaw: 'Иван просил набрать +7 709 000 00 00' };
   assert.deepEqual(pickData('import.row', data), { importId: 'i1', rowNo: 3, action: 'create', outcomeKey: 'callback' });
   assert.deepEqual(pickData('card.state', { fromState: 'new', toState: 'agreed', cause: 'x', phone: '7709' }), { fromState: 'new', toState: 'agreed', cause: 'x' });
+});
+
+test('смена состояния карточки остаётся в ленте только при подписях колонок доски; без них сворачивается', () => {
+  const state = { group: 'system', kind: 'card.state' } as never;
+  const other = { group: 'system', kind: 'phone.added' } as never;
+  const note = { group: 'notes', kind: 'note.created' } as never;
+  assert.equal(isFoldedEvent(state, true), false);
+  assert.equal(isFoldedEvent(state, false), true);
+  assert.equal(isFoldedEvent(other, true), true);
+  assert.equal(isFoldedEvent(note, false), false);
 });

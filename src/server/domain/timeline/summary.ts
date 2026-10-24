@@ -10,6 +10,8 @@ import type { ClientSummaryDto, NextStepKind } from './types';
 export type SummaryCard = {
   state: string;
   nextCallAt: number | null;
+  /** Точность срока перезвона: «день» — без времени. */
+  nextCallPrecision?: 'time' | 'day';
   callsTotal: number;
   connectsTotal: number;
   noAnswerTotal: number;
@@ -27,13 +29,15 @@ export function pickNextStep(input: {
   state: string | null;
   nextCallAt: number | null;
   nextBookingAt: number | null;
-  task: { source: string; dueAt: number | null } | null;
+  task: { source: string; dueAt: number | null; duePrecision?: 'time' | 'day' } | null;
+  nextCallPrecision?: 'time' | 'day';
 }): NextStep {
+  // `precision` есть в ответе только для «дня»: срок без времени (воронка v2); у прочих шагов время обычное
   if ((input.state === 'callback' || input.state === 'retry') && input.nextCallAt !== null) {
-    return { kind: input.state as NextStepKind, at: input.nextCallAt };
+    return { kind: input.state as NextStepKind, at: input.nextCallAt, ...(input.nextCallPrecision === 'day' ? { precision: 'day' as const } : {}) };
   }
   if (input.nextBookingAt !== null) return { kind: 'booking', at: input.nextBookingAt };
-  if (input.task) return { kind: 'task', at: input.task.dueAt, taskSource: input.task.source };
+  if (input.task) return { kind: 'task', at: input.task.dueAt, taskSource: input.task.source, ...(input.task.duePrecision === 'day' && input.task.dueAt !== null ? { precision: 'day' as const } : {}) };
   return { kind: 'none', at: null };
 }
 
@@ -50,6 +54,6 @@ export async function getClientSummary(viewer: Viewer, clientId: string, card: S
     handoffs: p.handoffs,
     ownerName: card?.ownerName ?? null,
     actingName: card?.actingName ?? null,
-    nextStep: pickNextStep({ state: card?.state ?? null, nextCallAt: card?.nextCallAt ?? null, nextBookingAt: p.nextBookingAt, task: p.task }),
+    nextStep: pickNextStep({ state: card?.state ?? null, nextCallAt: card?.nextCallAt ?? null, nextCallPrecision: card?.nextCallPrecision ?? 'time', nextBookingAt: p.nextBookingAt, task: p.task }),
   };
 }

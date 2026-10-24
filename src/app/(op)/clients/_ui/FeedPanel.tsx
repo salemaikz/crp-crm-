@@ -7,9 +7,10 @@ import { Button, Card, Chip, ChipGroup, EmptyState, useToast } from '@/ui/kit';
 import { FeedMessages } from '@/ui/messenger/FeedMessages';
 import { foldMessages } from '@/ui/messenger/fold';
 import { useFeedControl } from './ClientsProviders';
-import { describeEvent, makeContext } from './feedLabels';
+import { isFoldedEvent } from './feedLabels';
 import { formatDateTime } from './format';
 import { send } from './requests';
+import { useFeedDescribe } from './useFeedDescribe';
 import type { FeedItemView, FeedLabels } from './types';
 
 const GROUPS = ['calls', 'messages', 'bookings', 'deals', 'tasks', 'notes', 'system'] as const;
@@ -27,15 +28,7 @@ type Page = { items: FeedItemView[]; next: string | null };
 
 export function FeedPanel({ clientId, canPin = false, initialItems, initialNext, timeZone, labels }: Props) {
   const t = useTranslations('clients');
-  const context = makeContext(labels, {
-    yes: t('fields.yes'),
-    no: t('fields.no'),
-    empty: t('feed.emptyValue'),
-    system: (key) => t(key),
-    unknownField: t('feed.unknownField'),
-    unknownPhone: t('feed.unknownPhone'),
-    unknownContact: t('feed.unknownContact'),
-  });
+  const describe = useFeedDescribe(labels, timeZone);
   const router = useRouter();
   const toast = useToast();
   const control = useFeedControl();
@@ -98,9 +91,11 @@ export function FeedPanel({ clientId, canPin = false, initialItems, initialNext,
   }
 
   // Системные события свёрнуты в одну строку, пока не выбрана группа «Система» или не раскрыты
-  const system = items.filter((i) => i.group === 'system');
+  const hasBoard = Object.keys(labels.columns).length > 0;
+  const isFolded = (i: FeedItemView): boolean => isFoldedEvent(i, hasBoard);
+  const system = items.filter(isFolded);
   const collapse = group !== 'system' && group !== 'edits' && !showSystem && system.length > 0;
-  const visible = collapse ? items.filter((i) => i.group !== 'system') : items;
+  const visible = collapse ? items.filter((i) => !isFolded(i)) : items;
 
   return (
     <Card as="section" aria-labelledby="client-feed-title">
@@ -146,10 +141,14 @@ export function FeedPanel({ clientId, canPin = false, initialItems, initialNext,
               );
             }
             const i = entry.item;
-            const d = describeEvent(i, context);
             return (
               <li key={i.id} className="py-2">
-                <p className="break-words">{t(d.key, d.values)}</p>
+                <p className="break-words">{describe(i)}</p>
+                {i.call && i.call.note !== '' && (
+                  <p className="mt-1 break-words whitespace-pre-wrap" data-testid="feed-call-note">
+                    {i.call.note}
+                  </p>
+                )}
                 {i.note && (
                   <div className="mt-1">
                     <p className="break-words whitespace-pre-wrap" data-testid="feed-note">

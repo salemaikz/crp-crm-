@@ -11,6 +11,17 @@ export type NoteDto = {
   createdAt: number;
 };
 
+/** Звонок в ленте: причина, срок перезвона и текст заметки (читаются по id звонка с охватом `card.read`). */
+export type CallInfoDto = {
+  note: string;
+  reasonCode: string;
+  callbackAt: number | null;
+  callbackPrecision: 'time' | 'day';
+};
+
+/** Данные записи или задачи, нужные подписи события: вид мероприятия или точность срока. */
+export type FeedRefDto = { eventTypeKey?: string; duePrecision?: 'time' | 'day' };
+
 /** Максимум закреплённых заметок клиента (сверх — 409 `pin_limit`). */
 export const PIN_LIMIT = 3;
 export const NOTE_MAX = 4000;
@@ -34,7 +45,7 @@ export type ClientSummaryDto = {
   handoffs: Array<{ teamKey: string; status: string; createdAt: number; acceptedAt: number | null }>;
   ownerName: string | null;
   actingName: string | null;
-  nextStep: { kind: NextStepKind; at: number | null; taskSource?: string };
+  nextStep: { kind: NextStepKind; at: number | null; taskSource?: string; /** Только «day»: срок без времени. */ precision?: 'day' };
 };
 
 export type DealRowDto = {

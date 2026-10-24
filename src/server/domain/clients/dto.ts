@@ -1,7 +1,7 @@
 // Сборка DTO из строк БД: номера, контакты, ЛПР, проекция полей.
 import { fields } from '@crm/core';
 import type { CardHeadDb, ContactRowDb, PhoneRowDb } from './repo';
-import type { CardHeadDto, CardState, ContactDto, PhoneDto } from './types';
+import type { CardBoardDto, CardHeadDto, CardState, ContactDto, PhoneDto } from './types';
 
 export function toPhoneDto(r: PhoneRowDb): PhoneDto {
   return {
@@ -39,12 +39,13 @@ export function pickDecisionMaker(contacts: readonly ContactDto[]): { contactId:
   return c ? { contactId: c.id, name: c.name } : null;
 }
 
-export function toCardHead(r: CardHeadDb, cardFields: fields.Projection): CardHeadDto {
+export function toCardHead(r: CardHeadDb, cardFields: fields.Projection, board: CardBoardDto | null = null): CardHeadDto {
   return {
     id: r.id,
     state: r.state as CardState,
     holdReason: r.holdReason,
     nextCallAt: r.nextCallAt,
+    nextCallPrecision: r.nextCallPrecision === 'day' ? 'day' : 'time',
     attempts: r.attempts,
     lpr: r.lpr === 'yes' || r.lpr === 'no' ? r.lpr : '',
     isTarget: r.isTarget === 'yes' || r.isTarget === 'no' ? r.isTarget : '',
@@ -57,6 +58,7 @@ export function toCardHead(r: CardHeadDb, cardFields: fields.Projection): CardHe
     closeReasonCode: r.closeReasonCode,
     closedAt: r.closedAt,
     returnAt: r.returnAt,
+    board,
     fields: cardFields,
     counters: {
       callsTotal: r.callsTotal,

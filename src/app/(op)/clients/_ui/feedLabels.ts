@@ -11,9 +11,30 @@ export type DescribeContext = {
   phoneLabel: (phoneId: string) => string;
   /** Имя контакта по id из текущего списка (нет в списке — общая подпись). */
   contactLabel: (contactId: string) => string;
+  /** Подпись итога звонка по ключу из настроек (нет — пусто). */
+  outcomeLabel: (outcome: string) => string;
+  /** Подпись причины итога (нет — пусто). */
+  reasonLabel: (outcome: string, reason: string) => string;
+  /** Короткая подпись вида мероприятия (нет — пусто). */
+  eventLabel: (eventTypeKey: string) => string;
+  /** Подпись этапа сделки (нет — сам ключ). */
+  stageLabel: (stageKey: string) => string;
+  /** Подпись колонки доски для состояния карточки (нет доски — пусто). */
+  columnLabel: (state: string) => string;
+  /** Срок с учётом точности: «пн 26.10 11:00» или «пн 26.10». */
+  dueLabel: (at: number, precision: 'time' | 'day') => string;
+  /** Длительность разговора: «1 мин 35 с». */
+  durationLabel: (sec: number) => string;
+  /** Подпись статуса записи (нет — пусто). */
+  bookingStatusLabel: (status: string) => string;
+  /** День мероприятия `YYYY-MM-DD` → «28.10.2026». */
+  dayLabel: (day: string) => string;
 };
 
-export type Described = { key: string; values: Record<string, string> };
+export type Described = { key: string; values: Record<string, string | number> };
+
+/** Событие ленты, из которого строится подпись: вид, данные и то, что дочитано по ссылке (звонок, запись, задача). */
+export type DescribeItem = Pick<FeedItemView, 'kind' | 'data'> & Partial<Pick<FeedItemView, 'call' | 'ref'>>;
 
 /** Виды, у которых есть подпись в messages/ru/clients.json (feed.kinds.*). */
 export const DESCRIBED_KINDS = [
@@ -57,7 +78,7 @@ export const CARD_STATES = ['new', 'retry', 'callback', 'agreed', 'client', 'not
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: DescribeContext): Described {
+export function describeEvent(item: DescribeItem, ctx: DescribeContext): Described {
   const d = item.data;
   switch (item.kind) {
     case 'field.changed': {
@@ -79,16 +100,52 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'contact.added':
     case 'contact.archived':
       return { key: `feed.kinds.${item.kind.replace('.', '_')}`, values: { contact: ctx.contactLabel(str(d.contactId)) } };
-    case 'call':
-      // Итог внёс РОП с доски «Обзвон» (D-266): отдельная подпись
-      return { key: d.via === 'manual_entry' ? 'feed.kinds.call_manual' : 'feed.kinds.call', values: {} };
+    case 'call': {
+      // Итог внёс РОП с доски «Обзвон» (D-266): отметка «внесено РОП»
+      const manual = d.via === 'manual_entry';
+      const outcome = ctx.outcomeLabel(str(d.outcome));
+      if (outcome === '') return { key: manual ? 'feed.kinds.call_manual' : 'feed.kinds.call', values: {} };
+      const reason = ctx.reasonLabel(str(d.outcome), item.call?.reasonCode ?? '');
+      const at = item.call?.callbackAt ?? null;
+      const sec = typeof d.durationSec === 'number' ? d.durationSec : 0;
+      return {
+        key: 'feed.kinds.callOutcome',
+        values: {
+          outcome,
+          reason: reason || 'none',
+          callback: at === null ? 'none' : ctx.dueLabel(at, item.call?.callbackPrecision ?? 'time'),
+          duration: sec > 0 ? ctx.durationLabel(sec) : 'none',
+          manual: manual ? 'yes' : 'no',
+        },
+      };
+    }
+    case 'booking.created': {
+      const event = ctx.eventLabel(str(d.eventTypeKey));
+      const day = str(d.eventDate);
+      if (event === '' || day === '') return { key: 'feed.kinds.booking_created', values: {} };
+      return { key: 'feed.kinds.bookingCreated', values: { event, date: ctx.dayLabel(day), time: str(d.startTime) } };
+    }
+    case 'booking.status': {
+      const event = ctx.eventLabel(item.ref?.eventTypeKey ?? '');
+      const status = ctx.bookingStatusLabel(str(d.to));
+      if (event === '' || status === '') return { key: 'feed.kinds.booking_status', values: {} };
+      return { key: 'feed.kinds.bookingStatus', values: { event, status } };
+    }
+    case 'deal.stage': {
+      const from = str(d.from);
+      const to = str(d.to);
+      if (from === '' || to === '') return { key: 'feed.kinds.deal_stage', values: {} };
+      return { key: 'feed.kinds.dealStage', values: { from: ctx.stageLabel(from), to: ctx.stageLabel(to) } };
+    }
+    case 'task.created': {
+      const due = typeof d.dueAt === 'number' ? d.dueAt : null;
+      if (due === null) return { key: 'feed.kinds.task_created', values: {} };
+      return { key: 'feed.kinds.taskCreated', values: { due: ctx.dueLabel(due, item.ref?.duePrecision ?? 'time') } };
+    }
     case 'call.voided':
     case 'note.created':
-    case 'booking.created':
     case 'booking.moved':
-    case 'booking.status':
     case 'deal.created':
-    case 'deal.stage':
     case 'deal.lost':
     case 'card.created':
     case 'card.assigned':
@@ -103,7 +160,6 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'message':
     case 'messenger.link_opened':
     case 'client.merged':
-    case 'task.created':
     case 'task.done':
     case 'task.cancelled':
     case 'task.comment':
@@ -111,6 +167,8 @@ export function describeEvent(item: Pick<FeedItemView, 'kind' | 'data'>, ctx: De
     case 'card.state': {
       // Новое состояние в подписи; незнакомое (новая версия ядра) — общая строка
       const to = str(d.toState);
+      const column = ctx.columnLabel(to);
+      if (column !== '') return { key: 'feed.kinds.cardColumn', values: { column } };
       return (CARD_STATES as readonly string[]).includes(to) ? { key: `feed.kinds.cardState.${to}`, values: {} } : { key: 'feed.kinds.card_state', values: {} };
     }
     default:
@@ -135,7 +193,22 @@ export const SYSTEM_LABEL_KEYS: Readonly<Record<string, string>> = {
 };
 
 /** Собрать контекст подписей из данных страницы и готовых строк локали. */
-export function makeContext(labels: FeedLabels, text: { yes: string; no: string; empty: string; system: (messageKey: string) => string; unknownField: string; unknownPhone: string; unknownContact: string }): DescribeContext {
+export function makeContext(
+  labels: FeedLabels,
+  text: {
+    yes: string;
+    no: string;
+    empty: string;
+    system: (messageKey: string) => string;
+    unknownField: string;
+    unknownPhone: string;
+    unknownContact: string;
+    dueLabel: (at: number, precision: 'time' | 'day') => string;
+    durationLabel: (sec: number) => string;
+    bookingStatusLabel: (status: string) => string;
+    dayLabel: (day: string) => string;
+  },
+): DescribeContext {
   const optionLabel = (obj: string, field: string, sys: boolean, key: string): string =>
     (sys && field === 'legal_form' ? labels.options[`legal_form:${key}`] : labels.options[`${obj}:${field}:${key}`]) ?? key;
   return {
@@ -153,5 +226,20 @@ export function makeContext(labels: FeedLabels, text: { yes: string; no: string;
     },
     phoneLabel: (id) => labels.phones[id] ?? text.unknownPhone,
     contactLabel: (id) => labels.contacts[id] ?? text.unknownContact,
+    outcomeLabel: (outcome) => labels.outcomes[outcome] ?? '',
+    reasonLabel: (outcome, reason) => (reason === '' ? '' : (labels.reasons[`${outcome}:${reason}`] ?? '')),
+    eventLabel: (key) => labels.events[key] ?? '',
+    stageLabel: (key) => labels.stages[key] ?? key,
+    columnLabel: (state) => labels.columns[state] ?? '',
+    dueLabel: text.dueLabel,
+    durationLabel: text.durationLabel,
+    bookingStatusLabel: text.bookingStatusLabel,
+    dayLabel: text.dayLabel,
   };
 }
+
+/**
+ * Системное событие, которое сворачивается в одну строку. Смена состояния карточки остаётся в ленте
+ * только когда есть подписи колонок доски (OP_BOARD включён и пресет доски задан).
+ */
+export const isFoldedEvent = (i: FeedItemView, hasBoard: boolean): boolean => i.group === 'system' && (i.kind !== 'card.state' || !hasBoard);

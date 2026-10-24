@@ -40,12 +40,18 @@
     "rule": "Задержка по правилу"
   },
   "card": {
-    "back": "К списку клиентов"
+    "back": "К списку клиентов",
+    "backBoard": "К доске"
   },
   "header": {
     "orgId": "БИН {id}",
     "decisionMaker": "ЛПР",
     "callback": "Перезвонить: {date}",
+    "callbackDay": "{date}, в течение дня",
+    "reasonTouch": "{reason} · касание {n}",
+    "attended": "Был на {event}",
+    "attendedAny": "Был на мероприятии",
+    "noShow": "Не пришёл",
     "owner": "Ответственный: {name}",
     "pool": "Без ответственного",
     "acting": "временно {name}"
@@ -98,7 +104,10 @@
       "landline": "Городской",
       "unknown": "Тип не определён"
     },
-    "actions": "Действия с номерами",
+    "whose": "Чей номер",
+    "ofClient": "Клиент",
+    "whatsapp": "Написать в WhatsApp на {phone}",
+    "more": "Действия с номером {phone}",
     "makePrimary": "Сделать основным",
     "markNotWorking": "Не работает",
     "confirmTitle": "Номер не работает?",
@@ -118,6 +127,9 @@
     "callHint": "Когда звонить",
     "note": "Заметка",
     "noName": "Без имени",
+    "phone": "Телефон",
+    "phoneHint": "Номер сохранится у этого контакта. Например, +7 709 555 01 01",
+    "phoneFailed": "Контакт сохранён, но номер не добавлен",
     "decisionMaker": "ЛПР",
     "saved": "Контакт сохранён",
     "archive": "В архив",
@@ -173,6 +185,8 @@
     "unknownField": "поле",
     "unknownPhone": "номер",
     "unknownContact": "контакт",
+    "duration": "{minutes} мин {seconds} с",
+    "durationShort": "{seconds} с",
     "system": "система",
     "more": "Показать ещё",
     "loadFailed": "Не удалось загрузить историю.",
@@ -185,10 +199,16 @@
       "contact_added": "Добавлен контакт {contact}",
       "contact_archived": "Контакт {contact} убран в архив",
       "call": "Звонок",
-      "call_manual": "Звонок (внесено вручную)",
+      "call_manual": "Звонок · внесено РОП",
+      "callOutcome": "Звонок · {outcome}{reason, select, none {} other { · {reason}}}{callback, select, none {} other { → перезвон {callback}}}{duration, select, none {} other { · {duration}}}{manual, select, yes { · внесено РОП} other {}}",
       "call_voided": "Звонок отменён",
       "note_created": "Добавлена заметка",
       "booking_created": "Запись на мероприятие",
+      "bookingCreated": "Запись: {event} {date} {time}",
+      "bookingStatus": "{event}: {status}",
+      "dealStage": "{from} → {to}",
+      "taskCreated": "Задача до {due}",
+      "cardColumn": "Колонка: {column}",
       "booking_moved": "Запись перенесена на другое мероприятие",
       "booking_status": "Изменён статус записи",
       "deal_created": "Создана сделка",
@@ -257,6 +277,7 @@
     "owner": "Владелец: {name}.",
     "ownerNone": "Владельца нет.",
     "acting": "Временно ведёт: {name}.",
+    "inDay": "в течение дня",
     "next": {
       "callback": "Следующий шаг: перезвонить {date}.",
       "retry": "Следующий шаг: повторный звонок {date}.",
@@ -292,7 +313,8 @@
   },
   "actions": {
     "title": "Действия с карточкой",
-    "book": "Записать"
+    "book": "Записать",
+    "purchase": "Покупка"
   },
   "cardFields": {
     "title": "Данные обзвона",
@@ -305,6 +327,7 @@
     "dncClear": "Снять «Не звонить»",
     "notTarget": "Не целевой",
     "doNotCall": "Полный отказ",
+    "other": "Другие действия",
     "dialog": {
       "reopen": "Вернуть в обзвон",
       "dnc_clear": "Снять «Не звонить»",

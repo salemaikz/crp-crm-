@@ -1,7 +1,7 @@
 import { getTranslations } from 'next-intl/server';
 import { Card } from '@/ui/kit';
 import type { CatalogLabels, ClientSummaryDto } from '@/server/domain/clients';
-import { formatDate, formatDateTime, formatDay, formatNumber, labelOf } from './format';
+import { formatDate, formatDateTime, formatDay, formatDue, formatNumber, labelOf } from './format';
 
 type Props = { summary: ClientSummaryDto; catalog: CatalogLabels; timeZone: string };
 
@@ -51,7 +51,7 @@ export async function SummaryBlock({ summary: s, catalog, timeZone }: Props) {
   lines.push(s.ownerName ? t('summary.owner', { name: s.ownerName }) : t('summary.ownerNone'));
   if (s.actingName) lines.push(t('summary.acting', { name: s.actingName }));
   const next = s.nextStep;
-  lines.push(next.at !== null ? t(`summary.next.${next.kind}`, { date: formatDateTime(next.at, timeZone) }) : t(`summary.next.${next.kind === 'task' ? 'taskNoDate' : next.kind}`));
+  lines.push(next.at !== null ? t(`summary.next.${next.kind}`, { date: next.precision === 'day' ? `${formatDue(next.at, 'day', timeZone)}, ${t('summary.inDay')}` : formatDateTime(next.at, timeZone) }) : t(`summary.next.${next.kind === 'task' ? 'taskNoDate' : next.kind}`));
 
   return (
     <Card as="section" aria-labelledby="client-summary-title">

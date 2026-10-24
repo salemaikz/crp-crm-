@@ -80,6 +80,16 @@ test('шапка карточки: счётчики с карточки, lpr и 
     canUnblock: false,
     canClose: false,
     canTransfer: false,
+    canPurchase: false,
+    callbackReason: '',
+    callbackTouches: 0,
+    nextCallPrecision: 'time',
+    attendedGroupAt: null,
+    attendedIndividualAt: null,
+    lastNoShowAt: null,
+    purchasesTotal: 0,
+    bookingType: null,
+    bookingStatus: null,
   };
   const h = toCardHead(row, { fields: [], values: {} });
   assert.equal(h.version, 7);

@@ -36,6 +36,8 @@ type Props = {
   onCancel: () => void;
   /** Дополнительное действие (например, «В архив») рядом с отправкой. */
   extra?: React.ReactNode;
+  /** Дополнительные поля формы после полей настроек (до кнопок): например, телефон нового контакта. */
+  afterFields?: React.ReactNode;
 };
 
 const ISSUE_CODES = new Set(['unknown_field', 'forbidden', 'archived', 'type', 'too_long', 'option', 'url', 'email', 'phone', 'range', 'date', 'required']);
@@ -44,7 +46,7 @@ const ISSUE_CODES = new Set(['unknown_field', 'forbidden', 'archived', 'type', '
  * Форма правки полей. В режиме edit отправляются только изменённые поля вместе с тем, что пользователь
  * видел до правки (`expect`); в режиме create — только непустые.
  */
-export function FieldsForm({ mode, systemFields, customFields, legalForms = [], submitLabel, onSubmit, onCancel, extra }: Props) {
+export function FieldsForm({ mode, systemFields, customFields, legalForms = [], submitLabel, onSubmit, onCancel, extra, afterFields }: Props) {
   const t = useTranslations('clients');
   const editableCustom = customFields.filter(isFormField);
   const [sys, setSys] = useState<Record<string, string | boolean>>(() => Object.fromEntries(systemFields.map((s) => [s.key, s.value])));
@@ -134,6 +136,7 @@ export function FieldsForm({ mode, systemFields, customFields, legalForms = [], 
       {editableCustom.map((f) => (
         <FieldControl key={f.key} def={f} name={`cus-${f.key}`} value={cus[f.key] ?? draftOf(f)} error={errors[f.key]} onChange={(v) => setCus({ ...cus, [f.key]: v })} />
       ))}
+      {afterFields}
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" variant="primary" disabled={busy}>
           {busy ? t('form.saving') : submitLabel}

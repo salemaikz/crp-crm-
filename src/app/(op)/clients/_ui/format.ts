@@ -42,3 +42,20 @@ export function labelOf(label: Label, locale: string = 'ru'): string {
 export function formatDate(ms: number, timeZone: string): string {
   return new Intl.DateTimeFormat(LOCALE, { timeZone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(ms));
 }
+
+/**
+ * Срок («перезвонить», задача) с учётом точности: `time` — «пн 26.10 11:00», `day` — «пн 26.10» без времени.
+ * Пояс — установки; день недели короткий.
+ */
+export function formatDue(ms: number, precision: 'time' | 'day', timeZone: string): string {
+  const parts = new Intl.DateTimeFormat(LOCALE, { timeZone, weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms));
+  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
+  const date = `${get('weekday')} ${get('day')}.${get('month')}`;
+  return precision === 'day' ? date : `${date} ${get('hour')}:${get('minute')}`;
+}
+
+/** Длительность в секундах → минуты и секунды для подписи. */
+export function splitDuration(sec: number): { minutes: number; seconds: number } {
+  const s = Math.max(0, Math.round(sec));
+  return { minutes: Math.floor(s / 60), seconds: s % 60 };
+}

@@ -8,13 +8,18 @@ import { U, cardOf, clientOf, phoneOf } from '../../isolation/harness/seed';
 import { closeClientsWorld, openClientsWorld } from './world';
 
 /** Действия, которые подключат B7, C9, B9a: до их влития сервер отдаёт false. */
-const CAN_OFF = { edit: false, editIdentity: false, editCard: false, note: false, book: false, task: false, closeFromMenu: false, reopen: false, unblock: false, transfer: false };
+const CAN_OFF = { edit: false, editIdentity: false, editCard: false, note: false, book: false, task: false, closeFromMenu: false, reopen: false, unblock: false, transfer: false, purchase: false };
 
 let db: TestDb;
 before(async () => {
   db = await openClientsWorld();
+  // Кнопка «Покупка» зависит от флага раздела покупок; её проверяет card-head.test.ts, здесь — выключена
+  process.env['FEATURE_PURCHASES'] = '0';
 });
-after(() => closeClientsWorld(db));
+after(async () => {
+  delete process.env['FEATURE_PURCHASES'];
+  await closeClientsWorld(db);
+});
 
 test('оператор видит карточку своего клиента: шапка, номер, права', async () => {
   const v = await viewerOf(U.opA);

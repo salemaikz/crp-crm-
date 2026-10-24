@@ -3,16 +3,18 @@
 import { calling, fields, names } from '@crm/core';
 import { BadRequestError, can, ConflictError, NotFoundError, type Viewer } from '@/server/access';
 import { getDb, isUniqueViolation, type Sql } from '@/server/platform/db';
+import { isFeatureEnabled } from '@/server/platform/flags';
 import { iinHmac } from '@/server/platform/hmac';
 import { getClientSummary, listClientDeals, listFeed, parseFilter, parseGroups, readPinnedNotes, PIN_LIMIT, type ClientSummaryDto, type DealRowDto, type FeedPage, type NoteDto } from '../timeline';
 import { appendEvents, dealOfClientVisible, type NewEvent } from '../timeline/repo';
+import { loadBoardHead, toCardBoard } from './boardHead';
 import { cardFieldViewer } from './cardFields';
 import { loadCatalogLabels, type CatalogLabels } from './labels';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
 import { pickDecisionMaker, pickPrimaryPhone, toCardHead, toContactDto, toPhoneDto } from './dto';
 import { FieldIssuesError } from './errors';
 import { hiddenIdAction } from './hiddenId';
-import { SEARCH_LIMIT, LIST_LIMIT, decodeCursor, encodeCursor, type ListQuery, type PatchBody } from './input';
+import { SEARCH_LIMIT, LIST_LIMIT, decodeCursor, encodeCursor, parseFeedLimit, type ListQuery, type PatchBody } from './input';
 import {
   iinTakenBy,
   insertIinReviewTask,
@@ -41,6 +43,8 @@ export function sameSystemValue(a: unknown, b: unknown): boolean {
 // ---------- Карточка ----------
 
 /** № 14: из каких состояний карточка возвращается в обзвон. */
+/** Состояния, из которых форма покупки открывается; повторяет PURCHASE_STATES в deals (там константа не экспортируется — зона deals). */
+const PURCHASE_FROM: readonly string[] = ['agreed', 'callback', 'client'];
 const REOPEN_FROM: readonly string[] = ['not_target', 'written_off', 'not_interested'];
 
 /** № 11, 12 из меню: «Не целевой» или «Полный отказ» допустимы из этих состояний (таблица ядра). */
@@ -62,6 +66,7 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
     selectContacts(db.sql, viewer, id),
   ]);
   const phones = phoneRows.map(toPhoneDto);
+  const boardHead = head ? await loadBoardHead(viewer) : null;
   const contacts = contactRows.map((c) => toContactDto(c, fv, cfg.fields));
   return {
     id: row.id,
@@ -91,8 +96,16 @@ export async function getClientCard(viewer: Viewer, id: string, cfgIn?: ClientsC
       unblock: head ? head.canUnblock && head.state === 'do_not_call' : false,
       // B9a: право передачи по карточке (охват в SQL, «только чтение» уже понижено)
       transfer: head ? head.canTransfer : false,
+      // C7: открытая сделка в охвате `deal.purchase`, состояние допускает покупку, раздел покупок включён, «только чтение» — нет
+      purchase: head ? head.canPurchase && PURCHASE_FROM.includes(head.state) && isFeatureEnabled('PURCHASES') && !viewer.readOnly : false,
     },
-    card: head ? toCardHead(head, fields.projectFor(cardFieldViewer(viewer, cfg), 'card', cfg.fields, head.custom as fields.CustomValues)) : null,
+    card: head
+      ? toCardHead(
+          head,
+          fields.projectFor(cardFieldViewer(viewer, cfg), 'card', cfg.fields, head.custom as fields.CustomValues),
+          boardHead ? toCardBoard(head, boardHead, viewer.grants.has('deal.read')) : null,
+        )
+      : null,
     phones,
     primaryPhone: pickPrimaryPhone(phones),
     decisionMaker: pickDecisionMaker(contacts),
@@ -136,6 +149,7 @@ export async function loadClientPage(viewer: Viewer, id: string): Promise<Client
       card.card && {
         state: card.card.state,
         nextCallAt: card.card.nextCallAt,
+        nextCallPrecision: card.card.nextCallPrecision,
         callsTotal: card.card.counters.callsTotal,
         connectsTotal: card.card.counters.connectsTotal,
         noAnswerTotal: card.card.counters.noAnswerTotal,
@@ -177,8 +191,9 @@ export async function findSurvivor(viewer: Viewer, id: string): Promise<string |
 export async function getClientFeed(
   viewer: Viewer,
   id: string,
-  raw: { cursor: string | null; groups: string | null; group?: string | null; dealId?: string | null },
+  raw: { cursor: string | null; groups: string | null; group?: string | null; dealId?: string | null; limit?: string | null },
 ): Promise<FeedPage> {
+  const limit = parseFeedLimit(raw.limit);
   const cfg = await loadClientsConfig(viewer);
   const db = await getDb();
   const row = await selectClient(db.sql, viewer, id);
@@ -191,6 +206,7 @@ export async function getClientFeed(
     groups: parseGroups(raw.groups),
     filter: parseFilter(raw.group ?? null),
     dealId,
+    limit,
     fields: cfg.fields,
     fieldViewer: fieldViewer(viewer, cfg),
   });

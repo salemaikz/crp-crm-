@@ -2,15 +2,20 @@
 
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { Ellipsis, MessageCircle } from 'lucide-react';
 import { useRef, useState, type FormEvent } from 'react';
-import { Alert, BottomSheet, Badge, Button, Card, Field, Input, List, ListItem, useToast } from '@/ui/kit';
+import { useChannelModes } from '@/ui/channels';
+import { chatAction } from '@/ui/messenger/openChat';
+import { reportOpened } from '@/ui/messenger/reportOpened';
+import { Alert, BottomSheet, Badge, Button, Card, Field, Input, List, ListItem, Select, useToast } from '@/ui/kit';
 import { formatPhone } from './format';
 import { send } from './requests';
 import type { ContactView, PhoneView } from './types';
 
-type Props = { clientId: string; phones: PhoneView[]; contacts: ContactView[]; canEdit: boolean };
+/** `cardId` — карточка обзвона клиента; без неё (клиент виден по отношению) кнопки WhatsApp в строках нет, как и основной. */
+type Props = { clientId: string; cardId: string | null; phones: PhoneView[]; contacts: ContactView[]; canEdit: boolean };
 
-export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
+export function PhonesPanel({ clientId, cardId, phones, contacts, canEdit }: Props) {
   const t = useTranslations('clients');
   const router = useRouter();
   const toast = useToast();
@@ -19,6 +24,11 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<PhoneView | null>(null);
+  // Чей номер: пусто — номер клиента, иначе id контакта
+  const [contactId, setContactId] = useState('');
+  // «⋯» у строки: действия над номером
+  const [menu, setMenu] = useState<PhoneView | null>(null);
+  const modes = useChannelModes();
   // Один opId на попытку: повтор при сбое сети с тем же номером не создаст второй
   const opId = useRef<string>(crypto.randomUUID());
 
@@ -29,13 +39,14 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
     if (busy || !value.trim()) return;
     setBusy(true);
     setError(null);
-    const { result, data } = await send('POST', `/api/clients/${clientId}/phones`, { opId: opId.current, phone: value.trim() });
+    const { result, data } = await send('POST', `/api/clients/${clientId}/phones`, { opId: opId.current, phone: value.trim(), ...(contactId ? { contactId } : {}) });
     setBusy(false);
     if (result.ok) {
       const status = (data as { status?: string } | null)?.status;
       toast.show(status === 'review' ? { message: t('phones.sentForReview'), tone: 'neutral' } : { message: t('phones.added'), tone: 'success' });
       opId.current = crypto.randomUUID();
       setValue('');
+      setContactId('');
       setAdding(false);
       router.refresh();
       return;
@@ -48,6 +59,7 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
   async function act(p: PhoneView, body: { working: false } | { primary: true }) {
     const { result } = await send('PATCH', `/api/clients/phones/${p.id}`, body);
     setConfirm(null);
+    setMenu(null);
     if (result.ok) {
       toast.show({ message: t('phones.updated'), tone: 'success' });
       router.refresh();
@@ -72,39 +84,39 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
         <p className="text-[var(--text-2)]">{t('phones.empty')}</p>
       ) : (
         <List>
-          {phones.map((p) => (
-            <ListItem
-              key={p.id}
-              title={`${formatPhone(p.e164)}${p.ext ? ` (${t('phones.ext', { ext: p.ext })})` : ''}`}
-              meta={[t(`phones.kind.${p.kind}`), contactName(p.contactId)].filter(Boolean).join(' · ')}
-              trailing={
-                <span className="flex flex-wrap items-center justify-end gap-2">
-                  {p.primary && p.working && <Badge tone="brand">{t('phones.primary')}</Badge>}
-                  {!p.working && <Badge tone="danger">{t('phones.notWorking')}</Badge>}
-                </span>
-              }
-            />
-          ))}
+          {phones.map((p) => {
+            // WhatsApp у строки: только рабочий мобильный; в режиме окна чата кнопка одна, у основного номера, над карточкой
+            const wa = cardId && p.working && p.kind === 'mobile' ? chatAction(p.e164, '', modes) : null;
+            return (
+              <ListItem
+                key={p.id}
+                title={
+                  // Значок «Основной» рядом с номером и переносится под него: номер не обрезается многоточием
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="k-num">{`${formatPhone(p.e164)}${p.ext ? ` (${t('phones.ext', { ext: p.ext })})` : ''}`}</span>
+                    {p.primary && p.working && <Badge tone="success">{t('phones.primary')}</Badge>}
+                  </span>
+                }
+                meta={[t(`phones.kind.${p.kind}`), contactName(p.contactId) || t('phones.ofClient')].filter(Boolean).join(' · ')}
+                trailing={
+                  <span className="flex flex-wrap items-center justify-end gap-1">
+                    {!p.working && <Badge tone="danger">{t('phones.notWorking')}</Badge>}
+                    {wa && wa.kind === 'link' && (
+                      <Button href={wa.href} external target="_blank" rel="noopener noreferrer" variant="quiet" size="sm" iconOnly aria-label={t('phones.whatsapp', { phone: formatPhone(p.e164) })} data-testid="phone-whatsapp" onClick={() => reportOpened(cardId!)}>
+                        <MessageCircle aria-hidden="true" />
+                      </Button>
+                    )}
+                    {canEdit && p.working && (
+                      <Button variant="quiet" size="sm" iconOnly aria-label={t('phones.more', { phone: formatPhone(p.e164) })} data-testid="phone-more" onClick={() => setMenu(p)}>
+                        <Ellipsis aria-hidden="true" />
+                      </Button>
+                    )}
+                  </span>
+                }
+              />
+            );
+          })}
         </List>
-      )}
-      {canEdit && phones.some((p) => p.working) && (
-        <ul className="mt-2 flex flex-col gap-1" aria-label={t('phones.actions')}>
-          {phones
-            .filter((p) => p.working)
-            .map((p) => (
-              <li key={p.id} className="flex flex-wrap items-center gap-2">
-                <span className="min-w-0 flex-1 text-[var(--text-2)]">{formatPhone(p.e164)}</span>
-                {!p.primary && (
-                  <Button variant="quiet" size="sm" onClick={() => act(p, { primary: true })}>
-                    {t('phones.makePrimary')}
-                  </Button>
-                )}
-                <Button variant="quiet" size="sm" onClick={() => setConfirm(p)}>
-                  {t('phones.markNotWorking')}
-                </Button>
-              </li>
-            ))}
-        </ul>
       )}
       {adding && (
         <form onSubmit={add} className="mt-3 flex flex-col gap-3" noValidate>
@@ -112,6 +124,18 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
           <Field label={t('phones.newLabel')} hint={t('phones.newHint')}>
             <Input name="phone" type="tel" inputMode="tel" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} />
           </Field>
+          {contacts.length > 0 && (
+            <Field label={t('phones.whose')}>
+              <Select name="contactId" value={contactId} onChange={(e) => setContactId(e.target.value)}>
+                <option value="">{t('phones.ofClient')}</option>
+                {contacts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name || t('contacts.noName')}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <div className="flex gap-3">
             <Button type="submit" variant="secondary" disabled={busy || !value.trim()}>
               {busy ? t('form.saving') : t('phones.addSubmit')}
@@ -122,6 +146,28 @@ export function PhonesPanel({ clientId, phones, contacts, canEdit }: Props) {
           </div>
         </form>
       )}
+      <BottomSheet open={menu !== null} onClose={() => setMenu(null)} title={menu ? formatPhone(menu.e164) : ''} closeLabel={t('form.close')}>
+        {menu && (
+          <div className="flex flex-col gap-1">
+            {!menu.primary && (
+              <Button variant="quiet" block flush onClick={() => void act(menu, { primary: true })}>
+                {t('phones.makePrimary')}
+              </Button>
+            )}
+            <Button
+              variant="quiet"
+              block
+              flush
+              onClick={() => {
+                setConfirm(menu);
+                setMenu(null);
+              }}
+            >
+              {t('phones.markNotWorking')}
+            </Button>
+          </div>
+        )}
+      </BottomSheet>
       <BottomSheet
         open={confirm !== null}
         onClose={() => setConfirm(null)}
