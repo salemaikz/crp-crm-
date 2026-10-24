@@ -65,12 +65,11 @@ test('шапка перезвона «на день»: колонка, прич�
   await expect(page.getByTestId('head-state')).toHaveText('Перезвон');
   await expect(page.getByTestId('head-reason')).toHaveText('Подумает · касание 2');
   await expect(page.getByTestId('head-attended-group')).toContainText('Был на БР');
-  const lead = page.locator('.k-page-header__lead');
-  await expect(lead).toContainText('в течение дня');
-  expect(await lead.innerText()).not.toMatch(/\d{2}:\d{2}/);
-
-  // Итог по клиенту: тоже без времени
-  await expect(page.getByTestId('client-summary')).toContainText('в течение дня');
+  // «Следующий шаг» — строкой в шапке (D-358), срок без времени
+  const step = page.getByTestId('head-next-step');
+  await expect(step).toContainText('в течение дня');
+  expect(await step.innerText()).not.toMatch(/\d{2}:\d{2}/);
+  expect(await page.locator('.k-page-header__lead').innerText()).not.toMatch(/\d{2}:\d{2}/);
 
   // Лента: «Звонок · итог · причина → перезвон срок», длительность и текст заметки звонка
   const feed = page.getByRole('region', { name: 'История' }).or(page.locator('#client-feed-title').locator('..'));
@@ -128,7 +127,9 @@ test('оператор: кнопки «Покупка» нет', async ({ page }
   const op = await makeOperator(1);
   await login(page, op);
   await page.goto(`/clients/${op.clientIds[0]!}`);
-  await expect(page.getByRole('heading', { name: 'Итог по клиенту' })).toBeVisible();
+  // С воронкой v2 блока «Итог по клиенту» нет (D-358): следующий шаг стоит в шапке
+  if (CALLBACK_V2) await expect(page.getByTestId('head-next-step')).toBeVisible();
+  else await expect(page.getByRole('heading', { name: 'Итог по клиенту' })).toBeVisible();
   await expect(page.getByTestId('card-purchase')).toHaveCount(0);
 });
 
@@ -167,7 +168,9 @@ test('новый контакт: номер не принят → правка �
   await page.getByRole('button', { name: 'Добавить контакт' }).click();
   await page.getByLabel('Имя', { exact: true }).fill('Дана Синтетик');
   await page.getByRole('button', { name: 'Сохранить' }).click();
-  await expect(page.getByText('Контакт сохранён', { exact: true })).toBeVisible();
+  // Тост предыдущего сохранения может ещё висеть: подпись одна и та же, итог проверяет запрос в БД ниже
+  await expect(page.getByText('Контакт сохранён', { exact: true }).first()).toBeVisible();
+  await expect.poll(async () => (await sql<{ name: string }[]>`SELECT name FROM contacts WHERE client_id = ${clientId}`).map((n) => n.name)).toContain('Дана Синтетик');
   const all = (await sql<{ name: string }[]>`SELECT name FROM contacts WHERE client_id = ${clientId}`).map((n) => n.name);
   expect(all).toEqual(expect.arrayContaining(['Анна Синтетик', 'Дана Синтетик']));
 });
@@ -186,12 +189,66 @@ test('WhatsApp в строке номера пишет «Открыт WhatsApp»
   await req;
 });
 
-test('срок «на день» без доски: и шапка, и «Итог» показывают «в течение дня»', async ({ page }) => {
+test('срок «на день» без доски: «Следующий шаг» в шапке показывает «в течение дня»', async ({ page }) => {
   test.skip(OP_BOARD || !CALLBACK_V2, 'нужны FEATURE_CALLBACK_V2=1 и выключенная доска');
   const op = await makeOperator(1);
   await login(page, op);
   await sql`UPDATE cards SET state = 'callback', next_call_at = ${Date.now() + 3 * DAY}, next_call_precision = 'day' WHERE id = ${op.cardIds[0]!}`;
   await page.goto(`/clients/${op.clientIds[0]!}`);
-  await expect(page.getByTestId('client-summary')).toContainText('в течение дня');
+  await expect(page.getByTestId('head-next-step')).toContainText('в течение дня');
   await expect(page.locator('header, main').first()).toContainText('в течение дня');
+});
+
+// ---- Круг 3, дефект 6 (линия card): зелёная «Позвонить», без «Итога по клиенту», чипы без обрезки (D-358) ----
+
+test('«Позвонить» на карточке зелёная, как на плитке доски; чипы «Истории» не обрезаны', async ({ page }) => {
+  test.skip(!OP_BOARD || !CALLBACK_V2, 'нужны FEATURE_OP_BOARD=1 и FEATURE_CALLBACK_V2=1');
+  const op = await makeOperator(1);
+  await login(page, op);
+  await page.goto('/board');
+  const tileBg = await page.getByTestId('tile-call').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(tileBg).not.toBe('rgba(0, 0, 0, 0)');
+
+  await page.goto(`/clients/${op.clientIds[0]!}`);
+  const callBg = await page.getByRole('link', { name: /Позвонить на/ }).evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(callBg).toBe(tileBg);
+
+  // Чипы переносятся: ряд не шире своей области, ни один чип не выходит за край
+  const group = page.getByRole('group', { name: 'Фильтр истории' });
+  const fit = await group.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return { scroll: el.scrollWidth <= el.clientWidth, inside: [...el.children].every((c) => c.getBoundingClientRect().right <= box.right + 0.5) };
+  });
+  expect(fit.scroll, 'у чипов scrollWidth ≤ clientWidth').toBe(true);
+  expect(fit.inside, 'чипы не выходят за край').toBe(true);
+  expect(await noHorizontalScroll(page)).toBe(true);
+});
+
+test('нет блока «Итог по клиенту»: «Следующий шаг» строкой в шапке, счётчики одной сеткой без повторов', async ({ page }) => {
+  test.skip(!CALLBACK_V2, 'нужен FEATURE_CALLBACK_V2=1');
+  const op = await makeOperator(1);
+  const sp = await spaceId();
+  const clientId = op.clientIds[0]!;
+  const t = Date.now();
+  await sql`UPDATE cards SET state = 'callback', next_call_at = ${t + 3 * DAY}, next_call_precision = 'day', callback_reason = 'think', callback_touches = 1,
+                   calls_total = 4, connects_total = 2, no_answer_total = 2 WHERE id = ${op.cardIds[0]!}`;
+  await sql`INSERT INTO client_events (id, client_id, space_id, kind, actor_id, at, data)
+            VALUES (${randomUUID()}, ${clientId}, ${sp}, 'call', ${op.id}, ${t - 60_000}, '{"outcome":"callback","durationSec":60}'::jsonb)`;
+  await login(page, op);
+  await page.goto(`/clients/${clientId}`);
+
+  await expect(page.getByRole('heading', { name: 'Итог по клиенту' })).toHaveCount(0);
+  await expect(page.getByTestId('client-summary')).toHaveCount(0);
+  const next = page.getByTestId('head-next-step');
+  await expect(next).toContainText('Следующий шаг: перезвонить');
+  await expect(next).toContainText('в течение дня');
+
+  // «звонков/дозвонов» названы один раз — подписями сетки счётчиков
+  const counters = page.getByLabel('Счётчики карточки');
+  await expect(counters).toContainText('Звонков');
+  await expect(counters).toContainText('Дозвонов');
+  const all = (await page.locator('body').innerText()).match(/дозвон/gi)?.length ?? 0;
+  const inGrid = (await counters.innerText()).match(/дозвон/gi)?.length ?? 0;
+  expect(all, 'слово «дозвон» только в сетке счётчиков').toBe(inGrid);
+  expect(await noHorizontalScroll(page)).toBe(true);
 });

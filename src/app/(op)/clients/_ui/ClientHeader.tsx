@@ -2,16 +2,24 @@ import { getTranslations } from 'next-intl/server';
 import { Fragment, type ReactNode } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { Badge, Button, PageHeader } from '@/ui/kit';
-import type { CardHeadDto, ClientCardDto } from '@/server/domain/clients';
+import type { CardHeadDto, ClientCardDto, ClientSummaryDto } from '@/server/domain/clients';
 import type { BackTarget } from './backTarget';
 import { formatDateTime, formatDue, formatPhone, labelOf } from './format';
+import { nextStepText } from './nextStep';
 import { stateTone } from './stateTone';
 import type { LegalFormOption } from './types';
 
-type Props = { card: ClientCardDto; legalForms: LegalFormOption[]; timeZone: string; back?: BackTarget };
+type Props = {
+  card: ClientCardDto;
+  legalForms: LegalFormOption[];
+  timeZone: string;
+  back?: BackTarget;
+  /** «Следующий шаг» строкой под шапкой вместо блока «Итог по клиенту» (D-358); срок перезвона в мете тогда не дублируется. */
+  nextStep?: ClientSummaryDto['nextStep'];
+};
 
 /** Шапка карточки: «назад», название с состоянием, строка меты (форма, ЛПР, номер, перезвон, ответственный). */
-export async function ClientHeader({ card, legalForms, timeZone, back = { href: '/clients', kind: 'list' } }: Props) {
+export async function ClientHeader({ card, legalForms, timeZone, back = { href: '/clients', kind: 'list' }, nextStep }: Props) {
   const t = await getTranslations('clients');
   const head: CardHeadDto | null = card.card;
   const legal = legalForms.find((f) => f.key === card.legalForm);
@@ -21,7 +29,7 @@ export async function ClientHeader({ card, legalForms, timeZone, back = { href: 
   if (sub) parts.push(sub);
   if (card.decisionMaker) parts.push(`${t('header.decisionMaker')}: ${card.decisionMaker.name}`);
   if (card.primaryPhone) parts.push(<span className="k-num">{formatPhone(card.primaryPhone.e164)}</span>);
-  if (head?.nextCallAt != null) {
+  if (head?.nextCallAt != null && !nextStep) {
     // Срок «на день» (воронка v2): только дата и «в течение дня» — время у такого срока ложное и без доски; так же и в «Итоге»
     const day = head.nextCallPrecision === 'day';
     parts.push(t('header.callback', { date: day ? t('header.callbackDay', { date: formatDue(head.nextCallAt, 'day', timeZone) }) : formatDateTime(head.nextCallAt, timeZone) }));
@@ -82,10 +90,25 @@ export async function ClientHeader({ card, legalForms, timeZone, back = { href: 
       }
     />
   );
-  if (stripe === null) return header;
+  const step = nextStep ? (
+    <p className="mt-1 break-words text-[var(--text-2)]" data-testid="head-next-step">
+      {nextStepText(t as never, nextStep, timeZone)}
+    </p>
+  ) : null;
+  if (stripe === null) {
+    return step ? (
+      <div>
+        {header}
+        {step}
+      </div>
+    ) : (
+      header
+    );
+  }
   return (
     <div className="border-l-4 pl-3" style={{ borderLeftColor: stripe }} data-testid="head-tone" data-tone={board?.tone ?? undefined}>
       {header}
+      {step}
     </div>
   );
 }

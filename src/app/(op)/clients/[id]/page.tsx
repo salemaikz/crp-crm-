@@ -37,6 +37,8 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
   if (r.kind === 'redirect') redirect(r.to);
   if (r.kind === 'missing') notFound();
   const { card, feed, legalForms, summary, pinnedNotes, deals, catalog } = r;
+  // Ввод полей на месте — часть воронки v2 (D-356): без флага прежний список и «Изменить»
+  const inline = isFeatureEnabled('CALLBACK_V2');
   const modes = await loadChannelModes(viewer);
   const tz = viewer.timeZone;
   // Отметка согласия нужна только окну чата провайдера; в режиме wa.me ничего не читаем
@@ -58,19 +60,19 @@ export default page<Props, ReactNode>({ perm: 'client.read', target: 'object' },
     <ClientsProviders>
       <Page width="wide">
         {/* Шапка на обе колонки: история справа начинается на одной высоте с первым блоком слева */}
-        <ClientHeader card={card} legalForms={legalForms} timeZone={tz} back={backTarget(query.from, query.tab, isFeatureEnabled('OP_BOARD'))} />
+        <ClientHeader card={card} legalForms={legalForms} timeZone={tz} {...(inline ? { nextStep: summary.nextStep } : {})} back={backTarget(query.from, query.tab, isFeatureEnabled('OP_BOARD'))} />
         {/* Одна колонка на телефоне — minmax(0,1fr): ряд чипов ленты прокручивается сам, а не растягивает страницу */}
         <div className="grid grid-cols-[minmax(0,1fr)] gap-[var(--space-section)] lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:items-start">
           <div className="flex min-w-0 flex-col gap-4">
-            <CallButton phone={card.primaryPhone} modes={modes} />
+            <CallButton phone={card.primaryPhone} modes={modes} success={inline} />
             {card.primaryPhone && card.primaryPhone.kind === 'mobile' && card.card && (
               <WhatsappButton cardId={card.card.id} clientId={card.id} phone={card.primaryPhone.e164} modes={modes} consent={consent} canEditConsent={card.can.edit} />
             )}
             <CardActions card={card} viewer={viewer} />
-            <SummaryBlock summary={summary} catalog={catalog} timeZone={tz} />
+            {!inline && <SummaryBlock summary={summary} catalog={catalog} timeZone={tz} />}
             {card.card && <Counters head={card.card} timeZone={tz} />}
-            <FieldsPanel client={card} legalForms={legalForms} />
-            {card.card && <CardFieldsPanel cardId={card.card.id} version={card.card.version} fields={card.card.fields.fields} canEdit={card.can.editCard} />}
+            <FieldsPanel client={card} legalForms={legalForms} inline={inline} />
+            {card.card && <CardFieldsPanel cardId={card.card.id} version={card.card.version} fields={card.card.fields.fields} canEdit={card.can.editCard} inline={inline} />}
             {can(viewer, 'task.read') && <ClientTasksPanel clientId={card.id} clientName={card.name} canCreate={card.can.task} meId={viewer.userId} timeZone={tz} />}
             <NotesPanel key={pinnedNotes.map((n) => n.id).join(',')} clientId={card.id} pinned={pinnedNotes} canWrite={card.can.note} timeZone={tz} />
             <DealsPanel deals={deals} catalog={catalog} timeZone={tz} />

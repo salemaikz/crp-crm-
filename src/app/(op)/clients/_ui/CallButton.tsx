@@ -11,7 +11,7 @@ import { formatPhone } from './format';
  * через провайдера). На телефоне закреплена над нижним меню (--bottom-nav-h). Нет рабочего номера —
  * вместо кнопки пояснение.
  */
-export async function CallButton({ phone, modes }: { phone: PhoneDto | null; modes: ChannelModes }) {
+export async function CallButton({ phone, modes, success = false }: { phone: PhoneDto | null; modes: ChannelModes; /** Зелёная, как «Позвонить» на плитке доски (D-358); без флага — основной цвет кнопки. */ success?: boolean }) {
   const t = await getTranslations('clients');
   if (!phone) {
     return (
@@ -22,7 +22,7 @@ export async function CallButton({ phone, modes }: { phone: PhoneDto | null; mod
   }
   return (
     <div className="sticky bottom-[var(--bottom-nav-h)] z-10 -mx-[var(--gutter)] bg-[var(--canvas)] px-[var(--gutter)] py-2 lg:static lg:mx-0 lg:bg-transparent lg:p-0">
-      <Button {...dialProps(phone, modes)} variant="primary" size="lg" block aria-label={t('call.aria', { phone: formatPhone(phone.e164) })}>
+      <Button {...dialProps(phone, modes)} variant="primary" size="lg" block {...(success ? { className: 'bg-success text-on-success' } : {})} aria-label={t('call.aria', { phone: formatPhone(phone.e164) })}>
         <Phone aria-hidden="true" />
         {t('call.button')}
       </Button>

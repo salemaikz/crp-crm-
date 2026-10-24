@@ -67,6 +67,7 @@ export type InlineFieldProps = {
   onRefresh?: () => void;
   /** Показ значения без права правки (ссылка, почта); по умолчанию — текст. */
   readView?: ReactNode;
+  className?: string;
 };
 
 const LAYOUT: Record<NonNullable<InlineFieldProps['layout']>, string> = {
@@ -75,7 +76,7 @@ const LAYOUT: Record<NonNullable<InlineFieldProps['layout']>, string> = {
   auto: 'flex flex-col gap-0.5 sm:grid sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-baseline sm:gap-x-3',
 };
 
-export function InlineField({ field, value, save, texts, layout = 'auto', onValue, onRefresh, readView }: InlineFieldProps) {
+export function InlineField({ field, value, save, texts, layout = 'auto', onValue, onRefresh, readView, className }: InlineFieldProps) {
   const { object, key, type, label, options } = field;
   const [local, setLocal] = useState<unknown>(value);
   const [state, setState] = useState<InlineState>({ phase: 'view' });
@@ -210,7 +211,7 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
           >
             {texts.keepNew}
           </Button>
-          <Button type="button" variant="primary" size="sm" data-testid="inline-write-mine" onClick={() => {
+          <Button type="button" variant="primary" size="sm" className="bg-success text-on-success" data-testid="inline-write-mine" onClick={() => {
               setLocal(state.current);
               void commit(state.draft, state.current);
             }}
@@ -248,7 +249,7 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
           />
         </fieldset>
         <div className="flex gap-2">
-          <Button type="submit" variant="primary" size="sm" iconOnly aria-label={texts.save} disabled={saving} data-testid="inline-save" {...keepFocus}>
+          <Button type="submit" variant="primary" size="sm" className="bg-success text-on-success" iconOnly aria-label={texts.save} disabled={saving} data-testid="inline-save" {...keepFocus}>
             <Check aria-hidden="true" />
           </Button>
           <Button type="button" variant="secondary" size="sm" iconOnly aria-label={texts.cancel} disabled={saving} data-testid="inline-cancel" onClick={cancel} {...keepFocus}>
@@ -290,7 +291,7 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   }
 
   return (
-    <div ref={root} className={`${LAYOUT[layout]} py-1.5`} data-testid={`inline-${tid}`} onBlur={onBlur}>
+    <div ref={root} className={`${LAYOUT[layout]} py-1.5${className ? ` ${className}` : ''}`} data-testid={`inline-${tid}`} onBlur={onBlur}>
       <dt className="text-[var(--text-2)]">{label}</dt>
       <dd className="min-w-0 break-words">{body}</dd>
     </div>
