@@ -510,16 +510,16 @@ test('шторка лида: «Позвонить» целиком в окне �
   await expect(drawer).toBeVisible();
   await expect(page.getByTestId('drawer-fields')).toBeVisible();
 
-  // «Позвонить» не заходит под нижнее меню и целиком в окне
+  // «Позвонить» целиком в окне; модальная шторка перекрывает нижнее меню, поэтому под кнопкой нет пустого отступа под меню
   const geo = await page.evaluate(() => {
     const call = document.querySelector('[data-testid="drawer-call"]')!.getBoundingClientRect();
-    const nav = [...document.querySelectorAll('nav')].find((n) => getComputedStyle(n).position === 'fixed');
-    return { top: call.top, bottom: call.bottom, left: call.left, right: call.right, inner: { w: window.innerWidth, h: window.innerHeight }, navTop: nav ? nav.getBoundingClientRect().top : window.innerHeight };
+    const hit = document.elementFromPoint(call.left + call.width / 2, call.top + call.height / 2);
+    return { top: call.top, bottom: call.bottom, right: call.right, inner: { w: window.innerWidth, h: window.innerHeight }, onTop: !!hit?.closest('[data-testid="drawer-call"]') };
   });
   expect(geo.top).toBeGreaterThanOrEqual(0);
   expect(geo.bottom).toBeLessThanOrEqual(geo.inner.h);
-  expect(geo.bottom).toBeLessThanOrEqual(geo.navTop + 0.5);
   expect(geo.right).toBeLessThanOrEqual(geo.inner.w);
+  expect(geo.onTop).toBe(true);
 
   // Пустые поля свёрнуты: весь блок полей не выше 120 px
   const toggle = page.getByTestId('fields-empty-toggle');
@@ -527,18 +527,16 @@ test('шторка лида: «Позвонить» целиком в окне �
   expect(Number((await toggle.textContent())!.match(/\d+/)![0])).toBeGreaterThanOrEqual(4);
   expect((await page.getByTestId('drawer-fields').boundingBox())!.height).toBeLessThanOrEqual(120);
 
-  // Раскрыли: подпись и «Добавить» одной базовой линии (±2 px)
+  // Раскрыли: на телефоне подпись стоит над значением (стопка), а не слева от него
   await toggle.click();
-  const base = await page.getByTestId('drawer-fields').locator('dl > div').first().evaluate((row) => {
-    const bottomOf = (el: Element) => {
-      const r = document.createRange();
-      r.selectNodeContents(el);
-      const rects = r.getClientRects();
-      return rects[rects.length - 1]!.bottom;
-    };
-    return { label: bottomOf(row.querySelector('dt')!), value: bottomOf(row.querySelector('dd button, dd')!) };
-  });
-  expect(Math.abs(base.label - base.value)).toBeLessThanOrEqual(2);
+  const stack = await page.getByTestId('drawer-fields').locator('dl > div').first().evaluate((row) => ({
+    labelBottom: row.querySelector('dt')!.getBoundingClientRect().bottom,
+    valueTop: row.querySelector('dd button, dd')!.getBoundingClientRect().top,
+    labelLeft: row.querySelector('dt')!.getBoundingClientRect().left,
+    valueLeft: row.querySelector('dd button, dd')!.getBoundingClientRect().left,
+  }));
+  expect(stack.valueTop).toBeGreaterThanOrEqual(stack.labelBottom - 1);
+  expect(Math.abs(stack.valueLeft - stack.labelLeft)).toBeLessThanOrEqual(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 

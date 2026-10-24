@@ -1,4 +1,4 @@
-// Подписи услуг и вариантов покупки из настроек пространства зрителя (D-357): ключи в интерфейс не попадают.
+// Подписи услуг и вариантов покупки из настроек пространства зрителя (D-357): ключи в интерфейс не попадают (услуга без подписи считается неизвестной).
 import type { Viewer } from '@/server/access';
 import { getActiveConfig } from '@/server/platform/config/active';
 import type { ServiceLabels } from '@/ui/board/purchase';
@@ -12,5 +12,5 @@ export async function loadServiceLabels(viewer: Viewer): Promise<ServiceLabels> 
   const cfg = await getActiveConfig();
   const space = Object.values(cfg.spaces).find((s) => s.spaceId === viewer.spaceId);
   const list = ((space?.doc as { serviceTypes?: Service[] } | undefined)?.serviceTypes ?? []) as Service[];
-  return Object.fromEntries(list.map((s) => [s.key, { label: s.label?.ru ?? s.key, variants: Object.fromEntries((s.variants ?? []).map((v) => [v.key, v.label.ru])) }]));
+  return Object.fromEntries(list.filter((s) => s.label?.ru).map((s) => [s.key, { label: s.label!.ru, variants: Object.fromEntries((s.variants ?? []).map((v) => [v.key, v.label.ru])) }]));
 }

@@ -160,7 +160,7 @@ export function LeadTile(p: LeadTileProps) {
         </h3>
         {/* Доска пространства: ответственный — аватар-инициалы 20 px перед «⋯», полное имя в title и aria-label */}
         {owner !== undefined && (
-          <span className="mt-0.5 inline-flex shrink-0" title={t('tile.owner', { name: owner })} role="img" aria-label={t('tile.owner', { name: owner })} data-testid="tile-owner">
+          <span className="relative z-10 mt-0.5 inline-flex shrink-0" title={t('tile.owner', { name: owner })} role="img" aria-label={t('tile.owner', { name: owner })} data-testid="tile-owner">
             <Avatar name={owner} size="xs" />
           </span>
         )}
@@ -216,7 +216,7 @@ export function LeadTile(p: LeadTileProps) {
                   >
                     {card.confirm.mark === 'confirmed' ? t('confirm.mark.confirmed') : t('confirm.mark.todo')}
                     {card.confirm.mark === 'confirmed' && card.confirm.confirmedBy !== undefined && (
-                      <span title={t('confirm.by', { name: card.confirm.confirmedBy })} data-testid="tile-confirm-by">
+                      <span className="relative z-10" title={t('confirm.by', { name: card.confirm.confirmedBy })} data-testid="tile-confirm-by">
                         {' '}
                         · {initials(card.confirm.confirmedBy)}
                       </span>

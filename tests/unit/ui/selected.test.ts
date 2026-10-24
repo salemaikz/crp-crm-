@@ -51,9 +51,10 @@ test('контраст рамки выбранного >= 3:1 к фону и п�
   }
 });
 
-test('кнопка success и подвал шторки над нижним меню', () => {
+test('кнопка success и подвал шторки: только безопасная зона, без отступа под меню (модальная шторка его перекрывает)', () => {
   assert.match(kitCss, /\.k-btn--success\s*\{/);
-  assert.match(kitCss, /\.k-overlay__footer[^{]*\{[^}]*--nav-h/s);
+  assert.match(kitCss, /\.k-overlay--sheet \.k-overlay__footer\s*\{[^}]*safe-area-inset-bottom/s);
+  assert.doesNotMatch(kitCss, /\.k-overlay__footer[^{]*\{[^}]*--nav-h/s);
 });
 
 test('вкладка колонки: активная — жирный --text, полоса 3px снизу и --surface-selected; неактивная — --text-2', () => {

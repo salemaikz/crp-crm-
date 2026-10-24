@@ -1257,10 +1257,10 @@
     gap: 8px;
     margin-top: var(--space-gap);
   }
-  /* Телефон: главная кнопка шторки стоит над нижним меню и безопасной зоной (D-358 п. 4) */
+  /* Телефон: шторка модальная и перекрывает нижнее меню, поэтому под кнопкой только безопасная зона (D-358 п. 4) */
   @media (max-width: 767.98px) {
     .k-overlay--sheet .k-overlay__footer {
-      padding-bottom: var(--nav-h);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
     }
     /* Телефон: шторка выше — главная кнопка и срок перезвона помещаются без прокрутки */
     .k-overlay--sheet .k-overlay__panel {

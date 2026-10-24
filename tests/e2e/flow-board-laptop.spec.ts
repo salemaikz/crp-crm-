@@ -2,10 +2,11 @@
 // перезвона, плитка «Договорились», итог покупок и экран «Мои покупки», доска РОП с фильтром сотрудника. Тема берётся
 // из системы (ВП-12), поэтому схема задаётся контексту браузера. Нужна БД e2e и сервер с FEATURE_OP_BOARD=1,
 // FEATURE_CALLBACK_V2=1 и FEATURE_THEME_DARK=1 (стенд). Синтетика: +7 709 …, «ТОО Синтетика …».
-import { expect, test, type Page } from '@playwright/test';
-import { DB_URL, login, makeOperator, prepareDb, sql } from './support/calling';
+import { randomUUID } from 'node:crypto';
+import { expect, test, type Browser, type Page } from '@playwright/test';
+import { DB_URL, login, loginByRequest, makeOperator, prepareDb, sql } from './support/calling';
 import { makeAgreed, makeWonDeal } from './support/board';
-import { makeTrash, makeWonDealVariant } from './support/board-r3';
+import { makeTrash, makeWonDealVariant, ropContext } from './support/board-r3';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 test.skip(process.env.FEATURE_OP_BOARD !== '1' || process.env.FEATURE_CALLBACK_V2 !== '1', 'нужен запуск с FEATURE_OP_BOARD=1 и FEATURE_CALLBACK_V2=1 (стенд)');
@@ -233,11 +234,14 @@ for (const width of [1280, 1440]) {
 }
 
 // ---------- Круг 3, B2/B3 (D-358 п. 1–2): колонки не уже 17/15rem, ряд прокручивается, панель в две строки ----------
-async function seedWide(who: 'operator' | 'rop') {
+async function seedWide(page: Page, browser: Browser, baseURL: string, who: 'operator' | 'rop') {
   const op = await makeOperator(8, who === 'rop' ? { role: 'rop' } : {});
+  await login(page, op);
   await makeTrash(op, 2);
-  await makeWonDealVariant(op.id, 150000);
-  await makeWonDealVariant(op.id, 1_250_000, 'celina', 'offline');
+  const ctx = await ropContext(browser, baseURL);
+  await makeWonDealVariant(ctx, op, 150000);
+  await makeWonDealVariant(ctx, op, 1_250_000, 'celina', 'offline');
+  await ctx.close();
   return op;
 }
 
@@ -245,9 +249,8 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
   test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
 
   for (const who of ['operator', 'rop'] as const) {
-    test(`${who}: ширина колонок ≥ 272/240, суммы и причины не обрезаны, плейсхолдер целиком, панель в двух строках`, async ({ page }) => {
-      const op = await seedWide(who);
-      await login(page, op);
+    test(`${who}: ширина колонок ≥ 272/240, суммы и причины не обрезаны, плейсхолдер целиком, панель в двух строках`, async ({ page, browser, baseURL }) => {
+      const op = await seedWide(page, browser, baseURL!, who);
       await page.goto(who === 'rop' ? '/deals/calling' : '/board');
       await expect(page.getByTestId('board-screen')).toBeVisible();
       await expect(page.getByTestId('lead-tile').first()).toBeVisible();
@@ -288,9 +291,8 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
       expect(await noHScroll(page)).toBe(true);
     });
 
-    test(`${who}: ряд прокручивается с видимой полосой, «›» двигает ряд, «Мусор» после прокрутки в окне`, async ({ page }) => {
-      const op = await seedWide(who);
-      await login(page, op);
+    test(`${who}: ряд прокручивается с видимой полосой, «›» двигает ряд, «Мусор» после прокрутки в окне`, async ({ page, browser, baseURL }) => {
+      const op = await seedWide(page, browser, baseURL!, who);
       await page.goto(who === 'rop' ? '/deals/calling' : '/board');
       await expect(page.getByTestId('lead-tile').first()).toBeVisible();
       const row = page.getByTestId('board-columns');
@@ -313,10 +315,19 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
     });
   }
 
-  test('плитки: название не заходит под «Позвонить», левая граница текста у белых и цветных одинакова', async ({ page }) => {
+  test('плитки: название не заходит под «Позвонить», левая граница текста у белых и цветных одинакова', async ({ page, browser, baseURL }) => {
     const op = await makeOperator(6);
     const agreed = await makeAgreed(op, 2);
-    await sql`UPDATE bookings SET status = 'attended' WHERE id = ${agreed[0]!.bookingId}`;
+    // Явку отмечает РОП через API (оператор свою запись отметить не может)
+    const rop = await makeOperator(0, { role: 'rop' });
+    const ropCtx = await browser.newContext();
+    await loginByRequest(ropCtx, rop, baseURL!);
+    const att = await ropCtx.request.post(`/api/bookings/${agreed[0]!.bookingId}/attendance`, {
+      headers: { origin: baseURL!, 'content-type': 'application/json' },
+      data: { opId: randomUUID(), version: 0, to: 'attended' },
+    });
+    expect(att.status(), await att.text()).toBe(200);
+    await ropCtx.close();
     await login(page, op);
     await page.goto('/board');
     await expect(page.getByTestId('lead-tile').first()).toBeVisible();
@@ -345,10 +356,12 @@ for (const [name, viewport, mobile] of [['1440', { width: 1440, height: 900 }, f
   test.describe(`покупка с вариантом, ${name}`, () => {
     test.use({ viewport, isMobile: mobile, hasTouch: mobile });
 
-    test('плитка «Покупка» и «Мои покупки»: «Целина · Онлайн» и «1 250 000 ₸ · дата» целиком', async ({ page }) => {
+    test('плитка «Покупка» и «Мои покупки»: «Целина · Онлайн» и «1 250 000 ₸ · дата» целиком', async ({ page, browser, baseURL }) => {
       const op = await makeOperator(1);
-      const won = await makeWonDealVariant(op.id, 1_250_000, 'celina', 'online');
       await login(page, op);
+      const ctx = await ropContext(browser, baseURL!);
+      const won = await makeWonDealVariant(ctx, op, 1_250_000, 'celina', 'online');
+      await ctx.close();
       await page.goto('/board');
       await expect(page.getByTestId('board-screen')).toBeVisible();
       if (mobile) await page.getByTestId('tab-purchase').click();
@@ -388,6 +401,14 @@ test.describe('доска РОП на 1440×900', () => {
     expect(Math.round(avatar.width)).toBe(20);
     expect(Math.round(avatar.height)).toBe(20);
     await expect(tile.getByTestId('tile-owner')).toHaveAttribute('title', /Айгерим Синтетик/);
+    // Подсказка доступна мышью: под курсором в центре аватара сам аватар, а не растянутая кнопка плитки
+    await tile.getByTestId('tile-owner').scrollIntoViewIfNeeded();
+    const hit = await tile.getByTestId('tile-owner').evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return el.contains(top) ? 'ok' : (top?.outerHTML.slice(0, 200) ?? 'null');
+    });
+    expect(hit).toBe('ok');
     await expect(tile.getByTestId('tile-owner')).toHaveAttribute('aria-label', /Айгерим Синтетик/);
     const menu = (await tile.getByTestId('tile-menu').boundingBox())!;
     expect(avatar.x + avatar.width).toBeLessThanOrEqual(menu.x + 0.5);

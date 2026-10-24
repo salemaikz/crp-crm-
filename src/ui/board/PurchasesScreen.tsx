@@ -33,7 +33,7 @@ export function PurchasesScreen({ data, serviceLabels, timeZone }: { data: MyPur
               title={p.clientName ?? t('purchases.transferred')}
               meta={
                 <span className="flex flex-col" data-testid="purchase-meta">
-                  <span data-testid="purchase-service">{serviceLine(p.serviceTypeKey, p.variant, serviceLabels) || t('purchases.noType')}</span>
+                  <span data-testid="purchase-service">{serviceLine(p.serviceTypeKey, p.variant, serviceLabels) || (p.serviceTypeKey ? t('purchases.removed') : t('purchases.noType'))}</span>
                   <span className="whitespace-nowrap" data-testid="purchase-amount">
                     {purchaseAmountLine(p.amountKzt === null ? t('purchases.noAmount') : money(p.amountKzt), f.dateTime(p.wonAt, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone }))}
                   </span>

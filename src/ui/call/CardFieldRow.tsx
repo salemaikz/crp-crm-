@@ -34,7 +34,7 @@ export function CardFieldRow({ field, value, cardId, clientId, onValue, fetchFn 
       value={value}
       save={save}
       texts={texts}
-      layout="row"
+      layout="auto"
       onValue={(v) => {
         onValue(field.key, v);
         toast.show({ message: t('card.field.saved'), tone: 'success' });
