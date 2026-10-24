@@ -83,6 +83,8 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   const [draft, setDraft] = useState<FieldDraft>('');
   const [error, setError] = useState<string | undefined>(undefined);
   const busy = useRef(false);
+  // Была ли правка с клавиатуры: у даты change после неё — промежуточный, не выбор в календаре
+  const typed = useRef(false);
   const root = useRef<HTMLDivElement>(null);
   const tid = `${object}-${key}`;
 
@@ -107,6 +109,7 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   };
 
   const open = () => {
+    typed.current = false;
     setDraft(draftFor(type, local));
     setError(undefined);
     setState({ phase: 'edit', draft: draftFor(type, local) });
@@ -155,11 +158,12 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   const onPick = (next: FieldDraft) => {
     setDraft(next);
     setError(undefined);
-    // Выбор из списка и флажок сохраняются сразу; дата — только полная (год от 1900), иначе по Enter, ✓ или потере фокуса
-    if (commitsOnChange(type, next)) void commit(next);
+    // Выбор из списка и флажок сохраняются сразу; дата — только выбор в календаре, иначе по Enter, ✓ или потере фокуса
+    if (commitsOnChange(type, next, typed.current)) void commit(next);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    if (!['Escape', 'Enter', 'Tab', 'Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) typed.current = true;
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -231,6 +235,9 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
       <form
         className="flex flex-col gap-2"
         data-testid={`inline-form-${tid}`}
+        onPointerDown={() => {
+          typed.current = false;
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           void commit(draft);

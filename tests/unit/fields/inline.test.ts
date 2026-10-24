@@ -128,7 +128,18 @@ test('дата при вводе с клавиатуры: промежуточн
   assert.equal(commitsOnChange('date', '2026-10-24'), true);
   assert.equal(commitsOnChange('date', ''), false);
   assert.equal(commitsOnChange('date', '2026-10'), false);
+  // Набор с клавиатуры (D-356): полная дата с готовым годом не уходит после цифры дня или месяца
+  assert.equal(commitsOnChange('date', '2026-02-10', true), false);
+  assert.equal(commitsOnChange('date', '2026-02-05', true), false);
+  assert.equal(commitsOnChange('date', '2026-10-24', false), true);
   assert.equal(commitsOnChange('select', 'a'), true);
   assert.equal(commitsOnChange('boolean', true), true);
   assert.equal(commitsOnChange('text', 'x'), false);
+});
+
+test('423 «только чтение»: поле запирается с причиной readonly, текст берётся из локали', async () => {
+  assert.deepEqual(stateAfterSave('x', { ok: false, kind: 'readonly' }), { phase: 'locked', reason: 'readonly' });
+  const { readFileSync } = await import('node:fs');
+  const ru = JSON.parse(readFileSync('messages/ru/clients.json', 'utf8')) as Record<string, unknown>;
+  assert.match(JSON.stringify(ru), /Режим «только чтение»: менять нельзя/);
 });

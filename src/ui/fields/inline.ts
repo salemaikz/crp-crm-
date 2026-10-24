@@ -17,13 +17,14 @@ export function commitsOnPick(type: string): boolean {
 }
 
 /**
- * Сохранять ли на событие change. Нативная дата в Chrome и Edge присылает change после каждой цифры года
- * («0002-10-24»), поэтому дата уходит, только когда введена целиком и год не короче реального (от 1900);
- * иначе — Enter, потеря фокуса или ✓, как у текста.
+ * Сохранять ли на событие change. Нативная дата в Chrome и Edge присылает change после каждой цифры
+ * («0002-10-24», у готовой даты — «2026-02-10» после первой цифры дня), поэтому по change дата уходит только при
+ * выборе в календаре (`typed` = false) и полной записи с годом от 1900. Набор с клавиатуры (`typed`) сохраняется
+ * по Enter, потере фокуса или ✓, как текст.
  */
-export function commitsOnChange(type: string, next: FieldDraft): boolean {
+export function commitsOnChange(type: string, next: FieldDraft, typed = false): boolean {
   if (type === 'date') {
-    if (typeof next !== 'string') return false;
+    if (typed || typeof next !== 'string') return false;
     const m = /^(\d{4})-\d{2}-\d{2}$/.exec(next);
     return !!m && Number(m[1]) >= 1900;
   }

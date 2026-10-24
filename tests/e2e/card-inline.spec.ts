@@ -145,9 +145,31 @@ for (const size of [{ name: 'телефон', viewport: undefined }, { name: 'н
       await page.keyboard.type('202');
       expect(seen).toHaveLength(0);
       await page.keyboard.type('6');
+      // Набор с клавиатуры сохраняется по Enter, а не по change
+      expect(seen).toHaveLength(0);
+      await page.keyboard.press('Enter');
       await expect(open(page, 'client-e2e_date')).toHaveText('10.10.2026');
       expect(seen).toHaveLength(1);
       expect((await customOf(clientId)).e2e_date).toBe('2026-10-10');
+    });
+
+    test('дата с готовым значением: две цифры дня — один запрос с полной новой датой', async ({ page }) => {
+      test.skip(!size.viewport, 'ввод с клавиатуры — ноутбук');
+      const op = await makeOperator(1);
+      const clientId = await seedClient(op, { e2e_date: '2026-10-10' });
+      await login(page, op);
+      await page.goto(`/clients/${clientId}`);
+      const seen = patches(page);
+      await open(page, 'client-e2e_date').click();
+      await page.getByLabel('Дата встречи').focus();
+      // Локаль браузера en-US: первый сегмент — месяц, затем день; после «12» фокус сам уходит на день
+      await page.keyboard.type('12');
+      await page.keyboard.type('25');
+      expect(seen).toHaveLength(0);
+      await page.keyboard.press('Enter');
+      await expect.poll(() => seen.length).toBe(1);
+      const saved = (await customOf(clientId)).e2e_date as string;
+      expect(saved).toBe('2026-12-25');
     });
 
     test('список: выбор сохраняется сразу', async ({ page }) => {
@@ -239,6 +261,9 @@ for (const size of [{ name: 'телефон', viewport: undefined }, { name: 'н
       await expect(page.locator('[data-testid^="inline-open-"]')).toHaveCount(0);
       await expect(page.getByTestId('fields-edit-all')).toHaveCount(0);
       await expect(page.getByTestId('inline-empty-toggle')).toHaveCount(0);
+      // Пустое поле без права правки не показывается вовсе (access = view)
+      await expect(page.getByTestId('inline-client-e2e_budget')).toHaveCount(0);
+      await expect(page.getByTestId('inline-client-e2e_date')).toHaveCount(0);
     });
   });
 }
