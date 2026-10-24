@@ -30,7 +30,7 @@ import {
 } from './types';
 
 /** Одна таблица на отчёт, без графиков (PROCESS 10.2). На телефоне прокручивается по горизонтали, первая колонка закреплена. */
-const WRAP = 'min-w-0 [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-[1] [&_td:first-child]:bg-[var(--surface)] [&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-[1] [&_th:first-child]:bg-[var(--surface)]';
+const WRAP = 'min-w-0 [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-normal [&_th]:leading-tight [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-[1] [&_td:first-child]:bg-[var(--surface)] [&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-[1] [&_th:first-child]:bg-[var(--surface)]';
 
 type Props = { reportKey: ReportKey; data: ReportData; labels: ReportLabels };
 
