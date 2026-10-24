@@ -217,6 +217,7 @@ async function createClient(
   const cardId = newId();
   await repo.insertCard(sql, { id: cardId, spaceId: r.principal.spaceId, clientId: id, holdReason: hold.reason, holdCode: hold.code, now: r.now });
   // Кэш горячести новой карточки: вес состояния «новая» и признаки клиента (§5.4), иначе свежий лид идёт после импортных
+  // Метка кэша вместо исполнителя — D-351
   await refreshCardDerived({ kind: 'cache', label: 'intake.ingest' }, sql, [cardId]);
   if (pairs.length > 0) await repo.insertPairs(sql, id, pairs.map((p) => ({ ...p, rowId: newId() })), r.now);
   return {

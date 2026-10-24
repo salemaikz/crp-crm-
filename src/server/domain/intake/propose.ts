@@ -67,6 +67,7 @@ export async function createProposalClient(sql: Sql, cfg: ClientsConfig, p: NewP
   });
   await repo.addPhones(sql, clientId, [{ id: newId(), digits: p.digits, kind: p.phoneKind, ext: p.ext, isPrimary: true }], p.now);
   await repo.insertCard(sql, { id: cardId, spaceId: p.spaceId, clientId, holdReason: '', holdCode: '', now: p.now });
+  // Метка кэша вместо исполнителя — D-351
   await refreshCardDerived({ kind: 'cache', label: 'intake.propose' }, sql, [cardId]);
   const ev = (kind: string, data: Record<string, unknown>) =>
     repo.insertClientEventRow(sql, { id: newId(), clientId, spaceId: p.spaceId, kind, actorId: p.actorId, now: p.now, data });

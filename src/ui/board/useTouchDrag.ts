@@ -3,8 +3,8 @@
 // Перенос плитки долгим нажатием на телефоне (pipeline-v2 §9.2, этап В). Палец лёг на плитку и 350 мс не сдвинулся —
 // плитка «поднимается» (лёгкая вибрация, где есть), прокрутка блокируется, вкладки колонок становятся целями. Палец
 // сдвинулся раньше — это обычная прокрутка или свайп колонок, жест не перехватывается. Отпустили на цели — onDrop.
-// Библиотека @dnd-kit/core (D-347) в зависимости пока не добавлена, поэтому события касания обработаны здесь;
-// переход на неё не меняет внешний вид хука (те же canDrag/canDrop/onDrop).
+// Без библиотеки перетаскивания (D-352, уточняет D-347): события касания обработаны здесь; замена на библиотеку,
+// если понадобится, не меняет внешний вид хука (те же canDrag/canDrop/onDrop).
 import { useCallback, useEffect, useRef, useState, type RefObject, type TouchEvent as ReactTouchEvent } from 'react';
 import { hitTarget, LONG_PRESS_MS, scrolledAway, type ColumnRect, type Point } from './dnd';
 import type { DragState } from './useMouseDrag';

@@ -19,7 +19,8 @@ export type CardActor = Viewer | SystemActor;
 
 /**
  * Кто пересчитывает кэш карточки. Пересчёт исполнителя не читает (охват не применяется), поэтому, кроме Viewer и
- * SystemActor, допустима явная метка вызывающего: она не даёт прав и SystemActor не подделывает.
+ * SystemActor, допустима явная метка вызывающего: она не даёт прав и SystemActor не подделывает (D-351).
+ * Метки — закрытый список: `intake.ingest`, `intake.propose`, `import.apply`; новая — отдельное решение.
  */
 export type DerivedActor = CardActor | { readonly kind: 'cache'; readonly label: string };
 

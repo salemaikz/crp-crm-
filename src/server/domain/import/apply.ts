@@ -61,7 +61,7 @@ const DERIVED_BATCH = 2000;
 /**
  * Пересчёт кэша признаков и горячести карточек, записанных импортом (pipeline-v2 §5.1, §5.4): импорт пишет `cards`
  * мимо `persist`, поэтому heat и признаки явки считаются здесь, в той же транзакции. Кэш читает записи и сделки по
- * клиенту, исполнитель в нём только метка (охват не применяется), поэтому без Viewer берётся явная метка кэша, а не SystemActor (D-231).
+ * клиенту, исполнитель в нём только метка (охват не применяется), поэтому без Viewer берётся явная метка кэша, а не SystemActor (D-351, ср. D-231).
  */
 async function refreshImported(sql: Sql, actor: ImportActor, ids: readonly string[]): Promise<void> {
   const who = actor.viewer ?? ({ kind: 'cache', label: 'import.apply' } as const);
