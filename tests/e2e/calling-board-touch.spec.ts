@@ -164,7 +164,9 @@ test('оператор без права явки: переключателя н
   // Признака нет и записи не подтверждали: ни переключателя, ни значка, в чипе - статус записи
   await expect(tile.getByRole('switch')).toHaveCount(0);
   await expect(tile.getByTestId('tile-badge-attended')).toHaveCount(0);
-  await expect(tile.getByTestId('tile-chip')).toContainText('Не подтвердил');
+  // «Не подтвердил» на плитке не пишется (по умолчанию все записи такие, D-358 п. 7)
+  await expect(tile.getByTestId('tile-chip')).not.toContainText('Не подтвердил');
+  await expect(tile.getByTestId('tile-chip')).toContainText(/БР/);
   await tile.getByTestId('tile-open').click();
   await expect(page.getByTestId('lead-drawer')).toBeVisible();
   await expect(page.getByTestId('drawer-toggles')).toHaveCount(0);
@@ -214,10 +216,12 @@ test('цвета плиток: консультация - жёлтая, груп
       const want = getComputedStyle(probe).backgroundColor;
       probe.remove();
       const cs = getComputedStyle(el);
-      return { bg: cs.backgroundColor, want, stripe: cs.borderLeftWidth };
+      return { bg: cs.backgroundColor, want, stripe: cs.boxShadow, border: cs.borderLeftWidth };
     }, tone);
     expect(look.bg).toBe(look.want);
-    expect(look.stripe).toBe('6px');
+    // Полоса — внутренняя тень 6 px (D-358 п. 2): рамка у всех плиток одной ширины, текст не сдвигается
+    expect(look.stripe).toMatch(/inset 6px 0px 0px 0px|6px 0px 0px 0px inset/);
+    expect(look.border).toBe('1px');
   }
 
 });

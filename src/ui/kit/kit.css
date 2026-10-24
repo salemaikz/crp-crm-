@@ -893,7 +893,8 @@
     width: 22px;
     height: 22px;
     margin: 0;
-    accent-color: var(--brand);
+    /* Выбранное нейтрально (D-358 п. 3): у клиента с красным брендом красная галочка читалась как ошибка */
+    accent-color: var(--text);
   }
 
   /* ---------- Вкладки ---------- */
@@ -1260,6 +1261,10 @@
   @media (max-width: 767.98px) {
     .k-overlay--sheet .k-overlay__footer {
       padding-bottom: var(--nav-h);
+    }
+    /* Телефон: шторка выше — главная кнопка и срок перезвона помещаются без прокрутки */
+    .k-overlay--sheet .k-overlay__panel {
+      max-height: 94dvh;
     }
   }
   @keyframes k-sheet-in {

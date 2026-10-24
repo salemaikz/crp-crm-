@@ -144,9 +144,10 @@ test('сквозной путь: перезвон без времени → ог
   await page.reload();
   await page.getByTestId('tab-br').click();
   await expect(tileOf(page, name)).toBeVisible();
-  // Оператор явку не отмечает: переключателя нет вовсе, а запись видна чипом со статусом
+  // Оператор явку не отмечает: переключателя нет вовсе, а запись видна чипом (без слова «Не подтвердил»)
   await expect(tileOf(page, name).getByRole('switch')).toHaveCount(0);
-  await expect(tileOf(page, name).getByTestId('tile-chip')).toContainText('Не подтвердил');
+  await expect(tileOf(page, name).getByTestId('tile-chip')).not.toContainText('Не подтвердил');
+  await expect(tileOf(page, name).getByTestId('tile-chip')).toContainText(/БР/);
   expect(await noHScroll(page)).toBe(true);
 
   await startMeeting(cardId);

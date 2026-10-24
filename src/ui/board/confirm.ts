@@ -28,7 +28,7 @@ export function dayMonth(date: string): string {
   return m ? `${m[2]}.${m[1]}` : date;
 }
 
-/** «БР 24.10; БК 25.10» для строки шапки: короткие подписи видов из настроек. */
+/** «{вид} 24.10; {вид} 25.10» для строки шапки: короткие подписи видов из настроек. */
 export function eventsText(events: ConfirmInfo['events'], labels: Readonly<Record<string, string>>, unknown: string): string {
   return events.map((e) => `${labels[e.type] ?? unknown} ${dayMonth(e.date)}`).join('; ');
 }

@@ -35,7 +35,7 @@ import { exitCallConfig } from './exit';
 import { ConfirmSheet } from './ConfirmSheet';
 import { confirmColumnKey, confirmEventsFor, eventsText, needsAnswer, remainingOf } from './confirm';
 import { useBoardConfirm } from './useBoardConfirm';
-import { fadeMask, rowEdges, rowStep, rowTarget } from './rowScroll';
+import { fadeMask, metricsOf, rowEdges, rowStep, rowTarget } from './rowScroll';
 import { useAttendance } from './useAttendance';
 import { useMonthPurchases } from './useMonthPurchases';
 import { useMouseDrag } from './useMouseDrag';
@@ -249,7 +249,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
     const el = scroller.current;
     if (!el) return;
     const check = () => {
-      const e = el.clientWidth > 767 ? rowEdges(el) : { before: false, after: false };
+      const e = el.clientWidth > 767 ? rowEdges(metricsOf(el)) : { before: false, after: false };
       setEdges((p) => (p.before === e.before && p.after === e.after ? p : e));
     };
     check();
@@ -264,7 +264,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
     const el = scroller.current;
     if (!el) return;
     const col = el.querySelector<HTMLElement>('[data-column-key]');
-    el.scrollTo({ left: rowTarget(dir, el, rowStep(col?.getBoundingClientRect().width ?? 272, 8, el.clientWidth)), behavior: 'smooth' });
+    el.scrollTo({ left: rowTarget(dir, metricsOf(el), rowStep(col?.getBoundingClientRect().width ?? 272, 8, el.clientWidth)), behavior: 'smooth' });
   };
 
   if (runtime.locked) return null;
@@ -284,7 +284,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   const emptyBoard = data.phase === 'ready' && tabs.every((x) => x.count === 0) && !q && filters.length === 0 && extra.owner === '' && extra.callbackReason === '';
 
   const callSheetCard = moves.callSheet?.card;
-  // Обзвон: строка в колонке записи — «Подтвердить явку · БР 24.10: осталось N» (РОП — ещё и счётчики)
+  // Обзвон: строка в колонке записи — «Подтвердить явку · {вид} 24.10: осталось N» (РОП — ещё и счётчики)
   const confirmNotice = (col: BoardColumnConfig): ReactNode => {
     if (!confirmInfo || col.role !== 'agreed') return undefined;
     const events = confirmEventsFor(confirmInfo, col.eventTypes);

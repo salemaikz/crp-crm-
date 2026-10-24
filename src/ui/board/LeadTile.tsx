@@ -294,7 +294,7 @@ export function LeadTile(p: LeadTileProps) {
               {...dial}
               variant="success"
               size="md"
-              className={`min-h-[var(--tap-min)] min-w-0 flex-1 md:col-start-2 md:row-start-1 md:self-center md:size-8 md:min-h-0 md:min-w-0 md:flex-none md:rounded-full md:p-0`}
+              className={`relative z-10 min-h-[var(--tap-min)] min-w-0 flex-1 md:col-start-2 md:row-start-1 md:self-center md:size-8 md:min-h-0 md:min-w-0 md:flex-none md:rounded-full md:p-0`}
               {...(p.locked || p.callBlocked ? { disabled: true } : {})}
               aria-label={t('call.aria', { name: card.name })}
               title={t('call.button')}

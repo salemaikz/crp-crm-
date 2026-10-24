@@ -1,7 +1,7 @@
 // Прокрутка ряда колонок: края, шаг кнопок, затухание (D-358 п. 1).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fadeMask, rowEdges, rowStep, rowTarget } from '@/ui/board/rowScroll';
+import { fadeMask, metricsOf, rowEdges, rowStep, rowTarget } from '@/ui/board/rowScroll';
 
 const M = { scrollLeft: 0, clientWidth: 1000, scrollWidth: 1600 };
 
@@ -27,4 +27,12 @@ test('затухание 24 px только у тех краёв, где ест�
   assert.equal(fadeMask({ before: false, after: false }), undefined);
   assert.match(fadeMask({ before: false, after: true })!, /black 0, black calc\(100% - 24px\), transparent 100%/);
   assert.match(fadeMask({ before: true, after: false })!, /transparent 0, black 24px, black 100%/);
+});
+
+test('конец ряда считается по ширине с резервом под полосу: последние пиксели лежат в ней', () => {
+  // clientWidth 1185 + резерв 15 = offsetWidth 1200; предел прокрутки 1672 − 1200 = 472
+  const el = { scrollLeft: 472, offsetWidth: 1200, scrollWidth: 1672 };
+  assert.deepEqual(rowEdges(metricsOf(el)), { before: true, after: false });
+  assert.equal(rowTarget(1, metricsOf(el), 500), 472);
+  assert.deepEqual(rowEdges(metricsOf({ ...el, scrollLeft: 0 })), { before: false, after: true });
 });

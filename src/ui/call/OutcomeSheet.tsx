@@ -194,7 +194,7 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
           )}
 
           {selected && (
-            <div className="flex flex-col gap-3" data-testid="outcome-details">
+            <div className="flex flex-col gap-2" data-testid="outcome-details">
               {selected.reasons.length > 0 && (
                 <ChipGroup label={t('sheet.reason')} showLabel={config.callbackV2} className={config.callbackV2 ? 'grid grid-cols-2 gap-2 overflow-visible' : 'flex-wrap'}>
                   {selected.reasons.map((r) => (

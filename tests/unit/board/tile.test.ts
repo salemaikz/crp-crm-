@@ -218,3 +218,12 @@ test('разделитель «·» между ЛПР и номером став
   assert.equal(contactDot({ hasName: false, hasPhone: true }), 'none');
   assert.equal(contactDot({ hasName: true, hasPhone: false }), 'none');
 });
+
+test('«Позвонить» в «Договорились» — только у плиток обзвона, которым нужен ответ (D-355)', () => {
+  const todo = card({ confirm: { mark: 'todo', tries: 0, lastTryAt: null, confirmedAt: null } });
+  const done = card({ confirm: { mark: 'confirmed', tries: 0, lastTryAt: null, confirmedAt: 1 } });
+  assert.equal(tileRows(todo, ctxOf('agreed', 'own'), 'phone').actions, true);
+  assert.equal(tileRows(done, ctxOf('agreed', 'own'), 'phone').actions, false);
+  assert.equal(tileRows(card(), ctxOf('agreed', 'own'), 'phone').actions, false);
+  assert.ok(tileRows(todo, ctxOf('agreed', 'own'), 'phone').count <= 4);
+});

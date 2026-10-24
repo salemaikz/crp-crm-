@@ -7,6 +7,12 @@ export interface RowMetrics {
   scrollWidth: number;
 }
 
+/**
+ * Размеры ряда для расчёта краёв. Ширина окна — `offsetWidth`, а не `clientWidth`: ряд резервирует место под полосу
+ * (`scrollbar-gutter: stable`), и последние пиксели прокрутки лежат в этой полосе — по `clientWidth` «конец» не наступал бы.
+ */
+export const metricsOf = (el: { scrollLeft: number; offsetWidth: number; scrollWidth: number }): RowMetrics => ({ scrollLeft: el.scrollLeft, clientWidth: el.offsetWidth, scrollWidth: el.scrollWidth });
+
 /** За краем ряда слева и справа есть ещё колонки (допуск 2 px на дробные значения). */
 export function rowEdges(m: RowMetrics): { before: boolean; after: boolean } {
   return { before: m.scrollLeft > 2, after: m.scrollLeft + m.clientWidth < m.scrollWidth - 2 };

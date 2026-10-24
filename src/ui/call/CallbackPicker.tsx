@@ -67,7 +67,7 @@ export function CallbackPicker({ config, draft, touches, openedAt, onChange, day
 
   return (
     <div className="flex flex-col gap-2" data-testid="callback-picker">
-      <ChipGroup label={t('sheet.callbackAt')} showLabel className="flex-wrap">
+      <ChipGroup label={t('sheet.callbackAt')} showLabel>
         {hint && (
           <Chip
             active={picked === 'hint'}
@@ -117,33 +117,35 @@ export function CallbackPicker({ config, draft, touches, openedAt, onChange, day
         </Field>
       )}
       {!dayOnly && (
-        <Checkbox
-          label={t('sheet.callback.withTime')}
-          checked={withTime}
-          disabled={dayOf === null}
-          onChange={(e) => {
-            if (dayOf !== null) setDue(dayOf, e.target.checked ? config.callWindowStart : null);
-          }}
-          data-testid="callback-with-time"
-        />
-      )}
-      {withTime && (
-        <Field label={t('sheet.callback.timeLabel')}>
-          {/* Список слотов в окне звонков, 24 часа: нативное поле времени показывает «09:00 AM» по системной локали */}
-          <Select
-            value={timeOf}
+        <div className="flex items-center justify-between gap-3">
+          <Checkbox
+            label={t('sheet.callback.withTime')}
+            checked={withTime}
+            disabled={dayOf === null}
             onChange={(e) => {
-              if (dayOf !== null) setDue(dayOf, e.target.value);
+              if (dayOf !== null) setDue(dayOf, e.target.checked ? config.callWindowStart : null);
             }}
-            data-testid="callback-time"
-          >
-            {timeSlots(config.callWindowStart, config.callWindowEnd ?? '23:45', SLOT_STEP_MIN, timeOf).map((slot) => (
-              <option key={slot} value={slot}>
-                {slotLabel(slot)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+            data-testid="callback-with-time"
+          />
+          {withTime && (
+            /* Список слотов в окне звонков, 24 часа: нативное поле времени показывает «09:00 AM» по системной локали */
+            <Select
+              aria-label={t('sheet.callback.timeLabel')}
+              className="w-auto min-w-28"
+              value={timeOf}
+              onChange={(e) => {
+                if (dayOf !== null) setDue(dayOf, e.target.value);
+              }}
+              data-testid="callback-time"
+            >
+              {timeSlots(config.callWindowStart, config.callWindowEnd ?? '23:45', SLOT_STEP_MIN, timeOf).map((slot) => (
+                <option key={slot} value={slot}>
+                  {slotLabel(slot)}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
       )}
       {draft.callbackAt !== null && dayOf !== null && (
         <p className="text-sm" style={{ color: 'var(--text-2)' }} data-testid="callback-chosen">

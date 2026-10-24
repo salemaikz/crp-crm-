@@ -92,11 +92,14 @@ test.describe('геометрия колонок на ноутбуке', () => {
   test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
 
   for (const who of ['operator', 'rop'] as const) {
-    test(`1440×900, ${who}: правый край каждой колонки не дальше края ряда и окна`, async ({ page }) => {
+    test(`1440×900, ${who}: после прокрутки ряда вправо правый край каждой колонки не дальше края ряда и окна`, async ({ page }) => {
       const op = await makeOperator(8, who === 'rop' ? { role: 'rop' } : {});
       await login(page, op);
       await page.goto(who === 'rop' ? '/deals/calling' : '/board');
       await expect(page.getByTestId('board-screen')).toBeVisible();
+      // Колонки не уже 17/15rem (D-358): ряд шире окна и прокручивается; в конце прокрутки каждая колонка целиком в ряду
+      await page.getByTestId('board-columns').evaluate((el) => (el.scrollLeft = el.scrollWidth));
+      await page.waitForTimeout(200);
       const g = await rightEdge(page);
       for (const key of COLUMNS) {
         expect(g.out[key]!, `колонка ${key}`).toBeLessThanOrEqual(g.rowRight + 0.5);
@@ -263,7 +266,8 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
         return out;
       });
       expect(clipped).toEqual([]);
-      await expect(page.getByTestId('column-trash').getByTestId('tile-end-label').first()).toHaveText(/Закрыл компанию/);
+      // Причина закрытия подписью из настроек, целиком (у РОП на странице бывают и чужие закрытые — проверяем любую)
+      await expect(page.getByTestId('column-trash').getByTestId('tile-end-label').first()).toHaveText(/\S+ ·$/);
 
       // Плейсхолдер поиска помещается целиком (измеряем шрифтом поля)
       const ph = await page.getByTestId('board-search').evaluate((el) => {
@@ -304,7 +308,8 @@ test.describe('круг 3: ряд колонок и панель на 1440×900'
       const after = (await page.getByTestId('column-trash').boundingBox())!;
       expect(after.x + after.width).toBeLessThanOrEqual(1440 + 0.5);
       expect(after.x).toBeGreaterThanOrEqual(0);
-      await expect(page.getByTestId('board-scroll-next')).toBeDisabled();
+      const end = await row.evaluate((el) => ({ l: el.scrollLeft, c: el.clientWidth, s: el.scrollWidth }));
+      await expect(page.getByTestId('board-scroll-next'), JSON.stringify(end)).toBeDisabled();
     });
   }
 

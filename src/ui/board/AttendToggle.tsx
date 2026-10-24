@@ -6,7 +6,7 @@ import { Check, Circle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { ToggleView } from './attend';
 
-/** `compact` (доска РОП): «БР ✓» / «БК ○» по короткой подписи вида, 28 px; полная фраза остаётся в aria-label и title. */
+/** `compact` (доска РОП): «{short} ✓» / «{short} ○» по короткой подписи вида, 28 px; полная фраза остаётся в aria-label и title. */
 export function AttendToggle({ view, event, busy, onToggle, compact }: { view: ToggleView; event: string; busy?: boolean; onToggle: () => void; compact?: boolean }) {
   const t = useTranslations('board');
   const label = t(`badge.${view.kind}`, { event: event || t('chip.eventUnknown') });

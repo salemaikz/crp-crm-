@@ -5,14 +5,21 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, callsOf, login, makeOperator, prepareDb, sql, type Operator } from './support/calling';
-import { makeAgreed } from './support/board';
+import { makeAgreed, pickOwner } from './support/board';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
-test.skip(process.env.FEATURE_OP_BOARD !== '1', 'нужен запуск с FEATURE_OP_BOARD=1 (стенд)');
+const ON = process.env.FEATURE_OP_BOARD === '1' && process.env.FEATURE_CALLBACK_V2 === '1';
 
 test.beforeAll(() => {
   prepareDb();
+  if (!ON) return;
   execFileSync(process.execPath, ['--import', 'tsx', 'tests/e2e/support/confirm-day.ts'], { stdio: 'inherit', env: { ...process.env } });
+});
+
+test.afterAll(() => {
+  if (!ON) return;
+  // Возвращаем дни обзвона сида: другие спецификации идут не в день обзвона
+  execFileSync(process.execPath, ['--import', 'tsx', 'tests/e2e/support/confirm-day.ts', 'restore'], { stdio: 'inherit', env: { ...process.env } });
 });
 
 const tileOf = (page: Page, name: string) => page.getByTestId('lead-tile').filter({ hasText: name });
@@ -31,6 +38,7 @@ const bookingOf = async (id: string) => (await sql<{ status: string }[]>`SELECT 
 
 for (const [label, viewport, mobile] of [['Pixel 7', { width: 412, height: 915 }, true], ['1440', { width: 1440, height: 900 }, false]] as const) {
   test.describe(`обзвон, ${label}`, () => {
+    test.skip(!ON, 'нужен запуск с FEATURE_OP_BOARD=1 и FEATURE_CALLBACK_V2=1 (стенд)');
     test.use({ viewport, isMobile: mobile, hasTouch: mobile });
 
     test('плитка обзвона сверху; звонок → «Придёт» → «✓ Придёт», запись confirmed', async ({ page }, testInfo) => {
@@ -155,6 +163,9 @@ for (const [label, viewport, mobile] of [['Pixel 7', { width: 412, height: 915 }
       await ctx.close();
 
       await open(page, rop, '/deals/calling');
+      // На стенде много чужих карточек: сужаем доску сотрудником
+      await pickOwner(page, op.id);
+      await expect(tileOf(page, agreed[0]!.name)).toBeVisible();
       await expect(page.getByTestId('confirm-line')).toContainText('осталось');
       await expect(page.getByTestId('confirm-line')).toContainText('придут');
       const done = tileOf(page, agreed[0]!.name);
@@ -177,7 +188,7 @@ for (const [label, viewport, mobile] of [['Pixel 7', { width: 412, height: 915 }
 }
 
 test.describe('без CALLBACK_V2 пометок обзвона нет', () => {
-  test.skip(process.env.FEATURE_CALLBACK_V2 === '1', 'проверяется запуском без флага');
+  test.skip(process.env.FEATURE_OP_BOARD !== '1' || process.env.FEATURE_CALLBACK_V2 === '1', 'проверяется запуском с FEATURE_OP_BOARD=1 и без FEATURE_CALLBACK_V2');
   test('плитка «Договорились» без пометок и без «Позвонить»', async ({ page }) => {
     const op = await makeOperator(0);
     const agreed = await makeAgreed(op, 1, { startedAgoMs: SOON });
