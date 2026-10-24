@@ -118,3 +118,33 @@ test('гость: API отвечает 401', async ({ request }) => {
   const res = await request.get('/api/reports/summary');
   expect(res.status()).toBe(401);
 });
+
+// Дефект 8 (круг 3): таблица операторов на ноутбуке не вылезает за окно; при нехватке места прокручивается обёртка
+for (const width of [1280, 1440]) {
+  test.describe(`таблица операторов, ${width}×900`, () => {
+    test.use({ viewport: { width, height: 900 }, isMobile: false, hasTouch: false });
+
+    test('правый край таблицы и обёртки в окне, у документа нет горизонтальной прокрутки, числа tabular-nums', async ({ page }) => {
+      await login(page, rop);
+      await page.goto('/summary');
+      const row = page.getByRole('row', { name: new RegExp(operator.name) });
+      await expect(row).toBeVisible();
+      const wrap = page.locator('.k-table-wrap').filter({ has: row });
+      const box = await wrap.evaluate((el) => {
+        const t = el.querySelector('table')!.getBoundingClientRect();
+        const w = el.getBoundingClientRect();
+        return { tableRight: t.right, wrapRight: w.right, inner: window.innerWidth, docScroll: document.documentElement.scrollWidth, overflowX: getComputedStyle(el).overflowX };
+      });
+      expect(box.wrapRight).toBeLessThanOrEqual(box.inner);
+      expect(box.docScroll).toBeLessThanOrEqual(box.inner);
+      // таблица либо целиком в окне, либо прокручивается внутри обёртки
+      if (box.tableRight > box.inner) expect(box.overflowX).toBe('auto');
+      else expect(box.tableRight).toBeLessThanOrEqual(box.inner);
+      const num = await row.locator('td[data-numeric]').first().evaluate((el) => getComputedStyle(el).fontVariantNumeric);
+      expect(num).toContain('tabular-nums');
+      // первая колонка липкая
+      const pos = await row.locator('td').first().evaluate((el) => getComputedStyle(el).position);
+      expect(pos).toBe('sticky');
+    });
+  });
+}
