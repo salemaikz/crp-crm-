@@ -182,7 +182,7 @@ test('доступ: директор читает; консультант и о�
 test('признаки покупок: есть при deal.read роли, у роли без него ключа нет вовсе', async () => {
   const first = column(await getBoard(opA, { filter: ['purchased'] }), 'callback');
   const withBuy = (await drain(opA, 'callback', first, undefined, ['purchased'])).find((c) => c.id === 'ord-007');
-  assert.deepEqual(withBuy?.purchases, { total: 1, lastAt: SEED_NOW - 9 * DAY });
+  assert.deepEqual(withBuy?.purchases, { total: 1, lastAt: SEED_NOW - 9 * DAY, lastAmountKzt: null });
   // та же роль оператора, но без deal.read: ключа purchases нет, фильтр purchased — 400
   const doc = configDoc() as { global: { roles: Array<{ key: string; grants: Array<{ perm: string }> }> } };
   const roles = doc.global.roles.map((r) => (r.key === 'operator' ? { ...r, grants: r.grants.filter((g) => g.perm !== 'deal.read') } : r));

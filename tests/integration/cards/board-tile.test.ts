@@ -8,7 +8,7 @@ import { phoneHmac } from '../../../src/server/platform/hmac';
 import { enterSeedWorld, viewerOf } from '../../isolation/harness/actors';
 import { U } from '../../isolation/harness/seed';
 import type { TestDb } from '../../../src/server/platform/db/testing';
-import { SEED_NOW, addCard, clearOwner, closeBoardWorld, openBoardWorld } from './boardWorld';
+import { SEED_NOW, SPACE, addCard, clearOwner, closeBoardWorld, openBoardWorld } from './boardWorld';
 
 let db: TestDb;
 let opA: Viewer;
@@ -54,4 +54,46 @@ test('номер из стоп-листа плитке не отдаётся', a
   await db.sql`INSERT INTO stop_list (phone_hmac, reason_code, source, created_at) VALUES (${phoneHmac('77098000502')}, 'x', 'manual', ${SEED_NOW})`;
   const t = tile(await getBoard(opA, {}), 'tile-2');
   assert.equal(t?.phone, null);
+});
+
+test('вид номера плитки: мобильный и городской различаются, чтобы WhatsApp не предлагался на городской', async () => {
+  await enterSeedWorld();
+  await addCard(db.sql, { id: 'tile-3', owner: U.opA, state: 'new', name: 'ТОО Синтетика Плитка 3' }, 503);
+  await db.sql`UPDATE client_phones SET kind = 'landline' WHERE id = 'ph-tile-3'`;
+  const b = await getBoard(opA, {});
+  assert.equal(tile(b, 'tile-1')?.phone?.kind, 'mobile');
+  assert.equal(tile(b, 'tile-3')?.phone?.kind, 'landline');
+  // РОП получает вид тоже: он не раскрывает номер
+  assert.equal(tile(await getBoard(rop, {}), 'tile-3')?.phone?.kind, 'landline');
+});
+
+test('ownerName: у РОП (охват пространства) плитка несёт имя владельца, у оператора ключа нет вовсе', async () => {
+  await enterSeedWorld();
+  const [owner] = await db.sql<{ name: string }>`SELECT name FROM users WHERE id = ${U.opA}`;
+  const ropTile = tile(await getBoard(rop, {}), 'tile-1');
+  assert.equal(ropTile?.ownerName, owner!.name);
+  const opTile = tile(await getBoard(opA, {}), 'tile-1');
+  assert.ok(opTile, 'плитка оператора есть');
+  assert.equal('ownerName' in opTile, false, 'у оператора ключа ownerName нет, а не пустая строка');
+  assert.ok(!JSON.stringify(await getBoard(opA, {})).includes(owner!.name), 'и имя сотрудника в ответе оператора не встречается');
+});
+
+test('ownerName: карточка без владельца (пул) — пустое имя не выдумывается, ключа нет', async () => {
+  await enterSeedWorld();
+  await addCard(db.sql, { id: 'tile-4', owner: null, state: 'new', name: 'ТОО Синтетика Плитка 4' }, 504);
+  const found = (await getBoard(rop, { q: 'Плитка 4' })).search?.matches.find((m) => m.id === 'tile-4');
+  assert.ok(found);
+  assert.equal('ownerName' in found, false);
+});
+
+test('«Покупка»: плитка несёт сумму последней покупки в целых тенге; у карточки не-клиента суммы нет', async () => {
+  await enterSeedWorld();
+  await addCard(db.sql, { id: 'tile-5', owner: U.opA, state: 'client', name: 'ТОО Синтетика Плитка 5', purchasesTotal: 2, lastPurchaseAt: SEED_NOW - 1000 }, 505);
+  for (const [id, amount, wonAt] of [['dl-tile-5a', 90000, SEED_NOW - 5000], ['dl-tile-5b', 150000, SEED_NOW - 1000]] as const) {
+    await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, service_type_key, amount_kzt, won_at, stage_changed_at, created_at, updated_at)
+                 VALUES (${id}, ${SPACE}, 'sales', 'won', 'won', 'cl-tile-5', 'tile-5', ${U.opA}, 'smm', ${amount}, ${wonAt}, ${wonAt}, ${wonAt}, ${wonAt})`;
+  }
+  const b = await getBoard(opA, {});
+  assert.deepEqual(tile(b, 'tile-5')?.purchases, { total: 2, lastAt: SEED_NOW - 1000, lastAmountKzt: 150000 });
+  assert.equal(tile(b, 'tile-1')?.purchases?.lastAmountKzt, null, 'у «Новой» карточки суммы нет');
 });

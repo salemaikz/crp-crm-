@@ -244,6 +244,10 @@ export interface BoardRowDb {
   bookingStartsAt: number | null;
   bookingId: string | null;
   bookingVersion: number | null;
+  /** Имя владельца карточки (JOIN users); в DTO уходит только при охвате шире своих. */
+  ownerName: string | null;
+  /** Сумма последней выигранной сделки карточки «Клиент»; null — суммы нет или карточка не в состоянии «клиент». */
+  lastPurchaseAmount: number | null;
 }
 
 /** Строки по id под тем же охватом; порядок — как у `ids`. */
@@ -254,8 +258,14 @@ export async function selectBoardRows(sql: Sql, viewer: Viewer, ids: readonly st
            c.callback_reason, c.callback_touches, c.lpr, c.is_target, c.attended_group_at, c.attended_individual_at,
            c.last_no_show_at, c.last_no_show_kind, c.purchases_total, c.last_purchase_at, c.closed_at, c.close_reason_code,
            c.custom AS card_custom, cl.custom AS client_custom,
-           bk.event_type_key AS booking_type, bk.status AS booking_status, bk.starts_at AS booking_starts_at, bk.id AS booking_id, bk.version AS booking_version
+           bk.event_type_key AS booking_type, bk.status AS booking_status, bk.starts_at AS booking_starts_at, bk.id AS booking_id, bk.version AS booking_version,
+           ou.name AS owner_name, lp.amount_kzt AS last_purchase_amount
       FROM cards c JOIN clients cl ON cl.id = c.client_id
+      LEFT JOIN users ou ON ou.id = c.owner_user_id
+      LEFT JOIN LATERAL (
+        SELECT d.amount_kzt FROM deals d
+         WHERE c.state = 'client' AND d.card_id = c.id AND d.status = 'won'
+         ORDER BY d.won_at DESC, d.id LIMIT 1) lp ON TRUE
       LEFT JOIN LATERAL (
         SELECT b.id, b.version, b.event_type_key, b.status, b.starts_at
           FROM bookings b JOIN deals d ON d.id = b.deal_id AND d.status = 'open' AND d.card_id = c.id

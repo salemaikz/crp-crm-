@@ -290,6 +290,30 @@ describe('доска: чтение (оператор A)', () => {
   });
 });
 
+describe('доска: имя ответственного на плитке (B6)', () => {
+  test('оператору ключа ownerName нет ни на колонках, ни в «Ещё», ни в поиске; РОП получает имя владельца (контроль)', async () => {
+    const hasOwnerName = (cards: Card[]) => cards.filter((c) => 'ownerName' in c).length;
+    const r = await api(U.opA, 'board', { query: '?q=' + encodeURIComponent('Синтетика Альфа') });
+    assert.equal(r.status, 200, r.body.slice(0, 200));
+    const board = json<Board>(r);
+    const own = board.columns.flatMap((c) => c.cards);
+    assert.ok(own.length > 0 && (board.search?.matches.length ?? 0) > 0, 'контроль: карточки и совпадения поиска есть');
+    assert.equal(hasOwnerName(own), 0, 'на колонках у оператора ключа ownerName нет');
+    assert.equal(hasOwnerName(board.search?.matches ?? []), 0, 'в поиске тоже');
+    assert.ok(!/"ownerName"/.test(r.body), 'ключа нет нигде в теле ответа');
+    const withNext = board.columns.find((c) => c.next !== null);
+    assert.ok(withNext, 'контроль: есть колонка с курсором');
+    const more = await api(U.opA, 'column', { query: `?column=${encodeURIComponent(withNext.key)}&cursor=${encodeURIComponent(withNext.next!)}` });
+    assert.equal(more.status, 200);
+    assert.ok(!/"ownerName"/.test(more.body), 'в «Ещё» ключа нет');
+
+    const rop = await api(U.rop, 'board');
+    assert.equal(rop.status, 200);
+    const ropCards = json<Board>(rop).columns.flatMap((c) => c.cards);
+    assert.ok(ropCards.some((c) => 'ownerName' in c), 'контроль: у РОП имя владельца есть');
+  });
+});
+
 describe('доска: действия над чужой карточкой (оператор A → карточка B)', () => {
   const foreignId = cardOf('b', 1);
   const closeBody = (kind: string, reasonCode = 'unreachable') => ({ opId: uid(1), version: 0, kind, reasonCode, alsoDncPhoneIds: [] });

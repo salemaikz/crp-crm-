@@ -58,10 +58,18 @@ export interface BoardCardDto {
    * Основной рабочий номер не из стоп-листа. Закрытый вид — для плитки; цифры (`digits`) уходят только при охвате `own`
    * (оператору на его карточках, как в очереди «Звонить»): РОП и директор на плитках цифр не получают.
    */
-  phone: { id: string; masked: string; digits?: string } | null;
+  phone: { id: string; masked: string; kind: 'mobile' | 'landline' | 'unknown'; digits?: string } | null;
+  /**
+   * Имя владельца карточки (ответственный) — только при охвате шире своих (РОП, директор); у оператора ключа нет вовсе,
+   * а не пустая строка. Карточка без владельца ключа не имеет.
+   */
+  ownerName?: string;
   flags: { attendedGroup: boolean; attendedIndividual: boolean; noShow: boolean };
-  /** Только при `deal.read` с охватом роли: у остальных ключа нет, а не нули. */
-  purchases?: { total: number; lastAt: number | null };
+  /**
+   * Только при `deal.read` с охватом роли: у остальных ключа нет, а не нули. `lastAmountKzt` — сумма последней покупки
+   * (для строки колонки «Покупка»), целые тенге; null — суммы нет.
+   */
+  purchases?: { total: number; lastAt: number | null; lastAmountKzt: number | null };
   /** Запись открытой сделки (для «Договорились»). */
   event: { type: string; status: string; startsAt: number; bookingId: string; bookingVersion: number } | null;
   closedAt: number | null;
@@ -225,7 +233,7 @@ function tileValues(cfg: ClientsConfig | null, viewer: Viewer, r: BoardRowDb): R
 
 /** Номер и ЛПР для плиток страницы: один запрос на страницу, клиенты уже отобраны под охватом. */
 interface Extras {
-  phones: Map<string, { id: string; digits: string }>;
+  phones: Map<string, { id: string; digits: string; kind: 'mobile' | 'landline' | 'unknown' }>;
   lprs: Map<string, string>;
 }
 
@@ -233,9 +241,9 @@ async function loadExtras(rows: readonly BoardRowDb[]): Promise<Extras> {
   const db = await getDb();
   const clientIds = [...new Set(rows.map((r) => r.clientId))];
   const [phoneRows, lprRows] = await Promise.all([queuePhones(db.sql, clientIds), queueLprs(db.sql, clientIds)]);
-  const phones = new Map<string, { id: string; digits: string }>();
+  const phones = new Map<string, { id: string; digits: string; kind: 'mobile' | 'landline' | 'unknown' }>();
   // Номера приходят в порядке «основной, мобильный, старший»: первый на клиента и есть номер плитки
-  for (const p of phoneRows) if (!phones.has(p.clientId)) phones.set(p.clientId, { id: p.id, digits: p.digits });
+  for (const p of phoneRows) if (!phones.has(p.clientId)) phones.set(p.clientId, { id: p.id, digits: p.digits, kind: p.kind });
   return { phones, lprs: new Map(lprRows.map((l) => [l.clientId, l.name])) };
 }
 
@@ -259,13 +267,14 @@ function toDto(viewer: Viewer, c: Ctx, r: BoardRowDb, column: string | null, x: 
     lpr: r.lpr,
     isTarget: r.isTarget,
     lprName: x.lprs.get(r.clientId) ?? '',
-    phone: ph ? { id: ph.id, masked: maskKzPhone(ph.digits), ...(c.access.scope === 'own' ? { digits: ph.digits } : {}) } : null,
+    phone: ph ? { id: ph.id, masked: maskKzPhone(ph.digits), kind: ph.kind, ...(c.access.scope === 'own' ? { digits: ph.digits } : {}) } : null,
+    ...(c.access.scope !== 'own' && r.ownerName !== null && r.ownerName !== '' ? { ownerName: r.ownerName } : {}),
     flags: {
       attendedGroup: r.attendedGroupAt !== null,
       attendedIndividual: r.attendedIndividualAt !== null,
       noShow: r.lastNoShowAt !== null && r.lastNoShowAt > lastAttended,
     },
-    ...(c.access.purchases ? { purchases: { total: r.purchasesTotal, lastAt: r.lastPurchaseAt } } : {}),
+    ...(c.access.purchases ? { purchases: { total: r.purchasesTotal, lastAt: r.lastPurchaseAt, lastAmountKzt: r.lastPurchaseAmount === null ? null : Number(r.lastPurchaseAmount) } } : {}),
     event:
       r.bookingType !== null && r.bookingStatus !== null && r.bookingStartsAt !== null && r.bookingId !== null && r.bookingVersion !== null
         ? { type: r.bookingType, status: r.bookingStatus, startsAt: r.bookingStartsAt, bookingId: r.bookingId, bookingVersion: Number(r.bookingVersion) }
