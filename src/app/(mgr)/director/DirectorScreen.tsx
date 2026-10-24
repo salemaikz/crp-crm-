@@ -42,21 +42,20 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
   const [error, setError] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
   const inflight = useRef(false);
-  const weekRef = useRef(initial.weekKey);
-  weekRef.current = data.weekKey;
 
+  const week = data.weekKey;
   const refresh = useCallback(async () => {
     if (inflight.current) return;
     inflight.current = true;
     setBusy(true);
-    const r = await load(weekRef.current);
+    const r = await load(week);
     inflight.current = false;
     setBusy(false);
     if (r.ok) {
       setData(r.data);
       setError(null);
     } else setError(r.key);
-  }, []);
+  }, [week]);
 
   const money = (v: number) => tp('money', { value: fmtInt(v) });
   const percent = (v: number | null) => (v === null ? tp('none') : tp('percent', { value: fmtDec(v) }));

@@ -294,8 +294,8 @@ function AttendanceListTable({ data, labels }: { data: AttendanceListData; label
 function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabels }) {
   const t = useTranslations('reports.reasons');
   const [view, setView] = useState<'blocks' | 'details'>('blocks');
-  if (data.rows.length === 0 && data.blocks.every((b) => b.total === 0)) return <EmptyState title={t('empty')} />;
   const reasonLabel = useReasonLabel(labels);
+  if (data.rows.length === 0 && data.blocks.every((b) => b.total === 0)) return <EmptyState title={t('empty')} />;
   const cols: TableColumn<ReasonRow>[] = [
     { key: 'group', header: t('cols.group'), primary: true, cell: (r) => <strong>{t(`groups.${r.group}`)}</strong> },
     { key: 'reason', header: t('cols.reason'), cell: reasonLabel },
