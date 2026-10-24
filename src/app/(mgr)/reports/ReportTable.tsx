@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Badge, EmptyState, Segmented, Table, type TableColumn } from '@/ui/kit';
@@ -257,7 +258,19 @@ function AttendanceListTable({ data, labels }: { data: AttendanceListData; label
   const cols: TableColumn<AttendanceListRow>[] = [
     { key: 'date', header: t('list.cols.date'), primary: true, cell: (r) => <strong>{`${formatDay(r.date)} ${r.startTime}`}</strong> },
     { key: 'eventType', header: t('list.cols.eventType'), cell: (r) => labels.eventTypes[r.eventTypeKey] ?? r.eventTypeKey },
-    { key: 'client', header: t('list.cols.client'), cell: (r) => r.clientName },
+    {
+      key: 'client',
+      header: t('list.cols.client'),
+      // ссылка только если id пришёл с сервера (охват клиента проверяет карточка)
+      cell: (r) =>
+        r.clientId ? (
+          <Link href={`/clients/${encodeURIComponent(r.clientId)}`} className="underline underline-offset-2" data-testid="attendance-client-link">
+            {r.clientName}
+          </Link>
+        ) : (
+          r.clientName
+        ),
+    },
     { key: 'bookedBy', header: t('list.cols.bookedBy'), cell: (r) => r.bookedByName ?? dash },
     { key: 'status', header: t('list.cols.status'), cell: (r) => <Badge tone={STATUS_TONE[r.status]}>{t(`list.status.${r.status}`)}</Badge> },
     { key: 'markedBy', header: t('list.cols.markedBy'), cell: (r) => r.markedByName ?? dash },

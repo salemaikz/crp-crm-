@@ -108,7 +108,7 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
             <Button variant="quiet" size="sm" href={moreHref('operators', data)}>
               {t('moreOperators')}
             </Button>
-            <Button variant="quiet" size="sm" href={moreHref('attendance', data)}>
+            <Button variant="quiet" size="sm" href={`${moreHref('attendance', data)}&view=list`}>
               {t('moreAttendance')}
             </Button>
           </>

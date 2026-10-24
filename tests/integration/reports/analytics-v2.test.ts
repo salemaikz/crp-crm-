@@ -290,6 +290,18 @@ test('список явки: фильтры вид, статус, сотрудн
   assert.deepEqual(await ids(listQ({ users: [U.opB], status: 'attended' })), ['l7']);
 });
 
+test('список явки: счётчики по статусам для чипов — те же фильтры, кроме статуса; на следующих страницах их нет', async () => {
+  const all = { attended: 2, no_show: 1, unmarked: 2, planned: 0, cancelled: 1 };
+  assert.deepEqual((await list(listQ())).counts, all);
+  assert.deepEqual((await list(listQ({ status: 'attended' }))).counts, all, 'выбранный статус чипы не сужает');
+  assert.deepEqual((await list(listQ({ eventType: 'other' }))).counts, { attended: 0, no_show: 0, unmarked: 1, planned: 0, cancelled: 0 });
+  assert.deepEqual((await list(listQ({ consultant: U.consultant }))).counts, { attended: 1, no_show: 1, unmarked: 0, planned: 0, cancelled: 0 });
+  assert.deepEqual((await list(listQ({ users: [U.opA] }))).counts, { attended: 1, no_show: 0, unmarked: 1, planned: 0, cancelled: 1 });
+  const p1 = await list(listQ({ limit: 4 }));
+  assert.deepEqual(p1.counts, all);
+  assert.equal((await list(listQ({ limit: 4, cursor: p1.next! }))).counts, null);
+});
+
 test('список явки: курсорная пагинация без пропусков и повторов', async () => {
   const p1 = await list(listQ({ limit: 4 }));
   assert.equal(p1.rows.length, 4);

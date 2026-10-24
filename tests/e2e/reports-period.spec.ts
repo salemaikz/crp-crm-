@@ -20,6 +20,8 @@ let spaceId = '';
 let rop: Staff;
 let operator: Staff;
 let tag = 0;
+let bookingClient = '';
+let bookingDay = '';
 
 async function makeStaff(role: string, name: string, inDistribution = false): Promise<Staff> {
   const s = { id: randomUUID(), phone: await phone(), name };
@@ -51,6 +53,16 @@ test.beforeAll(async () => {
             VALUES (${clientId}, 'company', 'ТОО Синтетика Отчёты', 'синтетика отчёты', 'синтетика отчёты', 'import', ${now}, ${now})`;
   await sql`INSERT INTO cards (id, space_id, client_id, owner_user_id, state, created_at, updated_at)
             VALUES (${cardId}, ${spaceId}, ${clientId}, ${operator.id}, 'retry', ${now}, ${now})`;
+  // две прошедшие записи этого клиента (пришёл, не отмечено) — для списка явки
+  bookingClient = clientId;
+  const startsAt = now - 2 * 3_600_000;
+  bookingDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(startsAt));
+  for (const [i, status] of (['attended', 'registered'] as const).entries()) {
+    await sql`INSERT INTO bookings (id, space_id, kind, event_type_key, client_id, card_id, booking_date, start_time, starts_at, duration_min, status, via,
+                                    booked_by_user_id, responsible_user_id, created_at, updated_at)
+              VALUES (${randomUUID()}, ${spaceId}, 'individual', 'bk', ${clientId}, ${cardId}, ${bookingDay}, '11:00', ${startsAt - i * 60_000}, 60, ${status}, 'ui',
+                      ${operator.id}, ${operator.id}, ${now}, ${now})`;
+  }
   for (const [i, kind] of (['no_answer', 'callback'] as const).entries()) {
     await sql`INSERT INTO calls (id, space_id, card_id, client_id, user_id, via, phone_digits, outcome_code, outcome_kind, lpr, applied, occurred_at, received_at, config_rev)
               VALUES (${randomUUID()}, ${spaceId}, ${cardId}, ${clientId}, ${operator.id}, 'ui', '', ${kind}, ${kind}, '', 'applied', ${now - (i + 1) * 1000}, ${now}, 1)`;
@@ -111,4 +123,20 @@ test('оператор отчёты не открывает, API отвечае�
   expect((await page.request.get('/api/reports/operators')).status()).toBe(403);
   await page.context().close();
   expect((await request.get('/api/reports/operators')).status()).toBe(401);
+});
+
+test('«Явка — список»: клиент — ссылка, чипы-счётчики ставят фильтр статуса (A5)', async ({ page }) => {
+  await login(page, rop);
+  await page.goto(`/reports?r=attendance&view=list&from=${bookingDay}&to=${bookingDay}`);
+  await expect(page.getByRole('group', { name: 'Показать' }).or(page.getByLabel('Показать')).first()).toBeVisible();
+  const chips = page.getByTestId('attendance-chips');
+  await expect(chips).toBeVisible();
+  await expect(chips.getByRole('button', { name: /^Пришли/ })).toContainText('1');
+  await expect(chips.getByRole('button', { name: /^Не отмечено/ })).toContainText('1');
+  const link = page.getByTestId('attendance-client-link').first();
+  await expect(link).toHaveAttribute('href', `/clients/${bookingClient}`);
+  await chips.getByRole('button', { name: /^Не отмечено/ }).click();
+  await expect(page.getByTestId('attendance-chip-unmarked')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page).toHaveURL(/status=unmarked/);
+  await expect(page.getByRole('columnheader', { name: 'Мероприятие' })).toBeVisible();
 });

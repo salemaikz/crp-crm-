@@ -217,6 +217,8 @@ export interface AttendanceListReport {
   rows: AttendanceListRow[];
   /** Курсор следующей страницы; null — конец списка. */
   next: string | null;
+  /** Записей по статусам при тех же фильтрах, кроме статуса (чипы над таблицей); null — страница не первая. */
+  counts: Record<AttendanceListStatus, number> | null;
 }
 
 // ---------------------------------------------------------------------------

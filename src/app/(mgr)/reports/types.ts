@@ -98,7 +98,7 @@ export type AttendanceListRow = {
   consultantName: string | null;
   purchaseSumKzt: number | null;
 };
-export type AttendanceListData = { period: Period; rows: AttendanceListRow[]; next: string | null };
+export type AttendanceListData = { period: Period; rows: AttendanceListRow[]; next: string | null; counts: Record<AttendanceListStatus, number> | null };
 
 export const REASON_GROUPS = ['callback', 'written_off', 'not_interested', 'not_target', 'do_not_call', 'deal_lost', 'no_show'] as const;
 export type ReasonGroup = (typeof REASON_GROUPS)[number];
