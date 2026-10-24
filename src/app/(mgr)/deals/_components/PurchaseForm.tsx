@@ -85,7 +85,7 @@ export function PurchaseForm({ cardId, deals, defaultDealId, services, today, va
         {variants.length > 0 && (
           <div className="k-field">
             <span className="k-field__label">{t('purchase.variantsLabel')}</span>
-            <ChipGroup label={t('purchase.variantsLabel')} data-testid="purchase-variants">
+            <ChipGroup label={t('purchase.variantsLabel')} className="!flex-wrap !overflow-visible" data-testid="purchase-variants">
               {variants.map((v) => (
                 <Chip key={`${v.serviceKey}/${v.variantKey}`} active={variant === `${v.serviceKey}/${v.variantKey}`} onClick={() => pickVariant(v)} data-testid={`purchase-variant-${v.serviceKey}-${v.variantKey}`}>
                   {t('purchase.variantTile', { service: v.serviceLabel, variant: v.variantLabel, price: price(v.amountKzt) })}

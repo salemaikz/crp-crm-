@@ -64,7 +64,7 @@ test('директор: панель недели, пункт меню, без �
   // из действий только «Обновить» и ссылки «Подробнее»; форм и полей ввода нет
   await expect(page.getByRole('textbox')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Обновить' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Подробнее', exact: true }).first()).toHaveAttribute('href', /\/reports\?r=funnel&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
+  await expect(page.getByRole('link', { name: 'Подробнее', exact: true }).first()).toHaveAttribute('href', /\/reports\?r=\w+&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
   // страница без горизонтальной прокрутки
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   // мутация от директора блокируется ролью «только чтение»

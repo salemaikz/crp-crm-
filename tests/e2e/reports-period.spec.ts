@@ -127,12 +127,12 @@ test('оператор отчёты не открывает, API отвечае�
 
 test('«Явка — список»: клиент — ссылка, чипы-счётчики ставят фильтр статуса (A5)', async ({ page }) => {
   await login(page, rop);
-  await page.goto(`/reports?r=attendance&view=list&from=${bookingDay}&to=${bookingDay}`);
+  await page.goto(`/reports?r=attendance&view=list&from=${bookingDay}&to=${bookingDay}&users=${operator.id}`);
   await expect(page.getByRole('group', { name: 'Показать' }).or(page.getByLabel('Показать')).first()).toBeVisible();
   const chips = page.getByTestId('attendance-chips');
   await expect(chips).toBeVisible();
-  await expect(chips.getByRole('button', { name: /^Пришли/ })).toContainText('1');
-  await expect(chips.getByRole('button', { name: /^Не отмечено/ })).toContainText('1');
+  await expect(chips.getByRole('button', { name: /^Пришли/ })).toHaveText('Пришли1');
+  await expect(chips.getByRole('button', { name: /^Не отмечено/ })).toHaveText('Не отмечено1');
   const link = page.getByTestId('attendance-client-link').first();
   await expect(link).toHaveAttribute('href', `/clients/${bookingClient}`);
   await chips.getByRole('button', { name: /^Не отмечено/ }).click();

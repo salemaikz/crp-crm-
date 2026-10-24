@@ -303,8 +303,18 @@ function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabel
     { key: 'share', header: t('cols.share'), numeric: true, cell: (r) => <Percent value={r.share} /> },
   ];
   const blockCols: TableColumn<ReasonRow>[] = [
-    { key: 'reason', header: t('block.cols.reason'), primary: true, cell: (r) => <strong>{reasonLabel(r)}</strong> },
-    { key: 'group', header: t('block.cols.group'), cell: (r) => t(`groups.${r.group}`) },
+    {
+      key: 'reason',
+      header: t('block.cols.reason'),
+      primary: true,
+      // итог (группа) — второй строкой: колонок меньше, на телефоне доля не уходит за край
+      cell: (r) => (
+        <span className="flex flex-col">
+          <strong>{reasonLabel(r)}</strong>
+          <span className="text-sm" style={{ color: 'var(--text-2)' }}>{t(`groups.${r.group}`)}</span>
+        </span>
+      ),
+    },
     { key: 'count', header: t('block.cols.count'), numeric: true, cell: (r) => fmtInt(r.count) },
     { key: 'share', header: t('block.cols.share'), numeric: true, cell: (r) => <Percent value={r.share} /> },
   ];

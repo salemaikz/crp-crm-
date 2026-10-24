@@ -1,6 +1,7 @@
 'use client';
 
 import { RefreshCw } from 'lucide-react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import { fmtDec, fmtInt, formatDay } from '../reports/format';
@@ -105,10 +106,7 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
         actions={
           <>
             <Button variant="quiet" size="sm" href={moreHref('operators', data)}>
-              {t('moreOperators')}
-            </Button>
-            <Button variant="quiet" size="sm" href={`${moreHref('attendance', data)}&view=list`}>
-              {t('moreAttendance')}
+              {t('more')}
             </Button>
           </>
         }
@@ -150,7 +148,15 @@ export function DirectorScreen({ initial, labels, canExport }: DirectorProps) {
                         : percent(x.rate ?? null)
                       : fmtInt(x.value)
                 }
-                label={x.id === 'attendance' ? t('tiles.attendance.label', { title, rate: percent(att.rate) }) : title}
+                label={
+                  x.id === 'attendance' ? (
+                    <Link href={`${moreHref('attendance', data)}&view=list`} className="underline underline-offset-2" data-testid="director-attendance-link">
+                      {t('tiles.attendance.label', { title, rate: percent(att.rate) })}
+                    </Link>
+                  ) : (
+                    title
+                  )
+                }
                 hint={
                   <>
                     {extra}
