@@ -111,6 +111,10 @@ test('после «Выйти на всех устройствах» и ново
 
   const op = await makeOperator(1);
   await login(page, op);
+  // Оболочка (service worker) регистрируется на рабочем экране; при OP_BOARD вход ведёт на доску и регистрация идёт
+  // позже загрузки очереди, поэтому сначала открываем /call, как в первом тесте файла
+  await page.goto('/call');
+  await expect(page.getByTestId('call-card')).toBeVisible();
   await page.goto('/account');
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
   const block = page.getByTestId('push-toggle');

@@ -98,6 +98,9 @@ test.afterAll(async () => {
 const tileOf = (page: Page, name: string) => page.getByTestId('deal-tile').filter({ hasText: name });
 const column = (page: Page, key: string) => page.getByTestId(`col-${key}`);
 
+// При OP_BOARD страница «Обзвон» — общая доска (calling-tile и worker-filter нет), её сценарии — в booking-mgr-board
+const OLD_VIEW_OFF = process.env.FEATURE_OP_BOARD === '1';
+
 // В общей базе копятся карточки прошлых прогонов, а колонка показывает первые 50: сужаем доску до оператора этого прогона.
 async function onlyMine(page: Page, filterId: 'owner-filter' | 'worker-filter'): Promise<void> {
   const select = page.getByTestId(filterId);
@@ -237,6 +240,7 @@ test('оператору вид «Обзвон» недоступен, API от�
 });
 
 test('вид «Обзвон»: перенос карточки = итог «Перезвонить» с via manual_entry', async ({ page }) => {
+  test.skip(OLD_VIEW_OFF, 'при OP_BOARD вид «Обзвон» — общая доска; сценарий переноса держит booking-mgr-board');
   await login(page, rop);
   await page.goto('/deals/calling');
   await onlyMine(page, 'worker-filter');
@@ -265,6 +269,7 @@ test('вид «Обзвон»: перенос карточки = итог «Пе
 });
 
 test('вид «Обзвон»: карточку изменили после загрузки доски — 409, плитка на месте, тост, итог не записан', async ({ page }) => {
+  test.skip(OLD_VIEW_OFF, 'при OP_BOARD вид «Обзвон» — общая доска; сценарий переноса держит booking-mgr-board');
   await login(page, rop);
   await page.goto('/deals/calling');
   await onlyMine(page, 'worker-filter');

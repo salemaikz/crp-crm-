@@ -72,6 +72,8 @@ test('директор видит доску без переноса, а мут�
   const director = await staff('director', 'Директор Синтетик');
   const op = await makeOperator(1);
   await loginAs(page, director);
+  // В общей базе копятся карточки прошлых прогонов, а колонка показывает первые: сужаем доску до оператора этого прогона
+  await page.getByTestId('filter-owner').selectOption(op.id);
   await expect(tileOf(page, op.names[0]!)).toBeVisible();
   // цели переноса не предлагаются
   await expect(page.getByTestId('tile-menu')).toHaveCount(0);

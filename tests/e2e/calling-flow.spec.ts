@@ -4,7 +4,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { dumpDevice, expectNoClientTraces } from './support/device';
-import { DB_URL, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, prepareDb, seedGroupEvents, sql } from './support/calling';
+import { DB_URL, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, OP_BOARD, pickCallbackTerm, prepareDb, seedGroupEvents, sql } from './support/calling';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -97,7 +97,7 @@ test('«Перезвонить» требует ЛПР и срок; «Сохра
   await expect(save).toBeDisabled();
   await page.getByTestId('lpr-yes').click();
   await expect(save).toBeDisabled();
-  await page.getByRole('button', { name: /Через 2 часа/ }).click();
+  await pickCallbackTerm(page);
   await expect(save).toBeEnabled();
   await save.click();
   await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 20_000 }).toBe(1);
@@ -119,7 +119,7 @@ test('установка на главный экран: манифест с ц�
   const res = await request.get('/manifest.webmanifest');
   expect(res.status()).toBe(200);
   const m = (await res.json()) as { start_url: string; display: string; theme_color: string; background_color: string; icons: Array<{ src: string; sizes: string; type: string }> };
-  expect(m.start_url).toBe('/call');
+  expect(m.start_url).toBe(OP_BOARD ? '/board' : '/call');
   expect(m.display).toBe('standalone');
   expect(m.theme_color).toMatch(/^#[0-9a-f]{6}$/i);
   expect(m.icons.map((i) => i.sizes)).toEqual(['192x192', '512x512']);

@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
-import { DB_URL, PASSWORD, login, makeOperator, openCall, prepareDb, sql, type Operator } from './support/calling';
+import { DB_URL, PASSWORD, login, makeOperator, OP_BOARD, openCall, prepareDb, sql, type Operator } from './support/calling';
 import { makeConsultant } from './support/consult';
 import { uniquePhone } from './support/phones';
 
@@ -39,7 +39,8 @@ async function measure(page: Page): Promise<Geo> {
     const r = (el: Element) => el.getBoundingClientRect();
     const doc = document.documentElement;
     const main = document.querySelector('main.k-page');
-    const first = main?.firstElementChild ?? null;
+    // скрытый заголовок для экранных дикторов (sr-only, как на доске) не часть видимой сетки контента
+    const first = main ? ([...main.children].find((c) => !c.classList.contains('sr-only')) ?? null) : null;
     const brand = document.querySelector('[data-testid="shell-brand"]');
     const bell = document.querySelector('a[aria-label^="Уведомления"] svg');
     const acts = main?.querySelector('.k-page-header__actions') ?? null;
@@ -110,7 +111,8 @@ async function measure(page: Page): Promise<Geo> {
       header: { brandLeft: brand ? r(brand).left : null, bellRight: bell ? r(bell).right : null },
       actions,
       equalBars: bars,
-      primaries: [...document.querySelectorAll('.k-btn--primary')].filter((el) => visible(el) && !inDialog(el)).length,
+      // «Позвонить» на плитке доски повторяется в каждой плитке по замыслу (одна зелёная кнопка на карточку), главное действие экрана — не она
+      primaries: [...document.querySelectorAll('.k-btn--primary')].filter((el) => visible(el) && !inDialog(el) && el.getAttribute('data-testid') !== 'tile-call').length,
       numWrapped: wrapped,
       disabledBad,
       bottomNavTop: nav ? r(nav).top : null,
@@ -215,7 +217,7 @@ test('оператор (телефон): сетка всех страниц ме
   await page.goto('/call');
   await expectBrand(page);
   const hrefs = (await menuHrefs(page, true)).filter((h) => h !== '/account');
-  expect(hrefs).toEqual(expect.arrayContaining(['/call', '/clients', '/tasks']));
+  expect(hrefs).toEqual(expect.arrayContaining(OP_BOARD ? ['/board', '/call', '/tasks'] : ['/call', '/clients', '/tasks']));
   for (const href of [...hrefs, '/archive', '/notifications', `/clients/${op.clientIds[0]}`]) await check(page, href, true);
 });
 

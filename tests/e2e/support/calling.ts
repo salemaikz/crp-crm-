@@ -91,6 +91,23 @@ export async function loginByRequest(context: BrowserContext, op: Operator, orig
   expect(res.status()).toBe(200);
 }
 
+/** Флаги стенда: главная оператора и окно перезвона зависят от них, а старые спеки идут и без флагов. */
+export const OP_BOARD = process.env.FEATURE_OP_BOARD === '1';
+export const CALLBACK_V2 = process.env.FEATURE_CALLBACK_V2 === '1';
+
+/**
+ * Выбрать срок перезвона в открытой шторке (ЛПР уже отмечен): без CALLBACK_V2 — «Через 2 часа», с ним —
+ * причина «Подумает» и подсказка по касанию (pipeline-v2 §4.2).
+ */
+export async function pickCallbackTerm(page: Page): Promise<void> {
+  if (CALLBACK_V2) {
+    await page.getByTestId('outcome-details').getByRole('button', { name: 'Подумает' }).click();
+    await page.getByTestId('callback-hint').click();
+    return;
+  }
+  await page.getByRole('button', { name: /Через 2 часа/ }).click();
+}
+
 export async function openCall(page: Page, op: Operator): Promise<void> {
   await login(page, op);
   await page.goto('/call');

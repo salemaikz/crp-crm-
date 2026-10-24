@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { expect, test, type Page } from '@playwright/test';
-import { DB_URL, PASSWORD, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, prepareDb, seedGroupEvents, sql } from './support/calling';
+import { DB_URL, PASSWORD, callAndOutcome, callsOf, cardTitle, fillAgreed, login, makeOperator, openCall, pickCallbackTerm, prepareDb, seedGroupEvents, sql } from './support/calling';
 import { makeConsultant, pretty } from './support/consult';
 import { uniquePhone } from './support/phones';
 
@@ -348,7 +348,7 @@ test('шторка и отмеченное в ней восстанавлива�
   expect(await callsOf(op.id)).toHaveLength(0);
 
   // Дозаполнили и сохранили — итог ушёл ровно один раз
-  await reopened.getByRole('button', { name: /Через 2 часа/ }).click();
+  await pickCallbackTerm(reopened);
   await reopened.getByTestId('sheet-save').click();
   await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 20_000 }).toBe(1);
   const [row] = await callsOf(op.id);
