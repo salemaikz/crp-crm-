@@ -114,6 +114,8 @@ test('KANBAN выключен: РОП видит доску без вкладо�
   await loginAs(page, rop);
   await expect(page.locator('.k-page-header__title')).toHaveText('Доска');
   await expect(page.getByRole('group', { name: 'Вид доски' })).toHaveCount(0);
+  // N33: пункт «Доска» в меню не зависит от KANBAN
+  await expect(page.locator('nav[aria-label="Разделы"] a[href="/deals/calling"]').first()).toBeAttached();
   const op = await makeOperator(1);
   await login(page, op);
   expect((await page.goto('/deals/calling'))?.status()).toBe(404);
