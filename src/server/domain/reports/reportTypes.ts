@@ -329,11 +329,18 @@ export interface DirectorDashboard {
   purchases: { count: number; sumKzt: number; prevCount: number; prevSumKzt: number; withoutBooking: number };
   funnel: FunnelRow;
   revenue: RevenueRow[];
+  /** Какая неделя показана: текущая или прошлая целиком (`?week=prev`). */
+  weekKey: DirectorWeek;
+  /** Топ-5 причин колонки доски роли «мусор» за показанную неделю; null — колонки такой роли в пресете нет. */
+  reasons: { key: string; label: string | null; total: number; top: ReasonRow[] } | null;
   /** Запас: готово в пуле и в рабочих днях (пул / (участники × лимит)); null — ёмкость 0. */
   stock: { poolReady: number; capacityPerDay: number; days: number | null };
 }
 
-export type GetDirectorDashboard = (viewer: Viewer) => Promise<DirectorDashboard>;
+export const DIRECTOR_WEEKS = ['current', 'prev'] as const;
+export type DirectorWeek = (typeof DIRECTOR_WEEKS)[number];
+
+export type GetDirectorDashboard = (viewer: Viewer, opts?: { week?: DirectorWeek }) => Promise<DirectorDashboard>;
 
 // ---------------------------------------------------------------------------
 // Выгрузки (R3b)

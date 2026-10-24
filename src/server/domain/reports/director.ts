@@ -8,8 +8,9 @@ import { getReport } from './get';
 import { purchasesWithoutBooking } from './periodRepo';
 import { getDb } from '@/server/platform/db';
 import { previousWeek, weekOf } from './period';
+import { DIRECTOR_WEEKS, type DirectorWeek } from './reportTypes';
 import { getSummary } from './summary';
-import type { GetDirectorDashboard, ReportFilters } from './reportTypes';
+import type { GetDirectorDashboard, PeriodInput, ReportFilters } from './reportTypes';
 
 const NO_FILTERS: ReportFilters = { userIds: null, sourceKey: null };
 
@@ -30,25 +31,39 @@ export function eventShortLabels(eventTypes: readonly EventTypeDoc[]): { group: 
   return { group: name('group'), individual: name('individual') };
 }
 
-export const getDirectorDashboard: GetDirectorDashboard = async (viewer) => {
+/** `?week=` панели: закрытый список, всё неизвестное — текущая неделя. */
+export function parseDirectorWeek(raw: unknown): DirectorWeek {
+  return DIRECTOR_WEEKS.find((w) => w === raw) ?? 'current';
+}
+
+/** Показанная неделя и неделя для сравнения: текущая (пн…сегодня) против прошлой, прошлая — против предыдущей. */
+export function directorWeeks(today: string, which: DirectorWeek): { week: PeriodInput; prev: PeriodInput } {
+  if (which === 'prev') return { week: previousWeek(today), prev: previousWeek(time.addLocalDays(today, -7)) };
+  return { week: { from: weekOf(today), to: today }, prev: previousWeek(today) };
+}
+
+const REASONS_TOP = 5;
+
+export const getDirectorDashboard: GetDirectorDashboard = async (viewer, opts = {}) => {
   requirePeriodReports(viewer);
   const deps = reportsDeps();
   const now = deps.now();
   const cfg = await deps.config(viewer.spaceId as string, now);
   const today = time.localDayOf(now, cfg.distribution.timeZone);
-  const week = { from: weekOf(today), to: today };
-  const prev = previousWeek(today);
+  const weekKey = parseDirectorWeek(opts.week);
+  const { week, prev } = directorWeeks(today, weekKey);
 
   const active = await getActiveConfigOrNull(); // нет ревизии настроек (тесты без пресета) — подписей нет, плитки записей скрыты
   const space = Object.values(active?.spaces ?? {}).find((s) => s.spaceId === viewer.spaceId)?.doc;
   const eventLabels = eventShortLabels((space?.booking.eventTypes ?? []) as readonly EventTypeDoc[]);
 
-  const [ops, prevOps, funnel, revenue, attendanceReport, summary] = await Promise.all([
+  const [ops, prevOps, funnel, revenue, attendanceReport, reasonsReport, summary] = await Promise.all([
     getReport(viewer, { key: 'operators', period: week, filters: NO_FILTERS, grouping: 'total' }),
     getReport(viewer, { key: 'operators', period: prev, filters: NO_FILTERS, grouping: 'total' }),
     getReport(viewer, { key: 'funnel', period: week, filters: NO_FILTERS, by: 'operator' }),
     getReport(viewer, { key: 'revenue', period: week, filters: NO_FILTERS }),
     getReport(viewer, { key: 'attendance', period: week, filters: NO_FILTERS, by: 'event_type' }),
+    getReport(viewer, { key: 'reasons', period: week, filters: NO_FILTERS }),
     getSummary(viewer),
   ]);
 
@@ -63,11 +78,14 @@ export const getDirectorDashboard: GetDirectorDashboard = async (viewer) => {
     userIds: null,
     sourceKey: null,
   });
+  const trash = reasonsReport.blocks.find((b) => b.role === 'trash');
   const t = ops.totals;
   const capacityPerDay = summary.tiles.issued.cap;
   const poolReady = summary.tiles.pool.ready;
   return {
     generatedAt: now,
+    weekKey,
+    reasons: trash ? { key: trash.key, label: trash.label, total: trash.total, top: trash.rows.slice(0, REASONS_TOP) } : null,
     week: ops.period,
     prevWeek: prevOps.period,
     calls: { outcomes: t.outcomes, connects: t.connects, prevOutcomes: prevOps.totals.outcomes, prevConnects: prevOps.totals.connects },

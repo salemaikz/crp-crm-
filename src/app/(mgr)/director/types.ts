@@ -1,11 +1,15 @@
 // Формы данных панели директора. Клиентским компонентам нельзя импортировать src/server/**; page.tsx присваивает
 // им форму из домена, и расхождение ловит typecheck.
-import type { FunnelRow, Period, Rate, ReportLabels, RevenueRow } from '../reports/types';
+import type { FunnelRow, Period, Rate, ReasonRow, ReportLabels, RevenueRow } from '../reports/types';
 
 export type { FunnelRow, Period, Rate, ReportLabels, RevenueRow };
 
 export type DirectorData = {
   generatedAt: number;
+  /** Показанная неделя: текущая или прошлая целиком. */
+  weekKey: 'current' | 'prev';
+  /** Топ-5 причин колонки «мусор» доски; null — такой колонки в настройках нет. */
+  reasons: { key: string; label: string | null; total: number; top: ReasonRow[] } | null;
   week: Period;
   prevWeek: Period;
   calls: { outcomes: number; connects: number; prevOutcomes: number; prevConnects: number };

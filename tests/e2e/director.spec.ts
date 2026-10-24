@@ -125,3 +125,20 @@ test('телефон: подписи плиток недели и шагов в�
     expect(tiles.every((r) => r.right <= page.viewportSize()!.width + 0.5)).toBe(true);
   }
 });
+
+test('переключатель «Эта неделя / Прошлая неделя» и блок причин отказа (A3)', async ({ page }) => {
+  await login(page, director);
+  await page.goto('/director');
+  await expect(page.getByTestId('week-current')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByText(/^Текущая неделя:/)).toBeVisible();
+  await page.getByTestId('week-prev').click();
+  await expect(page).toHaveURL(/\/director\?week=prev$/);
+  await expect(page.getByText(/^Прошлая неделя: \d/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Причины отказа/ })).toBeVisible();
+  // обновление берёт ту же неделю
+  await page.getByRole('button', { name: 'Обновить' }).click();
+  await expect(page.getByText(/^Прошлая неделя: \d/)).toBeVisible();
+  // неизвестное значение — текущая неделя
+  await page.goto('/director?week=unknown');
+  await expect(page.getByTestId('week-current')).toHaveAttribute('aria-current', 'page');
+});

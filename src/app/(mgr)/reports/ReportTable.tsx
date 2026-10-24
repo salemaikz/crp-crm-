@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Badge, EmptyState, Segmented, Table, type TableColumn } from '@/ui/kit';
 import { fmtDec, fmtInt, formatDay } from './format';
+import { useReasonLabel } from './reasonLabel';
 import {
   FUNNEL_KINDS,
   type FunnelKind,
@@ -276,13 +277,7 @@ function ReasonsTable({ data, labels }: { data: ReasonsData; labels: ReportLabel
   const t = useTranslations('reports.reasons');
   const [view, setView] = useState<'blocks' | 'details'>('blocks');
   if (data.rows.length === 0 && data.blocks.every((b) => b.total === 0)) return <EmptyState title={t('empty')} />;
-  const reasonLabel = (r: ReasonRow): string => {
-    if (r.group === 'no_show') return labels.eventTypes[r.reasonCode] ?? r.reasonCode; // неявки — по виду мероприятия
-    if (r.reasonCode === '') return r.group === 'callback' ? t('withoutReason') : t('noReason');
-    const fromSettings = labels.reasons[r.group]?.[r.reasonCode];
-    if (fromSettings !== undefined) return fromSettings;
-    return r.group === 'written_off' && (r.reasonCode === 'no_answer_limit' || r.reasonCode === 'no_working_phone') ? t(`system.${r.reasonCode}`) : r.reasonCode;
-  };
+  const reasonLabel = useReasonLabel(labels);
   const cols: TableColumn<ReasonRow>[] = [
     { key: 'group', header: t('cols.group'), primary: true, cell: (r) => <strong>{t(`groups.${r.group}`)}</strong> },
     { key: 'reason', header: t('cols.reason'), cell: reasonLabel },

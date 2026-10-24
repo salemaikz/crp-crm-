@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { eventShortLabels } from '../../../src/server/domain/reports/director';
+import { directorWeeks, eventShortLabels, parseDirectorWeek } from '../../../src/server/domain/reports/director';
 import { delta, directorTiles, funnelHints, type TileSpec } from '../../../src/app/(mgr)/director/tiles';
 import type { DirectorData } from '../../../src/app/(mgr)/director/types';
 
@@ -111,4 +111,16 @@ test('локаль панели: «Пока мало данных», «не от
   assert.match(ru.tiles.conversion.emptyHint, /\{min\}/);
   assert.match(ru.tiles.attendance.hint, /\{unmarked\}/);
   assert.match(ru.funnel.ofPrev, /\{pct\}.*\{prev\}/);
+});
+
+test('панель: неделя — закрытый список, неизвестное значение молча отбрасывается', () => {
+  assert.equal(parseDirectorWeek('prev'), 'prev');
+  assert.equal(parseDirectorWeek('current'), 'current');
+  for (const bad of [undefined, '', 'next', 'PREV', '2026-10-19', ['prev']]) assert.equal(parseDirectorWeek(bad), 'current');
+});
+
+test('панель: «Эта неделя» — понедельник…сегодня против прошлой; «Прошлая» — целая неделя против предыдущей', () => {
+  assert.deepEqual(directorWeeks('2026-10-28', 'current'), { week: { from: '2026-10-26', to: '2026-10-28' }, prev: { from: '2026-10-19', to: '2026-10-25' } });
+  assert.deepEqual(directorWeeks('2026-10-28', 'prev'), { week: { from: '2026-10-19', to: '2026-10-25' }, prev: { from: '2026-10-12', to: '2026-10-18' } });
+  assert.deepEqual(directorWeeks('2026-10-26', 'prev').week, { from: '2026-10-19', to: '2026-10-25' });
 });

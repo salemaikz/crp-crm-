@@ -62,6 +62,44 @@ test('в плитке «Явка» unmarked равен числу записей
   }
 });
 
+test('?week=prev: прошлая неделя целиком, сравнение с предыдущей, те же числа, что в сравнении текущей недели', async () => {
+  const v = await viewerOf(U.director);
+  const cur = await getDirectorDashboard(v);
+  const prev = await getDirectorDashboard(v, { week: 'prev' });
+  assert.equal(cur.weekKey, 'current');
+  assert.equal(prev.weekKey, 'prev');
+  assert.deepEqual([prev.week.from, prev.week.to], [cur.prevWeek.from, cur.prevWeek.to]);
+  assert.deepEqual([prev.prevWeek.from, prev.prevWeek.to], ['2026-10-12', '2026-10-18']);
+  assert.equal(prev.calls.outcomes, cur.calls.prevOutcomes);
+  assert.equal(prev.calls.connects, cur.calls.prevConnects);
+  // неизвестное значение — текущая неделя
+  assert.equal((await getDirectorDashboard(v, { week: 'next' as never })).weekKey, 'current');
+});
+
+test('причины на панели: топ-5 колонки «Мусор» по убыванию, оператору панели нет', async () => {
+  const v = await viewerOf(U.director);
+  for (const [i, code] of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'].entries()) {
+    for (let k = 0; k <= i; k++) {
+      await db.sql`
+        INSERT INTO calls (id, space_id, card_id, client_id, user_id, via, phone_digits, outcome_code, outcome_kind, lpr, applied, fact_reason, occurred_at, received_at, config_rev, reason_code)
+        VALUES (${`rs-${code}-${k}`}, ${SPACE}, 'cd-a-2', 'cl-a-2', ${U.opA}, 'ui', '', 'not_interested', 'not_interested', '', 'applied', '', ${SEED_NOW - 30 * MIN}, ${SEED_NOW - 30 * MIN}, 1, ${code})`;
+    }
+  }
+  try {
+    const d = await getDirectorDashboard(v);
+    assert.ok(d.reasons, 'колонка «Мусор» из настроек');
+    assert.equal(d.reasons.key, 'trash');
+    assert.equal(d.reasons.top.length, 5);
+    assert.deepEqual(d.reasons.top.map((r) => r.reasonCode), ['r7', 'r6', 'r5', 'r4', 'r3']);
+    assert.ok(d.reasons.total >= 28);
+    const sum = d.reasons.top.reduce((s, r) => s + r.count, 0);
+    assert.ok(sum <= d.reasons.total);
+    await assert.rejects(getDirectorDashboard(await viewerOf(U.opA)), ForbiddenError);
+  } finally {
+    await db.sql`DELETE FROM calls WHERE id LIKE 'rs-r%'`;
+  }
+});
+
 test('stockDays: один знак, нулевая ёмкость — null', () => {
   assert.equal(stockDays(20, 80), 0.3);
   assert.equal(stockDays(100, 40), 2.5);
