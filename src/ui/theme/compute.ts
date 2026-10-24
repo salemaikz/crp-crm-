@@ -31,6 +31,8 @@ import {
   STATES,
   STATES_DARK,
   TAP_MIN,
+  TONE_ALPHA,
+  TONE_HUE,
   type DensityKey,
   type RadiusKey,
   type StateKey,
@@ -53,7 +55,7 @@ export type ThemeSettings = {
   statusStyle: StatusStyle;
 };
 
-export type ThemeWarning = 'invalid-setting' | 'unknown-font-preset' | 'brand-near-danger' | 'brand-adjusted' | 'status-color-only' | 'dark-brand-lightened' | 'dark-accent-lightened' | 'dark-surface-invalid';
+export type ThemeWarning = 'invalid-setting' | 'unknown-font-preset' | 'brand-near-danger' | 'brand-adjusted' | 'status-color-only' | 'dark-brand-lightened' | 'dark-accent-lightened' | 'dark-surface-invalid' | 'tone-tile-adjusted';
 export type ThemeVariant = 'light' | 'dark';
 
 export type Theme = {
@@ -170,6 +172,30 @@ function darkSurfacesReadable(canvas: string, surface: string): boolean {
   return Object.values(STATES_DARK).every((s) => contrast(s.ink, canvas) >= AA_TEXT && contrast(s.ink, surface) >= AA_TEXT);
 }
 
+/** Пороги заливки плитки тона: текст ≥ 4.5, полоса ≥ 3, отличие от поверхности ≥ 1.2. */
+const TILE_SURFACE_MIN = 1.2;
+
+/**
+ * Заливка плитки тона: смесь чистого цвета тона с поверхностью. Проверяются три условия (text и text-2 на заливке,
+ * полоса к заливке, заливка к поверхности). Не прошли при стартовой доле — доля двигается к ближайшей проходящей;
+ * проходящей нет — остаётся стартовая и `ok: false` (тема пишет предупреждение).
+ */
+export function deriveToneTile(key: StateKey, surface: string, text: string, text2: string, stripe: string, dark: boolean) {
+  const start = dark ? TONE_ALPHA.dark : TONE_ALPHA.light;
+  const at = (a: number) => mix(surface, TONE_HUE[key], a);
+  const passes = (a: number) => {
+    const tile = at(a);
+    return contrast(text, tile) >= AA_TEXT && contrast(text2, tile) >= AA_TEXT && contrast(stripe, tile) >= AA_LARGE && contrast(tile, surface) >= TILE_SURFACE_MIN;
+  };
+  if (passes(start)) return { tile: at(start), alpha: start, ok: true };
+  for (let i = 1; i <= 60; i++) {
+    for (const a of [start + i / 200, start - i / 200]) {
+      if (a >= 0.05 && a <= 0.6 && passes(a)) return { tile: at(a), alpha: a, ok: true };
+    }
+  }
+  return { tile: at(start), alpha: start, ok: false };
+}
+
 const px = (n: number) => `${n}px`;
 
 export function computeTheme(raw: unknown, variant: ThemeVariant = 'light'): Theme {
@@ -259,6 +285,12 @@ export function computeTheme(raw: unknown, variant: ThemeVariant = 'light'): The
   for (const key of Object.keys(STATES) as StateKey[]) {
     vars[`--${key}`] = states[key].ink;
     vars[`--${key}-tint`] = states[key].tint;
+  }
+  // Заливки плиток тонов (доска): считаются от поверхности установки, не прошла проверка контраста — предупреждение
+  for (const key of Object.keys(STATES) as StateKey[]) {
+    const r = deriveToneTile(key, surface, N.text, N.text2, states[key].ink, dark);
+    vars[`--${key}-tile`] = r.tile;
+    if (!r.ok && !warnings.includes('tone-tile-adjusted')) warnings.push('tone-tile-adjusted');
   }
   // Текст на сплошной зелёной кнопке (кнопка «Позвонить»): белый на светлой теме, тёмный на светлом зелёном тёмной
   vars['--on-success'] = readableOn(states.success.ink, [WHITE, NEUTRALS.text]);

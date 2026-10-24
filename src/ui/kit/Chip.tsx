@@ -1,5 +1,5 @@
 // Источник: платформа LMS 2cd8a2b src/components/ui/Chip.tsx (адаптировано под CRM)
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react';
+import { useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react';
 import Link from 'next/link';
 import { cn } from './cn';
 
@@ -44,16 +44,33 @@ export function Chip(props: Props) {
   );
 }
 
-/** Ряд чипов-фильтров: на телефоне прокручивается по горизонтали, а не переносится. */
+/**
+ * Ряд чипов-фильтров: на телефоне прокручивается по горизонтали, а не переносится. `showLabel` — видимая подпись группы
+ * над рядом (шторки: «Причина», «Когда перезвонить»): на телефоне `aria-label` не виден, а группа без подписи не читается.
+ */
 export function ChipGroup({
   label,
+  showLabel,
   className,
   children,
   ...rest
-}: Omit<HTMLAttributes<HTMLDivElement>, 'aria-label'> & { label: string }) {
+}: Omit<HTMLAttributes<HTMLDivElement>, 'aria-label'> & { label: string; showLabel?: boolean }) {
+  const id = useId();
+  if (!showLabel) {
+    return (
+      <div role="group" aria-label={label} className={cn('k-chips', className)} {...rest}>
+        {children}
+      </div>
+    );
+  }
   return (
-    <div role="group" aria-label={label} className={cn('k-chips', className)} {...rest}>
-      {children}
+    <div className="flex min-w-0 flex-col gap-2">
+      <span id={id} className="text-sm font-semibold">
+        {label}
+      </span>
+      <div role="group" aria-labelledby={id} className={cn('k-chips', className)} {...rest}>
+        {children}
+      </div>
     </div>
   );
 }

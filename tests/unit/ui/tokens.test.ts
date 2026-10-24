@@ -82,3 +82,18 @@ test('состояния: цвет читается как текст на по�
 test('тост: белый текст на тёмной подложке — AA', () => {
   assert.ok(contrast('#ffffff', NEUTRALS.text) >= 4.5);
 });
+
+test('слои и сетка доски (ui-polish §9.1–9.2): токены объявлены, погашенный чип без opacity, выбранный — подложка акцента', () => {
+  const declared = rootVars(tokensCss);
+  assert.equal(declared.get('--z-sticky'), '30');
+  assert.equal(declared.get('--board-col'), '12rem');
+  assert.equal(declared.get('--board-col-end'), '9rem');
+  assert.equal(declared.get('--board-gap'), '8px');
+  assert.ok(Number(declared.get('--z-sticky')) < Number(declared.get('--z-sheet')), 'липкое ниже шторок');
+  const disabled = /\.k-chip:disabled[^{]*\{([^}]*)\}/.exec(kitCss)?.[1] ?? '';
+  assert.ok(disabled.includes('cursor: not-allowed'), 'есть правило погашенного чипа');
+  assert.ok(!/opacity/.test(disabled), 'погашенное без opacity');
+  const selected = /\.k-chip\[aria-pressed='true'\][^{]*\{([^}]*)\}/.exec(kitCss)?.[1] ?? '';
+  assert.match(selected, /var\(--accent-tint\)/);
+  assert.match(selected, /var\(--accent-ink\)/);
+});

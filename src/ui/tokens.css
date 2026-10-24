@@ -49,9 +49,14 @@
   --info-tint: #e7effb;
   --danger: #b3151b;
   --danger-tint: #fdeceb;
+  --success-tile: #c1e3ce;
+  --warning-tile: #fbe8b3;
+  --info-tile: #c4dafc;
+  --danger-tile: #f7c8ca;
   --on-success: #ffffff;
 
   /* Не из настроек: слои. Тень всплывающих слоёв (--shadow-float) — выше, она зависит от темы. */
+  --z-sticky: 30;
   --z-sheet: 50;
   --z-toast: 60;
 
@@ -68,6 +73,10 @@
   --field-w-xs: 120px;
   --field-w-sm: 200px;
   --field-w-md: 360px;
+  /* Не из настроек: сетка колонок доски (ui-polish §9.2). Рабочие роли — не уже --board-col, конечные — --board-col-end */
+  --board-col: 12rem;
+  --board-col-end: 9rem;
+  --board-gap: 8px;
   /* Высоту нижнего меню ставит оболочка (правила ниже); вне оболочки меню нет */
   --bottom-nav-h: 0px;
 }
@@ -124,6 +133,10 @@
   --color-info-tint: var(--info-tint);
   --color-danger: var(--danger);
   --color-danger-tint: var(--danger-tint);
+  --color-success-tile: var(--success-tile);
+  --color-warning-tile: var(--warning-tile);
+  --color-info-tile: var(--info-tile);
+  --color-danger-tile: var(--danger-tile);
   --color-on-success: var(--on-success);
   --font-body: var(--font-body);
   --font-display: var(--font-display);

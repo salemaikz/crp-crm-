@@ -49,6 +49,20 @@ export const STATES_DARK: Record<StateKey, { ink: string; tint: string }> = {
   danger: { ink: '#ff7b7f', tint: '#3a1618' },
 };
 
+/**
+ * Чистые цвета тонов для заливки плитки доски (ui-polish §9.4): основа — насыщенный тон, а не тёмный `ink` для текста,
+ * иначе жёлтая плитка выглядит бежевой. Заливка = смесь этого цвета с поверхностью установки.
+ */
+export const TONE_HUE: Record<StateKey, string> = {
+  success: '#2fa35a',
+  warning: '#f2b200',
+  info: '#3b82f6',
+  danger: '#e5484d',
+};
+
+/** Доля чистого тона в заливке плитки: светлая и тёмная тема. */
+export const TONE_ALPHA = { light: 0.3, dark: 0.26 } as const;
+
 /** Тон «опасности» для проверки конфликта с цветом бренда. */
 export const DANGER_HUE = 358;
 
