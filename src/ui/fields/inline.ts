@@ -11,9 +11,24 @@ export function isInlineType(type: string): type is InlineType {
   return (INLINE_TYPES as readonly string[]).includes(type);
 }
 
-/** Сохраняется сразу после выбора, без Enter и потери фокуса. */
+/** Сохраняется сразу после выбора, без Enter и потери фокуса. Дата сюда не входит: см. `commitsOnChange`. */
 export function commitsOnPick(type: string): boolean {
-  return type === 'select' || type === 'boolean' || type === 'date';
+  return type === 'select' || type === 'boolean';
+}
+
+/**
+ * Сохранять ли на событие change. Нативная дата в Chrome и Edge присылает change после каждой цифры
+ * («0002-10-24», у готовой даты — «2026-02-10» после первой цифры дня), поэтому по change дата уходит только при
+ * выборе в календаре (`typed` = false) и полной записи с годом от 1900. Набор с клавиатуры (`typed`) сохраняется
+ * по Enter, потере фокуса или ✓, как текст.
+ */
+export function commitsOnChange(type: string, next: FieldDraft, typed = false): boolean {
+  if (type === 'date') {
+    if (typed || typeof next !== 'string') return false;
+    const m = /^(\d{4})-\d{2}-\d{2}$/.exec(next);
+    return !!m && Number(m[1]) >= 1900;
+  }
+  return commitsOnPick(type);
 }
 
 export type ParseCode = 'money' | 'number' | 'phone';

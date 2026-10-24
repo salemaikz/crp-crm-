@@ -25,3 +25,13 @@ export class FieldConflictError extends DetailedConflictError {
     super('card_changed');
   }
 }
+
+/**
+ * 409 при правке поля клиента на месте: несёт текущие значения только тех ключей запроса, что видны зрителю
+ * (системные — всегда, поля настроек — после проекции по роли). Скрытое поле значения не получает.
+ */
+export class ClientFieldConflictError extends DetailedConflictError {
+  constructor(readonly current: { system: Record<string, string | boolean | null>; custom: Record<string, fields.FieldValue | null> }) {
+    super('client_changed');
+  }
+}

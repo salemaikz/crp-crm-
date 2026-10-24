@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   commitsOnPick,
+  commitsOnChange,
   displayValue,
   draftFor,
   isInlineType,
@@ -113,8 +114,32 @@ test('типы и мгновенное сохранение', () => {
   assert.equal(isInlineType('money'), true);
   assert.equal(commitsOnPick('select'), true);
   assert.equal(commitsOnPick('boolean'), true);
-  assert.equal(commitsOnPick('date'), true);
+  assert.equal(commitsOnPick('date'), false);
   assert.equal(commitsOnPick('text'), false);
   assert.equal(valueFromPayload('money', '150000'), 150000);
   assert.equal(valueFromPayload('text', 'x'), 'x');
+});
+
+test('дата при вводе с клавиатуры: промежуточные значения не сохраняются, полная дата с годом от 1900 — да', () => {
+  // Chrome присылает change после каждой цифры года: 0002, 0020, 0202 — это не дата, а набор
+  assert.equal(commitsOnChange('date', '0002-10-24'), false);
+  assert.equal(commitsOnChange('date', '0020-10-24'), false);
+  assert.equal(commitsOnChange('date', '0202-10-24'), false);
+  assert.equal(commitsOnChange('date', '2026-10-24'), true);
+  assert.equal(commitsOnChange('date', ''), false);
+  assert.equal(commitsOnChange('date', '2026-10'), false);
+  // Набор с клавиатуры (D-356): полная дата с готовым годом не уходит после цифры дня или месяца
+  assert.equal(commitsOnChange('date', '2026-02-10', true), false);
+  assert.equal(commitsOnChange('date', '2026-02-05', true), false);
+  assert.equal(commitsOnChange('date', '2026-10-24', false), true);
+  assert.equal(commitsOnChange('select', 'a'), true);
+  assert.equal(commitsOnChange('boolean', true), true);
+  assert.equal(commitsOnChange('text', 'x'), false);
+});
+
+test('423 «только чтение»: поле запирается с причиной readonly, текст берётся из локали', async () => {
+  assert.deepEqual(stateAfterSave('x', { ok: false, kind: 'readonly' }), { phase: 'locked', reason: 'readonly' });
+  const { readFileSync } = await import('node:fs');
+  const ru = JSON.parse(readFileSync('messages/ru/clients.json', 'utf8')) as Record<string, unknown>;
+  assert.match(JSON.stringify(ru), /Режим «только чтение»: менять нельзя/);
 });

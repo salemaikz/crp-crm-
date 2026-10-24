@@ -102,7 +102,7 @@ export function FeedPanel({ clientId, canPin = false, initialItems, initialNext,
       <h2 id="client-feed-title" className="mb-3 text-lg font-semibold">
         {t('feed.title')}
       </h2>
-      <ChipGroup label={t('feed.groups')} className="mb-3">
+      <ChipGroup label={t('feed.groups')} className="mb-3 flex-wrap overflow-visible">
         <Chip active={group === null} onClick={() => choose(null)}>
           {t('feed.all')}
         </Chip>

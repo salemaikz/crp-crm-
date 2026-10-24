@@ -303,7 +303,7 @@ test('занятый БИН — 409, транзакция откачена: ни
   const id = clientOf('a', 21);
   await assert.rejects(
     updateClient(rop, id, body({ system: { legal_form: 'llp', org_id: '555566667777', region: 'Павлодар' }, custom: { segment: 'не запишется' } }, { system: { legal_form: '', org_id: '', region: '' }, custom: { segment: null } })),
-    { code: 'conflict' },
+    { code: 'conflict', detail: 'org_id_taken' },
   );
   const c = await getClientCard(rop, id);
   assert.equal(c.region, '');

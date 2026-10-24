@@ -10,7 +10,7 @@ import { Button } from '@/ui/kit';
 import type { FieldDraft, FieldPayload } from './draft';
 import { FieldControl, type ControlOption } from './FieldControl';
 import {
-  commitsOnPick,
+  commitsOnChange,
   displayValue,
   draftFor,
   prepareSave,
@@ -67,6 +67,7 @@ export type InlineFieldProps = {
   onRefresh?: () => void;
   /** Показ значения без права правки (ссылка, почта); по умолчанию — текст. */
   readView?: ReactNode;
+  className?: string;
 };
 
 const LAYOUT: Record<NonNullable<InlineFieldProps['layout']>, string> = {
@@ -75,13 +76,15 @@ const LAYOUT: Record<NonNullable<InlineFieldProps['layout']>, string> = {
   auto: 'flex flex-col gap-0.5 sm:grid sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-baseline sm:gap-x-3',
 };
 
-export function InlineField({ field, value, save, texts, layout = 'auto', onValue, onRefresh, readView }: InlineFieldProps) {
+export function InlineField({ field, value, save, texts, layout = 'auto', onValue, onRefresh, readView, className }: InlineFieldProps) {
   const { object, key, type, label, options } = field;
   const [local, setLocal] = useState<unknown>(value);
   const [state, setState] = useState<InlineState>({ phase: 'view' });
   const [draft, setDraft] = useState<FieldDraft>('');
   const [error, setError] = useState<string | undefined>(undefined);
   const busy = useRef(false);
+  // Была ли правка с клавиатуры: у даты change после неё — промежуточный, не выбор в календаре
+  const typed = useRef(false);
   const root = useRef<HTMLDivElement>(null);
   const tid = `${object}-${key}`;
 
@@ -90,7 +93,8 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   const incoming = JSON.stringify(value ?? null);
   if (incoming !== seen) {
     setSeen(incoming);
-    if (state.phase === 'view' || state.phase === 'locked') setLocal(value);
+    // Конфликт без известного значения: карточку перечитали, показываем свежее
+    if (state.phase === 'view' || state.phase === 'locked' || (state.phase === 'conflict' && !state.known)) setLocal(value);
   }
 
   const text = displayValue(type, local, { options, yes: texts.yes, no: texts.no, ...(texts.locale ? { locale: texts.locale } : {}) });
@@ -105,6 +109,7 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   };
 
   const open = () => {
+    typed.current = false;
     setDraft(draftFor(type, local));
     setError(undefined);
     setState({ phase: 'edit', draft: draftFor(type, local) });
@@ -140,7 +145,8 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
     busy.current = false;
     const next = stateAfterSave(now, r);
     if (r.ok) {
-      const v = valueFromPayload(type, p.next);
+      // Значение — то, что сохранил сервер (нормализация, пустой БИН личной формы), а не введённое
+      const v = 'value' in r ? r.value : valueFromPayload(type, p.next);
       setLocal(v);
       onValue?.(v);
     }
@@ -152,11 +158,12 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   const onPick = (next: FieldDraft) => {
     setDraft(next);
     setError(undefined);
-    // Выбор из списка и флажок сохраняются сразу; дата — когда введена целиком (очистка — по потере фокуса)
-    if (commitsOnPick(type) && !(type === 'date' && next === '')) void commit(next);
+    // Выбор из списка и флажок сохраняются сразу; дата — только выбор в календаре, иначе по Enter, ✓ или потере фокуса
+    if (commitsOnChange(type, next, typed.current)) void commit(next);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    if (!['Escape', 'Enter', 'Tab', 'Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) typed.current = true;
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -210,13 +217,15 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
           >
             {texts.keepNew}
           </Button>
-          <Button type="button" variant="primary" size="sm" data-testid="inline-write-mine" onClick={() => {
-              setLocal(state.current);
-              void commit(state.draft, state.current);
-            }}
-          >
-            {texts.writeMine}
-          </Button>
+          {state.known && (
+            <Button type="button" variant="primary" size="sm" className="bg-success text-on-success" data-testid="inline-write-mine" onClick={() => {
+                setLocal(state.current);
+                void commit(state.draft, state.current);
+              }}
+            >
+              {texts.writeMine}
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -226,6 +235,9 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
       <form
         className="flex flex-col gap-2"
         data-testid={`inline-form-${tid}`}
+        onPointerDown={() => {
+          typed.current = false;
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           void commit(draft);
@@ -248,7 +260,7 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
           />
         </fieldset>
         <div className="flex gap-2">
-          <Button type="submit" variant="primary" size="sm" iconOnly aria-label={texts.save} disabled={saving} data-testid="inline-save" {...keepFocus}>
+          <Button type="submit" variant="primary" size="sm" className="bg-success text-on-success" iconOnly aria-label={texts.save} disabled={saving} data-testid="inline-save" {...keepFocus}>
             <Check aria-hidden="true" />
           </Button>
           <Button type="button" variant="secondary" size="sm" iconOnly aria-label={texts.cancel} disabled={saving} data-testid="inline-cancel" onClick={cancel} {...keepFocus}>
@@ -290,7 +302,7 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   }
 
   return (
-    <div ref={root} className={`${LAYOUT[layout]} py-1.5`} data-testid={`inline-${tid}`} onBlur={onBlur}>
+    <div ref={root} className={`${LAYOUT[layout]} py-1.5${className ? ` ${className}` : ''}`} data-testid={`inline-${tid}`} onBlur={onBlur}>
       <dt className="text-[var(--text-2)]">{label}</dt>
       <dd className="min-w-0 break-words">{body}</dd>
     </div>

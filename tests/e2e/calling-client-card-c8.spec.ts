@@ -2,7 +2,7 @@
 // Нужна БД e2e (E2E_DATABASE_URL). Только синтетика: номера +7 709 …, названия «ТОО Синтетика …».
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { DB_URL, login, makeOperator, prepareDb, sql } from './support/calling';
+import { CALLBACK_V2, DB_URL, login, makeOperator, prepareDb, sql } from './support/calling';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 
@@ -41,13 +41,23 @@ test('карточка клиента: итог, заметка с закреп�
   await page.goto(`/clients/${clientId}`);
   expect(await noHorizontalScroll(page)).toBe(true);
 
-  // Итоговый блок: структура → фразы из локали
-  const summary = page.getByTestId('client-summary');
-  await expect(summary).toContainText('Звонков пока не было.');
-  await expect(summary).toContainText('Покупка «');
-  await expect(summary).toContainText('450');
-  await expect(summary).toContainText('Владелец: Оператор Синтетик.');
-  await expect(summary).toContainText('Следующий шаг: нет.');
+  if (CALLBACK_V2) {
+    // С воронкой v2 блока «Итог по клиенту» нет (D-358): следующий шаг в шапке, счётчики одной сеткой, покупка — в «Сделках»
+    await expect(page.getByTestId('client-summary')).toHaveCount(0);
+    await expect(page.getByTestId('head-next-step')).toHaveText('Следующий шаг: нет.');
+    await expect(page.getByLabel('Счётчики карточки')).toContainText('Звонков');
+    // Покупка и ответственный не потеряны: сумма — в «Сделках», имя — в шапке
+    await expect(page.getByTestId('deal-row').filter({ hasText: /450\D000/ })).toBeVisible();
+    await expect(page.locator('.k-page-header__lead')).toContainText('Ответственный: Оператор Синтетик');
+  } else {
+    // Итоговый блок: структура → фразы из локали
+    const summary = page.getByTestId('client-summary');
+    await expect(summary).toContainText('Звонков пока не было.');
+    await expect(summary).toContainText('Покупка «');
+    await expect(summary).toContainText('450');
+    await expect(summary).toContainText('Владелец: Оператор Синтетик.');
+    await expect(summary).toContainText('Следующий шаг: нет.');
+  }
 
   // Заметка: добавляется, текст в ленте; закрепляется и попадает в закреплённые
   await page.getByLabel('Новая заметка').fill('Просили КП до пятницы');
@@ -83,6 +93,8 @@ test('карточка не «Договорились»: кнопки «Зап�
   const op = await makeOperator(1);
   await login(page, op);
   await page.goto(`/clients/${op.clientIds[0]!}`);
-  await expect(page.getByRole('heading', { name: 'Итог по клиенту' })).toBeVisible();
+  // С воронкой v2 блока «Итог по клиенту» нет (D-358): проверяем, что страница открылась, по шапке
+  if (CALLBACK_V2) await expect(page.getByTestId('head-next-step')).toBeVisible();
+  else await expect(page.getByRole('heading', { name: 'Итог по клиенту' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Записать' })).toHaveCount(0);
 });
