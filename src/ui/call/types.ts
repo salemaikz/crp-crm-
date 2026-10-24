@@ -75,6 +75,8 @@ export interface CallConfig {
   callbackSchedule: string[] | null;
   /** Начало окна звонков `HH:MM`: срок «в течение дня» ставится на него. */
   callWindowStart: string;
+  /** Конец окна звонков `HH:MM`: слоты времени перезвона идут до него; нет — до конца суток. */
+  callWindowEnd?: string;
   /** Мягкая цель «звонков в час»; null — не показываем. */
   callsPerHourTarget: number | null;
   timeZone: string;

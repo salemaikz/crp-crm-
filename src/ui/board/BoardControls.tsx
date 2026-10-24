@@ -6,7 +6,7 @@
 // телефона убран: он есть в нижнем меню.
 // Ноутбук: одна строка с переносом — поиск, сортировка, у доски пространства «Сотрудник» и «Причина», чипы, «Сбросить (N)»;
 // справа «Звонить подряд» (оператору) и «?» со ссылкой на раздел справки о доске.
-import { ArrowUpDown, CircleHelp, ListFilter, Phone, Search, X } from 'lucide-react';
+import { ArrowUpDown, ChevronLeft, ChevronRight, CircleHelp, ListFilter, Phone, Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { BottomSheet, Button, Chip, ChipGroup, Input, Segmented, Select } from '@/ui/kit';
@@ -30,6 +30,7 @@ export function BoardControls({
   active,
   onReset,
   sortApplies,
+  rowNav,
 }: {
   q: string;
   onQ: (q: string) => void;
@@ -49,6 +50,8 @@ export function BoardControls({
   onReset: () => void;
   /** Сортировка действует на выбранной вкладке (рабочие роли); на телефоне иначе кнопки сортировки нет. */
   sortApplies: boolean;
+  /** Ноутбук: за краем ряда колонок есть ещё колонки — кнопки «‹ ›» в строке фильтров. */
+  rowNav?: { before: boolean; after: boolean; onPrev: () => void; onNext: () => void };
 }) {
   const t = useTranslations('board');
   const wide = useWide();
@@ -84,7 +87,7 @@ export function BoardControls({
   );
 
   const search = (
-    <div className="relative min-w-0 flex-1 md:w-56 md:flex-none">
+    <div className="relative min-w-0 flex-1 md:min-w-[17rem] md:basis-64">
       <Search aria-hidden="true" size={18} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" style={{ color: 'var(--text-3)' }} />
       <Input type="search" value={q} onChange={(e) => onQ(e.target.value)} placeholder={t('search.placeholder')} aria-label={t('search.label')} className="pl-10" maxLength={100} data-testid="board-search" />
     </div>
@@ -164,38 +167,54 @@ export function BoardControls({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2" data-testid="board-controls">
-      {search}
-      <Select aria-label={t('sort.label')} value={sort} onChange={(e) => onSort(e.target.value as BoardSort)} className="w-auto min-w-40" data-testid="sort-select">
-        {BOARD_SORTS.map((s) => (
-          <option key={s} value={s}>
-            {t(`sort.${s}`)}
-          </option>
-        ))}
-      </Select>
-      {manager && extra && onExtra && (
-        <div className="contents" data-testid="board-manager-filters">
-          {managerSelects}
+    <div className="flex flex-col gap-2" data-testid="board-controls">
+      {/* Строка 1: поиск, сортировка, сотрудник и причина (РОП); справа «Звонить подряд» и «?» */}
+      <div className="flex items-center gap-2">
+        {search}
+        <Select aria-label={t('sort.label')} value={sort} onChange={(e) => onSort(e.target.value as BoardSort)} className="w-auto min-w-40 shrink-0" data-testid="sort-select">
+          {BOARD_SORTS.map((s) => (
+            <option key={s} value={s}>
+              {t(`sort.${s}`)}
+            </option>
+          ))}
+        </Select>
+        {manager && extra && onExtra && (
+          <div className="contents" data-testid="board-manager-filters">
+            {managerSelects}
+          </div>
+        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {!manager && (
+            <Button href="/call" variant="secondary" data-testid="board-call-next">
+              <Phone aria-hidden="true" />
+              <span className="whitespace-nowrap">{t('callNext')}</span>
+            </Button>
+          )}
+          <Button href="/help#board" variant="quiet" iconOnly aria-label={t('help.aria')} title={t('help.aria')} data-testid="board-help">
+            <CircleHelp aria-hidden="true" />
+          </Button>
         </div>
-      )}
-      <ChipGroup label={t('filters.label')} className="flex-wrap overflow-visible">
-        {chips()}
-      </ChipGroup>
-      {active > 0 && (
-        <Button variant="quiet" onClick={onReset} data-testid="filters-reset">
-          {t('filters.resetCount', { n: active })}
-        </Button>
-      )}
-      <div className="ml-auto flex items-center gap-2">
-        {!manager && (
-          <Button href="/call" variant="secondary" data-testid="board-call-next">
-            <Phone aria-hidden="true" />
-            <span>{t('callNext')}</span>
+      </div>
+      {/* Строка 2: чипы одной строкой с горизонтальной прокруткой, «Сбросить (N)»; справа «‹ ›» ряда колонок */}
+      <div className="flex items-center gap-2">
+        <ChipGroup label={t('filters.label')} className="min-w-0 flex-1">
+          {chips()}
+        </ChipGroup>
+        {active > 0 && (
+          <Button variant="quiet" onClick={onReset} className="shrink-0" data-testid="filters-reset">
+            {t('filters.resetCount', { n: active })}
           </Button>
         )}
-        <Button href="/help#board" variant="quiet" iconOnly aria-label={t('help.aria')} title={t('help.aria')} data-testid="board-help">
-          <CircleHelp aria-hidden="true" />
-        </Button>
+        {rowNav && (
+          <div className="flex shrink-0 items-center gap-1" role="group" aria-label={t('row.label')}>
+            <Button variant="secondary" iconOnly size="sm" disabled={!rowNav.before} aria-label={t('row.prev')} onClick={rowNav.onPrev} data-testid="board-scroll-prev">
+              <ChevronLeft aria-hidden="true" />
+            </Button>
+            <Button variant="secondary" iconOnly size="sm" disabled={!rowNav.after} aria-label={t('row.next')} onClick={rowNav.onNext} data-testid="board-scroll-next">
+              <ChevronRight aria-hidden="true" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

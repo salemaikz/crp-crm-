@@ -193,3 +193,28 @@ test('ряд действий только в рабочих колонках: �
   for (const role of ['agreed', 'client', 'trash', 'other'] as const) assert.equal(tileRows(c, ctxOf(role, 'own'), 'phone').actions, false, role);
   assert.equal(tileRows(c, ctxOf('callback', 'own'), 'phone').actions, true);
 });
+
+// ---------- D-358 п. 2, 7: полоса тона и шум статуса ----------
+import { toneStyle } from '@/ui/board/tileStyle';
+import { eventStatusKey, contactDot } from '@/ui/board/tile';
+
+test('полоса тона — inset-тень 6 px, а не рамка: левая граница текста одинакова у белых и цветных плиток', () => {
+  const styles = [null, 'neutral', 'success', 'warning', 'info', 'danger'].map((t) => toneStyle(t as never));
+  const widths = new Set(styles.map((s) => s.borderLeftWidth ?? s.borderWidth ?? 1));
+  assert.equal(widths.size, 1, 'ширина рамки у всех плиток одна');
+  for (const s of styles.slice(1)) assert.match(String(s.boxShadow), /inset 6px 0 0/);
+  assert.equal(styles[0]!.boxShadow, undefined);
+});
+
+test('статус записи на плитке: «Не подтвердил» не пишется, «Подтвердил» и «Не пришёл» — да', () => {
+  assert.equal(eventStatusKey('registered'), null);
+  assert.equal(eventStatusKey('confirmed'), 'confirmed');
+  assert.equal(eventStatusKey('no_show'), 'no_show');
+  assert.equal(eventStatusKey('attended'), null);
+});
+
+test('разделитель «·» между ЛПР и номером ставится в конец предыдущего блока, а не в начало строки', () => {
+  assert.equal(contactDot({ hasName: true, hasPhone: true }), 'after-name');
+  assert.equal(contactDot({ hasName: false, hasPhone: true }), 'none');
+  assert.equal(contactDot({ hasName: true, hasPhone: false }), 'none');
+});

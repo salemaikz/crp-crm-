@@ -5,7 +5,8 @@
 // (точность «день»), с временем — «время». Выбор живёт в черновике шторки: момент и точность.
 import { useFormatter, useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Checkbox, Chip, ChipGroup, Field, Input } from '@/ui/kit';
+import { Checkbox, Chip, ChipGroup, Field, Input, Select } from '@/ui/kit';
+import { SLOT_STEP_MIN, slotLabel, timeSlots } from './callbackSlots';
 import { dueFor, quickDay, scheduleHint } from './callbackPlan';
 import type { CallConfig, SheetDraft } from './types';
 import { fromLocal, localDay, partsOf } from './zoned';
@@ -124,14 +125,20 @@ export function CallbackPicker({ config, draft, touches, openedAt, onChange }: P
       />
       {withTime && (
         <Field label={t('sheet.callback.timeLabel')}>
-          <Input
-            type="time"
+          {/* Список слотов в окне звонков, 24 часа: нативное поле времени показывает «09:00 AM» по системной локали */}
+          <Select
             value={timeOf}
             onChange={(e) => {
-              if (dayOf !== null && /^\d{2}:\d{2}$/.test(e.target.value)) setDue(dayOf, e.target.value);
+              if (dayOf !== null) setDue(dayOf, e.target.value);
             }}
             data-testid="callback-time"
-          />
+          >
+            {timeSlots(config.callWindowStart, config.callWindowEnd ?? '23:45', SLOT_STEP_MIN, timeOf).map((slot) => (
+              <option key={slot} value={slot}>
+                {slotLabel(slot)}
+              </option>
+            ))}
+          </Select>
         </Field>
       )}
       {draft.callbackAt !== null && dayOf !== null && (

@@ -6,10 +6,10 @@ import { isExternalHref } from './href';
 
 /**
  * primary — ГЛАВНОЕ действие экрана: на экране она одна (правило минимализма). Остальные действия —
- * secondary (обводка) или quiet (текстовая, цвет акцента, не бренда). danger — необратимое действие, только вторым
+ * secondary (обводка) или quiet (текстовая, цвет акцента, не бренда). success — зелёная: «Позвонить» и сохранение итога в потоке звонка (D-358). danger — необратимое действие, только вторым
  * шагом; danger-quiet — то же, но тихое («Полный отказ», «Выйти»).
  */
-export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger' | 'danger-quiet';
+export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger' | 'danger-quiet' | 'success';
 /** Все размеры не ниже цели нажатия 44 px. lg — крупные кнопки итога звонка. */
 export type ButtonSize = 'sm' | 'md' | 'lg';
 

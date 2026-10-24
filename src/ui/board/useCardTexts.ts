@@ -4,10 +4,10 @@
 // Один источник для плитки и «Следующего шага» шторки: расхождения подписей между ними быть не должно.
 import { useFormatter, useTranslations } from 'next-intl';
 import type { BadgeTone } from '@/ui/kit';
-import { chipOf, dueOf, overdueParts, reasonLabel } from './tile';
+import { chipOf, dueOf, eventStatusKey, overdueParts, reasonLabel } from './tile';
 import type { BoardCardDto, BoardConfig } from './types';
 
-/** Тон чипа записи по её статусу: «Подтвердил» — зелёный, «Не пришёл» — красный, «Не подтвердил» — нейтральный. */
+/** Тон чипа записи по её статусу: «Подтвердил» — зелёный, «Не пришёл» — красный; «Не подтвердил» на плитке не пишется. */
 const STATUS_TONE: Record<string, BadgeTone> = { confirmed: 'success', registered: 'neutral', no_show: 'danger' };
 
 export function useCardTexts(card: BoardCardDto, config: Pick<BoardConfig, 'reasonLabels' | 'eventLabels'>, now: number) {
@@ -41,7 +41,8 @@ export function useCardTexts(card: BoardCardDto, config: Pick<BoardConfig, 'reas
     if (chip.kind === 'event') {
       const label = config.eventLabels[chip.type] ?? t('chip.eventUnknown');
       const args = { event: label, day: day(chip.startsAt), time: time(chip.startsAt) };
-      return Object.hasOwn(STATUS_TONE, chip.status) ? t('chip.eventStatus', { status: t(`chip.status.${chip.status}`), ...args }) : t('chip.event', args);
+      const status = eventStatusKey(chip.status);
+      return status ? t('chip.eventStatus', { status: t(`chip.status.${status}`), ...args }) : t('chip.event', args);
     }
     if (chip.kind === 'state') return t(`state.${chip.state}`);
     return '';

@@ -7,7 +7,7 @@
 // Цвет тона не единственный носитель смысла: у плитки с тоном есть значок и текст признака («✓ Был: …»).
 import { Check, Ellipsis, Flame, MessageCircle, Phone } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
-import type { CSSProperties, PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent } from 'react';
 import { chatAction } from '@/ui/messenger/openChat';
 import { useChannelModes } from '@/ui/channels';
 import { dialAction } from '@/ui/call/dial';
@@ -16,17 +16,10 @@ import { AttendToggle } from './AttendToggle';
 import { attendControls, type AttendKind } from './attend';
 import { isEndRole, isWorkingRole } from './columns';
 import { formatKzt } from './money';
-import { closeReasonLabel, hasFire, tileBadge, tileRows, tileValues, toneOf, type Tone } from './tile';
+import { closeReasonLabel, contactDot, hasFire, tileBadge, tileRows, tileValues, toneOf } from './tile';
+import { toneStyle } from './tileStyle';
 import { useCardTexts } from './useCardTexts';
 import type { BoardCardDto, BoardConfig, ColumnRole } from './types';
-
-/** Тон плитки → переменные темы (тёмная тема подменяет их сама): заливка `--{tone}-tile` и полоса 6 px `--{tone}`. */
-function toneStyle(tone: Tone | null): CSSProperties {
-  // Без тона — обычная рамка 1 px без цветной полосы: так тон не тонет среди одинаковых полос
-  if (!tone) return { background: 'var(--surface)', borderLeftColor: 'var(--border)', borderLeftWidth: 1 };
-  if (tone === 'neutral') return { background: 'var(--canvas)', borderLeftColor: 'var(--border-strong)', borderLeftWidth: 6 };
-  return { background: `var(--${tone}-tile)`, borderLeftColor: `var(--${tone})`, borderLeftWidth: 6 };
-}
 
 export interface LeadTileProps {
   card: BoardCardDto;
@@ -115,12 +108,11 @@ export function LeadTile(p: LeadTileProps) {
 
   return (
     <article
-      className="relative isolate grid min-w-0 grid-cols-[minmax(0,1fr)_auto] content-start gap-x-2 gap-y-1.5 rounded-[var(--radius-card)] border p-3 select-none md:grid-cols-[minmax(0,1fr)_auto] md:gap-y-1 md:p-2"
+      className="relative isolate grid min-w-0 grid-cols-[minmax(0,1fr)_auto] content-start gap-x-2 gap-y-1.5 rounded-[var(--radius-card)] p-3 select-none md:grid-cols-[minmax(0,1fr)_auto] md:gap-y-1 md:p-2 md:pl-3.5"
       style={{
-        borderColor: 'var(--border)',
         ...toneStyle(tone),
         opacity: p.locked ? 0.65 : 1,
-        boxShadow: p.highlighted ? '0 0 0 2px var(--ring)' : p.dragging ? '0 0 0 2px var(--brand)' : undefined,
+        ...(p.highlighted || p.dragging ? { boxShadow: [p.highlighted ? '0 0 0 2px var(--ring)' : '0 0 0 2px var(--brand)', toneStyle(tone).boxShadow].filter(Boolean).join(', ') } : {}),
         cursor: p.canMenu && !p.locked ? 'grab' : undefined,
         // Долгое нажатие не открывает системное меню и не выделяет текст (iOS, Android)
         WebkitTouchCallout: 'none',
@@ -180,15 +172,16 @@ export function LeadTile(p: LeadTileProps) {
       {rows.meta && (
         <div className="col-span-full flex min-w-0 items-center gap-x-2 text-sm md:row-start-2 md:flex-wrap md:gap-y-0.5" data-testid="tile-meta">
           {end ? (
-            <span className="flex min-w-0 items-baseline font-medium whitespace-pre" style={{ color: 'var(--text-2)' }} data-testid="tile-end">
-              <span className="min-w-0 truncate">{endParts.label}</span>
-              {endParts.date !== '' && <span className="shrink-0">{endParts.label !== '' ? ' · ' : ''}{endParts.date}</span>}
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 font-medium" style={{ color: 'var(--text-2)' }} data-testid="tile-end">
+              {/* Подпись переносится; «·» стоит в её конце, а не в начале строки. Дата не режется никогда */}
+              {endParts.label !== '' && <span className="min-w-0 break-words" data-testid="tile-end-label">{endParts.date !== '' ? `${endParts.label} ·` : endParts.label}</span>}
+              {endParts.date !== '' && <span className="shrink-0 whitespace-nowrap" data-testid="tile-end-date">{endParts.date}</span>}
             </span>
           ) : (
             <>
               {chipText !== '' && (
-                <Badge tone={chipTone} className="max-w-full min-w-[4.5rem] shrink" data-testid="tile-chip">
-                  <span className="truncate">{chipText}</span>
+                <Badge tone={chipTone} className="h-auto max-w-full min-w-[4.5rem] shrink whitespace-normal py-1 text-left" data-testid="tile-chip">
+                  <span className="min-w-0 break-words">{chipText}</span>
                 </Badge>
               )}
               {chipText === '' && values.length > 0 && (
@@ -218,8 +211,12 @@ export function LeadTile(p: LeadTileProps) {
             ) : contactText !== '' ? (
               <span className="truncate">{contactText}</span>
             ) : null}
+            {/* «·» — конец блока ЛПР, не начало строки с номером */}
+            {contactDot({ hasName: owner !== undefined || contactText !== '', hasPhone: card.phone !== null }) === 'after-name' && (
+              <span className="shrink-0" aria-hidden="true">·</span>
+            )}
             {card.phone ? (
-              <span className="shrink-0 whitespace-nowrap">{(owner !== undefined || contactText !== '' ? '· ' : '') + card.phone.masked}</span>
+              <span className="shrink-0 whitespace-nowrap" data-testid="tile-phone">{card.phone.masked}</span>
             ) : canCall ? (
               <span className="truncate" style={{ color: 'var(--text-3)' }}>
                 {t('call.noPhone')}
@@ -248,8 +245,9 @@ export function LeadTile(p: LeadTileProps) {
           {dial ? (
             <Button
               {...dial}
+              variant="success"
               size="md"
-              className={`min-h-[var(--tap-min)] min-w-0 flex-1 bg-success text-on-success md:col-start-2 md:row-start-1 md:self-center md:size-8 md:min-h-0 md:min-w-0 md:flex-none md:rounded-full md:p-0`}
+              className={`min-h-[var(--tap-min)] min-w-0 flex-1 md:col-start-2 md:row-start-1 md:self-center md:size-8 md:min-h-0 md:min-w-0 md:flex-none md:rounded-full md:p-0`}
               {...(p.locked || p.callBlocked ? { disabled: true } : {})}
               aria-label={t('call.aria', { name: card.name })}
               title={t('call.button')}

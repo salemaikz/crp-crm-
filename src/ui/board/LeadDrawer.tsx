@@ -128,8 +128,9 @@ export function LeadDrawer({
             <div className="flex items-center gap-2">
               <Button
                 {...dial}
+                variant="success"
                 size="lg"
-                className="min-w-0 flex-1 bg-success text-on-success"
+                className="min-w-0 flex-1"
                 {...(locked || callBlocked ? { disabled: true } : {})}
                 aria-label={t('call.aria', { name: card.name })}
                 onClick={() => onCall(card)}

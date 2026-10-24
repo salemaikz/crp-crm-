@@ -543,6 +543,13 @@
     --b-bg: var(--brand-tint);
   }
 
+  /* Ряд, который прокручивается по горизонтали (доска): полоса видна всегда, а не «призраком» поверх содержимого */
+  .k-hscroll {
+    scrollbar-gutter: stable;
+    scrollbar-width: auto;
+    scrollbar-color: var(--border-strong) var(--canvas);
+  }
+
   /* ---------- Чипы-фильтры ---------- */
   .k-chips {
     display: flex;

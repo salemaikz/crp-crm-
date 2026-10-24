@@ -60,7 +60,7 @@ test('переключатель «Указать время» даёт срок
   await page.getByTestId('outcome-details').getByRole('button', { name: 'Подумает' }).click();
   await page.getByTestId('callback-tomorrow').click();
   await page.getByTestId('callback-with-time').check();
-  await page.getByTestId('callback-time').fill('15:30');
+  await page.getByTestId('callback-time').selectOption('15:30');
   await expect(page.getByTestId('callback-chosen')).toContainText('15:30');
   await page.getByTestId('sheet-save').click();
   await expect.poll(async () => (await callsOf(op.id)).length, { timeout: 20_000 }).toBe(1);
@@ -139,4 +139,54 @@ test('«Перезвонить» → причина: срок по касани�
   expect(row!.precision).toBe('day');
   const day = new Date(Number(row!.at)).toLocaleDateString('ru-RU', { timeZone: 'Asia/Almaty', weekday: 'short', day: '2-digit', month: '2-digit' });
   expect(hintText ?? '').toContain(day.replace(/\.$/, '').split(', ')[1] ?? day);
+});
+
+// ---------- Круг 3, B6 (D-358): итог сворачивается, «Когда перезвонить» виден без прокрутки, время — слоты 24 ч ----------
+
+test('шторка перезвона: итог свёрнут в «Перезвонить ✓ · Изменить», дата видна без прокрутки, слоты 24 ч, «Сохранить» зелёная как «Позвонить»', async ({ page }, testInfo) => {
+  const op = await makeOperator(2);
+  await openCall(page, op);
+  const callBg = await page.getByTestId('call-button').evaluate((el) => getComputedStyle(el).backgroundColor);
+  await page.getByTestId('call-button').click();
+  await expect(page.getByTestId('outcome-sheet')).toBeVisible();
+  await page.getByTestId('lpr-yes').click();
+  await page.getByTestId('outcome-callback').click();
+
+  const selected = page.getByTestId('outcome-selected');
+  await expect(selected).toContainText('Перезвонить');
+  await expect(selected.getByTestId('outcome-change')).toHaveText('Изменить');
+  await expect(page.getByTestId('outcome-callback')).toHaveCount(0);
+  await page.getByTestId('outcome-details').getByRole('button', { name: 'Подумает' }).click();
+
+  // «Когда перезвонить» под причинами и целиком над кнопкой сохранения, без прокрутки шторки
+  const picker = (await page.getByTestId('callback-picker').boundingBox())!;
+  const save = (await page.getByTestId('sheet-save').boundingBox())!;
+  const inner = await page.evaluate(() => window.innerHeight);
+  expect(picker.y + picker.height).toBeLessThanOrEqual(save.y + 0.5);
+  expect(picker.y + picker.height).toBeLessThanOrEqual(inner);
+
+  // Причины — сетка в две колонки, высота не меньше 44 px
+  const chips = await page.getByTestId('outcome-details').getByRole('group', { name: 'Причина' }).getByRole('button').evaluateAll((els) => els.map((e) => ({ h: e.getBoundingClientRect().height, x: Math.round(e.getBoundingClientRect().x) })));
+  expect(Math.min(...chips.map((c) => c.h))).toBeGreaterThanOrEqual(44);
+  expect(new Set(chips.map((c) => c.x)).size).toBe(2);
+
+  // Время — список слотов HH:mm, без «AM/PM»
+  await page.getByTestId('callback-with-time').check();
+  const time = page.getByTestId('callback-time');
+  const options = await time.locator('option').allTextContents();
+  expect(options.length).toBeGreaterThan(10);
+  expect(options.every((o) => /^\d{2}:\d{2}$/.test(o))).toBe(true);
+  expect(options.join(' ')).not.toMatch(/AM|PM/i);
+  expect(await page.evaluate(() => document.querySelector('input[type="time"]') === null)).toBe(true);
+  await testInfo.attach('callback-sheet-time', { body: await page.screenshot(), contentType: 'image/png' });
+
+  // «Сохранить · день» того же зелёного, что «Позвонить»; выбранный итог без акцента и красного
+  const saveBg = await page.getByTestId('sheet-save').evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(saveBg).toBe(callBg);
+  expect(await selected.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(await page.evaluate(() => getComputedStyle(document.body).color));
+
+  // «Изменить» возвращает сетку итогов
+  await selected.getByTestId('outcome-change').click();
+  await expect(page.getByTestId('outcome-callback')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

@@ -5,6 +5,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { DB_URL, login, makeOperator, prepareDb, sql } from './support/calling';
 import { makeAgreed, makeWonDeal } from './support/board';
+import { makeTrash, makeWonDealVariant } from './support/board-r3';
 
 test.skip(!DB_URL, 'E2E_DATABASE_URL не задан');
 test.skip(process.env.FEATURE_OP_BOARD !== '1' || process.env.FEATURE_CALLBACK_V2 !== '1', 'нужен запуск с FEATURE_OP_BOARD=1 и FEATURE_CALLBACK_V2=1 (стенд)');
@@ -227,3 +228,108 @@ for (const width of [1280, 1440]) {
     });
   });
 }
+
+// ---------- Круг 3, B2/B3 (D-358 п. 1–2): колонки не уже 17/15rem, ряд прокручивается, панель в две строки ----------
+async function seedWide(who: 'operator' | 'rop') {
+  const op = await makeOperator(8, who === 'rop' ? { role: 'rop' } : {});
+  await makeTrash(op, 2);
+  await makeWonDealVariant(op.id, 150000);
+  await makeWonDealVariant(op.id, 1_250_000, 'celina', 'offline');
+  return op;
+}
+
+test.describe('круг 3: ряд колонок и панель на 1440×900', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
+
+  for (const who of ['operator', 'rop'] as const) {
+    test(`${who}: ширина колонок ≥ 272/240, суммы и причины не обрезаны, плейсхолдер целиком, панель в двух строках`, async ({ page }) => {
+      const op = await seedWide(who);
+      await login(page, op);
+      await page.goto(who === 'rop' ? '/deals/calling' : '/board');
+      await expect(page.getByTestId('board-screen')).toBeVisible();
+      await expect(page.getByTestId('lead-tile').first()).toBeVisible();
+
+      const widths = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-column-key]')].map((el) => [(el as HTMLElement).dataset.columnKey!, el.getBoundingClientRect().width])));
+      for (const key of ['new', 'callback', 'br', 'bk']) expect(widths[key]!, key).toBeGreaterThanOrEqual(272 - 0.5);
+      for (const key of ['purchase', 'trash']) expect(widths[key]!, key).toBeGreaterThanOrEqual(240 - 0.5);
+
+      // Конечные колонки: сумма «Покупки» и причина «Мусора» видны целиком (scrollWidth ≤ clientWidth)
+      const clipped = await page.evaluate(() => {
+        const out: string[] = [];
+        for (const el of document.querySelectorAll('[data-testid="tile-end"], [data-testid="tile-end-label"], [data-testid="tile-end-date"], [data-testid="tile-sum"], [data-testid="tile-purchase-line"]')) {
+          const e = el as HTMLElement;
+          if (e.scrollWidth > e.clientWidth + 0.5) out.push(`${e.dataset.testid}: ${e.scrollWidth}>${e.clientWidth}`);
+        }
+        return out;
+      });
+      expect(clipped).toEqual([]);
+      await expect(page.getByTestId('column-trash').getByTestId('tile-end-label').first()).toHaveText(/Компания закрылась/);
+
+      // Плейсхолдер поиска помещается целиком (измеряем шрифтом поля)
+      const ph = await page.getByTestId('board-search').evaluate((el) => {
+        const i = el as HTMLInputElement;
+        const cs = getComputedStyle(i);
+        const ctx = document.createElement('canvas').getContext('2d')!;
+        ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        return { text: ctx.measureText(i.placeholder).width, room: i.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) };
+      });
+      expect(ph.text).toBeLessThanOrEqual(ph.room);
+
+      // Строка 1: поиск и «Звонить подряд» (у РОП — «?») в одном ряду; строка 2: чипы ниже
+      const search = (await page.getByTestId('board-search').boundingBox())!;
+      const right = (await page.getByTestId(who === 'rop' ? 'board-help' : 'board-call-next').boundingBox())!;
+      expect(Math.abs(search.y + search.height / 2 - (right.y + right.height / 2))).toBeLessThanOrEqual(2 + 6);
+      const chip = (await page.getByTestId('filter-attendedGroup').boundingBox())!;
+      expect(chip.y).toBeGreaterThan(search.y + search.height - 1);
+      expect(await noHScroll(page)).toBe(true);
+    });
+
+    test(`${who}: ряд прокручивается с видимой полосой, «›» двигает ряд, «Мусор» после прокрутки в окне`, async ({ page }) => {
+      const op = await seedWide(who);
+      await login(page, op);
+      await page.goto(who === 'rop' ? '/deals/calling' : '/board');
+      await expect(page.getByTestId('lead-tile').first()).toBeVisible();
+      const row = page.getByTestId('board-columns');
+      const m = await row.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, gutter: getComputedStyle(el).scrollbarGutter, barH: (el as HTMLElement).offsetHeight - el.clientHeight }));
+      expect(m.sw).toBeGreaterThan(m.cw);
+      expect(m.gutter).toContain('stable');
+      expect(m.barH).toBeGreaterThan(4);
+      // «Мусор» вне окна до прокрутки
+      const before = (await page.getByTestId('column-trash').boundingBox())!;
+      expect(before.x + before.width).toBeGreaterThan(1440);
+      await page.getByTestId('board-scroll-next').click();
+      await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(100);
+      await row.evaluate((el) => (el.scrollLeft = el.scrollWidth));
+      const after = (await page.getByTestId('column-trash').boundingBox())!;
+      expect(after.x + after.width).toBeLessThanOrEqual(1440 + 0.5);
+      expect(after.x).toBeGreaterThanOrEqual(0);
+      await expect(page.getByTestId('board-scroll-next')).toBeDisabled();
+    });
+  }
+
+  test('плитки: название не заходит под «Позвонить», левая граница текста у белых и цветных одинакова', async ({ page }) => {
+    const op = await makeOperator(6);
+    const agreed = await makeAgreed(op, 2);
+    await sql`UPDATE bookings SET status = 'attended' WHERE id = ${agreed[0]!.bookingId}`;
+    await login(page, op);
+    await page.goto('/board');
+    await expect(page.getByTestId('lead-tile').first()).toBeVisible();
+    const overlaps = await page.evaluate(() => {
+      const out: string[] = [];
+      for (const tile of document.querySelectorAll('[data-testid="lead-tile"]')) {
+        const open = tile.querySelector('[data-testid="tile-open"]')?.getBoundingClientRect();
+        const call = tile.querySelector('[data-testid="tile-call"]')?.getBoundingClientRect();
+        const menu = tile.querySelector('[data-testid="tile-menu"]')?.getBoundingClientRect();
+        for (const other of [call, menu]) {
+          if (open && other && open.right > other.left + 0.5 && open.left < other.right && open.bottom > other.top && open.top < other.bottom) out.push(tile.textContent!.slice(0, 20));
+        }
+      }
+      return out;
+    });
+    expect(overlaps).toEqual([]);
+    const left = async (name: string) => (await tileOf(page, name).getByTestId('tile-open').boundingBox())!.x;
+    const toneTile = tileOf(page, agreed[0]!.name);
+    expect(await toneTile.getAttribute('data-tone')).not.toBeNull();
+    expect(Math.abs((await left(agreed[0]!.name)) - (await left(agreed[1]!.name)))).toBeLessThanOrEqual(1);
+  });
+});

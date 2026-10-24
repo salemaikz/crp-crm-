@@ -173,3 +173,13 @@ export function closeReasonLabel(card: BoardCardDto, outcomes: readonly OutcomeB
   if (card.state === 'written_off') return writeOff.find((r) => r.key === card.closeReasonCode)?.label ?? '';
   return outcomes.find((o) => o.kind === card.state)?.reasons.find((r) => r.key === card.closeReasonCode)?.label ?? '';
 }
+
+/** Ключ слова статуса записи на плитке: «Не подтвердил» молчит (по умолчанию все записи такие), D-358 п. 7. */
+export function eventStatusKey(status: string): 'confirmed' | 'no_show' | null {
+  return status === 'confirmed' || status === 'no_show' ? status : null;
+}
+
+/** Где стоит «·» между ЛПР и номером: в конце блока ЛПР (никогда не в начале строки); иначе его нет. */
+export function contactDot(p: { hasName: boolean; hasPhone: boolean }): 'after-name' | 'none' {
+  return p.hasName && p.hasPhone ? 'after-name' : 'none';
+}

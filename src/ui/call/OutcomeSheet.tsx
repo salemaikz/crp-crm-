@@ -52,6 +52,8 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
   const d = pending.draft;
   const [openedAt] = useState(() => Date.now());
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  // Воронка v2: после выбора итога сетка сворачивается в «{итог} ✓ · Изменить», чтобы поля ниже были видны без прокрутки
+  const [changing, setChanging] = useState(false);
   const [presetIdx, setPresetIdx] = useState<number | 'custom' | null>(d.callbackAt !== null ? 'custom' : null);
 
   // Доска: только разрешённые виды итога; без ограничения (экран «Звонить») — все
@@ -117,7 +119,7 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
                 </Button>
               </>
             ) : (
-              <Button size="lg" block disabled={missing.length > 0} onClick={() => onSubmit(selected, fieldValues)} data-testid="sheet-save">
+              <Button variant="success" size="lg" block disabled={missing.length > 0} onClick={() => onSubmit(selected, fieldValues)} data-testid="sheet-save">
                 {config.callbackV2 && selected.kind === 'callback' && d.callbackAt !== null ? t('sheet.saveDay', { day: dayText(d.callbackAt) }) : t('sheet.save')}
               </Button>
             )}
@@ -158,31 +160,46 @@ export function OutcomeSheet({ config, pending, phones, onChange, onClose, onSub
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2" role="group" aria-label={t('sheet.outcomes')}>
-            {outcomes.map((o) => (
-              <button
-                key={o.key}
-                type="button"
-                className="k-btn k-btn--secondary text-left aria-pressed:border-[var(--ring)] aria-pressed:shadow-[inset_0_0_0_1px_var(--ring)]"
-                style={{ borderLeft: `6px solid ${o.color}`, justifyContent: 'space-between' }}
-                aria-pressed={o.key === d.outcomeKey}
-                data-testid={`outcome-${o.kind}`}
-                data-outcome={o.key}
-                onClick={() => choose(o)}
-              >
-                <span>{o.label}</span>
-                {o.key === d.outcomeKey && <Check aria-hidden="true" />}
-              </button>
-            ))}
-          </div>
+          {config.callbackV2 && selected && !changing ? (
+            <div className="flex items-center justify-between gap-2 rounded-[var(--radius-control)] border-2 px-3" style={{ borderColor: 'var(--text)', background: 'var(--surface-selected)', minHeight: 'var(--tap-min)' }} data-testid="outcome-selected">
+              <span className="flex min-w-0 items-center gap-2 font-semibold">
+                <Check aria-hidden="true" size={18} />
+                <span className="min-w-0 break-words">{selected.label}</span>
+              </span>
+              <Button variant="quiet" size="sm" onClick={() => setChanging(true)} data-testid="outcome-change">
+                {t('sheet.change')}
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2" role="group" aria-label={t('sheet.outcomes')}>
+              {outcomes.map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  className="k-btn k-btn--secondary text-left aria-pressed:border-[var(--text)] aria-pressed:bg-[var(--surface-selected)] aria-pressed:shadow-[inset_0_0_0_1px_var(--text)]"
+                  style={{ borderLeft: `6px solid ${o.color}`, justifyContent: 'space-between' }}
+                  aria-pressed={o.key === d.outcomeKey}
+                  data-testid={`outcome-${o.kind}`}
+                  data-outcome={o.key}
+                  onClick={() => {
+                    setChanging(false);
+                    choose(o);
+                  }}
+                >
+                  <span>{o.label}</span>
+                  {o.key === d.outcomeKey && <Check aria-hidden="true" />}
+                </button>
+              ))}
+            </div>
+          )}
 
           {selected && (
             <div className="flex flex-col gap-3" data-testid="outcome-details">
               {selected.reasons.length > 0 && (
-                <ChipGroup label={t('sheet.reason')} showLabel={config.callbackV2} className={config.callbackV2 ? 'grid grid-cols-2 gap-2' : 'flex-wrap'}>
+                <ChipGroup label={t('sheet.reason')} showLabel={config.callbackV2} className={config.callbackV2 ? 'grid grid-cols-2 gap-2 overflow-visible' : 'flex-wrap'}>
                   {selected.reasons.map((r) => (
                     // Воронка v2: причины сеткой в две колонки, длинная подпись переносится (ui-polish §9.3)
-                    <Chip key={r.key} active={d.reasonCode === r.key} onClick={() => onChange({ reasonCode: r.key })} className={config.callbackV2 ? 'justify-start rounded-2xl py-2 text-left whitespace-normal' : undefined}>
+                    <Chip key={r.key} active={d.reasonCode === r.key} onClick={() => onChange({ reasonCode: r.key })} className={config.callbackV2 ? 'min-h-[44px] justify-start rounded-2xl py-1.5 text-left leading-tight whitespace-normal' : undefined}>
                       {r.label}
                     </Chip>
                   ))}

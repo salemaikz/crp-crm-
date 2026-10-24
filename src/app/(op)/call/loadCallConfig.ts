@@ -106,6 +106,7 @@ export async function loadCallConfig(viewer: Viewer): Promise<CallConfig | null>
     callbackV2: v2,
     callbackSchedule: v2 && calling.callbackSchedule ? [...calling.callbackSchedule.steps] : null,
     callWindowStart: g.calendar.callWindow.start,
+    callWindowEnd: g.calendar.callWindow.end,
     callsPerHourTarget: doc.reports.callsPerHourTarget,
     timeZone: g.org.timezone,
     calendar: {

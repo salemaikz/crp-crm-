@@ -32,6 +32,7 @@ import { useBoardData } from './useBoardData';
 import { useBoardMoves } from './useBoardMoves';
 import { useBoardRuntime } from './useBoardRuntime';
 import { exitCallConfig } from './exit';
+import { fadeMask, rowEdges, rowStep, rowTarget } from './rowScroll';
 import { useAttendance } from './useAttendance';
 import { useMonthPurchases } from './useMonthPurchases';
 import { useMouseDrag } from './useMouseDrag';
@@ -73,8 +74,8 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   const [drawerFor, setDrawerFor] = useState<BoardCardDto | null>(null);
   const [activeTab, setActiveTab] = useState(initial.tab);
   const scroller = useRef<HTMLDivElement>(null);
-  // Справа за краем ряда есть ещё колонки: затухание 24 px (ui-polish §9.2)
-  const [moreRight, setMoreRight] = useState(false);
+  // За краем ряда есть ещё колонки: затухание 24 px и кнопки «‹ ›» (ui-polish §9.2, D-358 п. 1)
+  const [edges, setEdges] = useState({ before: false, after: false });
   const reloadRef = useRef<() => void>(noop);
   const dropOpsRef = useRef<(ops: readonly string[]) => void>(noop);
 
@@ -236,7 +237,10 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    const check = () => setMoreRight(el.clientWidth > 767 && el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    const check = () => {
+      const e = el.clientWidth > 767 ? rowEdges(el) : { before: false, after: false };
+      setEdges((p) => (p.before === e.before && p.after === e.after ? p : e));
+    };
     check();
     el.addEventListener('scroll', check, { passive: true });
     window.addEventListener('resize', check);
@@ -245,6 +249,12 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
       window.removeEventListener('resize', check);
     };
   }, [data.phase, config.columns]);
+  const scrollRow = (dir: -1 | 1) => {
+    const el = scroller.current;
+    if (!el) return;
+    const col = el.querySelector<HTMLElement>('[data-column-key]');
+    el.scrollTo({ left: rowTarget(dir, el, rowStep(col?.getBoundingClientRect().width ?? 272, 8, el.clientWidth)), behavior: 'smooth' });
+  };
 
   if (runtime.locked) return null;
 
@@ -295,6 +305,7 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
           setExtra(NO_EXTRA);
         }}
         sortApplies={isWorkingRole(config.columns.find((c) => c.key === activeTab)?.role ?? 'other')}
+        rowNav={{ before: edges.before, after: edges.after, onPrev: () => scrollRow(-1), onNext: () => scrollRow(1) }}
       />
 
       {runtime.rejected.map((r) => (
@@ -357,10 +368,10 @@ function BoardScreenInner({ config, userId, header }: { config: BoardConfig; use
           {emptyBoard && <EmptyState title={t('state.emptyTitle')} description={t('state.emptyText')} />}
           <div
             ref={scroller}
-            className="-mx-[var(--gutter)] flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-[var(--gutter)] pb-4 md:grid md:h-[calc(100dvh_-_var(--board-top,0px)_-_var(--space-section)_-_var(--bottom-nav-h))] md:snap-none md:items-stretch md:gap-[var(--board-gap)] md:overflow-y-hidden md:pb-0 md:[grid-template-columns:var(--board-tracks)] md:[grid-template-rows:minmax(0,1fr)]"
+            className="k-hscroll -mx-[var(--gutter)] flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-[var(--gutter)] pb-4 md:grid md:h-[calc(100dvh_-_var(--board-top,0px)_-_var(--space-section)_-_var(--bottom-nav-h))] md:snap-none md:items-stretch md:gap-[var(--board-gap)] md:overflow-y-hidden md:pb-0 md:[grid-template-columns:var(--board-tracks)] md:[grid-template-rows:minmax(0,1fr)]"
             style={{
               ['--board-tracks' as string]: trackTemplate(config.columns.map((c) => c.role)),
-              ...(moreRight ? { maskImage: 'linear-gradient(to right, black calc(100% - 24px), transparent)', WebkitMaskImage: 'linear-gradient(to right, black calc(100% - 24px), transparent)' } : {}),
+              ...(fadeMask(edges) ? { maskImage: fadeMask(edges), WebkitMaskImage: fadeMask(edges) } : {}),
             }}
             data-testid="board-columns"
           >

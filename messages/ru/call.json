@@ -113,7 +113,8 @@
       "anyTime": "в течение дня",
       "chosen": "Перезвон: {date}, {time}"
     },
-    "saveDay": "Сохранить · {day}"
+    "saveDay": "Сохранить · {day}",
+    "change": "Изменить"
   },
   "presets": {
     "minutes": "Через {n} мин",
