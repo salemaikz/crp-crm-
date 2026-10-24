@@ -7,10 +7,10 @@ import type { ReasonRule } from '@/ui/board/moves';
 import type { AgreedExitConfig, BoardConfig, BoardDrop, BoardReason } from '@/ui/board/types';
 import type { CallbackPreset } from '@/ui/call/types';
 import { roleOfStates } from '@/ui/board/columns';
-import { loadClientsConfig } from '@/server/domain/clients';
+import { fieldViewer, loadClientsConfig } from '@/server/domain/clients';
 import { ConfigMissingError } from '@/server/platform/config/active';
 import { loadCallConfig } from '../call/loadCallConfig';
-import { config as coreConfig } from '@crm/core';
+import { config as coreConfig, fields } from '@crm/core';
 
 type L = { ru: string };
 type Reason = { key: string; label: L; needsText: boolean; archived?: boolean | undefined };
@@ -36,8 +36,11 @@ export async function loadBoardConfig(viewer: Viewer): Promise<BoardConfig | nul
     if (e instanceof ConfigMissingError) return null;
     throw e;
   });
+  // Скрытые от роли поля в клиентский конфиг не попадают (ни ключ, ни подпись, ни варианты)
+  const fv = clientsCfg ? fieldViewer(viewer, clientsCfg) : null;
+  const seeable = new Set(clientsCfg && fv ? (['client', 'card'] as const).flatMap((o) => fields.visibleKeys(clientsCfg.fields, o, fv).map((k) => `${o}:${k}`)) : []);
   const tileFields = (clientsCfg?.fields ?? [])
-    .filter((fl) => fl.showOn.kanban && !fl.archived && (fl.object === 'client' || fl.object === 'card'))
+    .filter((fl) => fl.showOn.kanban && !fl.archived && (fl.object === 'client' || fl.object === 'card') && seeable.has(`${fl.object}:${fl.key}`))
     .map((fl) => ({ key: fl.key, label: fl.label.ru, options: Object.fromEntries(fl.options.map((o) => [o.key, o.label.ru])) }));
 
   const eventTypes = doc.booking?.eventTypes ?? [];

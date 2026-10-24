@@ -248,6 +248,8 @@ export interface BoardRowDb {
   ownerName: string | null;
   /** Сумма последней выигранной сделки карточки «Клиент»; null — суммы нет или карточка не в состоянии «клиент». */
   lastPurchaseAmount: number | null;
+  /** Дата той же сделки, что и сумма (не кэш `last_purchase_at`): сумма и дата не разойдутся. */
+  lastPurchaseWonAt: number | null;
 }
 
 /** Строки по id под тем же охватом; порядок — как у `ids`. */
@@ -259,11 +261,11 @@ export async function selectBoardRows(sql: Sql, viewer: Viewer, ids: readonly st
            c.last_no_show_at, c.last_no_show_kind, c.purchases_total, c.last_purchase_at, c.closed_at, c.close_reason_code,
            c.custom AS card_custom, cl.custom AS client_custom,
            bk.event_type_key AS booking_type, bk.status AS booking_status, bk.starts_at AS booking_starts_at, bk.id AS booking_id, bk.version AS booking_version,
-           ou.name AS owner_name, lp.amount_kzt AS last_purchase_amount
+           ou.name AS owner_name, lp.amount_kzt AS last_purchase_amount, lp.won_at AS last_purchase_won_at
       FROM cards c JOIN clients cl ON cl.id = c.client_id
       LEFT JOIN users ou ON ou.id = c.owner_user_id
       LEFT JOIN LATERAL (
-        SELECT d.amount_kzt FROM deals d
+        SELECT d.amount_kzt, d.won_at FROM deals d
          WHERE c.state = 'client' AND d.card_id = c.id AND d.status = 'won'
          ORDER BY d.won_at DESC, d.id LIMIT 1) lp ON TRUE
       LEFT JOIN LATERAL (

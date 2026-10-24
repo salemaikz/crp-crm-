@@ -89,7 +89,7 @@ test.describe('ноутбук', () => {
     await page.mouse.move(to!.x + 40, to!.y + 80, { steps: 10 });
     await page.mouse.up();
     // Отпустили на запрещённой колонке: тост называет причину, а не молчит
-    await expect(page.getByText('Покупку вносит консультант или РОП')).toBeVisible();
+    await expect(page.getByText('Покупку вносит сотрудник с правом на покупки')).toBeVisible();
     await expect(page.getByTestId('outcome-sheet')).toHaveCount(0);
     await expect(page.getByTestId('trash-sheet')).toHaveCount(0);
     await expect(columnOf(page, 'new').getByText(op.names[0]!)).toBeVisible();
@@ -113,7 +113,7 @@ test('телефон: «⋯ → Перенести в…» в «Мусор» с 
   await expect(menu).toBeVisible();
   // Погашенные цели названы причиной по коду: покупку вносит консультант, запись - через звонок (с кнопкой «Позвонить»)
   await expect(menu.getByTestId('move-to-purchase')).toHaveAttribute('aria-disabled', 'true');
-  await expect(menu.getByTestId('move-reason-purchase')).toHaveText('Покупку вносит консультант или РОП');
+  await expect(menu.getByTestId('move-reason-purchase')).toHaveText('Покупку вносит сотрудник с правом на покупки');
   await expect(menu.getByTestId('move-reason-br')).toContainText('Запись — через звонок');
   await expect(menu.getByTestId('move-reason-br')).toContainText('Договорились');
   await expect(menu.getByTestId('move-call').first()).toBeVisible();

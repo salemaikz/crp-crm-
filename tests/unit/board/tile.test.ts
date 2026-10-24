@@ -187,3 +187,9 @@ test('причина закрытия: подпись по виду итога �
   assert.equal(closeReasonLabel(card({ state: 'not_interested', closeReasonCode: 'zzz' }), OUTCOMES, CONFIG.writeOffReasons), '');
   assert.equal(closeReasonLabel(card({ state: 'do_not_call', closeReasonCode: '' }), OUTCOMES, CONFIG.writeOffReasons), '');
 });
+
+test('ряд действий только в рабочих колонках: у «Договорились» и конечных его нет', () => {
+  const c = card({ lprName: 'Асель Синтетик' });
+  for (const role of ['agreed', 'client', 'trash', 'other'] as const) assert.equal(tileRows(c, ctxOf(role, 'own'), 'phone').actions, false, role);
+  assert.equal(tileRows(c, ctxOf('callback', 'own'), 'phone').actions, true);
+});

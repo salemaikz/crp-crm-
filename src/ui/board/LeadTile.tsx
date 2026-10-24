@@ -14,7 +14,7 @@ import { dialAction } from '@/ui/call/dial';
 import { Avatar, Badge, Button } from '@/ui/kit';
 import { AttendToggle } from './AttendToggle';
 import { attendControls, type AttendKind } from './attend';
-import { isEndRole } from './columns';
+import { isEndRole, isWorkingRole } from './columns';
 import { formatKzt } from './money';
 import { closeReasonLabel, hasFire, tileBadge, tileRows, tileValues, toneOf, type Tone } from './tile';
 import { useCardTexts } from './useCardTexts';
@@ -81,14 +81,15 @@ export function LeadTile(p: LeadTileProps) {
   const { chipText, chipTone, dueText, overdue, shortDate } = useCardTexts(card, config, p.now);
   const values = p.role === 'new' ? tileValues(card, config.tileFields) : [];
 
-  // Конечные колонки: «сумма · дата» последней покупки и «причина · дата» закрытия
-  const endText = (() => {
+  // Конечные колонки: «сумма · дата» последней покупки и «причина · дата» закрытия.
+  // Дата отдельно: при нехватке места многоточием обрезается подпись, а не дата
+  const endParts = (() => {
     if (p.role === 'client') {
       const pr = card.purchases;
-      if (!pr) return '';
-      return [pr.lastAmountKzt !== null ? formatKzt(f, pr.lastAmountKzt) : '', pr.lastAt !== null ? shortDate(pr.lastAt) : ''].filter((x) => x !== '').join(' · ');
+      if (!pr) return { label: '', date: '' };
+      return { label: pr.lastAmountKzt !== null ? formatKzt(f, pr.lastAmountKzt) : '', date: pr.lastAt !== null ? shortDate(pr.lastAt) : '' };
     }
-    return [closeLabel(card), card.closedAt !== null ? shortDate(card.closedAt) : ''].filter((x) => x !== '').join(' · ');
+    return { label: closeLabel(card), date: card.closedAt !== null ? shortDate(card.closedAt) : '' };
   })();
 
   const dial = canDial();
@@ -101,15 +102,20 @@ export function LeadTile(p: LeadTileProps) {
   }
   // WhatsApp — только для мобильного номера (как на карточке клиента)
   const chat = canCall && digits !== '' && card.phone?.kind === 'mobile' ? chatAction(digits, '', modes) : null;
-  const showActions = !end && canCall && card.phone !== null;
+  // Ряд действий — только у своих карточек в рабочих колонках (new, callback)
+  const showActions = !end && isWorkingRole(p.role) && canCall && card.phone !== null;
 
   // У доски пространства вместо ЛПР — ответственный
   const contactText = config.scope === 'own' && card.lprName !== '' ? t('lpr', { name: card.lprName }) : '';
   const owner = card.ownerName;
+  // Ноутбук: строка 3 (или 2, если строки сведений нет)
+  // «⋯» при кнопке «Позвонить» уходит в строку 3 справа и мельчает: в первой строке остаётся место названию
+  const menuLow = p.canMenu && showActions && dial !== null;
+  const contactRow = rows.meta ? 'md:row-start-3' : 'md:row-start-2';
 
   return (
     <article
-      className="relative isolate grid min-w-0 grid-cols-[minmax(0,1fr)_auto] content-start gap-x-2 gap-y-1.5 rounded-[var(--radius-card)] border p-3 select-none md:grid-cols-[minmax(0,1fr)_auto_auto] md:gap-y-1 md:p-2.5"
+      className="relative isolate grid min-w-0 grid-cols-[minmax(0,1fr)_auto] content-start gap-x-2 gap-y-1.5 rounded-[var(--radius-card)] border p-3 select-none md:grid-cols-[minmax(0,1fr)_auto] md:gap-y-1 md:p-2"
       style={{
         borderColor: 'var(--border)',
         ...toneStyle(tone),
@@ -162,7 +168,7 @@ export function LeadTile(p: LeadTileProps) {
           disabled={p.locked}
           aria-label={t('menu.aria', { name: card.name })}
           onClick={() => p.onMenu(card)}
-          className="relative z-10 col-start-2 row-start-1 -my-3 md:my-0 md:col-start-3 md:size-8 md:min-h-0 md:min-w-0"
+          className={`relative z-10 col-start-2 row-start-1 -my-3 md:my-0 md:col-start-2 md:self-center ${menuLow ? `${contactRow} md:size-6` : 'md:size-8'} md:min-h-0 md:min-w-0`}
           data-no-drag
           data-testid="tile-menu"
         >
@@ -172,15 +178,16 @@ export function LeadTile(p: LeadTileProps) {
 
       {/* Строка 2 */}
       {rows.meta && (
-        <div className="col-span-full flex min-w-0 items-center gap-x-2 text-sm" data-testid="tile-meta">
+        <div className="col-span-full flex min-w-0 items-center gap-x-2 text-sm md:row-start-2 md:flex-wrap md:gap-y-0.5" data-testid="tile-meta">
           {end ? (
-            <span className="min-w-0 truncate font-medium" style={{ color: 'var(--text-2)' }} data-testid="tile-end">
-              {endText}
+            <span className="flex min-w-0 items-baseline font-medium whitespace-pre" style={{ color: 'var(--text-2)' }} data-testid="tile-end">
+              <span className="min-w-0 truncate">{endParts.label}</span>
+              {endParts.date !== '' && <span className="shrink-0">{endParts.label !== '' ? ' · ' : ''}{endParts.date}</span>}
             </span>
           ) : (
             <>
               {chipText !== '' && (
-                <Badge tone={chipTone} className="min-w-0 shrink" data-testid="tile-chip">
+                <Badge tone={chipTone} className="max-w-full min-w-[4.5rem] shrink" data-testid="tile-chip">
                   <span className="truncate">{chipText}</span>
                 </Badge>
               )}
@@ -190,7 +197,7 @@ export function LeadTile(p: LeadTileProps) {
                 </span>
               )}
               {dueText !== '' && (
-                <span className="shrink-0 font-medium whitespace-nowrap" style={{ color: overdue ? 'var(--danger)' : 'var(--text-2)' }} data-testid="tile-due">
+                <span className="max-w-full shrink-0 truncate font-medium whitespace-nowrap" style={{ color: overdue ? 'var(--danger)' : 'var(--text-2)' }} data-testid="tile-due">
                   {dueText}
                 </span>
               )}
@@ -201,10 +208,10 @@ export function LeadTile(p: LeadTileProps) {
 
       {/* Строка 3: ЛПР (у доски пространства — ответственный) · закрытый номер · явка */}
       {rows.contact && (
-        <div className="col-span-full flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm" style={{ color: 'var(--text-2)' }} data-testid="tile-contact">
-          <span className="flex min-w-0 flex-1 basis-32 items-center gap-1.5">
+        <div className={`col-span-full flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm ${contactRow} ${menuLow ? 'md:col-span-1' : ''}`} style={{ color: 'var(--text-2)' }} data-testid="tile-contact">
+          <span className="flex min-w-0 flex-1 basis-32 flex-wrap items-center gap-x-1.5">
             {owner !== undefined ? (
-              <span className="flex min-w-0 items-center gap-1.5" data-testid="tile-owner" title={t('tile.owner', { name: owner })}>
+              <span className="flex max-w-full min-w-0 items-center gap-1.5" data-testid="tile-owner" title={t('tile.owner', { name: owner })}>
                 <Avatar name={owner} size="sm" />
                 <span className="truncate">{owner}</span>
               </span>
@@ -242,7 +249,7 @@ export function LeadTile(p: LeadTileProps) {
             <Button
               {...dial}
               size="md"
-              className="min-h-[var(--tap-min)] min-w-0 flex-1 bg-success text-on-success md:col-start-2 md:row-start-1 md:size-9 md:min-h-0 md:min-w-0 md:flex-none md:rounded-full md:p-0"
+              className={`min-h-[var(--tap-min)] min-w-0 flex-1 bg-success text-on-success md:col-start-2 md:row-start-1 md:self-center md:size-8 md:min-h-0 md:min-w-0 md:flex-none md:rounded-full md:p-0`}
               {...(p.locked || p.callBlocked ? { disabled: true } : {})}
               aria-label={t('call.aria', { name: card.name })}
               title={t('call.button')}

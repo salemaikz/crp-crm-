@@ -2,7 +2,7 @@
 import { fieldText } from '@/ui/call/fieldText';
 import type { OutcomeButton } from '@/ui/call/types';
 import { attendControls, attendedOf, type AttendControl, type AttendKind } from './attend';
-import { isEndRole } from './columns';
+import { isEndRole, isWorkingRole } from './columns';
 import type { BoardCardDto, BoardConfig, BoardReason, ColumnRole } from './types';
 
 export type Tone = 'success' | 'warning' | 'info' | 'danger' | 'neutral';
@@ -163,7 +163,7 @@ export function tileRows(card: BoardCardDto, ctx: TileCtx, layout: TileLayout): 
     meta = chip.kind !== 'none' || due.kind !== 'none' || (ctx.role === 'new' && tileValues(card, ctx.tileFields).length > 0);
   }
   const contact = !end && ((ctx.scope === 'own' && card.lprName !== '') || hasPhone || card.ownerName !== undefined || controls.length > 0 || badge !== null || (own && !hasPhone));
-  const actions = !end && layout === 'phone' && own && hasPhone;
+  const actions = !end && isWorkingRole(ctx.role) && layout === 'phone' && own && hasPhone;
   return { meta, contact, actions, count: 1 + (meta ? 1 : 0) + (contact ? 1 : 0) + (actions ? 1 : 0) };
 }
 

@@ -97,3 +97,12 @@ test('«Покупка»: плитка несёт сумму последней 
   assert.deepEqual(tile(b, 'tile-5')?.purchases, { total: 2, lastAt: SEED_NOW - 1000, lastAmountKzt: 150000 });
   assert.equal(tile(b, 'tile-1')?.purchases?.lastAmountKzt, null, 'у «Новой» карточки суммы нет');
 });
+
+test('«Покупка»: дата берётся у той же сделки, что и сумма, даже если кэш карточки не пересчитан', async () => {
+  await enterSeedWorld();
+  await addCard(db.sql, { id: 'tile-6', owner: U.opA, state: 'client', name: 'ТОО Синтетика Плитка 6', purchasesTotal: 0 }, 506);
+  await db.sql`INSERT INTO deals (id, space_id, pipeline_key, stage_key, status, client_id, card_id, owner_user_id, service_type_key, amount_kzt, won_at, stage_changed_at, created_at, updated_at)
+               VALUES ('dl-tile-6', ${SPACE}, 'sales', 'won', 'won', 'cl-tile-6', 'tile-6', ${U.opA}, 'smm', 90000, ${SEED_NOW - 2000}, ${SEED_NOW - 2000}, ${SEED_NOW - 2000}, ${SEED_NOW - 2000})`;
+  const b = await getBoard(opA, {});
+  assert.deepEqual(tile(b, 'tile-6')?.purchases, { total: 0, lastAt: SEED_NOW - 2000, lastAmountKzt: 90000 });
+});

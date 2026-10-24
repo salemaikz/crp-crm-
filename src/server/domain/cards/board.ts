@@ -219,6 +219,11 @@ async function buildCtx(viewer: Viewer): Promise<Ctx> {
 
 // ---------- Плитка ----------
 
+/** Имя ответственного видят все охваты, кроме «своих» (у оператора плитка и так его): team, space, all. */
+export function showsOwner(scope: Scope): boolean {
+  return scope !== 'own';
+}
+
 function tileValues(cfg: ClientsConfig | null, viewer: Viewer, r: BoardRowDb): Record<string, fields.FieldValue> {
   if (!cfg) return {};
   const fv = fieldViewer(viewer, cfg);
@@ -268,13 +273,13 @@ function toDto(viewer: Viewer, c: Ctx, r: BoardRowDb, column: string | null, x: 
     isTarget: r.isTarget,
     lprName: x.lprs.get(r.clientId) ?? '',
     phone: ph ? { id: ph.id, masked: maskKzPhone(ph.digits), kind: ph.kind, ...(c.access.scope === 'own' ? { digits: ph.digits } : {}) } : null,
-    ...(c.access.scope !== 'own' && r.ownerName !== null && r.ownerName !== '' ? { ownerName: r.ownerName } : {}),
+    ...(showsOwner(c.access.scope) && r.ownerName !== null && r.ownerName !== '' ? { ownerName: r.ownerName } : {}),
     flags: {
       attendedGroup: r.attendedGroupAt !== null,
       attendedIndividual: r.attendedIndividualAt !== null,
       noShow: r.lastNoShowAt !== null && r.lastNoShowAt > lastAttended,
     },
-    ...(c.access.purchases ? { purchases: { total: r.purchasesTotal, lastAt: r.lastPurchaseAt, lastAmountKzt: r.lastPurchaseAmount === null ? null : Number(r.lastPurchaseAmount) } } : {}),
+    ...(c.access.purchases ? { purchases: { total: r.purchasesTotal, lastAt: r.lastPurchaseAmount !== null ? (r.lastPurchaseWonAt === null ? null : Number(r.lastPurchaseWonAt)) : r.lastPurchaseAt, lastAmountKzt: r.lastPurchaseAmount === null ? null : Number(r.lastPurchaseAmount) } } : {}),
     event:
       r.bookingType !== null && r.bookingStatus !== null && r.bookingStartsAt !== null && r.bookingId !== null && r.bookingVersion !== null
         ? { type: r.bookingType, status: r.bookingStatus, startsAt: r.bookingStartsAt, bookingId: r.bookingId, bookingVersion: Number(r.bookingVersion) }

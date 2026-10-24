@@ -159,8 +159,11 @@ test.describe('плотность на 1440×900', () => {
     const call = tileOf(page, op.names[0]!).getByTestId('tile-call');
     const box = (await call.boundingBox())!;
     const tileBox = (await tileOf(page, op.names[0]!).boundingBox())!;
-    expect(Math.round(box.width)).toBe(36);
+    expect(Math.round(box.width)).toBe(32);
+    // Кнопка справа в первой строке, «⋯» ниже неё: название получает почти всю ширину плитки
     expect(box.y - tileBox.y).toBeLessThan(20);
+    const nameBox = (await tileOf(page, op.names[0]!).getByTestId('tile-open').boundingBox())!;
+    expect(nameBox.width).toBeGreaterThanOrEqual(110);
     await expect(tileOf(page, op.names[0]!).getByTestId('tile-whatsapp')).toBeHidden();
   });
 });
@@ -174,7 +177,7 @@ test.describe('перенос мышью на 1440×900', () => {
     await login(page, op);
     await page.goto('/board');
     const from = (await tileOf(page, op.names[0]!).getByTestId('tile-open').boundingBox())!;
-    for (const [col, text] of [['purchase', 'Покупку вносит консультант или РОП'], ['br', 'Запись — через звонок']] as const) {
+    for (const [col, text] of [['purchase', 'Покупку вносит сотрудник с правом на покупки'], ['br', 'Запись — через звонок']] as const) {
       const to = (await page.getByTestId(`column-${col}`).boundingBox())!;
       await page.mouse.move(from.x + 10, from.y + 10);
       await page.mouse.down();
@@ -186,3 +189,41 @@ test.describe('перенос мышью на 1440×900', () => {
     }
   });
 });
+
+// Плитка на ноутбуке не ломается о ширину дорожки: просроченный перезвон не съедает чип причины, срок не выходит за рамку,
+// название и ответственный читаются (pipeline-v2 §9.3).
+for (const width of [1280, 1440]) {
+  test.describe(`плитка на ${width}`, () => {
+    test.use({ viewport: { width, height: 900 }, isMobile: false, hasTouch: false });
+
+    test('просроченный перезвон: чип виден с текстом, срок в одну строку и внутри плитки', async ({ page }) => {
+      const op = await makeOperator(2);
+      await sql`UPDATE cards SET state = 'callback', callback_reason = 'think', callback_touches = 1, next_call_precision = 'day', next_call_at = ${Date.now() - 5 * DAY} WHERE id = ${op.cardIds[1]!}`;
+      await login(page, op);
+      await page.goto('/board');
+      const tile = tileOf(page, op.names[1]!);
+      await expect(tile.getByTestId('tile-due')).toBeVisible();
+      const m = await tile.evaluate((el) => {
+        const meta = el.querySelector('[data-testid="tile-meta"]') as HTMLElement;
+        const chip = el.querySelector('[data-testid="tile-chip"]') as HTMLElement;
+        const due = el.querySelector('[data-testid="tile-due"]') as HTMLElement;
+        const box = el.getBoundingClientRect();
+        const d = due.getBoundingClientRect();
+        return {
+          tileFits: el.scrollWidth <= el.clientWidth,
+          metaFits: meta.scrollWidth <= meta.clientWidth,
+          chipText: (chip.textContent ?? '').trim(),
+          chipW: chip.getBoundingClientRect().width,
+          dueInside: d.right <= box.right + 0.5,
+          dueOneLine: d.height < parseFloat(getComputedStyle(due).lineHeight) * 1.6,
+        };
+      });
+      expect(m.tileFits).toBe(true);
+      expect(m.metaFits).toBe(true);
+      expect(m.chipText.length).toBeGreaterThan(1);
+      expect(m.chipW).toBeGreaterThanOrEqual(60);
+      expect(m.dueInside).toBe(true);
+      expect(m.dueOneLine).toBe(true);
+    });
+  });
+}
