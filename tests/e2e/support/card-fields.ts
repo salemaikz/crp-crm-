@@ -38,6 +38,10 @@ if (!globalDoc.fields.some((f) => f.key === 'e2e_budget')) {
   globalDoc.fields.push(field('e2e_budget', 'client', 'money', 'Бюджет') as never);
   changed = true;
 }
+if (!globalDoc.fields.some((f) => f.key === 'e2e_date')) {
+  globalDoc.fields.push(field('e2e_date', 'client', 'date', 'Дата встречи') as never);
+  changed = true;
+}
 spaceDoc.fields ??= [];
 if (!spaceDoc.fields.some((f) => f.key === 'e2e_plan')) {
   spaceDoc.fields.push(field('e2e_plan', 'card', 'text', 'План') as never);

@@ -60,7 +60,12 @@ export function FieldsPanel({ client, legalForms, inline = false }: Props) {
   const sys = (key: string, type: string, label: string, value: string, editable: boolean, extra?: { options?: InlineRow['field']['options']; readView?: React.ReactNode }): InlineRow => ({
     field: { object: 'client', key, type, label, options: extra?.options ?? [], editable },
     value,
-    save: (next, prev) => saveInline({ object: 'client', scope: 'system', key, clientId: client.id }, next, prev),
+    save: async (next, prev) => {
+      const r = await saveInline({ object: 'client', scope: 'system', key, clientId: client.id }, next, prev);
+      // Смена формы очищает БИН личной формы, БИН меняет шапку «форма · БИН»: перечитываем карточку
+      if (r.ok && (key === 'legal_form' || key === 'org_id')) router.refresh();
+      return r;
+    },
     ...(extra?.readView ? { readView: extra.readView } : {}),
   });
   const inlineRows: InlineRow[] = [
@@ -108,7 +113,7 @@ export function FieldsPanel({ client, legalForms, inline = false }: Props) {
         )}
       </div>
       {inline ? (
-        <InlineRows rows={inlineRows} />
+        <InlineRows rows={inlineRows} onRefresh={() => router.refresh()} />
       ) : (
       <dl>
         {row(t('fields.legalForm'), legalLabel ? labelOf(legalLabel.label) : empty)}

@@ -10,7 +10,7 @@ import { Button } from '@/ui/kit';
 import type { FieldDraft, FieldPayload } from './draft';
 import { FieldControl, type ControlOption } from './FieldControl';
 import {
-  commitsOnPick,
+  commitsOnChange,
   displayValue,
   draftFor,
   prepareSave,
@@ -91,7 +91,8 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   const incoming = JSON.stringify(value ?? null);
   if (incoming !== seen) {
     setSeen(incoming);
-    if (state.phase === 'view' || state.phase === 'locked') setLocal(value);
+    // Конфликт без известного значения: карточку перечитали, показываем свежее
+    if (state.phase === 'view' || state.phase === 'locked' || (state.phase === 'conflict' && !state.known)) setLocal(value);
   }
 
   const text = displayValue(type, local, { options, yes: texts.yes, no: texts.no, ...(texts.locale ? { locale: texts.locale } : {}) });
@@ -141,7 +142,8 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
     busy.current = false;
     const next = stateAfterSave(now, r);
     if (r.ok) {
-      const v = valueFromPayload(type, p.next);
+      // Значение — то, что сохранил сервер (нормализация, пустой БИН личной формы), а не введённое
+      const v = 'value' in r ? r.value : valueFromPayload(type, p.next);
       setLocal(v);
       onValue?.(v);
     }
@@ -153,8 +155,8 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
   const onPick = (next: FieldDraft) => {
     setDraft(next);
     setError(undefined);
-    // Выбор из списка и флажок сохраняются сразу; дата — когда введена целиком (очистка — по потере фокуса)
-    if (commitsOnPick(type) && !(type === 'date' && next === '')) void commit(next);
+    // Выбор из списка и флажок сохраняются сразу; дата — только полная (год от 1900), иначе по Enter, ✓ или потере фокуса
+    if (commitsOnChange(type, next)) void commit(next);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -211,13 +213,15 @@ export function InlineField({ field, value, save, texts, layout = 'auto', onValu
           >
             {texts.keepNew}
           </Button>
-          <Button type="button" variant="primary" size="sm" className="bg-success text-on-success" data-testid="inline-write-mine" onClick={() => {
-              setLocal(state.current);
-              void commit(state.draft, state.current);
-            }}
-          >
-            {texts.writeMine}
-          </Button>
+          {state.known && (
+            <Button type="button" variant="primary" size="sm" className="bg-success text-on-success" data-testid="inline-write-mine" onClick={() => {
+                setLocal(state.current);
+                void commit(state.draft, state.current);
+              }}
+            >
+              {texts.writeMine}
+            </Button>
+          )}
         </div>
       </div>
     );

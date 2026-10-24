@@ -46,6 +46,9 @@ test('карточка клиента: итог, заметка с закреп�
     await expect(page.getByTestId('client-summary')).toHaveCount(0);
     await expect(page.getByTestId('head-next-step')).toHaveText('Следующий шаг: нет.');
     await expect(page.getByLabel('Счётчики карточки')).toContainText('Звонков');
+    // Покупка и ответственный не потеряны: сумма — в «Сделках», имя — в шапке
+    await expect(page.getByTestId('deal-row').filter({ hasText: /450\D000/ })).toBeVisible();
+    await expect(page.locator('.k-page-header__lead')).toContainText('Ответственный: Оператор Синтетик');
   } else {
     // Итоговый блок: структура → фразы из локали
     const summary = page.getByTestId('client-summary');

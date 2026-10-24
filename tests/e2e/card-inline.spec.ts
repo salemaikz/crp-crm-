@@ -109,6 +109,47 @@ for (const size of [{ name: 'телефон', viewport: undefined }, { name: 'н
       expect((await customOf(clientId)).e2e_budget).toBe(2500000);
     });
 
+    test('сайт без схемы: на экране то, что сохранил сервер, повторная правка без ложного 409', async ({ page }) => {
+      const op = await makeOperator(1);
+      const clientId = op.clientIds[0]!;
+      await login(page, op);
+      await page.goto(`/clients/${clientId}`);
+      await expandEmpties(page);
+      await open(page, 'client-website').click();
+      await page.getByRole('textbox', { name: 'Сайт' }).fill('example.kz');
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('inline-client-website')).toContainText('https://example.kz/');
+      await open(page, 'client-website').click();
+      await page.getByRole('textbox', { name: 'Сайт' }).fill('example.org');
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('inline-conflict-client-website')).toHaveCount(0);
+      await expect(page.getByTestId('inline-client-website')).toContainText('https://example.org/');
+      const [row] = await sql<{ website: string }[]>`SELECT website FROM clients WHERE id = ${clientId}`;
+      expect(row?.website).toBe('https://example.org/');
+    });
+
+    test('дата: цифры года с клавиатуры не сохраняются по одной, сохраняется полная дата', async ({ page }) => {
+      test.skip(!size.viewport, 'ввод с клавиатуры — ноутбук');
+      const op = await makeOperator(1);
+      const clientId = op.clientIds[0]!;
+      await login(page, op);
+      await page.goto(`/clients/${clientId}`);
+      const seen = patches(page);
+      await open(page, 'client-e2e_date').click();
+      const input = page.getByLabel('Дата встречи');
+      await input.focus();
+      // Порядок сегментов зависит от языка интерфейса браузера (ДД/ММ или ММ/ДД): день и месяц одинаковы, 10.10.
+      // Год печатается по цифре — промежуточные значения (0002, 0020, 0202) не сохраняются
+      await page.keyboard.type('10');
+      await page.keyboard.type('10');
+      await page.keyboard.type('202');
+      expect(seen).toHaveLength(0);
+      await page.keyboard.type('6');
+      await expect(open(page, 'client-e2e_date')).toHaveText('10.10.2026');
+      expect(seen).toHaveLength(1);
+      expect((await customOf(clientId)).e2e_date).toBe('2026-10-10');
+    });
+
     test('список: выбор сохраняется сразу', async ({ page }) => {
       const op = await makeOperator(1);
       const clientId = await seedClient(op, { company_size: 'small' });

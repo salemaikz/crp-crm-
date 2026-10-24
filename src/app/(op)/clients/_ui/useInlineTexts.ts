@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import type { InlineTexts } from '@/ui/fields/InlineField';
 
-const CODES = ['type', 'url', 'email', 'phone', 'date', 'range', 'too_long', 'option', 'required', 'forbidden', 'unknown_field', 'archived'] as const;
+const CODES = ['type', 'url', 'email', 'phone', 'date', 'range', 'too_long', 'option', 'required', 'forbidden', 'unknown_field', 'archived', 'org_id_taken'] as const;
 
 /** Тексты ввода на месте из `clients.fields.inline`. Шаблоны с `{label}` и `{value}` подставляет сам компонент (`t.raw`). */
 export function useInlineTexts(): InlineTexts {

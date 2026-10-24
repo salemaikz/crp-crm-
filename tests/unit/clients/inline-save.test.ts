@@ -46,3 +46,24 @@ test('400 по полю несёт код проверки, 403/404 — нет �
   assert.deepEqual(await saveInline(client, 'x', null, (async () => { throw new Error('offline'); }) as unknown as typeof fetch), { ok: false, kind: 'network' });
   assert.deepEqual(await saveInline(client, 'x', null, json(200, {})), { ok: true });
 });
+
+test('успех: значение берётся из ответа сервера, а не из введённого (нормализация)', async () => {
+  const web = { object: 'client', scope: 'system', key: 'website', clientId: 'cl-1' } as const;
+  assert.deepEqual(await saveInline(web, 'example.kz', null, json(200, { id: 'cl-1', website: 'https://example.kz/' })), { ok: true, value: 'https://example.kz/' });
+  const mail = { object: 'client', scope: 'system', key: 'email', clientId: 'cl-1' } as const;
+  assert.deepEqual(await saveInline(mail, 'Info@Example.kz', null, json(200, { email: 'info@example.kz' })), { ok: true, value: 'info@example.kz' });
+  // ИИН личной формы открыто не хранится: сервер отдаёт пустой БИН
+  const bin = { object: 'client', scope: 'system', key: 'org_id', clientId: 'cl-1' } as const;
+  assert.deepEqual(await saveInline(bin, '900101300123', null, json(200, { orgId: '' })), { ok: true, value: '' });
+  const form = { object: 'client', scope: 'system', key: 'legal_form', clientId: 'cl-1' } as const;
+  assert.deepEqual(await saveInline(form, 'person', 'too', json(200, { legalForm: 'person', orgId: '' })), { ok: true, value: 'person' });
+  assert.deepEqual(await saveInline(client, 'x', null, json(200, { fields: { fields: [{ key: 'district', value: 'Есиль' }] } })), { ok: true, value: 'Есиль' });
+  assert.deepEqual(await saveInline(card, 'два', null, json(200, { version: 3, fields: { fields: [{ key: 'plan', value: 'два' }] } })), { ok: true, value: 'два' });
+  // Тела нет или в нём нет ключа — значение определит вызывающий
+  assert.deepEqual(await saveInline(client, 'x', null, json(200, {})), { ok: true });
+});
+
+test('409 «БИН занят» — ошибка поля, а не «изменил другой сотрудник»', async () => {
+  const bin = { object: 'client', scope: 'system', key: 'org_id', clientId: 'cl-1' } as const;
+  assert.deepEqual(await saveInline(bin, '1', null, json(409, { error: 'conflict', detail: 'org_id_taken' })), { ok: false, kind: 'fields', code: 'org_id_taken' });
+});

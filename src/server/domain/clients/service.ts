@@ -12,7 +12,7 @@ import { cardFieldViewer } from './cardFields';
 import { loadCatalogLabels, type CatalogLabels } from './labels';
 import { fieldViewer, loadClientsConfig, type ClientsConfig } from './config';
 import { pickDecisionMaker, pickPrimaryPhone, toCardHead, toContactDto, toPhoneDto } from './dto';
-import { ClientFieldConflictError, FieldIssuesError } from './errors';
+import { ClientFieldConflictError, DetailedConflictError, FieldIssuesError } from './errors';
 import { hiddenIdAction } from './hiddenId';
 import { SEARCH_LIMIT, LIST_LIMIT, decodeCursor, encodeCursor, parseFeedLimit, type ListQuery, type PatchBody } from './input';
 import {
@@ -411,7 +411,7 @@ export async function updateClient(viewer: Viewer, id: string, body: PatchBody):
   } catch (e) {
     // Занятый БИН: clients_org_uq. ИИН проверен заранее под блокировкой приёма (D-192); сюда он попадает
     // только при гонке с путём, который этой блокировки не берёт. Транзакция откачена, событий нет.
-    if (isUniqueViolation(e)) throw new ConflictError();
+    if (isUniqueViolation(e)) throw new DetailedConflictError('org_id_taken');
     throw e;
   }
   return getClientCard(viewer, id, cfg);

@@ -22,6 +22,22 @@ export function conflictFrom(target: SaveTarget, data: unknown): { current: unkn
   return hasKey(part, target.key) ? { current: part[target.key] ?? null, known: true } : { current: null, known: false };
 }
 
+// Поле системного раздела → поле ответа (ClientCardDto)
+const SYSTEM_DTO: Record<string, string> = { name: 'name', legal_form: 'legalForm', org_id: 'orgId', region: 'region', address: 'address', email: 'email', website: 'website' };
+
+/** Что сервер сохранил в этом поле: из тела успешного PATCH (карточка клиента или `{version, fields}` карточки обзвона). */
+export function savedFrom(target: SaveTarget, data: unknown): FieldSave {
+  if (!data || typeof data !== 'object') return { ok: true };
+  const body = data as Record<string, unknown>;
+  if (target.object === 'client' && target.scope === 'system') {
+    const k = SYSTEM_DTO[target.key];
+    return k && Object.hasOwn(body, k) ? { ok: true, value: body[k] ?? null } : { ok: true };
+  }
+  const list = (body.fields as { fields?: unknown } | undefined)?.fields;
+  const f = Array.isArray(list) ? (list as Array<{ key?: unknown; value?: unknown }>).find((x) => x.key === target.key) : undefined;
+  return f ? { ok: true, value: f.value ?? null } : { ok: true };
+}
+
 export function saveRequest(target: SaveTarget, next: FieldPayload, prev: unknown): { url: string; body: unknown } {
   if (target.object === 'card') {
     return {
@@ -45,8 +61,9 @@ export async function saveInline(target: SaveTarget, next: FieldPayload, prev: u
   } catch {
     return { ok: false, kind: 'network' };
   }
-  if (res.ok) return { ok: true };
   const data: unknown = await res.json().catch(() => null);
+  if (res.ok) return savedFrom(target, data);
+  if (res.status === 409 && (data as { detail?: unknown } | null)?.detail === 'org_id_taken') return { ok: false, kind: 'fields', code: 'org_id_taken' };
   if (res.status === 409) return { ok: false, kind: 'conflict', ...conflictFrom(target, data) };
   if (res.status === 400) {
     const err = (data ?? {}) as { detail?: unknown; issues?: Array<{ key?: unknown; code?: unknown }> };

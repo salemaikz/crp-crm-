@@ -65,7 +65,7 @@ export function CardFieldsPanel({ cardId, version, fields, canEdit, inline = fal
         )}
       </div>
       {inline ? (
-        <InlineRows rows={inlineRows} />
+        <InlineRows rows={inlineRows} onRefresh={() => router.refresh()} />
       ) : (
       <dl>
         {shown.map((f) => (

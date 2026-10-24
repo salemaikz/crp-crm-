@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   commitsOnPick,
+  commitsOnChange,
   displayValue,
   draftFor,
   isInlineType,
@@ -113,8 +114,21 @@ test('типы и мгновенное сохранение', () => {
   assert.equal(isInlineType('money'), true);
   assert.equal(commitsOnPick('select'), true);
   assert.equal(commitsOnPick('boolean'), true);
-  assert.equal(commitsOnPick('date'), true);
+  assert.equal(commitsOnPick('date'), false);
   assert.equal(commitsOnPick('text'), false);
   assert.equal(valueFromPayload('money', '150000'), 150000);
   assert.equal(valueFromPayload('text', 'x'), 'x');
+});
+
+test('дата при вводе с клавиатуры: промежуточные значения не сохраняются, полная дата с годом от 1900 — да', () => {
+  // Chrome присылает change после каждой цифры года: 0002, 0020, 0202 — это не дата, а набор
+  assert.equal(commitsOnChange('date', '0002-10-24'), false);
+  assert.equal(commitsOnChange('date', '0020-10-24'), false);
+  assert.equal(commitsOnChange('date', '0202-10-24'), false);
+  assert.equal(commitsOnChange('date', '2026-10-24'), true);
+  assert.equal(commitsOnChange('date', ''), false);
+  assert.equal(commitsOnChange('date', '2026-10'), false);
+  assert.equal(commitsOnChange('select', 'a'), true);
+  assert.equal(commitsOnChange('boolean', true), true);
+  assert.equal(commitsOnChange('text', 'x'), false);
 });
